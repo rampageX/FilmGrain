@@ -1,5 +1,24 @@
 # 用 FFmpeg + NVIDIA GPU 实现高效电影胶片颗粒：HEVC 真扫描 Grain 与 AV1 Film Grain Synthesis
 
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <a href="images/Original.jpg">
+        <img src="images/Original.jpg" width="100%" alt="Original">
+      </a>
+      <br>
+      <sub>Original Video</sub>
+    </td>
+    <td width="50%" align="center">
+      <a href="images/FG_CT35_V20FAST_HEVC_239LB_23976p.mkv_20260830_102847.766.jpg">
+        <img src="images/FG_CT35_V20FAST_HEVC_239LB_23976p.mkv_20260830_102847.766.jpg" width="100%" alt="HEVC Real Grain">
+      </a>
+      <br>
+      <sub>HEVC + Real Scanned Film Grain</sub>
+    </td>
+  </tr>
+</table>
+
 在数码视频中加入 Film Grain（胶片颗粒）并不困难，真正困难的是同时做到：
 
 - 颗粒自然，不是简单的随机 Noise；
