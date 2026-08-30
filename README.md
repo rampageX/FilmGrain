@@ -1141,7 +1141,7 @@ FFmpeg重新从原片恢复
 
 来尽量避免中间工具造成其它流信息损失。
 
-## 社交平台上传母版：Bake Film Grain to Pixels
+## 十八、社交平台上传母版：Bake Film Grain to Pixels
 
 为了解决 AV1 Film Grain 在 YouTube、哔哩哔哩、抖音、腾讯视频等平台二次转码后容易丢失的问题，项目新增了 **Film Grain Bake-to-Pixels** 功能。
 
