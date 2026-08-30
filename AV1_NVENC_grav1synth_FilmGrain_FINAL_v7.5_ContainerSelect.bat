@@ -2,13 +2,14 @@
 setlocal DisableDelayedExpansion
 
 rem ============================================================
-rem  AV1 NVENC + grav1synth Film Grain - FINAL v7
+rem  AV1 NVENC + grav1synth Film Grain - FINAL v7.5 ContainerSelect
 rem  Windows drag-and-drop / multi-file production pipeline
 rem
 rem  Stage 1: AV1 Main 10 encode with RTX NVENC into IVF
 rem  Stage 2: grav1synth injects AV1 film-grain synthesis headers in IVF
 rem  Stage 3: remux original audio/subtitles/attachments/metadata
 rem  Stage 4: verify final AV1 grain headers with grav1synth inspect
+rem  Stage 5: optional Bake-to-Pixels H.264 MP4 upload master
 rem
 rem  Recommended: grav1synth build containing the Sequence Header
 rem  Film Grain flag / padded OBU size fix.
@@ -29,7 +30,13 @@ set "BF=4"
 set "ENABLE_TEMPORAL_AQ=1"
 set "AQ_STRENGTH=8"
 
+rem Final AV1 container is selected at runtime.
 set "EXT=mkv"
+set "CONTAINER_MODE=MKV"
+set "CONTAINER_LABEL=MKV / preserve original streams"
+set "FINAL_REMUX_MAP=-map 1:a? -map 1:s? -map 1:t? -map 1:d?"
+set "FINAL_REMUX_CODEC=-c copy"
+set "FINAL_REMUX_EXTRA="
 
 rem Keep useful intermediates automatically when a stage fails.
 rem Successful jobs always clean all temporary files.
@@ -124,7 +131,7 @@ rem ============================================================
 
 cls
 echo ============================================================
-echo        AV1 NVENC + grav1synth Film Grain FINAL v7
+echo        AV1 NVENC + grav1synth Film Grain FINAL v7.5 ContainerSelect
 echo ============================================================
 echo.
 echo AV1 speed / quality:
@@ -199,6 +206,44 @@ if "%FPS_SEL%"=="1" (
 ) else (
     set "FPS_MODE=AUTO"
     set "FPS_LABEL=Auto cinematic FPS"
+)
+
+
+rem ============================================================
+rem Final container
+rem ============================================================
+
+echo.
+echo Final AV1 container:
+echo.
+echo   [1] MKV - preserve original audio / subtitles / attachments ^(default^)
+echo   [2] MP4 - compatibility mode
+echo.
+echo       MP4 mode:
+echo       - AV1 Film Grain video is stream-copied unchanged
+echo       - Audio is converted to AAC 320k
+echo       - Original channel layout is preserved where supported
+echo       - Subtitles / attachments / data streams are omitted
+echo       - Chapters / metadata are preserved
+echo       - faststart enabled
+echo.
+set "CONTAINER_SEL=1"
+set /p "CONTAINER_SEL=Select [1-2, default 1]: "
+
+if "%CONTAINER_SEL%"=="2" (
+    set "EXT=mp4"
+    set "CONTAINER_MODE=MP4"
+    set "CONTAINER_LABEL=MP4 compatibility / AAC audio"
+    set "FINAL_REMUX_MAP=-map 1:a?"
+    set "FINAL_REMUX_CODEC=-c:v copy -c:a aac -b:a 320k"
+    set "FINAL_REMUX_EXTRA=-movflags +faststart"
+) else (
+    set "EXT=mkv"
+    set "CONTAINER_MODE=MKV"
+    set "CONTAINER_LABEL=MKV / preserve original streams"
+    set "FINAL_REMUX_MAP=-map 1:a? -map 1:s? -map 1:t? -map 1:d?"
+    set "FINAL_REMUX_CODEC=-c copy"
+    set "FINAL_REMUX_EXTRA="
 )
 
 
@@ -446,6 +491,52 @@ set "BUFSIZE=6000k"
 
 
 rem ============================================================
+rem Optional social-platform upload master
+rem ============================================================
+
+echo.
+echo Social / video-sharing upload copy:
+echo.
+echo   [1] Off   ^(default^)
+echo   [2] Bake Film Grain to pixels + H.264 MP4
+echo.
+echo       Universal upload master for:
+echo       YouTube / Bilibili / Douyin / Tencent Video / etc.
+echo.
+echo       Grain is synthesized by libdav1d BEFORE H.264 encoding,
+echo       so the platform receives ordinary pixels, not AV1 Grain metadata.
+echo.
+set "UPLOAD_SEL=1"
+set /p "UPLOAD_SEL=Select [1-2, default 1]: "
+
+if "%UPLOAD_SEL%"=="2" (
+    set "ENABLE_UPLOAD_BAKE=1"
+    set "UPLOAD_LABEL=H.264 pixel-grain MP4"
+    set "TOTAL_STAGES=5"
+) else (
+    set "ENABLE_UPLOAD_BAKE=0"
+    set "UPLOAD_LABEL=Off"
+    set "TOTAL_STAGES=4"
+)
+
+if "%ENABLE_UPLOAD_BAKE%"=="1" (
+    "%FFMPEG%" -hide_banner -h decoder=libdav1d >nul 2>&1
+    if errorlevel 1 (
+        echo.
+        echo ERROR: This FFmpeg build does not contain the libdav1d AV1 decoder.
+        echo Upload Bake requires libdav1d so AV1 Film Grain is synthesized
+        echo into the decoded pixels before re-encoding.
+        echo.
+        echo You can verify manually with:
+        echo "%FFMPEG%" -hide_banner -h decoder=libdav1d
+        echo.
+        pause
+        exit /b 1
+    )
+)
+
+
+rem ============================================================
 rem Encoder arguments
 rem ============================================================
 
@@ -465,7 +556,7 @@ rem ============================================================
 
 cls
 echo ============================================================
-echo        AV1 NVENC + grav1synth Film Grain FINAL v7
+echo        AV1 NVENC + grav1synth Film Grain FINAL v7.5 ContainerSelect
 echo ============================================================
 echo.
 echo Speed mode    : %SPEED_LABEL%
@@ -475,6 +566,9 @@ echo Frame rate    : %FPS_LABEL%
 echo Cinema frame  : %CROP_LABEL%
 echo Grain mode    : %GRAIN_MODE%
 echo Grain profile : %GRAIN_LABEL%
+echo Container     : %CONTAINER_LABEL%
+echo Upload copy   : %UPLOAD_LABEL%
+echo Upload copy   : %UPLOAD_LABEL%
 echo AV1 bit depth : 10-bit
 echo NVENC preset  : %PRESET%
 echo Multipass     : %MULTIPASS%
@@ -497,6 +591,7 @@ if "%ENABLE_TEMPORAL_AQ%"=="1" (
 echo.
 echo Pipeline:
 echo   AV1 NVENC ^(IVF^) -^> grav1synth ^(IVF^) -^> MKV remux -^> verify
+if "%ENABLE_UPLOAD_BAKE%"=="1" echo   Final AV1 -^> libdav1d Film Grain synthesis -^> H.264 MP4
 echo Intermediate  : IVF
 echo ============================================================
 echo.
@@ -592,6 +687,7 @@ if "%ENABLE_CROP%"=="1" call :PREPARE_CROP
 rem ---------- final output ----------
 set "PRESET_SAFE=%GRAIN_FILE_TAG%"
 set "OUTPUT=%INDIR%%NAME%_AV1GS_%PRESET_SAFE%_%SPEED_SUFFIX%_%BITRATE_NUM%k%CROP_SUFFIX%%FPS_SUFFIX%.%EXT%"
+set "UPLOAD_OUTPUT=%INDIR%%NAME%_AV1GS_%PRESET_SAFE%_%SPEED_SUFFIX%_%BITRATE_NUM%k%CROP_SUFFIX%%FPS_SUFFIX%_UPLOAD_H264_GRAIN.mp4"
 
 if exist "%OUTPUT%" (
     echo SKIP: Output already exists:
@@ -599,6 +695,30 @@ if exist "%OUTPUT%" (
     set /a SKIP_COUNT+=1
     shift
     goto PROCESS_NEXT
+)
+
+rem ---------- automatic high-quality upload-master bitrate ----------
+set /a UPLOAD_PIXELS=%ACTIVE_WIDTH%*%ACTIVE_HEIGHT%
+set "UPLOAD_BITRATE=18000k"
+set "UPLOAD_MAXRATE=27000k"
+set "UPLOAD_BUFSIZE=36000k"
+
+if %UPLOAD_PIXELS% LEQ 921600 (
+    set "UPLOAD_BITRATE=10000k"
+    set "UPLOAD_MAXRATE=15000k"
+    set "UPLOAD_BUFSIZE=20000k"
+) else if %UPLOAD_PIXELS% LEQ 2073600 (
+    set "UPLOAD_BITRATE=18000k"
+    set "UPLOAD_MAXRATE=27000k"
+    set "UPLOAD_BUFSIZE=36000k"
+) else if %UPLOAD_PIXELS% LEQ 3686400 (
+    set "UPLOAD_BITRATE=30000k"
+    set "UPLOAD_MAXRATE=45000k"
+    set "UPLOAD_BUFSIZE=60000k"
+) else (
+    set "UPLOAD_BITRATE=45000k"
+    set "UPLOAD_MAXRATE=67500k"
+    set "UPLOAD_BUFSIZE=90000k"
 )
 
 rem ---------- isolated same-drive temporary workspace ----------
@@ -636,7 +756,12 @@ if "%FPS_MODE%"=="AUTO" echo FPS choice  : %FPS_DECISION%
 if "%ENABLE_CROP%"=="1" echo Framing     : %CROP_DECISION%
 echo Grain       : %GRAIN_LABEL%
 echo Bitrate     : %BITRATE%
+echo Container   : %CONTAINER_LABEL%
 echo Final file  : "%OUTPUT%"
+if "%ENABLE_UPLOAD_BAKE%"=="1" (
+    echo Upload MP4 : "%UPLOAD_OUTPUT%"
+    echo Upload rate: %UPLOAD_BITRATE%
+)
 if defined DURATION echo Duration    : %DURATION% sec
 echo.
 
@@ -645,7 +770,7 @@ rem ============================================================
 rem Stage 1 - AV1 NVENC video-only encode
 rem ============================================================
 
-echo [1/4] Encoding clean AV1 Main 10 with NVENC...
+echo [1/%TOTAL_STAGES%] Encoding clean AV1 Main 10 with NVENC...
 
 set "CMD_ENCODE="%FFMPEG%" -hide_banner -stats -y %MAIN_HWACCEL_ARGS% -i "%INPUT%" -vf "%VIDEO_FILTER%" -map 0:v:0 -an -sn -dn -c:v av1_nvenc -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune hq -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% -multipass %MULTIPASS% -rc-lookahead %LOOKAHEAD% -spatial-aq 1 %TAQ_ARGS% -aq-strength %AQ_STRENGTH% %BF_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%""
 %CMD_ENCODE%
@@ -673,7 +798,7 @@ rem Stage 2 - inject AV1 Film Grain metadata
 rem ============================================================
 
 echo.
-echo [2/4] Injecting AV1 Film Grain with grav1synth ^(IVF path^)...
+echo [2/%TOTAL_STAGES%] Injecting AV1 Film Grain with grav1synth ^(IVF path^)...
 
 set "CMD_GRAIN="%GRAV1SYNTH%" apply "%TMP_BASE%" -o "%TMP_GRAIN%" %GRAIN_APPLY_ARGS% --replace -y"
 pushd "%JOBDIR%"
@@ -717,9 +842,9 @@ rem Stage 3 - restore original audio/subtitles/attachments
 rem ============================================================
 
 echo.
-echo [3/4] Remuxing original audio / subtitles / attachments...
+echo [3/%TOTAL_STAGES%] Building final %CONTAINER_MODE% container...
 
-set "CMD_REMUX="%FFMPEG%" -hide_banner -stats -y -i "%TMP_GRAIN%" -i "%INPUT%" -map 0:v:0 -map 1:a? -map 1:s? -map 1:t? -map 1:d? -map_metadata 1 -map_chapters 1 -c copy "%OUTPUT%""
+set "CMD_REMUX="%FFMPEG%" -hide_banner -stats -y -i "%TMP_GRAIN%" -i "%INPUT%" -map 0:v:0 %FINAL_REMUX_MAP% -map_metadata 1 -map_chapters 1 %FINAL_REMUX_CODEC% %FINAL_REMUX_EXTRA% "%OUTPUT%""
 %CMD_REMUX%
 
 if errorlevel 1 (
@@ -738,7 +863,7 @@ rem Stage 4 - end-to-end verification
 rem ============================================================
 
 echo.
-echo [4/4] Verifying Film Grain headers in FINAL file...
+echo [4/%TOTAL_STAGES%] Verifying Film Grain headers in FINAL file...
 
 del /q "%VERIFY_TABLE%" "%VERIFY_LOG%" >nul 2>&1
 "%GRAV1SYNTH%" inspect "%OUTPUT%" -o "%VERIFY_TABLE%" -y > "%VERIFY_LOG%" 2>&1
@@ -789,6 +914,55 @@ for %%Z in ("%VERIFY_TABLE%") do if %%~zZ LEQ 16 (
 if exist "%VERIFY_LOG%" type "%VERIFY_LOG%"
 echo.
 echo VERIFIED: AV1 Film Grain headers are present.
+
+rem ============================================================
+rem Stage 5 - optional Film Grain Bake-to-Pixels upload master
+rem ============================================================
+
+if "%ENABLE_UPLOAD_BAKE%"=="1" (
+    echo.
+    echo [5/5] Baking AV1 Film Grain to pixels for upload...
+    echo.
+    echo Decoder      : libdav1d / Film Grain default ON
+    echo Upload codec : H.264 NVENC / High / yuv420p
+    echo Video rate   : %UPLOAD_BITRATE%
+    echo Audio        : AAC 320k stereo / 48 kHz
+    echo.
+
+    rem IMPORTANT: invoke FFmpeg directly inside this parenthesized block.
+    rem Do not assign a command variable and expand it here.
+    if exist "%UPLOAD_OUTPUT%" (
+        echo SKIP Upload MP4 already exists:
+        echo "%UPLOAD_OUTPUT%"
+    ) else (
+        "%FFMPEG%" -hide_banner -stats -y -c:v libdav1d -i "%OUTPUT%" -map 0:v:0 -map 0:a:0? -map_metadata 0 -c:v h264_nvenc -profile:v high -pix_fmt yuv420p -preset p6 -tune hq -rc vbr -b:v %UPLOAD_BITRATE% -maxrate:v %UPLOAD_MAXRATE% -bufsize:v %UPLOAD_BUFSIZE% -multipass fullres -rc-lookahead 32 -spatial-aq 1 -aq-strength %AQ_STRENGTH% -temporal-aq 1 -bf 4 -b_ref_mode middle -c:a aac -b:a 320k -ac 2 -ar 48000 -movflags +faststart "%UPLOAD_OUTPUT%"
+
+        if errorlevel 1 (
+            echo.
+            echo ERROR: Upload Bake encode failed.
+            if exist "%UPLOAD_OUTPUT%" del /q "%UPLOAD_OUTPUT%" >nul 2>&1
+            set "LAST_ERROR_STAGE=Stage 5 - Film Grain Bake upload encode"
+            set /a FAIL_COUNT+=1
+            call :HANDLE_FAILED_JOB
+            goto FILE_DONE
+        )
+
+        if not exist "%UPLOAD_OUTPUT%" (
+            echo.
+            echo ERROR: Upload Bake MP4 was not created.
+            set "LAST_ERROR_STAGE=Stage 5 - upload MP4 missing"
+            set /a FAIL_COUNT+=1
+            call :HANDLE_FAILED_JOB
+            goto FILE_DONE
+        )
+
+        echo.
+        echo UPLOAD MASTER DONE:
+        echo "%UPLOAD_OUTPUT%"
+    )
+)
+
+echo.
 echo DONE:
 echo "%OUTPUT%"
 set /a SUCCESS_COUNT+=1
@@ -964,6 +1138,7 @@ echo Encoder       : AV1 NVENC Main 10
 echo Intermediate  : IVF
 echo Grain engine  : grav1synth AV1 Film Grain
 echo Grain profile : %GRAIN_LABEL%
+echo Container     : %CONTAINER_LABEL%
 echo Speed mode    : %SPEED_LABEL%
 echo Bitrate       : %BITRATE%
 echo Frame rate    : %FPS_LABEL%

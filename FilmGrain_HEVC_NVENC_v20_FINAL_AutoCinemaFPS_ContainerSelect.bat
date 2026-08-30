@@ -3,7 +3,7 @@ setlocal DisableDelayedExpansion
 
 rem ============================================================
 rem  Multi Film Grain Plate + Vulkan GPU Blend + HEVC NVENC batch encoder
-rem  Windows drag-and-drop / multi-file version - V20 Final + Auto Cinema FPS
+rem  Windows drag-and-drop / multi-file version - V20 Final + Auto Cinema FPS + Container Select
 rem
 rem  IMPORTANT:
 rem  The grain plate must be a neutral 50%% gray plate intended
@@ -66,8 +66,15 @@ set "ENABLE_TEMPORAL_AQ=1"
 
 set "AQ_STRENGTH=8"
 
-rem Output container. SUFFIX is selected automatically with the grain plate.
+rem Output container is selected at runtime.
+rem MKV preserves original audio/subtitles/attachments.
+rem MP4 uses AAC audio and omits incompatible subtitle/attachment streams.
 set "EXT=mkv"
+set "CONTAINER_MODE=MKV"
+set "CONTAINER_LABEL=MKV / preserve original streams"
+set "STREAM_MAP_ARGS=-map 0:a? -map 0:s? -map 0:t?"
+set "AUDIO_MUX_ARGS=-c:a copy -c:s copy -c:t copy"
+set "CONTAINER_EXTRA_ARGS="
 
 rem ---------- END USER SETTINGS ----------
 
@@ -178,6 +185,39 @@ if "%FPS_SEL%"=="1" (
 ) else (
     set "FPS_MODE=AUTO"
     set "FPS_LABEL=Auto cinematic FPS"
+)
+
+echo.
+echo Output container:
+echo.
+echo   [1] MKV - preserve original audio / subtitles / attachments ^(default^)
+echo   [2] MP4 - compatibility mode
+echo.
+echo       MP4 mode:
+echo       - HEVC video remains Main10
+echo       - Audio is converted to AAC 320k
+echo       - Original channel layout is preserved where supported
+echo       - Subtitles / attachments are omitted for compatibility
+echo       - Chapters / metadata are preserved
+echo       - hvc1 + faststart enabled
+echo.
+set "CONTAINER_SEL=1"
+set /p "CONTAINER_SEL=Select [1-2, default 1]: "
+
+if "%CONTAINER_SEL%"=="2" (
+    set "EXT=mp4"
+    set "CONTAINER_MODE=MP4"
+    set "CONTAINER_LABEL=MP4 compatibility / AAC audio"
+    set "STREAM_MAP_ARGS=-map 0:a?"
+    set "AUDIO_MUX_ARGS=-c:a aac -b:a 320k"
+    set "CONTAINER_EXTRA_ARGS=-tag:v hvc1 -movflags +faststart"
+) else (
+    set "EXT=mkv"
+    set "CONTAINER_MODE=MKV"
+    set "CONTAINER_LABEL=MKV / preserve original streams"
+    set "STREAM_MAP_ARGS=-map 0:a? -map 0:s? -map 0:t?"
+    set "AUDIO_MUX_ARGS=-c:a copy -c:s copy -c:t copy"
+    set "CONTAINER_EXTRA_ARGS="
 )
 
 cls
@@ -502,7 +542,8 @@ if "%ENABLE_TEMPORAL_AQ%"=="1" (
 )
 echo FPS mode      : CFR ^(%FPS_LABEL%^)
 echo Duration cap  : source duration
-echo Output        : HEVC Main10 / MKV
+echo Container     : %CONTAINER_LABEL%
+echo Output        : HEVC Main10 / %CONTAINER_MODE%
 echo ------------------------------------------------------------
 echo.
 
@@ -669,7 +710,7 @@ rem   - Higher resolutions use 4K cache + Vulkan scale.
 rem   - Overlay blend remains on Vulkan.
 rem   - Stable CFR + source-duration hard cap is retained.
 rem
-set "CMDLINE="%FFMPEG%" -hide_banner -stats -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk %MAIN_HWACCEL_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN%" -filter_complex "[0:v:0]%MAIN_FPS_FILTER%format=p010le,setpts=PTS-STARTPTS,hwupload[basevk];%GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%LETTERBOX_FILTER%[vout]" -map "[vout]" -map 0:a? -map 0:s? -map 0:t? -map_metadata 0 -map_chapters 0 -c:v hevc_nvenc -profile:v main10 -preset %PRESET% -tune hq -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% -multipass %MULTIPASS% -rc-lookahead %LOOKAHEAD% -spatial-aq 1 %TAQ_ARGS% -aq-strength %AQ_STRENGTH% %BF_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -c:a copy -c:s copy -c:t copy "%OUTPUT%""
+set "CMDLINE="%FFMPEG%" -hide_banner -stats -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk %MAIN_HWACCEL_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN%" -filter_complex "[0:v:0]%MAIN_FPS_FILTER%format=p010le,setpts=PTS-STARTPTS,hwupload[basevk];%GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%LETTERBOX_FILTER%[vout]" -map "[vout]" %STREAM_MAP_ARGS% -map_metadata 0 -map_chapters 0 -c:v hevc_nvenc -profile:v main10 -preset %PRESET% -tune hq -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% -multipass %MULTIPASS% -rc-lookahead %LOOKAHEAD% -spatial-aq 1 %TAQ_ARGS% -aq-strength %AQ_STRENGTH% %BF_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %AUDIO_MUX_ARGS% %CONTAINER_EXTRA_ARGS% "%OUTPUT%""
 %CMDLINE%
 
 if errorlevel 1 (
