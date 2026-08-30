@@ -35,12 +35,12 @@
 因此，一旦把真实颗粒直接烧进像素：
 
 ```text
-原始视频    
-   +    
-扫描胶片颗粒    
-   ↓    
-带随机颗粒的视频    
-   ↓    
+原始视频      
+   +      
+扫描胶片颗粒      
+   ↓      
+带随机颗粒的视频      
+   ↓      
 HEVC / AV1 编码
 ```
 
@@ -115,14 +115,14 @@ TDCAT 提供免费的 **4096×2160 ProRes 422 HQ** Grain Plate，包括：
 另一套很不错的免费素材：
 
 ```text
-CT 35mm Grain 4K DCI.mov    
-4096 × 2160    
-ProRes 422 HQ    
+CT 35mm Grain 4K DCI.mov      
+4096 × 2160      
+ProRes 422 HQ      
 约 889 MB
 ```
 
-Cinema Tools 同样建议把 Grain 放在原视频上方，以
-**Overlay**模式混合，并通过透明度控制强度。
+Cinema Tools 同样建议把 Grain
+放在原视频上方，以**Overlay**模式混合，并通过透明度控制强度。
 
 下载：
 
@@ -131,9 +131,9 @@ Cinema Tools 同样建议把 Grain 放在原视频上方，以
 实际使用时可以统一整理为：
 
 ```text
-D:\Film_Grain\    
- ├─ CinemaTools\    
- ├─ TDCAT-Light\    
+D:\Film_Grain\      
+ ├─ CinemaTools\      
+ ├─ TDCAT-Light\      
  └─ TDCAT-Heavy\
 ```
 
@@ -150,17 +150,17 @@ HEVC 脚本会递归搜索子目录。
 它的处理流程为：
 
 ```text
-原视频    
-↓ NVDEC    
-主画面    
-Grain Plate    
-↓    
-HEVC Lossless Cache    
-↓    
-主画面 ────────── Vulkan Overlay    
-↓    
-P010 / Main10    
-↓    
+原视频      
+↓ NVDEC      
+主画面      
+Grain Plate      
+↓      
+HEVC Lossless Cache      
+↓      
+主画面 ────────── Vulkan Overlay      
+↓      
+P010 / Main10      
+↓      
 HEVC NVENC
 ```
 
@@ -177,8 +177,8 @@ HEVC NVENC
 整个主要处理链使用：
 
 ```text
-NVDEC    
-Vulkan    
+NVDEC      
+Vulkan      
 NVENC
 ```
 
@@ -189,9 +189,9 @@ Grain 的缩放和 Overlay 合成都尽量交由 GPU 完成。
 脚本提供：
 
 ```text
-65%   Light    
-75%   Natural    
-85%   Strong   ← 推荐    
+65%   Light      
+75%   Natural      
+85%   Strong   ← 推荐      
 100%  Full
 ```
 
@@ -202,10 +202,10 @@ Grain 的缩放和 Overlay 合成都尽量交由 GPU 完成。
 提供：
 
 ```text
-Standard    
-p6 / fullres multipass / lookahead 32    
-    
-FAST    
+Standard      
+p6 / fullres multipass / lookahead 32      
+      
+FAST      
 p5 / qres multipass / lookahead 16
 ```
 
@@ -216,25 +216,25 @@ FAST 为默认模式。
 内置：
 
 ```text
-6000    
-7500    
-9000    
+6000      
+7500      
+9000      
 12000 kbps
 ```
 
 也可以直接输入：
 
 ```text
-1500    
-2500    
-5000    
+1500      
+2500      
+5000      
 ...
 ```
 
 脚本自动设置：
 
 ```text
-MaxRate = 2 × Bitrate    
+MaxRate = 2 × Bitrate      
 BufSize = 4 × Bitrate
 ```
 
@@ -243,19 +243,19 @@ BufSize = 4 × Bitrate
 提供：
 
 ```text
-[1] 保持源帧率    
+[1] 保持源帧率      
 [2] 自动电影帧率
 ```
 
 自动模式大致遵循：
 
 ```text
-59.94 / 29.97 / 119.88    
-↓    
-23.976    
+59.94 / 29.97 / 119.88      
+↓      
+23.976      
 
-60 / 30 / 50 / 25 / 120    
-↓    
+60 / 30 / 50 / 25 / 120      
+↓      
 24.000
 ```
 
@@ -292,16 +292,16 @@ BufSize = 4 × Bitrate
 原始 Grain 素材通常是：
 
 ```text
-4096×2160    
+4096×2160      
 ProRes 422 HQ
 ```
 
 如果每次处理视频都重新：
 
 ```text
-ProRes Decode    
-→ P010    
-→ Scale    
+ProRes Decode      
+→ P010      
+→ Scale      
 → Vulkan
 ```
 
@@ -316,8 +316,8 @@ ProRes Decode
 把原始 4K Grain 一次性转换为：
 
 ```text
-1920×1080    
-P010    
+1920×1080      
+P010      
 HEVC Main10 Lossless
 ```
 
@@ -346,10 +346,10 @@ xxx_HEVC_Lossless.mkv
 最终 HEVC 脚本会自动：
 
 ```text
-≤1920×1080    
-→ 优先使用 1080p Cache    
-    
->1920×1080    
+≤1920×1080      
+→ 优先使用 1080p Cache      
+      
+>1920×1080      
 → 优先使用 4K Cache
 ```
 
@@ -366,20 +366,20 @@ xxx_HEVC_Lossless.mkv
 它走的是完全不同的路线：
 
 ```text
-原始视频    
-↓    
-NVDEC    
-↓    
-AV1 Main10 NVENC    
-↓    
-干净的低码率 AV1    
-↓    
-grav1synth    
-↓    
-写入 AV1 Film Grain 参数    
-↓    
-恢复原音轨 / 字幕 / 附件    
-↓    
+原始视频      
+↓      
+NVDEC      
+↓      
+AV1 Main10 NVENC      
+↓      
+干净的低码率 AV1      
+↓      
+grav1synth      
+↓      
+写入 AV1 Film Grain 参数      
+↓      
+恢复原音轨 / 字幕 / 附件      
+↓      
 grav1synth inspect 验证
 ```
 
@@ -404,9 +404,9 @@ AV1 方案使用开源项目 **grav1synth**。
 它可以：
 
 ```text
-inspect    
-apply    
-remove    
+inspect      
+apply      
+remove      
 diff
 ```
 
@@ -448,10 +448,10 @@ grav1synth 0.2.0
 包含：
 
 ```text
-Classic35    
-Modern35    
-16mm    
-Super8    
+Classic35      
+Modern35      
+16mm      
+Super8      
 MaxMid
 ```
 
@@ -470,22 +470,22 @@ Classic35
 高级模式，可以直接设置：
 
 ```text
-ISO 200    
-ISO 400    
-ISO 800    
-ISO 1600    
+ISO 200      
+ISO 400      
+ISO 800      
+ISO 1600      
 Custom ISO
 ```
 
 还可以选择：
 
 ```text
-Luma only    
+Luma only      
 Luma + Chroma
 ```
 
-grav1synth 也支持基于 `--iso` 的 photon-noise Grain，并可以通过
-`--chroma`将颗粒扩展到色度通道。
+grav1synth 也支持基于 `--iso` 的 photon-noise
+Grain，并可以通过`--chroma`将颗粒扩展到色度通道。
 
 参考：
 
@@ -498,10 +498,10 @@ grav1synth 也支持基于 `--iso` 的 photon-noise Grain，并可以通过
 HEVC 版可以这样做：
 
 ```text
-1920×1080    
-↓    
-上下覆盖黑边    
-↓    
+1920×1080      
+↓      
+上下覆盖黑边      
+↓      
 仍为1920×1080
 ```
 
@@ -514,9 +514,9 @@ AV1 Film Grain 是**解码后才合成的**。
 如果把上下黑边本身编码进 AV1：
 
 ```text
-1920×1080    
-黑边    
-画面    
+1920×1080      
+黑边      
+画面      
 黑边
 ```
 
@@ -525,8 +525,8 @@ Film Grain 模型理论上仍可能作用于这些黑色像素。
 所以 AV1 版本采用真正的：
 
 ```text
-1920×1080    
-    ↓    
+1920×1080      
+    ↓      
 1920×804
 ```
 
@@ -548,19 +548,19 @@ Film Grain 模型理论上仍可能作用于这些黑色像素。
 AV1 版本完全绕开了最费时的步骤：
 
 ```text
-扫描 Grain Decode    
-→ Grain Scale    
-→ Vulkan Overlay    
+扫描 Grain Decode      
+→ Grain Scale      
+→ Vulkan Overlay      
 → 编码随机噪声
 ```
 
 实际只需要：
 
 ```text
-AV1 NVENC    
-↓    
-grav1synth 修改 AV1 Grain 参数    
-↓    
+AV1 NVENC      
+↓      
+grav1synth 修改 AV1 Grain 参数      
+↓      
 Stream Copy
 ```
 
@@ -579,18 +579,18 @@ grav1synth 本身并不会重新编码整个视频。
 测试素材：
 
 ```text
-时长：12:07    
-输入：59.94 fps    
-输出：23.976 fps    
+时长：12:07      
+输入：59.94 fps      
+输出：23.976 fps      
 GPU：RTX 4080
 ```
 
 ### HEVC + 真实 Grain
 
 ```text
-frame=17435    
-fps=101    
-speed=4.22x    
+frame=17435      
+fps=101      
+speed=4.22x      
 elapsed=2:52
 ```
 
@@ -599,9 +599,9 @@ elapsed=2:52
 AV1 主编码：
 
 ```text
-frame=17435    
-fps=267    
-speed=11.1x    
+frame=17435      
+fps=267      
+speed=11.1x      
 elapsed=1:05
 ```
 
@@ -620,24 +620,24 @@ grav1synth inspect
 验证：
 
 ```text
-VERIFIED:    
+VERIFIED:      
 AV1 Film Grain headers are present
 ```
 
 在这次测试中：
 
 ```text
-纯 AV1 Video：    
-231514 KiB    
+纯 AV1 Video：      
+231514 KiB      
 
-加入 Film Grain 后：    
+加入 Film Grain 后：      
 234084 KiB
 ```
 
 Film Grain 信息只增加约：
 
 ```text
-2570 KiB    
+2570 KiB      
 ≈ 1.1%
 ```
 
@@ -687,7 +687,7 @@ Film Grain 信息只增加约：
 例如：
 
 ```bat
-set "FFMPEG=E:\EnCoder\FFMpeg\13.0\bin\ffmpeg.exe"    
+set "FFMPEG=E:\EnCoder\FFMpeg\13.0\bin\ffmpeg.exe"      
 set "FFPROBE=E:\EnCoder\FFMpeg\13.0\bin\ffprobe.exe"
 ```
 
@@ -726,12 +726,12 @@ NVIDIA/FFmpeg 的 NVENC 支持并不是单纯由“FFmpeg 主版本号”决定�
 例如：
 
 ```text
-nv-codec-headers 13.0.19    
-→ Video Codec SDK 13.0    
-→ Windows 最低驱动 570.0    
+nv-codec-headers 13.0.19      
+→ Video Codec SDK 13.0      
+→ Windows 最低驱动 570.0      
 
-nv-codec-headers 13.1.15    
-→ Video Codec SDK 13.1    
+nv-codec-headers 13.1.15      
+→ Video Codec SDK 13.1      
 → Windows 最低驱动 610.0
 ```
 
@@ -755,28 +755,28 @@ nv-codec-headers 13.1.15
 为了继续使用 596.49 驱动，同时获得：
 
 ```text
-hevc_nvenc    
-av1_nvenc    
-blend_vulkan    
-scale_vulkan    
-CUDA / NVDEC    
+hevc_nvenc      
+av1_nvenc      
+blend_vulkan      
+scale_vulkan      
+CUDA / NVDEC      
 P010 / Main10
 ```
 
 本文固定使用 BtbN 在 2026-04-30 发布的 Windows x64 GPL 构建：
 
 ```text
-BtbN FFmpeg Auto-Build    
-Date    : 2026-04-30 13:44    
-Version : N-124278-gcc3ca17127    
-Target  : Windows x86_64    
+BtbN FFmpeg Auto-Build      
+Date    : 2026-04-30 13:44      
+Version : N-124278-gcc3ca17127      
+Target  : Windows x86_64      
 Variant : GPL static
 ```
 
 本文脚本中的路径示例：
 
 ```bat
-set "FFMPEG=E:\EnCoder\FFMpeg\13.0\bin\ffmpeg.exe"    
+set "FFMPEG=E:\EnCoder\FFMpeg\13.0\bin\ffmpeg.exe"      
 set "FFPROBE=E:\EnCoder\FFMpeg\13.0\bin\ffprobe.exe"
 ```
 
@@ -813,14 +813,14 @@ BtbN 项目地址：
 例如：
 
 ```text
-E:\EnCoder\FFMpeg\13.0\   ← 当前稳定版本    
+E:\EnCoder\FFMpeg\13.0\   ← 当前稳定版本      
 E:\EnCoder\FFMpeg\9.x\    ← 新版本测试
 ```
 
 然后只修改 BAT 顶部：
 
 ```bat
-set "FFMPEG=E:\EnCoder\FFMpeg\9.x\bin\ffmpeg.exe"    
+set "FFMPEG=E:\EnCoder\FFMpeg\9.x\bin\ffmpeg.exe"      
 set "FFPROBE=E:\EnCoder\FFMpeg\9.x\bin\ffprobe.exe"
 ```
 
@@ -829,25 +829,25 @@ set "FFPROBE=E:\EnCoder\FFMpeg\9.x\bin\ffprobe.exe"
 运行：
 
 ```bat
-ffmpeg -hide_banner -encoders | findstr /i "hevc_nvenc av1_nvenc"    
-ffmpeg -hide_banner -filters  | findstr /i "blend_vulkan scale_vulkan"    
+ffmpeg -hide_banner -encoders | findstr /i "hevc_nvenc av1_nvenc"      
+ffmpeg -hide_banner -filters  | findstr /i "blend_vulkan scale_vulkan"      
 ffmpeg -hide_banner -hwaccels | findstr /i "cuda vulkan"
 ```
 
 HEVC 脚本至少需要：
 
 ```text
-hevc_nvenc    
-blend_vulkan    
-scale_vulkan    
-CUDA/NVDEC    
+hevc_nvenc      
+blend_vulkan      
+scale_vulkan      
+CUDA/NVDEC      
 Vulkan
 ```
 
 AV1 脚本至少需要：
 
 ```text
-av1_nvenc    
+av1_nvenc      
 CUDA/NVDEC
 ```
 
@@ -858,29 +858,29 @@ CUDA/NVDEC
 建议分别运行：
 
 ```bat
-ffmpeg -hide_banner -h encoder=hevc_nvenc    
+ffmpeg -hide_banner -h encoder=hevc_nvenc      
 ffmpeg -hide_banner -h encoder=av1_nvenc
 ```
 
 重点确认本文使用的参数仍然存在：
 
 ```text
-preset p5 / p6    
-tune hq    
-rc vbr    
-multipass qres / fullres    
-rc-lookahead    
-spatial-aq    
-temporal-aq    
-aq-strength    
-bf    
+preset p5 / p6      
+tune hq      
+rc vbr      
+multipass qres / fullres      
+rc-lookahead      
+spatial-aq      
+temporal-aq      
+aq-strength      
+bf      
 b_ref_mode
 ```
 
 AV1 另外确认：
 
 ```text
-highbitdepth    
+highbitdepth      
 p010le / 10-bit
 ```
 
@@ -891,12 +891,12 @@ p010le / 10-bit
 HEVC 脚本依赖较长的硬件滤镜链：
 
 ```text
-NVDEC    
-→ P010    
-→ hwupload    
-→ scale_vulkan    
-→ blend_vulkan    
-→ hwdownload    
+NVDEC      
+→ P010      
+→ hwupload      
+→ scale_vulkan      
+→ blend_vulkan      
+→ hwdownload      
 → HEVC NVENC
 ```
 
@@ -911,11 +911,11 @@ NVDEC
 因此升级后至少使用一段固定测试片验证：
 
 ```text
-画面是否正常    
-Grain 方向是否正确    
-亮度是否发生变化    
-是否出现灰雾    
-是否发生丢帧/重复帧    
+画面是否正常      
+Grain 方向是否正确      
+亮度是否发生变化      
+是否出现灰雾      
+是否发生丢帧/重复帧      
 最终时长是否完全一致
 ```
 
@@ -928,7 +928,7 @@ fps=
 而应优先比较：
 
 ```text
-speed=    
+speed=      
 elapsed=
 ```
 
@@ -939,7 +939,7 @@ elapsed=
 已经生成的：
 
 ```text
-*_1080p_HEVC_Lossless.mkv    
+*_1080p_HEVC_Lossless.mkv      
 *_HEVC_Lossless.mkv
 ```
 
@@ -954,9 +954,9 @@ elapsed=
 AV1 方案的核心链路是：
 
 ```text
-av1_nvenc    
-→ grav1synth apply    
-→ FFmpeg stream-copy remux    
+av1_nvenc      
+→ grav1synth apply      
+→ FFmpeg stream-copy remux      
 → grav1synth inspect
 ```
 
@@ -989,15 +989,15 @@ VERIFIED: AV1 Film Grain headers are present.
 本文脚本使用：
 
 ```text
-fps=24000/1001    
-fps=24    
+fps=24000/1001      
+fps=24      
 -fps_mode:v cfr
 ```
 
 升级后建议确认：
 
 ```text
-59.94 → 23.976    
+59.94 → 23.976      
 60.00 → 24.000
 ```
 
@@ -1015,41 +1015,41 @@ fps=24
 旧环境：
 
 ```text
-596.49    
-+    
+596.49      
++      
 N-124278-gcc3ca17127
 ```
 
 曾尝试：
 
 ```text
-NVDEC CUDA    
-→ hwmap    
+NVDEC CUDA      
+→ hwmap      
 → Vulkan
 ```
 
 直接映射，但 Windows 下返回：
 
 ```text
-Failed to map frame: -40    
+Failed to map frame: -40      
 Function not implemented
 ```
 
 因此最终 HEVC 版本使用了已经验证稳定的：
 
 ```text
-NVDEC    
-→ System/P010    
+NVDEC      
+→ System/P010      
 → Vulkan Upload
 ```
 
 当升级到：
 
 ```text
-610+ Driver    
-+    
-新 FFmpeg 9.x    
-+    
+610+ Driver      
++      
+新 FFmpeg 9.x      
++      
 新版 CUDA / Vulkan interop
 ```
 
@@ -1058,12 +1058,12 @@ NVDEC
 如果新版能够稳定实现：
 
 ```text
-NVDEC CUDA Surface    
-        ↓ zero-copy    
-Vulkan    
-        ↓    
-blend_vulkan    
-        ↓    
+NVDEC CUDA Surface      
+        ↓ zero-copy      
+Vulkan      
+        ↓      
+blend_vulkan      
+        ↓      
 NVENC
 ```
 
@@ -1084,35 +1084,35 @@ NVENC
 本文已经有一套可重复对比的参考数据：
 
 ```text
-测试时长：12:07    
-输入帧率：59.94    
-输出帧率：23.976    
+测试时长：12:07      
+输入帧率：59.94      
+输出帧率：23.976      
 GPU：RTX 4080
 ```
 
 当前参考成绩：
 
 ```text
-HEVC + Real Grain    
-speed ≈ 4.22x    
-elapsed ≈ 2:52    
-    
-AV1 + grav1synth    
-AV1 Encode speed ≈ 11.1x    
+HEVC + Real Grain      
+speed ≈ 4.22x      
+elapsed ≈ 2:52      
+      
+AV1 + grav1synth      
+AV1 Encode speed ≈ 11.1x      
 elapsed ≈ 1:05
 ```
 
 升级后同时比较：
 
 ```text
-画质    
-Grain 外观    
-最终码率    
-最终文件大小    
-speed=    
-elapsed=    
-CPU 占用    
-GPU Video Decode    
+画质      
+Grain 外观      
+最终码率      
+最终文件大小      
+speed=      
+elapsed=      
+CPU 占用      
+GPU Video Decode      
 GPU Video Encode
 ```
 
@@ -1133,24 +1133,50 @@ AV1 Film Grain 的最终显示效果仍依赖播放端正确实现 Film Grain Sy
 本文脚本采用：
 
 ```text
-grav1synth只处理视频流    
-+    
-FFmpeg重新从原片恢复    
+grav1synth只处理视频流      
++      
+FFmpeg重新从原片恢复      
 音频 / 字幕 / 附件 / metadata / chapters
 ```
 
 来尽量避免中间工具造成其它流信息损失。
 
+## 社交平台上传母版：Bake Film Grain to Pixels
+
+为了解决 AV1 Film Grain 在 YouTube、哔哩哔哩、抖音、腾讯视频等平台二次转码后容易丢失的问题，项目新增了 **Film Grain Bake-to-Pixels** 功能。
+
+AV1 Film Grain 本身并不是直接写进每一帧像素，而是以参数形式保存在 AV1 码流中，播放时由解码器实时合成颗粒。因此：
+
+- 直接播放原始 AV1 文件时，颗粒效果可以完整保留；
+- 只做 stream copy / remux 时，Film Grain metadata 通常仍然存在；
+- 一旦上传到视频平台，或者重新编码为 H.264 / HEVC / VP9 / 新的 AV1，原始 Film Grain metadata 通常会丢失；
+- 视频平台也不会保证把 AV1 Film Grain 参数继续传递到自己的转码版本中。
+
+因此增加了一个额外的上传母版流程：
+
+```text
+AV1 + Film Grain metadata
+        ↓
+libdav1d 解码
+        ↓
+AV1 Film Grain 在解码阶段真正合成到像素
+        ↓
+H.264 NVENC 高质量重新编码
+        ↓
+MP4 上传母版
+```
 ---
 
 ## 附件
 
 本文对应的工具包包含：
 
-- `FilmGrain_HEVC_NVENC_v20_FINAL_AutoCinemaFPS_FIX2.bat`
+- `FilmGrain_HEVC_NVENC_v20_FINAL_AutoCinemaFPS.bat`
 - `AV1_NVENC_grav1synth_FilmGrain_FINAL.bat`
+- `AV1_NVENC_grav1synth_FilmGrain_FINAL_v7.4_UploadBake.bat`
+- `AV1_FilmGrain_Bake_for_Social_Upload_v1.3.bat`
 - `FilmGrain_MOV_to_1080p_HEVC_Lossless_Cache.bat`
 - `FilmGrain_MOV_to_HEVC_Lossless_Cache.bat`
-- `build-grav1synth-windows-v2-FIX.yml`
+- `build-grav1synth-windows-fork-patched-v2.yml`
 
  
