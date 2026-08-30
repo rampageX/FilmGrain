@@ -2,7 +2,7 @@
 setlocal DisableDelayedExpansion
 
 rem ============================================================
-rem  AV1 NVENC + grav1synth Film Grain - FINAL v7.5 ContainerSelect
+rem  AV1 NVENC + grav1synth Film Grain - FINAL v7.6 ContainerSelect
 rem  Windows drag-and-drop / multi-file production pipeline
 rem
 rem  Stage 1: AV1 Main 10 encode with RTX NVENC into IVF
@@ -131,7 +131,7 @@ rem ============================================================
 
 cls
 echo ============================================================
-echo        AV1 NVENC + grav1synth Film Grain FINAL v7.5 ContainerSelect
+echo        AV1 NVENC + grav1synth Film Grain FINAL v7.6 ContainerSelect
 echo ============================================================
 echo.
 echo AV1 speed / quality:
@@ -366,23 +366,26 @@ set "GRAIN_MODE=ISO"
 echo.
 echo Photon Grain ISO:
 echo.
-echo   [1] ISO 200    - light
-echo   [2] ISO 400    - medium
-echo   [3] ISO 800    - strong       ^(default^)
-echo   [4] ISO 1600   - very strong
-echo   [5] Custom ISO
+echo   [1] ISO 400    - Subtle
+echo   [2] ISO 800    - Mild
+echo   [3] ISO 1600   - Medium       ^(default^)
+echo   [4] ISO 3200   - Strong
+echo   [5] ISO 6400   - Very strong
+echo   [6] Custom ISO
 echo.
 set "ISO_SEL=3"
-set /p "ISO_SEL=Select [1-5, default 3]: "
+set /p "ISO_SEL=Select [1-6, default 3]: "
 
-set "GRAIN_ISO=800"
+set "GRAIN_ISO=1600"
 
-if "%ISO_SEL%"=="1" set "GRAIN_ISO=200"
-if "%ISO_SEL%"=="2" set "GRAIN_ISO=400"
-if "%ISO_SEL%"=="3" set "GRAIN_ISO=800"
-if "%ISO_SEL%"=="4" set "GRAIN_ISO=1600"
+if "%ISO_SEL%"=="1" set "GRAIN_ISO=400"
+if "%ISO_SEL%"=="2" set "GRAIN_ISO=800"
+if "%ISO_SEL%"=="3" set "GRAIN_ISO=1600"
+if "%ISO_SEL%"=="4" set "GRAIN_ISO=3200"
 
-if "%ISO_SEL%"=="5" (
+if "%ISO_SEL%"=="5" set "GRAIN_ISO=6400"
+
+if "%ISO_SEL%"=="6" (
     set "CUSTOM_ISO="
     set /p "CUSTOM_ISO=Enter ISO value [positive integer]: "
     call :VALIDATE_CUSTOM_ISO
@@ -556,7 +559,7 @@ rem ============================================================
 
 cls
 echo ============================================================
-echo        AV1 NVENC + grav1synth Film Grain FINAL v7.5 ContainerSelect
+echo        AV1 NVENC + grav1synth Film Grain FINAL v7.6 ContainerSelect
 echo ============================================================
 echo.
 echo Speed mode    : %SPEED_LABEL%
