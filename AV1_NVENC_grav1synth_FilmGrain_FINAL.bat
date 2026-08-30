@@ -2,13 +2,16 @@
 setlocal DisableDelayedExpansion
 
 rem ============================================================
-rem  AV1 NVENC + grav1synth Film Grain - FINAL
+rem  AV1 NVENC + grav1synth Film Grain - FINAL v7
 rem  Windows drag-and-drop / multi-file production pipeline
 rem
-rem  Stage 1: AV1 Main 10 encode with RTX NVENC
-rem  Stage 2: grav1synth injects AV1 film-grain synthesis headers
+rem  Stage 1: AV1 Main 10 encode with RTX NVENC into IVF
+rem  Stage 2: grav1synth injects AV1 film-grain synthesis headers in IVF
 rem  Stage 3: remux original audio/subtitles/attachments/metadata
 rem  Stage 4: verify final AV1 grain headers with grav1synth inspect
+rem
+rem  Recommended: grav1synth build containing the Sequence Header
+rem  Film Grain flag / padded OBU size fix.
 rem ============================================================
 
 rem ---------- USER SETTINGS ----------
@@ -110,6 +113,10 @@ set "SUCCESS_COUNT=0"
 set "FAIL_COUNT=0"
 set "SKIP_COUNT=0"
 
+rem Last failure details, shown again in the final summary for single-file jobs.
+set "LAST_ERROR_STAGE="
+set "LAST_ERROR_LOG="
+
 
 rem ============================================================
 rem Speed / quality menu
@@ -117,7 +124,7 @@ rem ============================================================
 
 cls
 echo ============================================================
-echo        AV1 NVENC + grav1synth Film Grain FINAL
+echo        AV1 NVENC + grav1synth Film Grain FINAL v7
 echo ============================================================
 echo.
 echo AV1 speed / quality:
@@ -458,7 +465,7 @@ rem ============================================================
 
 cls
 echo ============================================================
-echo        AV1 NVENC + grav1synth Film Grain FINAL
+echo        AV1 NVENC + grav1synth Film Grain FINAL v7
 echo ============================================================
 echo.
 echo Speed mode    : %SPEED_LABEL%
@@ -489,7 +496,8 @@ if "%ENABLE_TEMPORAL_AQ%"=="1" (
 )
 echo.
 echo Pipeline:
-echo   AV1 NVENC -^> grav1synth -^> stream-copy remux -^> verify
+echo   AV1 NVENC ^(IVF^) -^> grav1synth ^(IVF^) -^> MKV remux -^> verify
+echo Intermediate  : IVF
 echo ============================================================
 echo.
 
@@ -509,6 +517,9 @@ echo.
 echo ============================================================
 echo Input : "%INPUT%"
 echo ============================================================
+
+set "LAST_ERROR_STAGE="
+set "LAST_ERROR_LOG="
 
 set "WIDTH="
 set "HEIGHT="
@@ -590,13 +601,29 @@ if exist "%OUTPUT%" (
     goto PROCESS_NEXT
 )
 
-rem ---------- unique same-drive temporary files ----------
+rem ---------- isolated same-drive temporary workspace ----------
+rem All temporary/intermediate files stay inside one directory.
+rem Successful jobs remove it automatically.
+rem Failed jobs may retain it for troubleshooting.
 set "JOBID=%RANDOM%_%RANDOM%"
-set "TMP_BASE=%INDIR%__AV1GS_%JOBID%_base.mkv"
-set "TMP_GRAIN=%INDIR%__AV1GS_%JOBID%_grain.mkv"
-set "VERIFY_TABLE=%TEMP%\AV1GS_verify_%JOBID%.txt"
+set "JOBDIR=%INDIR%__AV1GS_TMP_%JOBID%"
+set "TMP_BASE=%JOBDIR%\base.ivf"
+set "TMP_GRAIN=%JOBDIR%\grain.ivf"
+set "VERIFY_TABLE=%JOBDIR%\verify.txt"
+set "ENCODE_LOG=%JOBDIR%\encode.log"
+set "GRAIN_LOG=%JOBDIR%\grain.log"
+set "REMUX_LOG=%JOBDIR%\remux.log"
+set "VERIFY_LOG=%JOBDIR%\verify.log"
 
-del /q "%TMP_BASE%" "%TMP_GRAIN%" "%VERIFY_TABLE%" >nul 2>&1
+if exist "%JOBDIR%" rmdir /s /q "%JOBDIR%" >nul 2>&1
+mkdir "%JOBDIR%" >nul 2>&1
+if errorlevel 1 (
+    echo ERROR: Could not create temporary workspace:
+    echo "%JOBDIR%"
+    set /a FAIL_COUNT+=1
+    shift
+    goto PROCESS_NEXT
+)
 
 set "DURATION_ARGS="
 if defined DURATION set "DURATION_ARGS=-t %DURATION%"
@@ -609,6 +636,7 @@ if "%FPS_MODE%"=="AUTO" echo FPS choice  : %FPS_DECISION%
 if "%ENABLE_CROP%"=="1" echo Framing     : %CROP_DECISION%
 echo Grain       : %GRAIN_LABEL%
 echo Bitrate     : %BITRATE%
+echo Final file  : "%OUTPUT%"
 if defined DURATION echo Duration    : %DURATION% sec
 echo.
 
@@ -619,59 +647,67 @@ rem ============================================================
 
 echo [1/4] Encoding clean AV1 Main 10 with NVENC...
 
-set "CMD_ENCODE="%FFMPEG%" -hide_banner -stats -y %MAIN_HWACCEL_ARGS% -i "%INPUT%" -vf "%VIDEO_FILTER%" -map 0:v:0 -an -sn -dn -c:v av1_nvenc -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune hq -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% -multipass %MULTIPASS% -rc-lookahead %LOOKAHEAD% -spatial-aq 1 %TAQ_ARGS% -aq-strength %AQ_STRENGTH% %BF_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% "%TMP_BASE%""
+set "CMD_ENCODE="%FFMPEG%" -hide_banner -stats -y %MAIN_HWACCEL_ARGS% -i "%INPUT%" -vf "%VIDEO_FILTER%" -map 0:v:0 -an -sn -dn -c:v av1_nvenc -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune hq -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% -multipass %MULTIPASS% -rc-lookahead %LOOKAHEAD% -spatial-aq 1 %TAQ_ARGS% -aq-strength %AQ_STRENGTH% %BF_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%""
 %CMD_ENCODE%
 
 if errorlevel 1 (
     echo.
     echo ERROR: AV1 NVENC encode failed.
-    if exist "%TMP_BASE%" del /q "%TMP_BASE%" >nul 2>&1
+    set "LAST_ERROR_STAGE=Stage 1 - AV1 NVENC encode"
     set /a FAIL_COUNT+=1
+    call :HANDLE_FAILED_JOB
     goto FILE_DONE
 )
 
 if not exist "%TMP_BASE%" (
     echo.
     echo ERROR: AV1 intermediate file was not created.
+    set "LAST_ERROR_STAGE=Stage 1 - AV1 NVENC output missing"
     set /a FAIL_COUNT+=1
+    call :HANDLE_FAILED_JOB
     goto FILE_DONE
 )
-
 
 rem ============================================================
 rem Stage 2 - inject AV1 Film Grain metadata
 rem ============================================================
 
 echo.
-echo [2/4] Injecting AV1 Film Grain with grav1synth...
+echo [2/4] Injecting AV1 Film Grain with grav1synth ^(IVF path^)...
 
 set "CMD_GRAIN="%GRAV1SYNTH%" apply "%TMP_BASE%" -o "%TMP_GRAIN%" %GRAIN_APPLY_ARGS% --replace -y"
-%CMD_GRAIN%
+pushd "%JOBDIR%"
+%CMD_GRAIN% > "%GRAIN_LOG%" 2>&1
+set "GRAIN_RC=%ERRORLEVEL%"
+popd
 
-if errorlevel 1 (
+if not "%GRAIN_RC%"=="0" (
     echo.
-    echo ERROR: grav1synth failed.
-    if "%KEEP_FAILED_INTERMEDIATES%"=="1" (
-        echo Clean AV1 intermediate has been kept for debugging:
-        echo "%TMP_BASE%"
+    echo ============================================================
+    echo grav1synth ERROR OUTPUT
+    echo ============================================================
+    if exist "%GRAIN_LOG%" (
+        type "%GRAIN_LOG%"
     ) else (
-        if exist "%TMP_BASE%" del /q "%TMP_BASE%" >nul 2>&1
+        echo No grav1synth log file was created.
     )
-    if exist "%TMP_GRAIN%" del /q "%TMP_GRAIN%" >nul 2>&1
+    echo ============================================================
+    echo.
+    echo ERROR: grav1synth failed with exit code %GRAIN_RC%.
+    set "LAST_ERROR_STAGE=Stage 2 - grav1synth apply"
+    set "LAST_ERROR_LOG=%GRAIN_LOG%"
     set /a FAIL_COUNT+=1
+    call :HANDLE_FAILED_JOB
     goto FILE_DONE
 )
 
 if not exist "%TMP_GRAIN%" (
     echo.
     echo ERROR: grav1synth did not create the grain AV1 intermediate.
-    if "%KEEP_FAILED_INTERMEDIATES%"=="1" (
-        echo Clean AV1 intermediate has been kept:
-        echo "%TMP_BASE%"
-    ) else (
-        if exist "%TMP_BASE%" del /q "%TMP_BASE%" >nul 2>&1
-    )
+    set "LAST_ERROR_STAGE=Stage 2 - grav1synth output missing"
+    set "LAST_ERROR_LOG=%GRAIN_LOG%"
     set /a FAIL_COUNT+=1
+    call :HANDLE_FAILED_JOB
     goto FILE_DONE
 )
 
@@ -690,14 +726,9 @@ if errorlevel 1 (
     echo.
     echo ERROR: Final remux failed.
     if exist "%OUTPUT%" del /q "%OUTPUT%" >nul 2>&1
-    if "%KEEP_FAILED_INTERMEDIATES%"=="1" (
-        echo Grain AV1 intermediate has been kept for debugging:
-        echo "%TMP_GRAIN%"
-    ) else (
-        if exist "%TMP_BASE%" del /q "%TMP_BASE%" >nul 2>&1
-        if exist "%TMP_GRAIN%" del /q "%TMP_GRAIN%" >nul 2>&1
-    )
+    set "LAST_ERROR_STAGE=Stage 3 - FFmpeg remux"
     set /a FAIL_COUNT+=1
+    call :HANDLE_FAILED_JOB
     goto FILE_DONE
 )
 
@@ -709,19 +740,25 @@ rem ============================================================
 echo.
 echo [4/4] Verifying Film Grain headers in FINAL file...
 
-del /q "%VERIFY_TABLE%" >nul 2>&1
-"%GRAV1SYNTH%" inspect "%OUTPUT%" -o "%VERIFY_TABLE%" -y
+del /q "%VERIFY_TABLE%" "%VERIFY_LOG%" >nul 2>&1
+"%GRAV1SYNTH%" inspect "%OUTPUT%" -o "%VERIFY_TABLE%" -y > "%VERIFY_LOG%" 2>&1
+set "VERIFY_RC=%ERRORLEVEL%"
 
-if errorlevel 1 (
+if not "%VERIFY_RC%"=="0" (
+    echo.
+    echo ============================================================
+    echo grav1synth VERIFY ERROR OUTPUT
+    echo ============================================================
+    if exist "%VERIFY_LOG%" type "%VERIFY_LOG%"
+    echo ============================================================
     echo.
     echo ERROR: grav1synth verification command failed.
     echo Final file has been kept for inspection:
     echo "%OUTPUT%"
-    if "%KEEP_FAILED_INTERMEDIATES%"=="0" (
-        if exist "%TMP_BASE%" del /q "%TMP_BASE%" >nul 2>&1
-        if exist "%TMP_GRAIN%" del /q "%TMP_GRAIN%" >nul 2>&1
-    )
+    set "LAST_ERROR_STAGE=Stage 4 - grav1synth inspect"
+    set "LAST_ERROR_LOG=%VERIFY_LOG%"
     set /a FAIL_COUNT+=1
+    call :HANDLE_FAILED_JOB
     goto FILE_DONE
 )
 
@@ -730,11 +767,10 @@ if not exist "%VERIFY_TABLE%" (
     echo ERROR: No AV1 Film Grain headers were found in the final file.
     echo Final file has been kept for inspection:
     echo "%OUTPUT%"
-    if "%KEEP_FAILED_INTERMEDIATES%"=="0" (
-        if exist "%TMP_BASE%" del /q "%TMP_BASE%" >nul 2>&1
-        if exist "%TMP_GRAIN%" del /q "%TMP_GRAIN%" >nul 2>&1
-    )
+    set "LAST_ERROR_STAGE=Stage 4 - no Film Grain table produced"
+    set "LAST_ERROR_LOG=%VERIFY_LOG%"
     set /a FAIL_COUNT+=1
+    call :HANDLE_FAILED_JOB
     goto FILE_DONE
 )
 
@@ -743,22 +779,36 @@ for %%Z in ("%VERIFY_TABLE%") do if %%~zZ LEQ 16 (
     echo ERROR: Grain verification table is unexpectedly empty.
     echo Final file has been kept for inspection:
     echo "%OUTPUT%"
-    if "%KEEP_FAILED_INTERMEDIATES%"=="0" (
-        if exist "%TMP_BASE%" del /q "%TMP_BASE%" >nul 2>&1
-        if exist "%TMP_GRAIN%" del /q "%TMP_GRAIN%" >nul 2>&1
-    )
+    set "LAST_ERROR_STAGE=Stage 4 - empty Film Grain table"
+    set "LAST_ERROR_LOG=%VERIFY_LOG%"
     set /a FAIL_COUNT+=1
+    call :HANDLE_FAILED_JOB
     goto FILE_DONE
 )
 
+if exist "%VERIFY_LOG%" type "%VERIFY_LOG%"
 echo.
 echo VERIFIED: AV1 Film Grain headers are present.
 echo DONE:
 echo "%OUTPUT%"
 set /a SUCCESS_COUNT+=1
 
-del /q "%TMP_BASE%" "%TMP_GRAIN%" "%VERIFY_TABLE%" >nul 2>&1
+rmdir /s /q "%JOBDIR%" >nul 2>&1
 goto FILE_DONE
+
+
+
+:HANDLE_FAILED_JOB
+if "%KEEP_FAILED_INTERMEDIATES%"=="1" (
+    echo.
+    echo Temporary workspace retained for troubleshooting:
+    echo "%JOBDIR%"
+    echo.
+    echo Files in this directory are intermediate/debug files, not final output.
+) else (
+    if defined JOBDIR if exist "%JOBDIR%" rmdir /s /q "%JOBDIR%" >nul 2>&1
+)
+exit /b 0
 
 
 :FILE_DONE
@@ -895,7 +945,7 @@ set /a CROP_Y=(CROP_Y/2)*2
 
 set "ACTIVE_HEIGHT=%TARGET_H%"
 set "CROP_FILTER=crop=w=iw:h=%TARGET_H%:x=0:y=%CROP_Y%,"
-set "CROP_DECISION=%WIDTH%x%HEIGHT% -> %WIDTH%x%TARGET_H% centered"
+set "CROP_DECISION=%WIDTH%x%HEIGHT% to %WIDTH%x%TARGET_H% centered"
 exit /b 0
 
 
@@ -904,12 +954,14 @@ rem Finished
 rem ============================================================
 
 :FINISHED
-cls
+if "%FAIL_COUNT%"=="0" cls
+echo.
 echo ============================================================
 echo                    Batch Summary
 echo ============================================================
 echo.
 echo Encoder       : AV1 NVENC Main 10
+echo Intermediate  : IVF
 echo Grain engine  : grav1synth AV1 Film Grain
 echo Grain profile : %GRAIN_LABEL%
 echo Speed mode    : %SPEED_LABEL%
@@ -925,6 +977,21 @@ if "%FAIL_COUNT%"=="0" (
     echo RESULT: ALL COMPLETED SUCCESSFULLY.
 ) else (
     echo RESULT: COMPLETED WITH ERRORS.
+)
+
+if "%FILE_COUNT%"=="1" if not "%LAST_ERROR_STAGE%"=="" (
+    echo.
+    echo ============================================================
+    echo Last failure
+    echo ============================================================
+    echo Stage : %LAST_ERROR_STAGE%
+    if not "%LAST_ERROR_LOG%"=="" (
+        echo Log   : "%LAST_ERROR_LOG%"
+        if exist "%LAST_ERROR_LOG%" (
+            echo.
+            type "%LAST_ERROR_LOG%"
+        )
+    )
 )
 
 if "%FILE_COUNT%"=="1" (

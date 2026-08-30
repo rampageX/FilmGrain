@@ -1,7 +1,10 @@
-name: Build grav1synth Windows x64 v2
+name: Build patched grav1synth Windows x64
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - fix/sequence-header-film-grain-padding
 
 permissions:
   contents: read
@@ -12,23 +15,23 @@ jobs:
     timeout-minutes: 120
 
     steps:
-      - name: Clone latest grav1synth
+      - name: Checkout this fork and branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Show source revision
         shell: pwsh
         run: |
-          git clone --depth 1 https://github.com/rust-av/grav1synth.git grav1synth
-          Set-Location grav1synth
-          Write-Host "grav1synth commit:"
           git rev-parse HEAD
           git log -1 --oneline
+          git status --short
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: grav1synth -> target
-          shared-key: grav1synth-windows-v2
 
       - name: Prepare LLVM and vcpkg environment
         shell: pwsh
@@ -48,7 +51,6 @@ jobs:
 
           $libclangPath = "C:\Program Files\LLVM\bin"
           if (-not (Test-Path (Join-Path $libclangPath "libclang.dll"))) {
-            Write-Host "Installing LLVM..."
             choco install llvm -y --no-progress
           }
 
@@ -58,9 +60,6 @@ jobs:
 
           "LIBCLANG_PATH=$libclangPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-          Write-Host "VCPKG_ROOT=$vcpkg"
-          Write-Host "LIBCLANG_PATH=$libclangPath"
-
       - name: Install FFmpeg development libraries
         shell: pwsh
         run: |
@@ -69,47 +68,42 @@ jobs:
             throw "vcpkg FFmpeg installation failed."
           }
 
-          Write-Host ""
-          Write-Host "Installed FFmpeg package:"
           & "$env:VCPKG_ROOT\vcpkg.exe" list | Select-String "^ffmpeg"
 
-      - name: Upgrade Rust FFmpeg wrapper for newer FFmpeg API
+      - name: Use ffmpeg-the-third 6.0.0 for current vcpkg FFmpeg
         shell: pwsh
-        working-directory: grav1synth
         run: |
-          Write-Host "Original FFmpeg dependency:"
+          Write-Host "Original dependency:"
           Select-String -Path Cargo.toml -Pattern 'ffmpeg-the-third'
 
           $cargo = Get-Content Cargo.toml -Raw
-
-          # grav1synth currently requests ffmpeg-the-third 5.0.0.
-          # Version 6.0.0 adds FFmpeg 9 compatibility and still supports 5.1-8.1.
           $cargo = $cargo -replace 'version = "5\.0\.0"([\s\S]*?package = "ffmpeg-the-third")', 'version = "6.0.0"$1'
-
           Set-Content Cargo.toml $cargo -Encoding utf8
-
-          Write-Host ""
-          Write-Host "Patched FFmpeg dependency:"
-          Select-String -Path Cargo.toml -Pattern 'ffmpeg-the-third'
 
           cargo update -p ffmpeg-the-third --precise 6.0.0
           if ($LASTEXITCODE -ne 0) {
-            throw "Failed to update ffmpeg-the-third to 6.0.0."
+            throw "Failed to update ffmpeg-the-third."
           }
 
-          Write-Host ""
-          Write-Host "Resolved FFmpeg Rust crates:"
-          cargo tree | Select-String "ffmpeg"
+          Write-Host "Build-time dependency:"
+          Select-String -Path Cargo.toml -Pattern 'ffmpeg-the-third'
 
-      - name: Build grav1synth Release
+      - name: Run regression tests
         shell: pwsh
-        working-directory: grav1synth
         run: |
-          rustc --version
-          cargo --version
+          # Upstream currently contains one internally inconsistent test:
+          # it writes grain_scaling_minus_8 = 2, so scaling_shift is 10,
+          # but asserts that the result should be 8.
+          # Skip only that known-bad test; run every other regression test.
+          cargo test --release -- --skip parser::grain::tests::film_grain_params_key_frame_forces_update_and_uses_420_zero_luma_shortcut
+          if ($LASTEXITCODE -ne 0) {
+            throw "Regression tests failed."
+          }
 
+      - name: Build Release
+        shell: pwsh
+        run: |
           cargo build --release
-
           if ($LASTEXITCODE -ne 0) {
             throw "cargo build failed."
           }
@@ -121,13 +115,13 @@ jobs:
       - name: Package EXE and runtime DLLs
         shell: pwsh
         run: |
-          $dist = Join-Path $PWD "grav1synth-windows-x64"
+          $dist = Join-Path $PWD "grav1synth-windows-x64-patched"
           New-Item -ItemType Directory -Force -Path $dist | Out-Null
 
-          Copy-Item "grav1synth\target\release\grav1synth.exe" $dist
-          Copy-Item "grav1synth\LICENSE" $dist -ErrorAction SilentlyContinue
-          Copy-Item "grav1synth\README.md" $dist -ErrorAction SilentlyContinue
-          Copy-Item "grav1synth\CHANGELOG.md" $dist -ErrorAction SilentlyContinue
+          Copy-Item "target\release\grav1synth.exe" $dist
+          Copy-Item "LICENSE" $dist -ErrorAction SilentlyContinue
+          Copy-Item "README.md" $dist -ErrorAction SilentlyContinue
+          Copy-Item "CHANGELOG.md" $dist -ErrorAction SilentlyContinue
 
           $vcpkgBin = Join-Path $env:VCPKG_ROOT "installed\x64-windows\bin"
           if (-not (Test-Path $vcpkgBin)) {
@@ -136,24 +130,20 @@ jobs:
 
           Copy-Item "$vcpkgBin\*.dll" $dist -Force
 
-          $commit = (git -C grav1synth rev-parse HEAD).Trim()
+          $commit = (git rev-parse HEAD).Trim()
           $date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss 'UTC'")
           $ffmpegPkg = (& "$env:VCPKG_ROOT\vcpkg.exe" list | Select-String "^ffmpeg").ToString()
 
           $buildInfo = @(
-            "grav1synth Windows x64 community build"
-            "======================================="
-            "Source             : https://github.com/rust-av/grav1synth"
-            "grav1synth commit  : $commit"
-            "Built              : $date"
-            "Runner             : GitHub Actions windows-2022"
-            "Rust               : $(rustc --version)"
-            "FFmpeg             : $ffmpegPkg"
-            "ffmpeg-the-third   : 6.0.0"
-            ""
-            "NOTE:"
-            "The upstream grav1synth Cargo.toml currently requests ffmpeg-the-third 5.0.0."
-            "This build patches that dependency to 6.0.0 for newer FFmpeg API compatibility."
+            "grav1synth Windows x64 patched build"
+            "===================================="
+            "Source commit       : $commit"
+            "Built               : $date"
+            "Runner              : GitHub Actions windows-2022"
+            "Rust                : $(rustc --version)"
+            "FFmpeg              : $ffmpegPkg"
+            "ffmpeg-the-third    : 6.0.0 (build-time compatibility patch)"
+            "Source fix          : sequence-header Film Grain flag + padded OBU size"
           )
 
           $buildInfo | Set-Content -Path (Join-Path $dist "BUILD_INFO.txt") -Encoding utf8
@@ -162,38 +152,32 @@ jobs:
             Format-List |
             Out-File (Join-Path $dist "SHA256.txt") -Encoding ascii
 
-      - name: Test packaged grav1synth
+      - name: Test packaged executable
         shell: pwsh
         run: |
-          Set-Location "grav1synth-windows-x64"
-
-          Write-Host "Testing grav1synth.exe --help..."
+          Set-Location "grav1synth-windows-x64-patched"
+          .\grav1synth.exe --version
           .\grav1synth.exe --help
+          .\grav1synth.exe presets
 
           if ($LASTEXITCODE -ne 0) {
-            throw "Packaged grav1synth.exe failed the --help test."
+            throw "Packaged grav1synth.exe smoke test failed."
           }
 
       - name: Create ZIP
         shell: pwsh
         run: |
           Compress-Archive `
-            -Path "grav1synth-windows-x64\*" `
-            -DestinationPath "grav1synth-windows-x64.zip" `
+            -Path "grav1synth-windows-x64-patched\*" `
+            -DestinationPath "grav1synth-windows-x64-patched.zip" `
             -CompressionLevel Optimal `
             -Force
-
-          Get-FileHash "grav1synth-windows-x64.zip" -Algorithm SHA256 |
-            Format-List |
-            Out-File "grav1synth-windows-x64.zip.sha256.txt" -Encoding ascii
 
       - name: Upload Windows package
         uses: actions/upload-artifact@v4
         with:
-          name: grav1synth-windows-x64-v2
-          path: |
-            grav1synth-windows-x64.zip
-            grav1synth-windows-x64.zip.sha256.txt
+          name: grav1synth-windows-x64-sequence-fix
+          path: grav1synth-windows-x64-patched.zip
           if-no-files-found: error
           compression-level: 0
           retention-days: 30
