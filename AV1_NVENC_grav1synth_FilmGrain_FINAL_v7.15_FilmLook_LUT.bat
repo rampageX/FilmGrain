@@ -2,7 +2,7 @@
 setlocal DisableDelayedExpansion
 
 rem ============================================================
-rem  AV1 NVENC + grav1synth Film Grain - FINAL v7.6 ContainerSelect
+rem  AV1 NVENC + grav1synth Film Grain - FINAL v7.15 FilmLook-LUT
 rem  Windows drag-and-drop / multi-file production pipeline
 rem
 rem  Stage 1: AV1 Main 10 encode with RTX NVENC into IVF
@@ -37,6 +37,19 @@ set "CONTAINER_LABEL=MKV / preserve original streams"
 set "FINAL_REMUX_MAP=-map 1:a? -map 1:s? -map 1:t? -map 1:d?"
 set "FINAL_REMUX_CODEC=-c copy"
 set "FINAL_REMUX_EXTRA="
+
+rem Film Look LUT folder.
+rem The script recursively scans this folder for *.cube files.
+set "LUT_ROOT=E:\Adobe Portable\LUTs\BT.709"
+
+rem LUT runtime state. Default = disabled.
+set "LUT_ENABLED=0"
+set "LUT_PATH="
+set "LUT_FILTER_PATH="
+set "LUT_LABEL=None"
+set "LUT_OPACITY=0.75"
+set "LUT_STRENGTH_PCT=75"
+set "LUT_FILE_SUFFIX="
 
 rem Keep useful intermediates automatically when a stage fails.
 rem Successful jobs always clean all temporary files.
@@ -131,7 +144,7 @@ rem ============================================================
 
 cls
 echo ============================================================
-echo        AV1 NVENC + grav1synth Film Grain FINAL v7.6 ContainerSelect
+echo        AV1 NVENC + grav1synth Film Grain FINAL v7.15 FilmLook-LUT
 echo ============================================================
 echo.
 echo AV1 speed / quality:
@@ -245,6 +258,12 @@ if "%CONTAINER_SEL%"=="2" (
     set "FINAL_REMUX_CODEC=-c copy"
     set "FINAL_REMUX_EXTRA="
 )
+
+rem ============================================================
+rem Optional Film Look LUT
+rem ============================================================
+
+call :SELECT_FILM_LUT
 
 
 rem ============================================================
@@ -559,7 +578,7 @@ rem ============================================================
 
 cls
 echo ============================================================
-echo        AV1 NVENC + grav1synth Film Grain FINAL v7.6 ContainerSelect
+echo        AV1 NVENC + grav1synth Film Grain FINAL v7.15 FilmLook-LUT
 echo ============================================================
 echo.
 echo Speed mode    : %SPEED_LABEL%
@@ -570,16 +589,21 @@ echo Cinema frame  : %CROP_LABEL%
 echo Grain mode    : %GRAIN_MODE%
 echo Grain profile : %GRAIN_LABEL%
 echo Container     : %CONTAINER_LABEL%
-echo Upload copy   : %UPLOAD_LABEL%
+echo Film Look     : %LUT_LABEL%
+if "%LUT_ENABLED%"=="1" echo LUT compat    : DaVinci CUBE range syntax converted for FFmpeg
 echo Upload copy   : %UPLOAD_LABEL%
 echo AV1 bit depth : 10-bit
 echo NVENC preset  : %PRESET%
 echo Multipass     : %MULTIPASS%
 echo Lookahead     : %LOOKAHEAD%
-if "%ENABLE_MAIN_NVDEC%"=="1" (
-    echo Main decode   : NVDEC CUDA
+if "%LUT_ENABLED%"=="1" (
+    echo Main decode   : Software ^(required for CPU lut3d / blend^)
 ) else (
-    echo Main decode   : Software
+    if "%ENABLE_MAIN_NVDEC%"=="1" (
+        echo Main decode   : NVDEC CUDA
+    ) else (
+        echo Main decode   : Software
+    )
 )
 if "%ENABLE_BF%"=="1" (
     echo B-frames      : Enabled ^(%BF% / middle ref^)
@@ -689,8 +713,8 @@ if "%ENABLE_CROP%"=="1" call :PREPARE_CROP
 
 rem ---------- final output ----------
 set "PRESET_SAFE=%GRAIN_FILE_TAG%"
-set "OUTPUT=%INDIR%%NAME%_AV1GS_%PRESET_SAFE%_%SPEED_SUFFIX%_%BITRATE_NUM%k%CROP_SUFFIX%%FPS_SUFFIX%.%EXT%"
-set "UPLOAD_OUTPUT=%INDIR%%NAME%_AV1GS_%PRESET_SAFE%_%SPEED_SUFFIX%_%BITRATE_NUM%k%CROP_SUFFIX%%FPS_SUFFIX%_UPLOAD_H264_GRAIN.mp4"
+set "OUTPUT=%INDIR%%NAME%_AV1GS_%PRESET_SAFE%_%SPEED_SUFFIX%_%BITRATE_NUM%k%CROP_SUFFIX%%FPS_SUFFIX%%LUT_FILE_SUFFIX%.%EXT%"
+set "UPLOAD_OUTPUT=%INDIR%%NAME%_AV1GS_%PRESET_SAFE%_%SPEED_SUFFIX%_%BITRATE_NUM%k%CROP_SUFFIX%%FPS_SUFFIX%%LUT_FILE_SUFFIX%_UPLOAD_H264_GRAIN.mp4"
 
 if exist "%OUTPUT%" (
     echo SKIP: Output already exists:
@@ -737,6 +761,7 @@ set "ENCODE_LOG=%JOBDIR%\encode.log"
 set "GRAIN_LOG=%JOBDIR%\grain.log"
 set "REMUX_LOG=%JOBDIR%\remux.log"
 set "VERIFY_LOG=%JOBDIR%\verify.log"
+set "LUT_LOCAL_FILE=%JOBDIR%\filmlook.cube"
 
 if exist "%JOBDIR%" rmdir /s /q "%JOBDIR%" >nul 2>&1
 mkdir "%JOBDIR%" >nul 2>&1
@@ -760,6 +785,7 @@ if "%ENABLE_CROP%"=="1" echo Framing     : %CROP_DECISION%
 echo Grain       : %GRAIN_LABEL%
 echo Bitrate     : %BITRATE%
 echo Container   : %CONTAINER_LABEL%
+echo Film Look   : %LUT_LABEL%
 echo Final file  : "%OUTPUT%"
 if "%ENABLE_UPLOAD_BAKE%"=="1" (
     echo Upload MP4 : "%UPLOAD_OUTPUT%"
@@ -770,13 +796,51 @@ echo.
 
 
 rem ============================================================
+rem Prepare FFmpeg-compatible local LUT copy
+rem ============================================================
+
+if "%LUT_ENABLED%"=="1" (
+    powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+      "$src=$env:LUT_PATH; $dst=$env:LUT_LOCAL_FILE; " ^
+      "$lines=Get-Content -LiteralPath $src; " ^
+      "$out=foreach($line in $lines){ " ^
+      "  if($line -match '^\s*LUT_3D_INPUT_RANGE\s+([^\s]+)\s+([^\s]+)\s*$'){ " ^
+      "    'DOMAIN_MIN {0} {0} {0}' -f $matches[1]; " ^
+      "    'DOMAIN_MAX {0} {0} {0}' -f $matches[2] " ^
+      "  } else { $line } " ^
+      "}; " ^
+      "$out | Set-Content -LiteralPath $dst -Encoding ascii"
+    if errorlevel 1 (
+        echo.
+        echo ERROR: Could not prepare FFmpeg-compatible LUT.
+        echo Source:
+        echo "%LUT_PATH%"
+        echo Destination:
+        echo "%LUT_LOCAL_FILE%"
+        set "LAST_ERROR_STAGE=LUT compatibility conversion"
+        set /a FAIL_COUNT+=1
+        call :HANDLE_FAILED_JOB
+        goto FILE_DONE
+    )
+)
+
+rem ============================================================
 rem Stage 1 - AV1 NVENC video-only encode
 rem ============================================================
 
 echo [1/%TOTAL_STAGES%] Encoding clean AV1 Main 10 with NVENC...
 
 set "CMD_ENCODE="%FFMPEG%" -hide_banner -stats -y %MAIN_HWACCEL_ARGS% -i "%INPUT%" -vf "%VIDEO_FILTER%" -map 0:v:0 -an -sn -dn -c:v av1_nvenc -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune hq -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% -multipass %MULTIPASS% -rc-lookahead %LOOKAHEAD% -spatial-aq 1 %TAQ_ARGS% -aq-strength %AQ_STRENGTH% %BF_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%""
+
+if "%LUT_ENABLED%"=="1" goto RUN_STAGE1_WITH_LUT
+
 %CMD_ENCODE%
+goto STAGE1_ENCODE_DONE
+
+:RUN_STAGE1_WITH_LUT
+call :RUN_LUT_AV1_ENCODE
+
+:STAGE1_ENCODE_DONE
 
 if errorlevel 1 (
     echo.
@@ -998,6 +1062,208 @@ rem ============================================================
 rem Custom ISO validator
 rem ============================================================
 
+
+
+rem ============================================================
+rem LUT-enabled AV1 encode
+rem Run from JOBDIR so the filter graph can use filmlook.cube
+rem without Windows drive-letter / space escaping.
+rem ============================================================
+
+:RUN_LUT_AV1_ENCODE
+pushd "%JOBDIR%"
+
+rem LUT-enabled path:
+rem software decode -> crop/fps -> RGB16 -> lut3d -> strength blend
+rem -> P010 -> AV1 NVENC.
+rem The selected LUT was copied locally as filmlook.cube.
+"%FFMPEG%" -hide_banner -stats -y -i "%INPUT%" -filter_complex "[0:v:0]%FPS_FILTER%%CROP_FILTER%format=gbrp16le,split=2[lutorig][lutsrc];[lutsrc]lut3d=file=filmlook.cube:interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=p010le[vout]" -map "[vout]" -an -sn -dn -c:v av1_nvenc -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune hq -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% -multipass %MULTIPASS% -rc-lookahead %LOOKAHEAD% -spatial-aq 1 %TAQ_ARGS% -aq-strength %AQ_STRENGTH% %BF_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
+
+set "RUN_LUT_RC=%ERRORLEVEL%"
+popd
+exit /b %RUN_LUT_RC%
+
+rem ============================================================
+rem Film Look LUT selector
+rem ============================================================
+
+:SELECT_FILM_LUT
+set "LUT_ENABLED=0"
+set "LUT_PATH="
+set "LUT_FILTER_PATH="
+set "LUT_LABEL=None"
+set "LUT_OPACITY=0.75"
+set "LUT_STRENGTH_PCT=75"
+set "LUT_FILE_SUFFIX="
+
+cls
+echo ============================================================
+echo                    Film Look / LUT
+echo ============================================================
+echo.
+echo LUT folder:
+echo   "%LUT_ROOT%"
+echo.
+echo   [0] None ^(default^)
+echo.
+
+if not exist "%LUT_ROOT%" (
+    echo WARNING: LUT folder does not exist.
+    echo LUT processing will remain disabled.
+    echo.
+    pause
+    exit /b 0
+)
+
+set "LUT_LIST=%TEMP%\FilmLUT_list_%RANDOM%_%RANDOM%.txt"
+set "LUT_PICK=%TEMP%\FilmLUT_pick_%RANDOM%_%RANDOM%.txt"
+set "LUT_ESC=%TEMP%\FilmLUT_esc_%RANDOM%_%RANDOM%.txt"
+
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$root=[IO.Path]::GetFullPath($env:LUT_ROOT); $i=1; Get-ChildItem -LiteralPath $root -Filter '*.cube' -File -Recurse | Sort-Object FullName | ForEach-Object { $rel=$_.FullName.Substring($root.Length).TrimStart([char]92); '{0}|{1}|{2}|{3}' -f $i,$rel,$_.BaseName,$_.FullName; $i++ }" > "%LUT_LIST%" 2>nul
+
+if not exist "%LUT_LIST%" (
+    echo No .cube LUT files were found.
+    echo.
+    pause
+    exit /b 0
+)
+
+for %%Z in ("%LUT_LIST%") do if %%~zZ EQU 0 (
+    echo No .cube LUT files were found.
+    del /q "%LUT_LIST%" >nul 2>&1
+    echo.
+    pause
+    exit /b 0
+)
+
+for /f "usebackq tokens=1,2,* delims=|" %%A in ("%LUT_LIST%") do echo   [%%A] %%B
+
+:LUT_SELECT_RETRY
+echo.
+set "LUT_SEL=0"
+set /p "LUT_SEL=Select LUT [0=None, default 0]: "
+
+if "%LUT_SEL%"=="" set "LUT_SEL=0"
+if "%LUT_SEL%"=="0" (
+    del /q "%LUT_LIST%" "%LUT_PICK%" "%LUT_ESC%" >nul 2>&1
+    exit /b 0
+)
+
+findstr /b /l /c:"%LUT_SEL%|" "%LUT_LIST%" > "%LUT_PICK%"
+if errorlevel 1 (
+    echo Invalid LUT selection.
+    goto LUT_SELECT_RETRY
+)
+
+set "LUT_PATH="
+set "LUT_NAME="
+set "LUT_RELATIVE="
+for /f "usebackq tokens=1,2,3,* delims=|" %%A in ("%LUT_PICK%") do (
+    set "LUT_RELATIVE=%%B"
+    set "LUT_NAME=%%C"
+    set "LUT_PATH=%%D"
+)
+
+if not defined LUT_PATH (
+    echo ERROR: Could not resolve selected LUT.
+    del /q "%LUT_LIST%" "%LUT_PICK%" "%LUT_ESC%" >nul 2>&1
+    pause
+    exit /b 0
+)
+
+"%FFMPEG%" -hide_banner -h filter=lut3d >nul 2>&1
+if errorlevel 1 (
+    echo.
+    echo ERROR: This FFmpeg build does not contain the lut3d filter.
+    del /q "%LUT_LIST%" "%LUT_PICK%" "%LUT_ESC%" >nul 2>&1
+    pause
+    exit /b 0
+)
+
+rem Convert Windows path:
+rem   E:\Folder\File.cube
+rem to FFmpeg filter syntax:
+rem   E\:/Folder/File.cube
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$p=$env:LUT_PATH; $p=$p.Replace('\','/').Replace(':','\:'); [Console]::Out.Write($p)" > "%LUT_ESC%" 2>nul
+set "LUT_FILTER_PATH="
+set /p "LUT_FILTER_PATH="<"%LUT_ESC%"
+
+if not defined LUT_FILTER_PATH (
+    echo ERROR: Could not prepare LUT path for FFmpeg.
+    del /q "%LUT_LIST%" "%LUT_PICK%" "%LUT_ESC%" >nul 2>&1
+    pause
+    exit /b 0
+)
+
+rem ------------------------------------------------------------
+rem Validate that this .cube is a real 3D LUT and that FFmpeg's
+rem lut3d parser can load it before processing the user's video.
+rem ------------------------------------------------------------
+findstr /i /b /c:"LUT_3D_SIZE" "%LUT_PATH%" >nul 2>&1
+if errorlevel 1 (
+    echo.
+    echo ERROR: Selected .cube does not contain LUT_3D_SIZE.
+    echo It may be a 1D/shaper LUT rather than a 3D LUT supported by lut3d.
+    echo.
+    echo LUT:
+    echo "%LUT_PATH%"
+    del /q "%LUT_LIST%" "%LUT_PICK%" "%LUT_ESC%" >nul 2>&1
+    pause
+    exit /b 0
+)
+
+set "LUT_TEST_LOG=%TEMP%\FilmLUT_test_%RANDOM%_%RANDOM%.txt"
+"%FFMPEG%" -hide_banner -v error -f lavfi -i "color=c=gray:s=32x32:d=0.04" -vf "format=gbrp16le,lut3d=file='%LUT_FILTER_PATH%':interp=tetrahedral" -frames:v 1 -f null NUL > "%LUT_TEST_LOG%" 2>&1
+if errorlevel 1 (
+    echo.
+    echo ERROR: FFmpeg cannot initialize this LUT with lut3d.
+    echo.
+    if exist "%LUT_TEST_LOG%" type "%LUT_TEST_LOG%"
+    echo.
+    echo LUT:
+    echo "%LUT_PATH%"
+    del /q "%LUT_LIST%" "%LUT_PICK%" "%LUT_ESC%" "%LUT_TEST_LOG%" >nul 2>&1
+    pause
+    exit /b 0
+)
+del /q "%LUT_TEST_LOG%" >nul 2>&1
+
+echo.
+echo LUT validation: PASS
+echo.
+echo LUT strength:
+echo.
+echo   [1] 25%%
+echo   [2] 50%%
+echo   [3] 75%%   ^(default^)
+echo   [4] 100%%
+echo.
+set "LUT_STRENGTH_SEL=3"
+set /p "LUT_STRENGTH_SEL=Select [1-4, default 3]: "
+
+set "LUT_OPACITY=0.75"
+set "LUT_STRENGTH_PCT=75"
+
+if "%LUT_STRENGTH_SEL%"=="1" (
+    set "LUT_OPACITY=0.25"
+    set "LUT_STRENGTH_PCT=25"
+)
+if "%LUT_STRENGTH_SEL%"=="2" (
+    set "LUT_OPACITY=0.50"
+    set "LUT_STRENGTH_PCT=50"
+)
+if "%LUT_STRENGTH_SEL%"=="4" (
+    set "LUT_OPACITY=1.00"
+    set "LUT_STRENGTH_PCT=100"
+)
+
+set "LUT_ENABLED=1"
+set "LUT_LABEL=%LUT_RELATIVE% @ %LUT_STRENGTH_PCT%%%"
+set "LUT_FILE_SUFFIX=_LUT%LUT_SEL%_%LUT_STRENGTH_PCT%"
+
+del /q "%LUT_LIST%" "%LUT_PICK%" "%LUT_ESC%" >nul 2>&1
+exit /b 0
+
 :VALIDATE_CUSTOM_ISO
 if not defined CUSTOM_ISO (
     echo Invalid ISO. Falling back to ISO 800.
@@ -1142,6 +1408,7 @@ echo Intermediate  : IVF
 echo Grain engine  : grav1synth AV1 Film Grain
 echo Grain profile : %GRAIN_LABEL%
 echo Container     : %CONTAINER_LABEL%
+echo Film Look     : %LUT_LABEL%
 echo Speed mode    : %SPEED_LABEL%
 echo Bitrate       : %BITRATE%
 echo Frame rate    : %FPS_LABEL%

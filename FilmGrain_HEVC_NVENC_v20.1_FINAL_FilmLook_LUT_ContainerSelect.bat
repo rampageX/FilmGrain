@@ -3,7 +3,7 @@ setlocal DisableDelayedExpansion
 
 rem ============================================================
 rem  Multi Film Grain Plate + Vulkan GPU Blend + HEVC NVENC batch encoder
-rem  Windows drag-and-drop / multi-file version - V20 Final + Auto Cinema FPS + Container Select
+rem  Windows drag-and-drop / multi-file version - V20.1 Final + Film Look LUT FIX + Container Select
 rem
 rem  IMPORTANT:
 rem  The grain plate must be a neutral 50%% gray plate intended
@@ -75,6 +75,20 @@ set "CONTAINER_LABEL=MKV / preserve original streams"
 set "STREAM_MAP_ARGS=-map 0:a? -map 0:s? -map 0:t?"
 set "AUDIO_MUX_ARGS=-c:a copy -c:s copy -c:t copy"
 set "CONTAINER_EXTRA_ARGS="
+
+rem Film Look LUT folder.
+rem The script recursively scans this folder for *.cube files.
+set "LUT_ROOT=E:\Adobe Portable\LUTs\BT.709"
+
+rem LUT runtime state. Default = disabled.
+set "LUT_ENABLED=0"
+set "LUT_PATH="
+set "LUT_FILTER_PATH="
+set "LUT_COMPAT_FILE="
+set "LUT_LABEL=None"
+set "LUT_OPACITY=0.75"
+set "LUT_STRENGTH_PCT=75"
+set "LUT_FILE_SUFFIX="
 
 rem ---------- END USER SETTINGS ----------
 
@@ -219,6 +233,12 @@ if "%CONTAINER_SEL%"=="2" (
     set "AUDIO_MUX_ARGS=-c:a copy -c:s copy -c:t copy"
     set "CONTAINER_EXTRA_ARGS="
 )
+
+rem ============================================================
+rem Optional Film Look LUT
+rem ============================================================
+
+call :SELECT_FILM_LUT
 
 cls
 echo ============================================================
@@ -543,6 +563,8 @@ if "%ENABLE_TEMPORAL_AQ%"=="1" (
 echo FPS mode      : CFR ^(%FPS_LABEL%^)
 echo Duration cap  : source duration
 echo Container     : %CONTAINER_LABEL%
+echo Film Look     : %LUT_LABEL%
+if "%LUT_ENABLED%"=="1" echo LUT strength   : %LUT_STRENGTH_PCT%%% ^(corrected direction^)
 echo Output        : HEVC Main10 / %CONTAINER_MODE%
 echo ------------------------------------------------------------
 echo.
@@ -553,7 +575,7 @@ if "%~1"=="" goto FINISHED
 set "INPUT=%~f1"
 set "INDIR=%~dp1"
 set "NAME=%~n1"
-set "OUTPUT_BASE=%~dp1%~n1%SUFFIX%"
+set "OUTPUT_BASE=%~dp1%~n1%SUFFIX%%LUT_FILE_SUFFIX%"
 set "OUTPUT="
 
 echo.
@@ -699,6 +721,16 @@ set "GRAIN_FILTER=[1:v:0]fps=%OUT_FPS%,format=p010le,setpts=PTS-STARTPTS,hwuploa
 if "%GRAIN_SCALE_REQUIRED%"=="1" set "GRAIN_FILTER=%GRAIN_FILTER%,scale_vulkan=w=%WIDTH%:h=%HEIGHT%:scaler=bilinear"
 set "GRAIN_FILTER=%GRAIN_FILTER%[grainvk]"
 
+rem Build the main-video branch.
+rem No-LUT mode intentionally keeps the original V20 filter path unchanged.
+set "BASE_FILTER=[0:v:0]%MAIN_FPS_FILTER%format=p010le,setpts=PTS-STARTPTS,hwupload[basevk]"
+
+if "%LUT_ENABLED%"=="1" (
+    rem lut3d works in RGB. Use 16-bit planar RGB for the LUT and strength blend,
+    rem then return to P010 before Vulkan upload / real-grain overlay.
+    set "BASE_FILTER=[0:v:0]%MAIN_FPS_FILTER%format=gbrp16le,setpts=PTS-STARTPTS,split=2[lutorig][lutsrc];[lutsrc]lut3d=file='%LUT_FILTER_PATH%':interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=p010le,hwupload[basevk]"
+)
+
 rem
 rem V20 adaptive decode/cache design:
 rem   - Main input optionally uses NVIDIA NVDEC (ENABLE_MAIN_NVDEC).
@@ -710,7 +742,7 @@ rem   - Higher resolutions use 4K cache + Vulkan scale.
 rem   - Overlay blend remains on Vulkan.
 rem   - Stable CFR + source-duration hard cap is retained.
 rem
-set "CMDLINE="%FFMPEG%" -hide_banner -stats -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk %MAIN_HWACCEL_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN%" -filter_complex "[0:v:0]%MAIN_FPS_FILTER%format=p010le,setpts=PTS-STARTPTS,hwupload[basevk];%GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%LETTERBOX_FILTER%[vout]" -map "[vout]" %STREAM_MAP_ARGS% -map_metadata 0 -map_chapters 0 -c:v hevc_nvenc -profile:v main10 -preset %PRESET% -tune hq -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% -multipass %MULTIPASS% -rc-lookahead %LOOKAHEAD% -spatial-aq 1 %TAQ_ARGS% -aq-strength %AQ_STRENGTH% %BF_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %AUDIO_MUX_ARGS% %CONTAINER_EXTRA_ARGS% "%OUTPUT%""
+set "CMDLINE="%FFMPEG%" -hide_banner -stats -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk %MAIN_HWACCEL_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN%" -filter_complex "%BASE_FILTER%;%GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%LETTERBOX_FILTER%[vout]" -map "[vout]" %STREAM_MAP_ARGS% -map_metadata 0 -map_chapters 0 -c:v hevc_nvenc -profile:v main10 -preset %PRESET% -tune hq -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% -multipass %MULTIPASS% -rc-lookahead %LOOKAHEAD% -spatial-aq 1 %TAQ_ARGS% -aq-strength %AQ_STRENGTH% %BF_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %AUDIO_MUX_ARGS% %CONTAINER_EXTRA_ARGS% "%OUTPUT%""
 %CMDLINE%
 
 if errorlevel 1 (
@@ -842,7 +874,193 @@ echo Letterbox: 2.39:1 - top %BAR_H% px / bottom %BAR_H% px
 exit /b 0
 
 
+
+rem ============================================================
+rem Film Look LUT selector
+rem ============================================================
+
+:SELECT_FILM_LUT
+set "LUT_ENABLED=0"
+set "LUT_PATH="
+set "LUT_FILTER_PATH="
+set "LUT_COMPAT_FILE="
+set "LUT_LABEL=None"
+set "LUT_OPACITY=0.75"
+set "LUT_STRENGTH_PCT=75"
+set "LUT_FILE_SUFFIX="
+
+cls
+echo ============================================================
+echo                    Film Look / LUT
+echo ============================================================
+echo.
+echo LUT folder:
+echo   "%LUT_ROOT%"
+echo.
+echo   [0] None ^(default^)
+echo.
+
+if not exist "%LUT_ROOT%" (
+    echo WARNING: LUT folder does not exist.
+    echo LUT processing will remain disabled.
+    echo.
+    pause
+    exit /b 0
+)
+
+set "LUT_LIST=%TEMP%\FilmLUT_list_%RANDOM%_%RANDOM%.txt"
+set "LUT_PICK=%TEMP%\FilmLUT_pick_%RANDOM%_%RANDOM%.txt"
+set "LUT_ESC=%TEMP%\FilmLUT_esc_%RANDOM%_%RANDOM%.txt"
+
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$root=[IO.Path]::GetFullPath($env:LUT_ROOT); $i=1; Get-ChildItem -LiteralPath $root -Filter '*.cube' -File -Recurse | Sort-Object FullName | ForEach-Object { $rel=$_.FullName.Substring($root.Length).TrimStart([char]92); '{0}|{1}|{2}|{3}' -f $i,$rel,$_.BaseName,$_.FullName; $i++ }" > "%LUT_LIST%" 2>nul
+
+if not exist "%LUT_LIST%" (
+    echo No .cube LUT files were found.
+    echo.
+    pause
+    exit /b 0
+)
+
+for %%Z in ("%LUT_LIST%") do if %%~zZ EQU 0 (
+    echo No .cube LUT files were found.
+    del /q "%LUT_LIST%" >nul 2>&1
+    echo.
+    pause
+    exit /b 0
+)
+
+for /f "usebackq tokens=1,2,* delims=|" %%A in ("%LUT_LIST%") do echo   [%%A] %%B
+
+:LUT_SELECT_RETRY
+echo.
+set "LUT_SEL=0"
+set /p "LUT_SEL=Select LUT [0=None, default 0]: "
+
+if "%LUT_SEL%"=="" set "LUT_SEL=0"
+if "%LUT_SEL%"=="0" (
+    if defined LUT_COMPAT_FILE del /q "%LUT_COMPAT_FILE%" >nul 2>&1
+    del /q "%LUT_LIST%" "%LUT_PICK%" "%LUT_ESC%" >nul 2>&1
+    exit /b 0
+)
+
+findstr /b /l /c:"%LUT_SEL%|" "%LUT_LIST%" > "%LUT_PICK%"
+if errorlevel 1 (
+    echo Invalid LUT selection.
+    goto LUT_SELECT_RETRY
+)
+
+set "LUT_PATH="
+set "LUT_NAME="
+set "LUT_RELATIVE="
+for /f "usebackq tokens=1,2,3,* delims=|" %%A in ("%LUT_PICK%") do (
+    set "LUT_RELATIVE=%%B"
+    set "LUT_NAME=%%C"
+    set "LUT_PATH=%%D"
+)
+
+if not defined LUT_PATH (
+    echo ERROR: Could not resolve selected LUT.
+    del /q "%LUT_LIST%" "%LUT_PICK%" "%LUT_ESC%" >nul 2>&1
+    pause
+    exit /b 0
+)
+
+"%FFMPEG%" -hide_banner -h filter=lut3d >nul 2>&1
+if errorlevel 1 (
+    echo.
+    echo ERROR: This FFmpeg build does not contain the lut3d filter.
+    del /q "%LUT_LIST%" "%LUT_PICK%" "%LUT_ESC%" >nul 2>&1
+    pause
+    exit /b 0
+)
+
+rem ------------------------------------------------------------
+rem Prepare an FFmpeg-compatible temporary CUBE.
+rem DaVinci Resolve accepts:
+rem   LUT_3D_INPUT_RANGE a b
+rem FFmpeg lut3d does not. Convert it to:
+rem   DOMAIN_MIN a a a
+rem   DOMAIN_MAX b b b
+rem All other LUT content remains unchanged.
+rem ------------------------------------------------------------
+set "LUT_COMPAT_FILE=%TEMP%\FilmLUT_compat_%RANDOM%_%RANDOM%.cube"
+
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$src=$env:LUT_PATH; $dst=$env:LUT_COMPAT_FILE; $lines=Get-Content -LiteralPath $src; $out=foreach($line in $lines){ if($line -match '^\s*LUT_3D_INPUT_RANGE\s+([^\s]+)\s+([^\s]+)\s*$'){ 'DOMAIN_MIN {0} {0} {0}' -f $matches[1]; 'DOMAIN_MAX {0} {0} {0}' -f $matches[2] } else { $line } }; $out | Set-Content -LiteralPath $dst -Encoding ascii"
+if errorlevel 1 (
+    echo.
+    echo ERROR: Could not prepare FFmpeg-compatible LUT.
+    del /q "%LUT_LIST%" "%LUT_PICK%" "%LUT_ESC%" "%LUT_COMPAT_FILE%" >nul 2>&1
+    pause
+    exit /b 0
+)
+
+if not exist "%LUT_COMPAT_FILE%" (
+    echo.
+    echo ERROR: FFmpeg-compatible LUT file was not created.
+    del /q "%LUT_LIST%" "%LUT_PICK%" "%LUT_ESC%" >nul 2>&1
+    pause
+    exit /b 0
+)
+
+rem Convert temporary Windows path to FFmpeg filter syntax.
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$p=$env:LUT_COMPAT_FILE; $p=$p.Replace('\','/').Replace(':','\:'); [Console]::Out.Write($p)" > "%LUT_ESC%" 2>nul
+set "LUT_FILTER_PATH="
+set /p "LUT_FILTER_PATH="<"%LUT_ESC%"
+
+if not defined LUT_FILTER_PATH (
+    echo ERROR: Could not prepare LUT path for FFmpeg.
+    del /q "%LUT_LIST%" "%LUT_PICK%" "%LUT_ESC%" "%LUT_COMPAT_FILE%" >nul 2>&1
+    pause
+    exit /b 0
+)
+
+rem Validate the converted LUT before starting the video encode.
+"%FFMPEG%" -hide_banner -v error -f lavfi -i "color=c=gray:s=32x32:d=0.04" -vf "format=gbrp16le,lut3d=file='%LUT_FILTER_PATH%':interp=tetrahedral" -frames:v 1 -f null NUL >nul 2>&1
+if errorlevel 1 (
+    echo.
+    echo ERROR: FFmpeg cannot initialize the selected LUT.
+    echo "%LUT_PATH%"
+    del /q "%LUT_LIST%" "%LUT_PICK%" "%LUT_ESC%" "%LUT_COMPAT_FILE%" >nul 2>&1
+    pause
+    exit /b 0
+)
+
+echo.
+echo LUT strength:
+echo.
+echo   [1] 25%%
+echo   [2] 50%%
+echo   [3] 75%%   ^(default^)
+echo   [4] 100%%
+echo.
+set "LUT_STRENGTH_SEL=3"
+set /p "LUT_STRENGTH_SEL=Select [1-4, default 3]: "
+
+set "LUT_OPACITY=0.75"
+set "LUT_STRENGTH_PCT=75"
+
+if "%LUT_STRENGTH_SEL%"=="1" (
+    set "LUT_OPACITY=0.25"
+    set "LUT_STRENGTH_PCT=25"
+)
+if "%LUT_STRENGTH_SEL%"=="2" (
+    set "LUT_OPACITY=0.50"
+    set "LUT_STRENGTH_PCT=50"
+)
+if "%LUT_STRENGTH_SEL%"=="4" (
+    set "LUT_OPACITY=1.00"
+    set "LUT_STRENGTH_PCT=100"
+)
+
+set "LUT_ENABLED=1"
+set "LUT_LABEL=%LUT_RELATIVE% @ %LUT_STRENGTH_PCT%%%"
+set "LUT_FILE_SUFFIX=_LUT%LUT_SEL%_%LUT_STRENGTH_PCT%"
+
+del /q "%LUT_LIST%" "%LUT_PICK%" "%LUT_ESC%" >nul 2>&1
+exit /b 0
+
 :FINISHED
+if defined LUT_COMPAT_FILE del /q "%LUT_COMPAT_FILE%" >nul 2>&1
 cls
 echo ============================================================
 echo                    Batch Summary
@@ -851,6 +1069,7 @@ echo.
 echo Speed mode    : %SPEED_LABEL%
 echo Letterbox     : %LETTERBOX_LABEL%
 echo Frame rate    : %FPS_LABEL%
+echo Film Look     : %LUT_LABEL%
 echo Total dragged : %FILE_COUNT%
 echo Successful    : %SUCCESS_COUNT%
 echo Failed        : %FAIL_COUNT%
