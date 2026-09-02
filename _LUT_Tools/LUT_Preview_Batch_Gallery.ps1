@@ -142,7 +142,7 @@ function PrepareLutForFFmpeg($lut, $tempDirectory, $sequence) {
 
 if (-not (Test-Path -LiteralPath $FFMPEG)) { throw "FFmpeg not found: $FFMPEG" }
 
-Write-Host "`n=== Recursive LUT Preview Generator v2.2 / Gallery + Resolve-Compatible ===`n" -ForegroundColor Cyan
+Write-Host "`n=== Recursive LUT Preview Generator / Gallery + Resolve-Compatible ===`n" -ForegroundColor Cyan
 Write-Host "Press Enter at prompts to use the value shown in [brackets].`n" -ForegroundColor DarkGray
 
 $root = AskPathWithDefault "LUT root directory" $DefaultLutRoot $true
@@ -267,7 +267,7 @@ foreach ($lut in $luts) {
 }
 
 # Write a gallery index that maps each preview image to its source LUT.
-# This is consumed by LUT_Gallery_Selector.ps1 / AV1 v7.16.
+# This is consumed by LUT_Gallery_Selector.ps1 and the AV1 pipeline.
 $galleryIndex = Join-Path $out "_LUT_GALLERY_INDEX.json"
 $galleryRows | Sort-Object Relative | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $galleryIndex -Encoding UTF8
 

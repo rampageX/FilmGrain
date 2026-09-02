@@ -3,7 +3,7 @@ setlocal DisableDelayedExpansion
 
 rem ============================================================
 rem  Film Grain MOV -> 1080p HEVC Main10 Lossless Cache
-rem  Put this BAT inside D:\Film_Grain and run it directly.
+rem  Utility location is independent; D:\Film_Grain is scanned recursively.
 rem
 rem  Output example:
 rem    foo.mov -> foo_1080p_HEVC_Lossless.mkv
@@ -14,7 +14,7 @@ rem ============================================================
 
 set "FFMPEG=E:\EnCoder\FFMpeg\13.0\bin\ffmpeg.exe"
 set "FFPROBE=E:\EnCoder\FFMpeg\13.0\bin\ffprobe.exe"
-set "ROOT=%~dp0"
+set "ROOT=D:\Film_Grain"
 set "VULKAN_DEVICE=0"
 set "PRESET=p5"
 set "VERIFY=1"
@@ -33,6 +33,14 @@ echo Scale     : Vulkan bilinear
 echo Preset    : %PRESET%
 echo Verify    : %VERIFY%
 echo.
+
+if not exist "%ROOT%\" (
+    echo ERROR: Grain library folder not found:
+    echo "%ROOT%"
+    echo.
+    pause
+    exit /b 1
+)
 
 if not exist "%FFMPEG%" (
     echo ERROR: FFmpeg not found:

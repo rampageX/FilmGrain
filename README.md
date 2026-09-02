@@ -1,15 +1,21 @@
-# Universal Film Grain Toolkit
+# Film Grain Studio
 
-使用 **FFmpeg + NVIDIA GPU** 为数字视频添加电影胶片质感，提供两条可切换的处理路线：
+基于 **FFmpeg、NVIDIA NVENC 与 grav1synth** 的 Windows 视频胶片化工具包，同时提供图形界面和命令行入口。
+
+项目包含两条可切换的 Film Grain 处理路线：
 
 - **HEVC Main10 + 真实扫描 Grain Plate**：将真实胶片颗粒合成到视频像素中。
-- **AV1 Main10 + grav1synth Film Grain**：将颗粒模型写入 AV1 Film Grain metadata，由播放器解码时合成。
+- **AV1 Main10 + grav1synth Film Grain**：将颗粒模型写入 AV1 Film Grain metadata，由播放器在解码时合成。
 
-当前稳定基准：
+当前正式稳定版为 **v3.0**，发布包名称：
 
-`FilmGrain_Universal_HEVC_AV1_v32_Grav1synth_LUTGallery.bat`
+```text
+FilmGrain_Studio_v3.0_Stable.zip
+```
 
-默认使用 **AV1** 编码和 **MP4** 容器，并集成 LUT Gallery、电影画幅、自动电影帧率、多文件拖放、RTX 4080 NVENC 参数及 AV1 Film Grain 验证。
+所有独立脚本使用固定文件名，不再包含组件版本号；版本号只体现在整个项目的发布压缩包上。升级时建议完整替换工具包，避免新旧脚本混用。
+
+默认配置为 **AV1 Main10 + MP4 + AAC 256k**，并集成 LUT Gallery、自动电影帧率、Cinematic Style、多文件处理、RTX 4080 NVENC 参数及 AV1 Film Grain 最终验证。
 
 <table>
   <tr>
@@ -20,11 +26,24 @@
 
 ---
 
+## 两个正式入口
+
+项目根目录只保留两个 BAT 入口：
+
+| 文件 | 用途 |
+|---|---|
+| `FilmGrain_Universal_HEVC_AV1_GUI.bat` | 启动 Film Grain Studio 图形界面，推荐日常使用 |
+| `FilmGrain_Universal_HEVC_AV1_CLI.bat` | 独立命令行版本，保留完整交互菜单与多文件拖放 |
+
+GUI 与 CLI 使用一致的核心编码参数，并同步支持中文、空格以及 `&` 等 CMD 特殊字符路径。
+
+---
+
 ## 两种 Film Grain 路线
 
-真实胶片颗粒具有随机性、亮度相关性和持续变化的空间结构。把颗粒直接写进像素，可以获得稳定、真实且与播放器无关的效果，但随机细节也会明显增加编码压力。
+真实胶片颗粒具有随机性、亮度相关性和持续变化的空间结构。将 Grain Plate 合成进像素，可以获得稳定、真实且不依赖播放器的效果，但也会增加编码压力和所需码率。
 
-AV1 Film Grain Synthesis 采用另一种思路：编码相对干净的画面，并在码流中保存颗粒模型参数，播放时再由解码器生成颗粒，因此更适合低码率和高速批量处理。
+AV1 Film Grain Synthesis 采用另一种方式：编码相对干净的画面，并在码流中保存颗粒模型参数，播放时由解码器生成颗粒，因此更适合低码率和高速批量处理。
 
 参考：[AOMedia AV1 Tool Description](https://aomedia.org/docs/AV1_ToolDescription_v11-clean.pdf)
 
@@ -37,46 +56,40 @@ AV1 Film Grain Synthesis 采用另一种思路：编码相对干净的画面，�
 | 画面一致性 | 不同播放器效果一致 | 可能受解码器实现影响 |
 | 典型用途 | 收藏、真实扫描颗粒 | 高效率压缩、批量转码 |
 
-两种方案长期并存，并不存在绝对替代关系。
+两种方案各有用途，并不存在绝对替代关系。
 
 ---
 
-## 当前工具包结构
+## 工具包结构
 
 ```text
-FilmGrain_Universal_HEVC_AV1_v32_Grav1synth_LUTGallery.bat
-AV1_FilmGrain_Bake_for_Social_Upload_v1.3.bat
-AV1_Grav1synth_Add_Replace_FilmGrain_NoReencode_v1.1.bat
-LUT_Preview_Batch_v2.3_Gallery.bat
-README_v32.txt
+FilmGrain_Universal_HEVC_AV1_CLI.bat
+FilmGrain_Universal_HEVC_AV1_GUI.bat
+README_FilmGrain_Studio.txt
+README_Toolkit.txt
+Utils\
+    FilmGrain_Studio.ps1
+    FilmGrain_Studio_Launcher.vbs
+    FilmGrain_Universal_HEVC_AV1_StudioBridge.bat
+    AV1_FilmGrain_Bake_for_Social_Upload.bat
+    AV1_Grav1synth_Add_Replace_FilmGrain_NoReencode.bat
+    LUT_Preview_Batch_Gallery.bat
+    Collect_BT709_LUTs_Conservative.bat
+    FilmGrain_MOV_to_HEVC_Lossless_Cache.bat
+    FilmGrain_MOV_to_1080p_HEVC_Lossless_Cache.bat
 _LUT_Tools\
     LUT_Gallery_Selector.ps1
-    LUT_Preview_Batch_v2.3_Gallery.ps1
+    LUT_Preview_Batch_Gallery.ps1
     LUT_Reference_Default.jpg
-Utils\
-    FilmGrain_MOV_to_1080p_HEVC_Lossless_Cache.bat
-    FilmGrain_MOV_to_HEVC_Lossless_Cache.bat
-    build-grav1synth-windows-fork-patched-v2.yml
 ```
 
-请保持主 BAT、LUT 预览 BAT 与 `_LUT_Tools` 文件夹的相对位置不变。`Utils` 用于保存辅助生成和构建工具，不参与主脚本的日常运行。
-
-| 文件 | 用途 |
-|---|---|
-| `FilmGrain_Universal_HEVC_AV1_v32_Grav1synth_LUTGallery.bat` | HEVC/AV1 整合主脚本，日常转码入口 |
-| `AV1_FilmGrain_Bake_for_Social_Upload_v1.3.bat` | 将 AV1 Film Grain 烘焙到像素并输出 H.264/AAC MP4 |
-| `AV1_Grav1synth_Add_Replace_FilmGrain_NoReencode_v1.1.bat` | 不重新编码视频，为现有 AV1 添加或替换 Film Grain metadata |
-| `LUT_Preview_Batch_v2.3_Gallery.bat` | 批量生成 LUT Gallery 预览图和索引 |
-| `_LUT_Tools` | Gallery 界面、缩略图生成逻辑及默认参考图 |
-| `Utils\FilmGrain_MOV_to_1080p_HEVC_Lossless_Cache.bat` | 将原始 Grain MOV 制作为 1080p HEVC Main10 Lossless Cache |
-| `Utils\FilmGrain_MOV_to_HEVC_Lossless_Cache.bat` | 将原始 Grain MOV 制作为 4K/原分辨率 HEVC Main10 Lossless Cache |
-| `Utils\build-grav1synth-windows-fork-patched-v2.yml` | 通过 GitHub Actions 构建项目使用的 Windows x64 grav1synth |
+请保持两个入口 BAT、`Utils` 与 `_LUT_Tools` 的相对位置不变。
 
 ---
 
 ## 环境与固定路径
 
-当前版本按以下 Windows 环境测试和配置：
+当前项目按以下 Windows 环境配置：
 
 ```text
 GPU：RTX 4080
@@ -87,7 +100,7 @@ HEVC Grain 库：D:\Film_Grain
 LUT 根目录：E:\Adobe Portable\LUTs
 ```
 
-> `E:\EnCoder\FFMpeg\13.0` 中的 `13.0` 表示 **NVENC API 13.0 兼容构建**，不是 FFmpeg 的正式版本号。
+> `E:\EnCoder\FFMpeg\13.0` 中的 `13.0` 表示项目锁定使用的 NVENC API 13.0 兼容构建目录，不代表 FFmpeg 的正式主版本号。
 
 RTX 4080 默认启用：
 
@@ -100,7 +113,7 @@ AQ Strength：8
 主视频 NVDEC：开启
 ```
 
-RTX T600 Laptop 等不支持当前参数的显卡，应在主脚本顶部设置：
+GUI 可以直接切换到 **RTX T600 Laptop** 兼容配置。CLI 如需用于不支持当前参数的显卡，可在脚本顶部关闭 B-frame 和 Temporal AQ：
 
 ```bat
 set "ENABLE_BF=0"
@@ -111,32 +124,69 @@ set "ENABLE_TEMPORAL_AQ=0"
 
 ## 快速开始
 
-1. 按固定路径放置 FFmpeg、FFprobe、grav1synth、Grain 素材与 LUT。
-2. 保持工具包目录结构不变。
-3. 将一个或多个视频拖到：
+### GUI 图形界面
+
+双击：
 
 ```text
-FilmGrain_Universal_HEVC_AV1_v32_Grav1synth_LUTGallery.bat
+FilmGrain_Universal_HEVC_AV1_GUI.bat
 ```
 
-4. 按菜单选择处理方式；直接回车采用默认值。
-5. 完成后查看成功、失败和跳过数量。
+也可以将一个或多个视频直接拖到该 BAT。启动脚本会在交接参数后退出，GUI 正常显示，同时不保留 CMD 或 Windows PowerShell 黑框。
 
-输出文件已存在时，脚本会跳过，不会直接覆盖现有结果。
+基本流程：
+
+1. 添加或拖入一个或多个视频。
+2. 选择 AV1 或 HEVC、输出容器、码率、帧率和 GPU 配置。
+3. 按需启用 Cinematic Style、Film Grain 与 LUT。
+4. 点击“开始编码”。
+5. 在任务区查看当前阶段、进度、`fps`、`speed`、`ETA` 与完整日志。
+
+### CLI 命令行
+
+将一个或多个视频拖到：
+
+```text
+FilmGrain_Universal_HEVC_AV1_CLI.bat
+```
+
+按菜单选择处理方式；直接回车采用默认值。全部任务结束后会显示成功、失败和跳过数量。
+
+GUI 与 CLI 的输出均保存在源视频所在目录。已有同名输出时会跳过，不会直接覆盖。
 
 ---
 
-## v32 当前默认值
+## GUI 主要功能
+
+- 多视频添加、拖放、移除与清空；
+- 选中单个视频时异步显示视频/音频编码、码率、分辨率、帧率、声道、采样率、时长、容器与总码率；
+- AV1 Main10 + grav1synth 与 HEVC Main10 + Scanned Grain；
+- MP4 与 MKV 输出；
+- FAST 与 Standard 编码模式；
+- 常用码率及自定义 kbps 码率；
+- 自动电影帧率或保持源帧率；
+- RTX 4080 与 RTX T600 Laptop 配置；
+- AV1 Film Preset、Photon ISO、Film 格式、Film stock 与 Chroma Grain；
+- HEVC Grain 根目录递归扫描，只显示电脑上实际存在的 `.mov` Grain Plate；
+- 自动匹配 1080p 或原分辨率 HEVC Lossless Grain Cache；
+- LUT Gallery、最近使用、我的最爱、缩略图预览及 LUT 强度；
+- 结构化实时进度、`fps`、`speed`、`ETA`、日志复制/清空与任务取消。
+
+---
+
+## 当前默认值
 
 | 项目 | 默认值 |
 |---|---|
 | 编码与 Grain 方式 | AV1 Main10 + grav1synth |
 | 输出容器 | MP4 |
+| 音频 | AAC 256 kbps |
 | 速度模式 | FAST：p5 / qres multipass / lookahead 16 |
-| 电影画幅 | 约 2.39:1 |
-| 输出帧率 | Auto Cinematic FPS |
-| LUT | 不使用 |
-| AV1 Grain 来源 | Film Preset |
+| Cinematic Style | 开启，约 2.39:1 |
+| 输出帧率 | 自动电影帧率 |
+| GPU | RTX 4080 |
+| LUT | 关闭 |
+| AV1 Grain 方式 | Film Preset |
 | AV1 Film Preset | Classic35 / Fujifilm Eterna 250D |
 | AV1 平均码率 | 1500 kbps |
 | HEVC 平均码率 | 7500 kbps |
@@ -144,15 +194,15 @@ FilmGrain_Universal_HEVC_AV1_v32_Grav1synth_LUTGallery.bat
 
 ### 容器行为
 
-**MP4（默认）**：音频转换为 AAC 320 kbps，启用 `faststart`，不写入不兼容的字幕、附件和数据流。
+**MP4（默认）**：主输出音频转换为 AAC 256 kbps，启用 `faststart`，不写入不兼容的字幕、附件和数据流。
 
-**MKV**：尽量复制并保留原音频、字幕、附件、数据流、章节与 metadata，更适合完整归档。
+**MKV**：尽量复制并保留原始音频、字幕、附件、数据流、章节与 metadata，更适合完整归档。
+
+可选的 H.264 社交平台上传版使用独立的 AAC 320 kbps 设置。
 
 ---
 
 ## HEVC：真实扫描 Film Grain
-
-HEVC 后端以稳定 HEVC v7.17 处理链为基础：
 
 ```text
 原始视频 + 真实扫描 Grain Plate
@@ -166,22 +216,21 @@ HEVC 后端以稳定 HEVC v7.17 处理链为基础：
 
 主要特点：
 
-- 使用真实 35mm、Super 35、16mm、Super 16 或 8mm Grain Plate；
-- 递归搜索 `D:\Film_Grain` 子目录；
-- 支持 Light/Heavy 素材和自定义 Grain 文件夹；
-- 支持 Grain 透明度；
+- 递归扫描 `D:\Film_Grain` 下的 `.mov` Grain Plate；
+- 支持真实 35mm、Super 35、16mm、Super 16、8mm 及自定义素材；
+- 支持四档 Grain 强度；
 - 使用 `scale_vulkan` 与 `blend_vulkan` 完成 GPU 缩放和 Overlay；
-- 支持 LUT、电影帧率、MP4/MKV 和多文件批量处理。
+- 支持 LUT、Cinematic Style、自动电影帧率、MP4/MKV 与多文件处理。
 
 ### Cinematic Style
 
-HEVC 的 `Cinematic style` 会在保持原始分辨率的情况下添加约 **2.39:1** 上下黑边。
+HEVC 路线会保持原始输出分辨率，并添加约 **2.39:1** 上下黑边。
 
 例如 1920×1080 输入仍输出 1920×1080。黑边在 Grain 合成后添加，因此黑色区域不会叠加颗粒。
 
 ### Grain Cache
 
-主脚本仍支持预先制作的：
+主脚本会自动查找与原始 Grain MOV 同目录、同名的缓存：
 
 ```text
 *_1080p_HEVC_Lossless.mkv
@@ -192,17 +241,18 @@ HEVC 的 `Cinematic style` 会在保持原始分辨率的情况下添加约 **2.
 
 ```text
 ≤ 1920×1080 → 优先使用 1080p Cache
-> 1920×1080 → 优先使用 4K Cache
+> 1920×1080 → 优先使用原分辨率 Cache
+找不到适用 Cache → 回退到原始 Grain MOV
 ```
 
-找不到 Cache 时可以回退到原始 Grain MOV。需要生成 Cache 时，可使用 `Utils` 目录中的：
+生成工具位于：
 
 ```text
-FilmGrain_MOV_to_1080p_HEVC_Lossless_Cache.bat
-FilmGrain_MOV_to_HEVC_Lossless_Cache.bat
+Utils\FilmGrain_MOV_to_1080p_HEVC_Lossless_Cache.bat
+Utils\FilmGrain_MOV_to_HEVC_Lossless_Cache.bat
 ```
 
-两个脚本会将原始 Grain MOV 批量转换为 HEVC Main10 Lossless Cache。1080p 版本还会对转换前后的 P010 像素流执行 SHA-256 校验，用于确认 Cache 解码后的 Grain 像素与预处理结果一致。
+两个工具都会生成 HEVC Main10 Lossless Cache，并对源/预处理后的 P010 像素流与缓存解码结果执行 SHA-256 校验。
 
 免费 Grain Plate 素材：
 
@@ -221,8 +271,6 @@ D:\Film_Grain\
 ---
 
 ## AV1：grav1synth Film Grain
-
-AV1 后端以稳定 AV1 v7.15 处理链为基础：
 
 ```text
 原始视频
@@ -244,7 +292,7 @@ MP4 或 MKV
 
 ### Film Preset
 
-默认推荐模式：
+内置 Film 格式：
 
 ```text
 Classic35
@@ -262,10 +310,11 @@ Classic35、Modern35 和 16mm 还可以选择 Fujifilm Eterna 250D/500T、Kodak 
 
 ### AV1 的 2.39:1 画幅
 
-AV1 路线采用 **Active Picture Crop**，而不是把黑边编码进视频：
+AV1 路线采用 **Active Picture Crop**，而不是将黑边编码进视频：
 
 ```text
 1920×1080 → 约 1920×804
+2560×1440 → 约 2560×1072
 ```
 
 这样可以避免 Film Grain 模型影响黑边，同时减少对黑色区域的无效编码。全屏播放时由播放器或显示设备补充黑边。
@@ -274,56 +323,61 @@ AV1 路线采用 **Active Picture Crop**，而不是把黑边编码进视频：
 
 AV1 任务完成前会运行 `grav1synth inspect`。只有最终输出中的 Film Grain 信息通过检查，任务才会计为成功。
 
-项目链接：
+相关项目：
 
 - [rust-av / grav1synth](https://github.com/rust-av/grav1synth)
-- [本项目使用的 Windows 修订版仓库](https://github.com/rampageX/grav1synth)
-
-需要自行构建 Windows x64 版本时，可使用：
-
-```text
-Utils\build-grav1synth-windows-fork-patched-v2.yml
-```
-
-该文件用于 GitHub Actions Windows Runner，对应本项目实际使用的修订版 grav1synth 构建流程。
+- [本项目使用的 Windows 修订版](https://github.com/rampageX/grav1synth)
 
 ---
 
 ## 自动电影帧率
 
-主脚本提供：
+自动模式会先将 FFprobe 返回的平均帧率分数换算为数值，再识别 VFR 和数学上等价的非标准分数，例如 `60/2` 或 `19001/317`。
 
-```text
-[1] Keep source FPS
-[2] Auto cinematic FPS（默认）
-```
+| 源帧率族 | 输出 |
+|---|---|
+| 23.976 / 29.97 / 47.952 / 59.94 / 119.88 附近 | 23.976 CFR |
+| 24 / 25 / 30 / 48 / 50 / 60 / 100 / 120 附近 | 24.000 CFR |
+| 无法可靠归类的特殊帧率 | 保持源帧率 |
 
-自动模式将常见 NTSC fractional 帧率族转换为 **23.976 fps**，将常见整数/PAL 帧率族转换为 **24.000 fps**。无法可靠匹配的特殊帧率会保留源帧率。
-
-脚本使用 CFR 输出并保持正常视频时长；特殊 VFR 素材仍建议检查音画同步。
+转换使用 CFR 输出并保持正常视频时长。特殊 VFR 素材仍建议检查音画同步。
 
 ---
 
 ## LUT Gallery 与 Film Look
 
-v32 集成可视化 LUT Gallery，默认 LUT 根目录为：
+默认 LUT 根目录：
 
 ```text
 E:\Adobe Portable\LUTs
 ```
 
-运行 `LUT_Preview_Batch_v2.3_Gallery.bat` 可生成预览图和 Gallery index。
+运行以下工具可递归生成 LUT 缩略图与 Gallery 索引：
 
-缩略图生成器支持递归扫描、默认或自定义参考素材、Junction/Symlink、防循环、1920 宽预览及 Resolve CUBE 兼容处理。
+```text
+Utils\LUT_Preview_Batch_Gallery.bat
+```
 
-Gallery 支持：
+缩略图生成器支持默认或自定义参考素材、Junction/Symlink、防循环、1920 宽预览及 Resolve CUBE 兼容处理。
 
-- 缩略图显示、Recent、Favorites；
-- 文件夹筛选、搜索、分页；
-- 右键菜单和双击选择；
-- Enter 确认、PageUp/PageDown 翻页、Esc 取消。
+中文 LUT Gallery 支持：
 
-选定 LUT 后，主脚本使用 tetrahedral 插值，并允许设置 LUT 强度。
+- 全部 LUT、最近使用和我的最爱；
+- 搜索、文件夹筛选与缩略图显示；
+- 当前页码输入后按 Enter 直接跳转；
+- 上一页/下一页及 PageUp/PageDown 首尾循环；
+- 右键菜单、收藏、双击选择、Enter 确认与 Esc 取消。
+
+选定 LUT 后，编码链使用 tetrahedral 插值，并支持 25%、50%、75% 和 100% 强度。
+
+### 最近使用与我的最爱
+
+- LUT Gallery 是“最近使用”和“我的最爱”数据库的唯一写入者；
+- 在 Gallery 中双击或确认 LUT 时，会立即去重并加入“最近使用”；
+- “最近使用”最多保留 25 条；
+- Studio 主界面的两个下拉列表平时只读，并复用 Gallery 的 240×135 缩略图预览；
+- 从 Studio 的“我的最爱”选择 LUT 后，仅在点击“开始编码”时调用 Gallery 的无界面登记入口，将该 LUT 加入“最近使用”；
+- Recent 写入采用单写者、数量校验与同目录原子替换，避免两个界面互相覆盖或清空历史。
 
 ---
 
@@ -331,16 +385,16 @@ Gallery 支持：
 
 视频平台通常会重新编码上传文件，原始 AV1 Film Grain metadata 很可能无法继续保留。项目提供两种生成上传母版的方式。
 
-### 整合主脚本内生成
+### 在主流程中生成
 
-AV1 菜单可选择 `Bake Film Grain to pixels + H.264 MP4`。启用后，主脚本在生成 AV1 成片后，再额外输出一份 H.264/AAC MP4。
+AV1 模式可以启用 H.264 社交网站上传版。主任务完成后会额外生成一份已将 Grain 烘焙到像素的 H.264/AAC MP4。
 
-### 独立工具 v1.3
+### 独立转换工具
 
 将一个或多个已带 AV1 Film Grain 的文件拖到：
 
 ```text
-AV1_FilmGrain_Bake_for_Social_Upload_v1.3.bat
+Utils\AV1_FilmGrain_Bake_for_Social_Upload.bat
 ```
 
 ```text
@@ -351,7 +405,7 @@ H.264 NVENC
 AAC 320k / MP4 / faststart
 ```
 
-输出文件名带 `_UPLOAD_H264_GRAIN.mp4`，适合作为 YouTube、哔哩哔哩、抖音、腾讯视频等平台的通用上传母版。
+输出文件名带 `_UPLOAD_H264_GRAIN.mp4`，适合作为视频平台上传母版。
 
 ---
 
@@ -360,7 +414,7 @@ AAC 320k / MP4 / faststart
 将一个或多个已有 AV1 视频拖到：
 
 ```text
-AV1_Grav1synth_Add_Replace_FilmGrain_NoReencode_v1.1.bat
+Utils\AV1_Grav1synth_Add_Replace_FilmGrain_NoReencode.bat
 ```
 
 ```text
@@ -379,8 +433,8 @@ grav1synth inspect
 
 - AV1 视频流不重新编码；
 - 没有 Film Grain 时执行添加，已有时执行替换；
-- 默认输出 MKV 并保留原始流；
-- MP4 模式转换音频为 AAC 320 kbps，并省略字幕、附件和数据流；
+- 默认输出 MKV 并尽量保留原始流；
+- MP4 模式将音频转换为 AAC 320 kbps，并省略字幕、附件和数据流；
 - 失败时默认保留临时目录和日志；
 - 非 AV1 视频会被跳过。
 
@@ -388,9 +442,20 @@ grav1synth inspect
 
 ---
 
+## 其他 Utils 工具
+
+| 文件 | 用途 |
+|---|---|
+| `Collect_BT709_LUTs_Conservative.bat` | 保守筛选明确标注 BT.709/Rec.709 输入的 CUBE LUT，复制到 LUT 根目录的 `BT.709` 子目录并生成 CSV 报告 |
+| `FilmGrain_MOV_to_HEVC_Lossless_Cache.bat` | 递归扫描 Grain 库，生成原分辨率 HEVC Main10 Lossless Cache 并验证像素哈希 |
+| `FilmGrain_MOV_to_1080p_HEVC_Lossless_Cache.bat` | 将 Grain Plate 缩放至 1920×1080，生成 HEVC Main10 Lossless Cache 并验证像素哈希 |
+| `LUT_Preview_Batch_Gallery.bat` | 生成 LUT Gallery 缩略图和索引 |
+
+---
+
 ## FFmpeg 与 NVIDIA 驱动
 
-当前稳定环境使用 NVIDIA Driver 596.49，以及采用 NVENC API 13.0 headers 构建的 FFmpeg：
+当前稳定测试环境使用 NVIDIA Driver 596.49，以及采用 NVENC API 13.0 headers 构建的 FFmpeg：
 
 ```text
 BtbN FFmpeg Auto-Build
@@ -405,7 +470,7 @@ Variant : GPL static
 
 最低驱动要求取决于 FFmpeg 构建采用的 NVENC API / `nv-codec-headers`，不能只根据 FFmpeg 主版本号判断。
 
-升级驱动或 FFmpeg 后，至少确认：
+升级驱动或 FFmpeg 后，建议至少确认：
 
 ```bat
 ffmpeg -hide_banner -encoders | findstr /i "hevc_nvenc av1_nvenc"
@@ -414,30 +479,31 @@ ffmpeg -hide_banner -hwaccels | findstr /i "cuda vulkan"
 ffmpeg -hide_banner -h decoder=libdav1d
 ```
 
-同时重新检查：
+并重新测试：
 
 - HEVC/AV1 Main10 输出；
-- Vulkan Grain 合成的亮度、格式和帧同步；
+- Vulkan Grain 合成的亮度、格式与帧同步；
 - 23.976/24 fps 转换后的时长与音画同步；
-- MP4/MKV 的音频、字幕、附件和章节行为；
+- MP4/MKV 的音频、字幕、附件与章节行为；
 - AV1 最终文件能否通过 `grav1synth inspect`；
-- 新环境的实际 `speed=` 与 `elapsed=`。
+- 新环境的实际编码速度。
 
-不要把外部新 FFmpeg 目录中的 DLL 覆盖到 grav1synth 目录，二者的运行时依赖应保持独立。
+不要将外部 FFmpeg 目录中的 DLL 覆盖到 grav1synth 目录，两者的运行时依赖应保持独立。
 
 ---
 
 ## 已知限制
 
-- 仅面向 Windows BAT/PowerShell 工作流；
+- 仅面向 Windows BAT、Windows PowerShell 5.1 与 WinForms 工作流；
 - 当前默认硬件参数以 RTX 4080 为目标；
 - HEVC 扫描 Grain 会增加编码压力和所需码率；
 - AV1 Film Grain 的显示依赖播放器和解码器正确实现 Film Grain Synthesis；
 - 部分平台和转码软件会移除 AV1 Film Grain metadata；
 - MP4 兼容模式不会保留字幕、附件和数据流；
-- AV1 使用 CPU `lut3d/blend` 时，主画面解码会切换为软件路径；
-- 特殊 HDR、VFR、多视频流或非常规容器建议先用短片测试；
-- 重要素材应保留原文件，并在归档前检查画面、音频、时长、流信息和 Film Grain 验证结果。
+- 启用 LUT 时，部分处理链会转为软件滤镜路径，速度可能下降；
+- 特殊 HDR、VFR、多视频流或非常规容器建议先使用短片测试；
+- 强制取消任务可能留下未完成输出或 `__AV1GS_TMP_*` 临时目录；
+- 重要素材应保留原文件，并在归档前检查画面、音频、时长、流信息及 Film Grain 验证结果。
 
 ---
 
@@ -447,8 +513,8 @@ ffmpeg -hide_banner -h decoder=libdav1d
 
 选择 **AV1 + grav1synth**，如果你更重视较低码率、快速批量处理，以及低码率下仍能保留明显颗粒。
 
-当前项目默认推荐：
+当前默认推荐：
 
-> **AV1 Main10 + grav1synth Film Grain，输出 MP4。**
+> **AV1 Main10 + grav1synth Film Grain，输出 MP4 / AAC 256k。**
 
-需要向社交或视频平台上传时，再生成一份将 Grain 烘焙到像素的 H.264 MP4 上传母版。
+需要向社交或视频平台上传时，再生成一份将 Grain 烘焙到像素的 H.264/AAC MP4 上传母版。

@@ -3,7 +3,7 @@ setlocal DisableDelayedExpansion
 
 rem ============================================================
 rem  Film Grain MOV -> HEVC Main10 Lossless Cache
-rem  Put this BAT inside D:\Film_Grain and run it directly.
+rem  Utility location is independent; D:\Film_Grain is scanned recursively.
 rem
 rem  Purpose:
 rem    Convert ProRes/other MOV grain plates into GPU-decodable HEVC
@@ -19,8 +19,8 @@ rem ---------- USER SETTINGS ----------
 set "FFMPEG=E:\EnCoder\FFMpeg\13.0\bin\ffmpeg.exe"
 set "FFPROBE=E:\EnCoder\FFMpeg\13.0\bin\ffprobe.exe"
 
-rem Root = folder containing this BAT. Subfolders are scanned recursively.
-set "ROOT=%~dp0"
+rem Grain library root. Subfolders are scanned recursively.
+set "ROOT=D:\Film_Grain"
 
 rem NVENC lossless preset.
 rem NVIDIA recommends p4-p5 as a good speed/compression balance.
@@ -47,6 +47,14 @@ echo Preset    : %PRESET%
 echo Verify    : %VERIFY%
 echo Output    : *_HEVC_Lossless.%EXT%
 echo.
+
+if not exist "%ROOT%\" (
+    echo ERROR: Grain library folder not found:
+    echo "%ROOT%"
+    echo.
+    pause
+    exit /b 1
+)
 
 if not exist "%FFMPEG%" (
     echo ERROR: FFmpeg was not found:

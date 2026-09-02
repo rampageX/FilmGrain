@@ -2,7 +2,7 @@
 chcp 65001 >nul
 setlocal
 
-set "PREVIEW_SCRIPT=%~dp0_LUT_Tools\LUT_Preview_Batch_v2.3_Gallery.ps1"
+set "PREVIEW_SCRIPT=%~dp0..\_LUT_Tools\LUT_Preview_Batch_Gallery.ps1"
 if not exist "%PREVIEW_SCRIPT%" (
     echo.
     echo ERROR: Preview support script not found:

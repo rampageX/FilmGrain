@@ -2,13 +2,13 @@
 setlocal DisableDelayedExpansion
 
 rem ============================================================
-rem  Universal Film Grain pipeline - v32
+rem  Universal Film Grain pipeline - Studio bridge
 rem
 rem  HEVC backend baseline:
-rem    HEVC v7.17 - scanned Grain plate + Vulkan overlay + NVENC
+rem    HEVC - scanned Grain plate + Vulkan overlay + NVENC
 rem
 rem  AV1 backend baseline:
-rem    AV1 v7.15 - NVENC Main10 -> IVF -> grav1synth -> remux
+rem    AV1 - NVENC Main10 -> IVF -> grav1synth -> remux
 rem
 rem  Shared core:
 rem    tool/input checks, speed, FPS, container, LUT Gallery,
@@ -41,7 +41,7 @@ set "DEFAULT_GRAIN_ROOT=D:\Film_Grain"
 rem Shared visual LUT Gallery.
 set "LUT_ROOT=E:\Adobe Portable\LUTs"
 set "LUT_PREVIEW_ROOT=%LUT_ROOT%\_LUT_PREVIEWS"
-set "LUT_GALLERY_SELECTOR=%~dp0_LUT_Tools\LUT_Gallery_Selector.ps1"
+set "LUT_GALLERY_SELECTOR=%~dp0..\_LUT_Tools\LUT_Gallery_Selector.ps1"
 
 rem Keep AV1 intermediates when a stage fails.
 set "KEEP_FAILED_INTERMEDIATES=1"
@@ -53,7 +53,6 @@ rem ============================================================
 rem Runtime defaults
 rem ============================================================
 
-set "SCRIPT_VERSION=v32"
 set "MODE="
 set "MODE_LABEL="
 set "EXT=mp4"
@@ -75,6 +74,19 @@ set "FAIL_COUNT=0"
 set "SKIP_COUNT=0"
 set "LAST_ERROR_STAGE="
 set "LAST_ERROR_LOG="
+set "STUDIO_FFMPEG_PROGRESS_ARGS="
+
+rem Film Grain Studio only supplies validated values through FG_* variables.
+rem With FG_STUDIO_MODE unset this BAT keeps the original interactive flow.
+if /i "%FG_STUDIO_MODE%"=="1" (
+    set "STUDIO_FFMPEG_PROGRESS_ARGS=-progress pipe:2 -stats_period 0.5"
+    if /i "%FG_GPU_PROFILE%"=="T600" (
+        set "ENABLE_MAIN_NVDEC=0"
+        set "ENABLE_BF=0"
+        set "ENABLE_TEMPORAL_AQ=0"
+    )
+    if defined FG_KEEP_FAILED set "KEEP_FAILED_INTERMEDIATES=%FG_KEEP_FAILED%"
+)
 
 
 rem ============================================================
@@ -202,9 +214,9 @@ rem Shared setup menus
 rem ============================================================
 
 :SELECT_MODE
-cls
+if not "%FG_STUDIO_MODE%"=="1" cls
 echo ============================================================
-echo       Universal Film Grain Pipeline %SCRIPT_VERSION%
+echo       Universal Film Grain Pipeline - Studio Bridge
 echo ============================================================
 echo.
 echo Output codec / Grain method:
@@ -213,7 +225,12 @@ echo   [1] HEVC Main10 - scanned Grain plate / Vulkan overlay
 echo   [2] AV1 Main10  - NVENC + grav1synth Film Grain metadata ^(default^)
 echo.
 set "MODE_SEL=2"
-set /p "MODE_SEL=Select [1-2, default 2]: "
+if "%FG_STUDIO_MODE%"=="1" (
+    if /i "%FG_MODE%"=="HEVC" set "MODE_SEL=1"
+    if /i "%FG_MODE%"=="AV1"  set "MODE_SEL=2"
+) else (
+    set /p "MODE_SEL=Select [1-2, default 2]: "
+)
 
 if "%MODE_SEL%"=="2" (
     set "MODE=AV1"
@@ -233,7 +250,12 @@ echo   [1] Standard  - p6 / fullres / lookahead 32
 echo   [2] FAST      - p5 / qres    / lookahead 16   ^(default^)
 echo.
 set "SPEED_SEL=2"
-set /p "SPEED_SEL=Select [1-2, default 2]: "
+if "%FG_STUDIO_MODE%"=="1" (
+    if /i "%FG_SPEED%"=="STANDARD" set "SPEED_SEL=1"
+    if /i "%FG_SPEED%"=="FAST"     set "SPEED_SEL=2"
+) else (
+    set /p "SPEED_SEL=Select [1-2, default 2]: "
+)
 
 if "%SPEED_SEL%"=="1" (
     set "PRESET=p6"
@@ -263,7 +285,12 @@ echo   [1] Off
 echo   [2] Cinematic style - approx. 2.39:1   ^(default^)
 echo.
 set "LETTERBOX_SEL=2"
-set /p "LETTERBOX_SEL=Select [1-2, default 2]: "
+if "%FG_STUDIO_MODE%"=="1" (
+    if "%FG_CINEMATIC_FRAME%"=="0" set "LETTERBOX_SEL=1"
+    if "%FG_CINEMATIC_FRAME%"=="1" set "LETTERBOX_SEL=2"
+) else (
+    set /p "LETTERBOX_SEL=Select [1-2, default 2]: "
+)
 if "%LETTERBOX_SEL%"=="1" (
     set "ENABLE_LETTERBOX=0"
     set "LETTERBOX_LABEL=Off"
@@ -285,7 +312,12 @@ echo       Example: 1920x1080 -^> about 1920x804
 echo       Player adds pure black bars during fullscreen playback.
 echo.
 set "CROP_SEL=2"
-set /p "CROP_SEL=Select [1-2, default 2]: "
+if "%FG_STUDIO_MODE%"=="1" (
+    if "%FG_CINEMATIC_FRAME%"=="0" set "CROP_SEL=1"
+    if "%FG_CINEMATIC_FRAME%"=="1" set "CROP_SEL=2"
+) else (
+    set /p "CROP_SEL=Select [1-2, default 2]: "
+)
 if "%CROP_SEL%"=="1" (
     set "ENABLE_CROP=0"
     set "CROP_LABEL=Off"
@@ -310,7 +342,12 @@ echo       NTSC fractional family -^> 23.976
 echo       Integer / PAL family    -^> 24.000
 echo.
 set "FPS_SEL=2"
-set /p "FPS_SEL=Select [1-2, default 2]: "
+if "%FG_STUDIO_MODE%"=="1" (
+    if /i "%FG_FPS_MODE%"=="SOURCE" set "FPS_SEL=1"
+    if /i "%FG_FPS_MODE%"=="AUTO"   set "FPS_SEL=2"
+) else (
+    set /p "FPS_SEL=Select [1-2, default 2]: "
+)
 if "%FPS_SEL%"=="1" (
     set "FPS_MODE=SOURCE"
     set "FPS_LABEL=Keep source FPS"
@@ -328,11 +365,16 @@ echo.
 echo   [1] MKV - preserve original audio / subtitles / attachments
 echo   [2] MP4 - compatibility mode ^(default^)
 echo.
-echo       MP4 mode converts audio to AAC 320k and omits
+echo       MP4 mode converts audio to AAC 256k and omits
 echo       incompatible subtitle / attachment / data streams.
 echo.
 set "CONTAINER_SEL=2"
-set /p "CONTAINER_SEL=Select [1-2, default 2]: "
+if "%FG_STUDIO_MODE%"=="1" (
+    if /i "%FG_CONTAINER%"=="MKV" set "CONTAINER_SEL=1"
+    if /i "%FG_CONTAINER%"=="MP4" set "CONTAINER_SEL=2"
+) else (
+    set /p "CONTAINER_SEL=Select [1-2, default 2]: "
+)
 
 if "%CONTAINER_SEL%"=="2" goto SELECT_CONTAINER_MP4
 goto SELECT_CONTAINER_MKV
@@ -340,14 +382,14 @@ goto SELECT_CONTAINER_MKV
 :SELECT_CONTAINER_MP4
 set "EXT=mp4"
 set "CONTAINER_MODE=MP4"
-set "CONTAINER_LABEL=MP4 compatibility / AAC audio"
+set "CONTAINER_LABEL=MP4 compatibility / AAC 256k"
 if /i "%MODE%"=="HEVC" (
     set "HEVC_STREAM_MAP_ARGS=-map 0:a?"
-    set "HEVC_AUDIO_MUX_ARGS=-c:a aac -b:a 320k"
+    set "HEVC_AUDIO_MUX_ARGS=-c:a aac -b:a 256k"
     set "HEVC_CONTAINER_EXTRA_ARGS=-tag:v hvc1 -movflags +faststart"
 ) else (
     set "AV1_FINAL_REMUX_MAP=-map 1:a?"
-    set "AV1_FINAL_REMUX_CODEC=-c:v copy -c:a aac -b:a 320k"
+    set "AV1_FINAL_REMUX_CODEC=-c:v copy -c:a aac -b:a 256k"
     set "AV1_FINAL_REMUX_EXTRA=-movflags +faststart"
 )
 exit /b 0
@@ -383,6 +425,12 @@ set "LUT_OPACITY=0.75"
 set "LUT_STRENGTH_PCT=75"
 set "LUT_FILE_SUFFIX="
 
+if "%FG_STUDIO_MODE%"=="1" (
+    if not defined FG_LUT_PATH exit /b 0
+    set "LUT_PATH=%FG_LUT_PATH%"
+    goto SELECT_FILM_LUT_VALIDATE
+)
+
 cls
 echo ============================================================
 echo                 Film Look / LUT Gallery
@@ -410,7 +458,7 @@ if not exist "%LUT_GALLERY_SELECTOR%" (
     echo Keep this BAT beside the _LUT_Tools folder.
     echo LUT processing will remain disabled.
     echo.
-    pause
+    if not "%FG_STUDIO_MODE%"=="1" pause
     exit /b 0
 )
 
@@ -420,7 +468,7 @@ if not exist "%LUT_ROOT%" (
     echo "%LUT_ROOT%"
     echo LUT processing will remain disabled.
     echo.
-    pause
+    if not "%FG_STUDIO_MODE%"=="1" pause
     exit /b 0
 )
 
@@ -443,7 +491,7 @@ if not "%GALLERY_RC%"=="0" (
     ) else (
         echo LUT Gallery could not be opened. Error code: %GALLERY_RC%
     )
-    timeout /t 2 >nul
+    if not "%FG_STUDIO_MODE%"=="1" timeout /t 2 >nul
     exit /b 0
 )
 
@@ -452,12 +500,13 @@ if exist "%LUT_PICK%" set /p "LUT_PATH="<"%LUT_PICK%"
 del /q "%LUT_PICK%" >nul 2>&1
 if not defined LUT_PATH exit /b 0
 
+:SELECT_FILM_LUT_VALIDATE
 if not exist "%LUT_PATH%" (
     echo.
     echo ERROR: Selected LUT no longer exists:
     echo "%LUT_PATH%"
     echo.
-    pause
+    if not "%FG_STUDIO_MODE%"=="1" pause
     exit /b 0
 )
 
@@ -474,7 +523,7 @@ if errorlevel 1 (
     echo.
     echo ERROR: This FFmpeg build does not contain the lut3d filter.
     echo.
-    pause
+    if not "%FG_STUDIO_MODE%"=="1" pause
     exit /b 0
 )
 
@@ -488,7 +537,7 @@ if errorlevel 1 (
     echo LUT:
     echo "%LUT_PATH%"
     echo.
-    pause
+    if not "%FG_STUDIO_MODE%"=="1" pause
     exit /b 0
 )
 
@@ -511,7 +560,7 @@ if errorlevel 1 (
     if exist "%LUT_COMPAT_FILE%" del /q "%LUT_COMPAT_FILE%" >nul 2>&1
     set "LUT_COMPAT_FILE="
     echo.
-    pause
+    if not "%FG_STUDIO_MODE%"=="1" pause
     exit /b 0
 )
 if not exist "%LUT_COMPAT_FILE%" (
@@ -519,7 +568,7 @@ if not exist "%LUT_COMPAT_FILE%" (
     echo ERROR: FFmpeg-compatible LUT file was not created.
     set "LUT_COMPAT_FILE="
     echo.
-    pause
+    if not "%FG_STUDIO_MODE%"=="1" pause
     exit /b 0
 )
 
@@ -535,7 +584,7 @@ if not defined LUT_FILTER_PATH (
     del /q "%LUT_COMPAT_FILE%" >nul 2>&1
     set "LUT_COMPAT_FILE="
     echo.
-    pause
+    if not "%FG_STUDIO_MODE%"=="1" pause
     exit /b 0
 )
 
@@ -549,7 +598,7 @@ if errorlevel 1 (
     set "LUT_COMPAT_FILE="
     set "LUT_FILTER_PATH="
     echo.
-    pause
+    if not "%FG_STUDIO_MODE%"=="1" pause
     exit /b 0
 )
 
@@ -565,7 +614,14 @@ echo   [3] 75%%   ^(default^)
 echo   [4] 100%%
 echo.
 set "LUT_STRENGTH_SEL=3"
-set /p "LUT_STRENGTH_SEL=Select [1-4, default 3]: "
+if "%FG_STUDIO_MODE%"=="1" (
+    if "%FG_LUT_STRENGTH%"=="25"  set "LUT_STRENGTH_SEL=1"
+    if "%FG_LUT_STRENGTH%"=="50"  set "LUT_STRENGTH_SEL=2"
+    if "%FG_LUT_STRENGTH%"=="75"  set "LUT_STRENGTH_SEL=3"
+    if "%FG_LUT_STRENGTH%"=="100" set "LUT_STRENGTH_SEL=4"
+) else (
+    set /p "LUT_STRENGTH_SEL=Select [1-4, default 3]: "
+)
 
 set "LUT_OPACITY=0.75"
 set "LUT_STRENGTH_PCT=75"
@@ -598,8 +654,9 @@ if defined DEFAULT_GRAIN_ROOT (
 ) else (
     set "GRAIN_ROOT=%~dp0"
 )
+if "%FG_STUDIO_MODE%"=="1" if defined FG_GRAIN_ROOT set "GRAIN_ROOT=%FG_GRAIN_ROOT%"
 
-cls
+if not "%FG_STUDIO_MODE%"=="1" cls
 echo ============================================================
 echo           HEVC Scanned Film Grain / Vulkan
 echo ============================================================
@@ -611,7 +668,7 @@ echo   [Enter] Use current folder
 echo   [C]     Choose another Grain folder for this run
 echo.
 set "FSEL="
-set /p "FSEL=Grain folder option [Enter/C]: "
+if not "%FG_STUDIO_MODE%"=="1" set /p "FSEL=Grain folder option [Enter/C]: "
 if /i "%FSEL%"=="C" call :PROMPT_HEVC_GRAIN_ROOT
 
 if defined GRAIN_ROOT set "GRAIN_ROOT=%GRAIN_ROOT:"=%"
@@ -629,6 +686,9 @@ if not exist "%GRAIN_ROOT%" (
     echo.
     exit /b 1
 )
+
+rem Studio passes the exact file selected from its live directory scan.
+if "%FG_STUDIO_MODE%"=="1" if defined FG_HEVC_GRAIN_PATH goto HEVC_STUDIO_GRAIN_DIRECT
 
 echo.
 echo Grain plate:
@@ -650,7 +710,11 @@ echo   [10] Super 16
 echo   [11] 8mm
 echo.
 set "PSEL=1"
-set /p "PSEL=Select [1-11, default 1]: "
+if "%FG_STUDIO_MODE%"=="1" (
+    if defined FG_HEVC_PLATE set "PSEL=%FG_HEVC_PLATE%"
+) else (
+    set /p "PSEL=Select [1-11, default 1]: "
+)
 
 set "GRAIN="
 set "GRAIN_PATTERN="
@@ -713,6 +777,35 @@ if not defined GRAIN (
     exit /b 1
 )
 
+goto HEVC_GRAIN_RESOLVED
+
+:HEVC_STUDIO_GRAIN_DIRECT
+set "GRAIN=%FG_HEVC_GRAIN_PATH:"=%"
+if not exist "%GRAIN%" (
+    echo.
+    echo ERROR: The Grain plate selected in Film Grain Studio no longer exists.
+    echo "%GRAIN%"
+    echo.
+    exit /b 1
+)
+for %%G in ("%GRAIN%") do set "GRAIN_PATTERN=%%~nxG"
+for %%G in ("%GRAIN%") do set "GRAIN_LABEL=%%~nG"
+set "HEVC_SUFFIX=_FG_SCAN_V20_HEVC"
+if defined FG_HEVC_GRAIN_TAG set "HEVC_SUFFIX=_FG_%FG_HEVC_GRAIN_TAG%_V20_HEVC"
+if /i "%GRAIN_PATTERN%"=="CT 35mm Grain 4K DCI.mov" set "HEVC_SUFFIX=_FG_CT35_V20_HEVC"
+if /i "%GRAIN_PATTERN%"=="Filmgrain_4KDCI_35mm_24fps.mov" set "HEVC_SUFFIX=_FG_35L_V20_HEVC"
+if /i "%GRAIN_PATTERN%"=="Filmgrain_4KDCI_Super_35mm_24fps.mov" set "HEVC_SUFFIX=_FG_S35L_V20_HEVC"
+if /i "%GRAIN_PATTERN%"=="Filmgrain_4KDCI_16mm_24fps.mov" set "HEVC_SUFFIX=_FG_16L_V20_HEVC"
+if /i "%GRAIN_PATTERN%"=="Filmgrain_4KDCI_Super_16mm_24fps.mov" set "HEVC_SUFFIX=_FG_S16L_V20_HEVC"
+if /i "%GRAIN_PATTERN%"=="Filmgrain_4KDCI_8mm_24fps.mov" set "HEVC_SUFFIX=_FG_8L_V20_HEVC"
+if /i "%GRAIN_PATTERN%"=="Filmgrain_4KDCI_35mm_24fps_Heavy.mov" set "HEVC_SUFFIX=_FG_35H_V20_HEVC"
+if /i "%GRAIN_PATTERN%"=="Filmgrain_4KDCI_Super_35mm_24fps_Heavy.mov" set "HEVC_SUFFIX=_FG_S35H_V20_HEVC"
+if /i "%GRAIN_PATTERN%"=="Filmgrain_4KDCI_16mm_24fps_Heavy.mov" set "HEVC_SUFFIX=_FG_16H_V20_HEVC"
+if /i "%GRAIN_PATTERN%"=="Filmgrain_4KDCI_Super_16mm_24fps_Heavy.mov" set "HEVC_SUFFIX=_FG_S16H_V20_HEVC"
+if /i "%GRAIN_PATTERN%"=="Filmgrain_4KDCI_8mm_24fps_Heavy.mov" set "HEVC_SUFFIX=_FG_8H_V20_HEVC"
+
+:HEVC_GRAIN_RESOLVED
+
 set "GRAIN_SOURCE_MOV=%GRAIN%"
 set "GRAIN_CACHE=%GRAIN:~0,-4%_HEVC_Lossless.mkv"
 set "GRAIN_CACHE_1080=%GRAIN:~0,-4%_1080p_HEVC_Lossless.mkv"
@@ -744,7 +837,11 @@ echo   [3] Strong   85%%   ^(recommended^)
 echo   [4] Full     100%%
 echo.
 set "GSEL=3"
-set /p "GSEL=Select [1-4, default 3]: "
+if "%FG_STUDIO_MODE%"=="1" (
+    if defined FG_HEVC_STRENGTH_SEL set "GSEL=%FG_HEVC_STRENGTH_SEL%"
+) else (
+    set /p "GSEL=Select [1-4, default 3]: "
+)
 set "GRAIN_OPACITY=0.85"
 if "%GSEL%"=="1" set "GRAIN_OPACITY=0.65"
 if "%GSEL%"=="2" set "GRAIN_OPACITY=0.75"
@@ -774,7 +871,7 @@ rem AV1 grav1synth setup
 rem ============================================================
 
 :SELECT_AV1_GRAIN
-cls
+if not "%FG_STUDIO_MODE%"=="1" cls
 echo ============================================================
 echo              AV1 grav1synth Film Grain
 echo ============================================================
@@ -785,7 +882,12 @@ echo   [1] Film preset   ^(default / recommended^)
 echo   [2] Photon ISO    ^(advanced strength control^)
 echo.
 set "GRAIN_MODE_SEL=1"
-set /p "GRAIN_MODE_SEL=Select [1-2, default 1]: "
+if "%FG_STUDIO_MODE%"=="1" (
+    if /i "%FG_AV1_GRAIN_MODE%"=="PRESET" set "GRAIN_MODE_SEL=1"
+    if /i "%FG_AV1_GRAIN_MODE%"=="ISO"    set "GRAIN_MODE_SEL=2"
+) else (
+    set /p "GRAIN_MODE_SEL=Select [1-2, default 1]: "
+)
 
 set "GRAIN_MODE=PRESET"
 set "GRAIN_APPLY_ARGS="
@@ -804,7 +906,11 @@ echo   [4] Super8      - very strong / coarse
 echo   [5] MaxMid      - synthetic heavy midtone Grain
 echo.
 set "GRAIN_SEL=1"
-set /p "GRAIN_SEL=Select [1-5, default 1]: "
+if "%FG_STUDIO_MODE%"=="1" (
+    if defined FG_AV1_FORMAT set "GRAIN_SEL=%FG_AV1_FORMAT%"
+) else (
+    set /p "GRAIN_SEL=Select [1-5, default 1]: "
+)
 
 set "GRAIN_BASE=Classic35"
 set "GRAIN_FORMAT_LABEL=Classic35"
@@ -843,7 +949,11 @@ echo   [3] Kodak Vision3 250D
 echo   [4] Kodak Vision3 200T
 echo.
 set "STOCK_SEL=1"
-set /p "STOCK_SEL=Select [1-4, default 1]: "
+if "%FG_STUDIO_MODE%"=="1" (
+    if defined FG_AV1_STOCK set "STOCK_SEL=%FG_AV1_STOCK%"
+) else (
+    set /p "STOCK_SEL=Select [1-4, default 1]: "
+)
 
 if "%STOCK_SEL%"=="1" (
     set "GRAIN_PRESET=%GRAIN_BASE%"
@@ -882,6 +992,8 @@ echo   [4] ISO 3200   - Strong
 echo   [5] ISO 6400   - Very strong
 echo   [6] Custom ISO
 echo.
+if "%FG_STUDIO_MODE%"=="1" goto AV1_GRAIN_ISO_STUDIO
+
 set "ISO_SEL=3"
 set /p "ISO_SEL=Select [1-6, default 3]: "
 
@@ -892,6 +1004,14 @@ if "%ISO_SEL%"=="3" set "GRAIN_ISO=1600"
 if "%ISO_SEL%"=="4" set "GRAIN_ISO=3200"
 if "%ISO_SEL%"=="5" set "GRAIN_ISO=6400"
 if "%ISO_SEL%"=="6" call :PROMPT_CUSTOM_ISO
+goto AV1_GRAIN_ISO_READY
+
+:AV1_GRAIN_ISO_STUDIO
+set "CUSTOM_ISO=1600"
+if defined FG_AV1_ISO set "CUSTOM_ISO=%FG_AV1_ISO%"
+call :VALIDATE_CUSTOM_ISO
+
+:AV1_GRAIN_ISO_READY
 
 echo.
 echo Chroma Grain:
@@ -900,7 +1020,11 @@ echo   [1] Luma only                 ^(default / cleaner^)
 echo   [2] Luma + chroma
 echo.
 set "CHROMA_SEL=1"
-set /p "CHROMA_SEL=Select [1-2, default 1]: "
+if "%FG_STUDIO_MODE%"=="1" (
+    if "%FG_AV1_CHROMA%"=="1" set "CHROMA_SEL=2"
+) else (
+    set /p "CHROMA_SEL=Select [1-2, default 1]: "
+)
 
 set "CHROMA_ARGS="
 set "CHROMA_LABEL=Luma only"
@@ -946,7 +1070,23 @@ rem ============================================================
 rem Mode-specific bitrate menus
 rem ============================================================
 
+:APPLY_STUDIO_BITRATE
+if not defined FG_BITRATE exit /b 1
+if not defined FG_MAXRATE exit /b 1
+if not defined FG_BUFSIZE exit /b 1
+set "BITRATE_NUM=%FG_BITRATE%"
+set "BITRATE=%FG_BITRATE%k"
+set "MAXRATE=%FG_MAXRATE%k"
+set "BUFSIZE=%FG_BUFSIZE%k"
+echo.
+echo Studio rate request:
+echo   b:v      = %BITRATE%
+echo   maxrate  = %MAXRATE%
+echo   bufsize  = %BUFSIZE%
+exit /b 0
+
 :SELECT_HEVC_BITRATE
+if "%FG_STUDIO_MODE%"=="1" goto HEVC_BITRATE_STUDIO
 echo.
 echo Average HEVC video bitrate:
 echo.
@@ -970,6 +1110,11 @@ if errorlevel 1 goto HEVC_BITRATE_INVALID
 set "BITRATE=%CUSTOM_BITRATE_NUM%k"
 set "MAXRATE=%CUSTOM_BITRATE_MAX%k"
 set "BUFSIZE=%CUSTOM_BITRATE_BUF%k"
+exit /b 0
+
+:HEVC_BITRATE_STUDIO
+call :APPLY_STUDIO_BITRATE
+if errorlevel 1 goto HEVC_BITRATE_INVALID
 exit /b 0
 
 :HEVC_BITRATE_1
@@ -1006,6 +1151,7 @@ exit /b 0
 
 
 :SELECT_AV1_BITRATE
+if "%FG_STUDIO_MODE%"=="1" goto AV1_BITRATE_STUDIO
 echo.
 echo Average AV1 video bitrate:
 echo.
@@ -1030,6 +1176,11 @@ set "BITRATE_NUM=%CUSTOM_BITRATE_NUM%"
 set "BITRATE=%CUSTOM_BITRATE_NUM%k"
 set "MAXRATE=%CUSTOM_BITRATE_MAX%k"
 set "BUFSIZE=%CUSTOM_BITRATE_BUF%k"
+exit /b 0
+
+:AV1_BITRATE_STUDIO
+call :APPLY_STUDIO_BITRATE
+if errorlevel 1 goto AV1_BITRATE_INVALID
 exit /b 0
 
 :AV1_BITRATE_1
@@ -1107,7 +1258,11 @@ echo       Universal upload master for YouTube / Bilibili /
 echo       Douyin / Tencent Video / etc.
 echo.
 set "UPLOAD_SEL=1"
-set /p "UPLOAD_SEL=Select [1-2, default 1]: "
+if "%FG_STUDIO_MODE%"=="1" (
+    if "%FG_AV1_UPLOAD%"=="1" set "UPLOAD_SEL=2"
+) else (
+    set /p "UPLOAD_SEL=Select [1-2, default 1]: "
+)
 
 if "%UPLOAD_SEL%"=="2" (
     set "ENABLE_UPLOAD_BAKE=1"
@@ -1149,9 +1304,9 @@ exit /b 0
 
 
 :SHOW_SESSION_SUMMARY
-cls
+if not "%FG_STUDIO_MODE%"=="1" cls
 echo ============================================================
-echo       Universal Film Grain Pipeline %SCRIPT_VERSION%
+echo       Universal Film Grain Pipeline - Studio Bridge
 echo ============================================================
 echo.
 echo Mode          : %MODE_LABEL%
@@ -1229,12 +1384,6 @@ set "INDIR=%~dp1"
 set "NAME=%~n1"
 set "LAST_ERROR_STAGE="
 set "LAST_ERROR_LOG="
-
-set "CMD_HEVC="
-set "CMD_AV1_ENCODE="
-set "CMD_AV1_GRAIN="
-set "CMD_AV1_REMUX="
-set "CMD_AV1_UPLOAD="
 
 echo.
 echo ============================================================
@@ -1409,8 +1558,9 @@ rem No-LUT mode keeps the verified V20 branch.
 set "BASE_FILTER=[0:v:0]%FPS_FILTER%format=p010le,setpts=PTS-STARTPTS,hwupload[basevk]"
 if "%LUT_ENABLED%"=="1" set "BASE_FILTER=[0:v:0]%FPS_FILTER%format=gbrp16le,setpts=PTS-STARTPTS,split=2[lutorig][lutsrc];[lutsrc]lut3d=file='%LUT_FILTER_PATH%':interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=p010le,hwupload[basevk]"
 
-set "CMD_HEVC="%FFMPEG%" -hide_banner -stats -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk %MAIN_HWACCEL_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%LETTERBOX_FILTER%[vout]" -map "[vout]" %HEVC_STREAM_MAP_ARGS% -map_metadata 0 -map_chapters 0 -c:v hevc_nvenc -profile:v main10 -preset %PRESET% -tune hq -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% -multipass %MULTIPASS% -rc-lookahead %LOOKAHEAD% -spatial-aq 1 %TAQ_ARGS% -aq-strength %AQ_STRENGTH% %BF_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %HEVC_AUDIO_MUX_ARGS% %HEVC_CONTAINER_EXTRA_ARGS% "%OUTPUT%""
-%CMD_HEVC%
+rem Execute the command directly. Expanding a complete command stored in a
+rem variable makes CMD reparse special filename characters such as ampersand.
+"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk %MAIN_HWACCEL_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%LETTERBOX_FILTER%[vout]" -map "[vout]" %HEVC_STREAM_MAP_ARGS% -map_metadata 0 -map_chapters 0 -c:v hevc_nvenc -profile:v main10 -preset %PRESET% -tune hq -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% -multipass %MULTIPASS% -rc-lookahead %LOOKAHEAD% -spatial-aq 1 %TAQ_ARGS% -aq-strength %AQ_STRENGTH% %BF_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %HEVC_AUDIO_MUX_ARGS% %HEVC_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
 
 if errorlevel 1 (
     echo.
@@ -1558,10 +1708,8 @@ rem Stage 1 - clean AV1 Main10 video-only encode to IVF
 rem ------------------------------------------------------------
 echo [1/%TOTAL_STAGES%] Encoding clean AV1 Main10 with NVENC...
 
-set "CMD_AV1_ENCODE="%FFMPEG%" -hide_banner -stats -y %MAIN_HWACCEL_ARGS% -i "%INPUT%" -vf "%VIDEO_FILTER%" -map 0:v:0 -an -sn -dn -c:v av1_nvenc -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune hq -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% -multipass %MULTIPASS% -rc-lookahead %LOOKAHEAD% -spatial-aq 1 %TAQ_ARGS% -aq-strength %AQ_STRENGTH% %BF_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%""
-
 if "%LUT_ENABLED%"=="1" goto AV1_STAGE1_LUT
-%CMD_AV1_ENCODE%
+"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %MAIN_HWACCEL_ARGS% -i "%INPUT%" -vf "%VIDEO_FILTER%" -map 0:v:0 -an -sn -dn -c:v av1_nvenc -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune hq -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% -multipass %MULTIPASS% -rc-lookahead %LOOKAHEAD% -spatial-aq 1 %TAQ_ARGS% -aq-strength %AQ_STRENGTH% %BF_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
 set "STAGE_RC=%ERRORLEVEL%"
 goto AV1_STAGE1_DONE
 
@@ -1592,9 +1740,8 @@ rem ------------------------------------------------------------
 echo.
 echo [2/%TOTAL_STAGES%] Injecting AV1 Film Grain with grav1synth...
 
-set "CMD_AV1_GRAIN="%GRAV1SYNTH%" apply "%TMP_BASE%" -o "%TMP_GRAIN%" %GRAIN_APPLY_ARGS% --replace -y"
 pushd "%JOBDIR%"
-%CMD_AV1_GRAIN% > "%GRAIN_LOG%" 2>&1
+"%GRAV1SYNTH%" apply "%TMP_BASE%" -o "%TMP_GRAIN%" %GRAIN_APPLY_ARGS% --replace -y > "%GRAIN_LOG%" 2>&1
 set "GRAIN_RC=%ERRORLEVEL%"
 popd
 
@@ -1628,8 +1775,7 @@ rem ------------------------------------------------------------
 echo.
 echo [3/%TOTAL_STAGES%] Building final %CONTAINER_MODE% container...
 
-set "CMD_AV1_REMUX="%FFMPEG%" -hide_banner -stats -y -i "%TMP_GRAIN%" -i "%INPUT%" -map 0:v:0 %AV1_FINAL_REMUX_MAP% -map_metadata 1 -map_chapters 1 %AV1_FINAL_REMUX_CODEC% %AV1_FINAL_REMUX_EXTRA% "%OUTPUT%""
-%CMD_AV1_REMUX%
+"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -i "%TMP_GRAIN%" -i "%INPUT%" -map 0:v:0 %AV1_FINAL_REMUX_MAP% -map_metadata 1 -map_chapters 1 %AV1_FINAL_REMUX_CODEC% %AV1_FINAL_REMUX_EXTRA% "%OUTPUT%"
 
 if errorlevel 1 (
     echo.
@@ -1721,8 +1867,7 @@ exit /b 0
 
 :RUN_LUT_AV1_ENCODE
 pushd "%JOBDIR%"
-set "CMD_AV1_ENCODE="%FFMPEG%" -hide_banner -stats -y -i "%INPUT%" -filter_complex "[0:v:0]%FPS_FILTER%%CROP_FILTER%format=gbrp16le,split=2[lutorig][lutsrc];[lutsrc]lut3d=file=filmlook.cube:interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=p010le[vout]" -map "[vout]" -an -sn -dn -c:v av1_nvenc -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune hq -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% -multipass %MULTIPASS% -rc-lookahead %LOOKAHEAD% -spatial-aq 1 %TAQ_ARGS% -aq-strength %AQ_STRENGTH% %BF_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%""
-%CMD_AV1_ENCODE%
+"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -i "%INPUT%" -filter_complex "[0:v:0]%FPS_FILTER%%CROP_FILTER%format=gbrp16le,split=2[lutorig][lutsrc];[lutsrc]lut3d=file=filmlook.cube:interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=p010le[vout]" -map "[vout]" -an -sn -dn -c:v av1_nvenc -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune hq -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% -multipass %MULTIPASS% -rc-lookahead %LOOKAHEAD% -spatial-aq 1 %TAQ_ARGS% -aq-strength %AQ_STRENGTH% %BF_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
 set "RUN_LUT_RC=%ERRORLEVEL%"
 popd
 exit /b %RUN_LUT_RC%
@@ -1745,8 +1890,7 @@ if exist "%UPLOAD_OUTPUT%" (
 )
 
 rem Respect the same B-frame / Temporal-AQ switches as the main encode.
-set "CMD_AV1_UPLOAD="%FFMPEG%" -hide_banner -stats -y -c:v libdav1d -i "%OUTPUT%" -map 0:v:0 -map 0:a:0? -map_metadata 0 -c:v h264_nvenc -profile:v high -pix_fmt yuv420p -preset p6 -tune hq -rc vbr -b:v %UPLOAD_BITRATE% -maxrate:v %UPLOAD_MAXRATE% -bufsize:v %UPLOAD_BUFSIZE% -multipass fullres -rc-lookahead 32 -spatial-aq 1 %TAQ_ARGS% -aq-strength %AQ_STRENGTH% %BF_ARGS% -c:a aac -b:a 320k -ac 2 -ar 48000 -movflags +faststart "%UPLOAD_OUTPUT%""
-%CMD_AV1_UPLOAD%
+"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -c:v libdav1d -i "%OUTPUT%" -map 0:v:0 -map 0:a:0? -map_metadata 0 -c:v h264_nvenc -profile:v high -pix_fmt yuv420p -preset p6 -tune hq -rc vbr -b:v %UPLOAD_BITRATE% -maxrate:v %UPLOAD_MAXRATE% -bufsize:v %UPLOAD_BUFSIZE% -multipass fullres -rc-lookahead 32 -spatial-aq 1 %TAQ_ARGS% -aq-strength %AQ_STRENGTH% %BF_ARGS% -c:a aac -b:a 320k -ac 2 -ar 48000 -movflags +faststart "%UPLOAD_OUTPUT%"
 
 if errorlevel 1 (
     echo.
@@ -1787,6 +1931,7 @@ rem Shared FPS and framing helpers
 rem ============================================================
 
 :AUTO_CINEMA_FPS
+set "FPS_CLASS_NOTE="
 if "%FPS%"=="24000/1001" goto AUTO_23976_SAME
 if "%FPS%"=="30000/1001" goto AUTO_23976
 if "%FPS%"=="48000/1001" goto AUTO_23976
@@ -1810,6 +1955,24 @@ if "%FPS%"=="100" goto AUTO_24
 if "%FPS%"=="120/1" goto AUTO_24
 if "%FPS%"=="120" goto AUTO_24
 
+rem FFprobe can describe VFR or mathematically equivalent frame rates with
+rem non-canonical fractions (for example 1800000/60001 or 60/2). Normalize
+rem the rational value, find the nearest known cinema family, and accept it
+rem only when the distance is small enough to avoid changing unrelated rates.
+set "FPS_CLASS_FILE=%TEMP%\FGU_fpsclass_%RANDOM%_%RANDOM%.txt"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$p=$env:FPS -split '/'; try { $c=[Globalization.CultureInfo]::InvariantCulture; if($p.Count -eq 2){$v=[double]::Parse($p[0],$c)/[double]::Parse($p[1],$c)}else{$v=[double]::Parse($env:FPS,$c)} } catch { exit 1 }; if($v -le 0){exit 1}; $best=1e9; $class='KEEP'; foreach($t in @(23.976023976,29.970029970,47.952047952,59.940059940,119.880119880)){ $d=[Math]::Abs($v-$t); if($d -lt $best){$best=$d;$class='23976'} }; foreach($t in @(24.0,25.0,30.0,48.0,50.0,60.0,100.0,120.0)){ $d=[Math]::Abs($v-$t); if($d -lt $best){$best=$d;$class='24'} }; if($best -le 0.25){[Console]::Out.Write($class)}else{[Console]::Out.Write('KEEP')}" > "%FPS_CLASS_FILE%" 2>nul
+set "FPS_CLASS="
+if exist "%FPS_CLASS_FILE%" set /p "FPS_CLASS="<"%FPS_CLASS_FILE%"
+del /q "%FPS_CLASS_FILE%" >nul 2>&1
+if /i "%FPS_CLASS%"=="23976" (
+    set "FPS_CLASS_NOTE=Normalized/VFR source %FPS%"
+    goto AUTO_23976
+)
+if /i "%FPS_CLASS%"=="24" (
+    set "FPS_CLASS_NOTE=Normalized/VFR source %FPS%"
+    goto AUTO_24
+)
+
 set "OUT_FPS=%FPS%"
 set "FPS_FILTER="
 set "FPS_DECISION=Unknown rate - keep source"
@@ -1820,6 +1983,7 @@ exit /b 0
 set "OUT_FPS=24000/1001"
 set "FPS_FILTER=fps=24000/1001,"
 set "FPS_DECISION=23.976 fps"
+if defined FPS_CLASS_NOTE set "FPS_DECISION=23.976 fps - %FPS_CLASS_NOTE%"
 set "FPS_SUFFIX=_23976p"
 exit /b 0
 
@@ -1834,6 +1998,7 @@ exit /b 0
 set "OUT_FPS=24"
 set "FPS_FILTER=fps=24,"
 set "FPS_DECISION=24.000 fps"
+if defined FPS_CLASS_NOTE set "FPS_DECISION=24.000 fps - %FPS_CLASS_NOTE%"
 set "FPS_SUFFIX=_24p"
 exit /b 0
 
@@ -1903,7 +2068,7 @@ rem ============================================================
 
 :FINISHED
 if defined LUT_COMPAT_FILE del /q "%LUT_COMPAT_FILE%" >nul 2>&1
-if "%FAIL_COUNT%"=="0" cls
+if "%FAIL_COUNT%"=="0" if not "%FG_STUDIO_MODE%"=="1" cls
 echo.
 echo ============================================================
 echo                    Batch Summary
@@ -1949,9 +2114,18 @@ if "%FILE_COUNT%"=="1" call :SHOW_ACTUAL_COMMANDS
 echo.
 echo ============================================================
 echo.
+if "%FG_STUDIO_MODE%"=="1" goto FINISHED_STUDIO
 pause
 endlocal
 exit /b 0
+
+:FINISHED_STUDIO
+if "%FAIL_COUNT%"=="0" (
+    endlocal
+    exit /b 0
+)
+endlocal
+exit /b 2
 
 
 :SHOW_ACTUAL_COMMANDS
@@ -1959,11 +2133,25 @@ echo.
 echo ============================================================
 echo Actual commands
 echo ============================================================
-if defined CMD_HEVC echo [HEVC  ] %CMD_HEVC%
-if defined CMD_AV1_ENCODE echo [Encode] %CMD_AV1_ENCODE%
-if defined CMD_AV1_GRAIN echo [Grain ] %CMD_AV1_GRAIN%
-if defined CMD_AV1_REMUX echo [Remux ] %CMD_AV1_REMUX%
-if defined CMD_AV1_UPLOAD echo [Upload] %CMD_AV1_UPLOAD%
+if /i "%MODE%"=="HEVC" goto SHOW_HEVC_COMMAND
+goto SHOW_AV1_COMMANDS
+
+:SHOW_HEVC_COMMAND
+echo [HEVC] "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk %MAIN_HWACCEL_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%LETTERBOX_FILTER%[vout]" -map "[vout]" %HEVC_STREAM_MAP_ARGS% -map_metadata 0 -map_chapters 0 -c:v hevc_nvenc -profile:v main10 -preset %PRESET% -tune hq -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% -multipass %MULTIPASS% -rc-lookahead %LOOKAHEAD% -spatial-aq 1 %TAQ_ARGS% -aq-strength %AQ_STRENGTH% %BF_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %HEVC_AUDIO_MUX_ARGS% %HEVC_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
+exit /b 0
+
+:SHOW_AV1_COMMANDS
+if "%LUT_ENABLED%"=="1" goto SHOW_AV1_LUT_COMMAND
+echo [Encode] "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %MAIN_HWACCEL_ARGS% -i "%INPUT%" -vf "%VIDEO_FILTER%" -map 0:v:0 -an -sn -dn -c:v av1_nvenc -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune hq -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% -multipass %MULTIPASS% -rc-lookahead %LOOKAHEAD% -spatial-aq 1 %TAQ_ARGS% -aq-strength %AQ_STRENGTH% %BF_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
+goto SHOW_AV1_REMAINING_COMMANDS
+
+:SHOW_AV1_LUT_COMMAND
+echo [Encode] "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -i "%INPUT%" -filter_complex "[0:v:0]%FPS_FILTER%%CROP_FILTER%format=gbrp16le,split=2[lutorig][lutsrc];[lutsrc]lut3d=file=filmlook.cube:interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=p010le[vout]" -map "[vout]" -an -sn -dn -c:v av1_nvenc -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune hq -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% -multipass %MULTIPASS% -rc-lookahead %LOOKAHEAD% -spatial-aq 1 %TAQ_ARGS% -aq-strength %AQ_STRENGTH% %BF_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
+
+:SHOW_AV1_REMAINING_COMMANDS
+echo [Grain] "%GRAV1SYNTH%" apply "%TMP_BASE%" -o "%TMP_GRAIN%" %GRAIN_APPLY_ARGS% --replace -y
+echo [Remux] "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -i "%TMP_GRAIN%" -i "%INPUT%" -map 0:v:0 %AV1_FINAL_REMUX_MAP% -map_metadata 1 -map_chapters 1 %AV1_FINAL_REMUX_CODEC% %AV1_FINAL_REMUX_EXTRA% "%OUTPUT%"
+if "%CREATE_UPLOAD%"=="1" echo [Upload] "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -c:v libdav1d -i "%OUTPUT%" -map 0:v:0 -map 0:a:0? -map_metadata 0 -c:v h264_nvenc -profile:v high -pix_fmt yuv420p -preset p6 -tune hq -rc vbr -b:v %UPLOAD_BITRATE% -maxrate:v %UPLOAD_MAXRATE% -bufsize:v %UPLOAD_BUFSIZE% -multipass fullres -rc-lookahead 32 -spatial-aq 1 %TAQ_ARGS% -aq-strength %AQ_STRENGTH% %BF_ARGS% -c:a aac -b:a 320k -ac 2 -ar 48000 -movflags +faststart "%UPLOAD_OUTPUT%"
 exit /b 0
 
 
@@ -1971,14 +2159,24 @@ exit /b 0
 echo.
 echo Drag one or more video files onto this BAT file.
 echo.
+if "%FG_STUDIO_MODE%"=="1" goto NO_INPUT_STUDIO
 pause
 endlocal
 exit /b 0
+
+:NO_INPUT_STUDIO
+endlocal
+exit /b 1
 
 
 :FATAL_END
 if defined LUT_COMPAT_FILE del /q "%LUT_COMPAT_FILE%" >nul 2>&1
 echo.
+if "%FG_STUDIO_MODE%"=="1" goto FATAL_END_STUDIO
 pause
+endlocal
+exit /b 1
+
+:FATAL_END_STUDIO
 endlocal
 exit /b 1

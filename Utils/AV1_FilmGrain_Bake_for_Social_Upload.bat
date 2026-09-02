@@ -2,7 +2,7 @@
 setlocal DisableDelayedExpansion
 
 rem ============================================================
-rem AV1 Film Grain -> Pixel Grain Upload Master v1.3
+rem AV1 Film Grain -> Pixel Grain Upload Master
 rem Drag one or more AV1 Film Grain files onto this BAT.
 rem
 rem libdav1d synthesizes AV1 Film Grain into pixels first.

@@ -1,10 +1,115 @@
 ﻿param(
     [Parameter(Mandatory=$true)][string]$LutRoot,
     [Parameter(Mandatory=$true)][string]$PreviewRoot,
-    [Parameter(Mandatory=$true)][string]$OutputFile
+    [string]$OutputFile,
+    [string]$RecordRecentPath
 )
 
 $ErrorActionPreference = 'Stop'
+$RecentLimit = 25
+$recentPath = Join-Path $PreviewRoot '_LUT_GALLERY_RECENT.json'
+$script:RecentWriteError = ''
+
+function Get-LutKey([string]$path) {
+    if (-not $path) { return '' }
+    try { return ([IO.Path]::GetFullPath($path)).ToLowerInvariant() }
+    catch { return $path.ToLowerInvariant() }
+}
+
+function Save-RecentUse([string]$lutPath) {
+    $script:RecentWriteError = ''
+    if (-not $lutPath -or -not (Test-Path -LiteralPath $lutPath -PathType Leaf)) {
+        $script:RecentWriteError = "LUT 文件不存在：$lutPath"
+        return $false
+    }
+    if ([IO.Path]::GetExtension($lutPath) -ine '.cube') {
+        $script:RecentWriteError = "不是 CUBE LUT：$lutPath"
+        return $false
+    }
+    if (-not (Test-Path -LiteralPath $PreviewRoot -PathType Container)) {
+        $script:RecentWriteError = "预览根目录不存在：$PreviewRoot"
+        return $false
+    }
+
+    $tempPath = Join-Path $PreviewRoot ('.LUT_GALLERY_RECENT_' + [guid]::NewGuid().ToString('N') + '.tmp')
+    $backupPath = Join-Path $PreviewRoot ('.LUT_GALLERY_RECENT_' + [guid]::NewGuid().ToString('N') + '.bak')
+    try {
+        $fullLutPath = (Get-Item -LiteralPath $lutPath).FullName
+        $newKey = Get-LutKey $fullLutPath
+        $records = @(
+            [pscustomobject]@{
+                LutPath = $fullLutPath
+                LastUsed = [DateTime]::UtcNow.ToString('o')
+            }
+        )
+        $seen = @{}
+        $seen[$newKey] = $true
+
+        if (Test-Path -LiteralPath $recentPath -PathType Leaf) {
+            $raw = Get-Content -LiteralPath $recentPath -Raw -Encoding UTF8
+            if ($raw.Trim()) {
+                $parsed = $raw | ConvertFrom-Json
+                $oldRecordCount = 0
+                foreach ($row in $parsed) {
+                    $oldRecordCount++
+                    $oldPath = if ($row -is [string]) { [string]$row } else { [string]$row.LutPath }
+                    if (-not $oldPath) {
+                        throw "Recent 中第 $oldRecordCount 条记录没有 LutPath；为保护原记录，本次拒绝覆盖。"
+                    }
+                    $oldKey = Get-LutKey $oldPath
+                    if ($seen.ContainsKey($oldKey)) { continue }
+                    $seen[$oldKey] = $true
+                    $records += [pscustomobject]@{
+                        # Never clean or validate old entries while writing.
+                        # Readers may hide stale paths, but writers must preserve them.
+                        LutPath = $oldPath
+                        LastUsed = $(if ($row -is [string]) { '' } else { [string]$row.LastUsed })
+                    }
+                    if ($records.Count -ge $RecentLimit) { break }
+                }
+                if ($oldRecordCount -eq 0) {
+                    throw 'Recent 文件非空，但没有解析出任何记录；为保护原记录，本次拒绝覆盖。'
+                }
+            }
+        }
+
+        $json = ConvertTo-Json -InputObject @($records) -Depth 4
+        [IO.File]::WriteAllText($tempPath, $json, (New-Object System.Text.UTF8Encoding($false)))
+
+        # Verify the complete replacement payload before touching the database.
+        $verifyParsed = (Get-Content -LiteralPath $tempPath -Raw -Encoding UTF8) | ConvertFrom-Json
+        $verifyCount = if ($verifyParsed -is [System.Array]) { $verifyParsed.Count } else { 1 }
+        if ($verifyCount -ne $records.Count) {
+            throw "Recent 临时文件校验失败：预期 $($records.Count) 条，实际 $verifyCount 条。"
+        }
+        if (Test-Path -LiteralPath $recentPath -PathType Leaf) {
+            [IO.File]::Replace($tempPath, $recentPath, $backupPath, $true)
+        } else {
+            [IO.File]::Move($tempPath, $recentPath)
+        }
+        return $true
+    } catch {
+        $script:RecentWriteError = $_.Exception.ToString()
+        return $false
+    } finally {
+        if (Test-Path -LiteralPath $tempPath) {
+            Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue
+        }
+        if (Test-Path -LiteralPath $backupPath) {
+            Remove-Item -LiteralPath $backupPath -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+# Studio can request one headless registration, but this Gallery script remains
+# the sole owner and writer of the Recent database.
+if ($RecordRecentPath) {
+    if (Save-RecentUse $RecordRecentPath) { exit 0 }
+    [Console]::Error.WriteLine($script:RecentWriteError)
+    exit 12
+}
+if (-not $OutputFile) { exit 2 }
+
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 [System.Windows.Forms.Application]::EnableVisualStyles()
@@ -114,15 +219,9 @@ $items = @($byLut.Values | Sort-Object Relative)
 # Persistent Recent LUTs
 # Keep one gallery page (25 entries), newest first.
 # Stored beside the gallery index so AV1/HEVC/test harness all share it.
+# Gallery is the sole writer. Studio only reads these files and can ask this
+# script to perform one headless Recent registration at encoding start.
 # ------------------------------------------------------------
-$RecentLimit = 25
-$recentPath = Join-Path $PreviewRoot '_LUT_GALLERY_RECENT.json'
-
-function Get-LutKey([string]$path) {
-    if (-not $path) { return '' }
-    try { return ([IO.Path]::GetFullPath($path)).ToLowerInvariant() }
-    catch { return $path.ToLowerInvariant() }
-}
 
 $allByPath = @{}
 foreach ($entry in $items) {
@@ -130,6 +229,13 @@ foreach ($entry in $items) {
 }
 
 function Read-RecentRecords {
+    param([object]$ReadStatus)
+
+    if ($ReadStatus) {
+        $ReadStatus.Success = $true
+        $ReadStatus.ErrorMessage = ''
+    }
+
     # Use plain PowerShell arrays for Windows PowerShell 5.1 compatibility.
     # Generic List[object] wrapped by @() can throw "Argument types do not match"
     # on some PS 5.1 builds.
@@ -140,18 +246,22 @@ function Read-RecentRecords {
         if (-not $raw.Trim()) { return $result }
         $parsed = $raw | ConvertFrom-Json
         foreach ($row in @($parsed)) {
-            $p = [string]$row.LutPath
+            $p = if ($row -is [string]) { [string]$row } else { [string]$row.LutPath }
             if (-not $p) { continue }
             $key = Get-LutKey $p
             if ($allByPath.ContainsKey($key)) {
                 $result += [pscustomobject]@{
                     LutPath  = [string]$allByPath[$key].LutPath
-                    LastUsed = [string]$row.LastUsed
+                    LastUsed = $(if ($row -is [string]) { '' } else { [string]$row.LastUsed })
                 }
             }
         }
     } catch {
         # A damaged/stale recent file must never prevent Gallery startup.
+        if ($ReadStatus) {
+            $ReadStatus.Success = $false
+            $ReadStatus.ErrorMessage = $_.Exception.Message
+        }
         $result = @()
     }
     return $result
@@ -170,34 +280,6 @@ function Get-RecentItems {
         }
     }
     return $result
-}
-
-function Save-RecentUse([string]$lutPath) {
-    if (-not $lutPath) { return }
-    $key = Get-LutKey $lutPath
-    $records = @(
-        [pscustomobject]@{
-            LutPath  = $lutPath
-            LastUsed = [DateTime]::UtcNow.ToString('o')
-        }
-    )
-    foreach ($row in @(Read-RecentRecords)) {
-        $oldPath = [string]$row.LutPath
-        if (-not $oldPath) { continue }
-        if ((Get-LutKey $oldPath) -eq $key) { continue }
-        $records += [pscustomobject]@{
-            LutPath  = $oldPath
-            LastUsed = [string]$row.LastUsed
-        }
-        if ($records.Count -ge $RecentLimit) { break }
-    }
-    try {
-        # Force array JSON even when there is only one recent LUT.
-        $json = ConvertTo-Json -InputObject @($records) -Depth 4
-        [System.IO.File]::WriteAllText($recentPath, $json, (New-Object System.Text.UTF8Encoding($false)))
-    } catch {
-        # Recent history is optional; never fail LUT selection because of it.
-    }
 }
 
 # ------------------------------------------------------------
@@ -291,9 +373,9 @@ function Toggle-Favorite([string]$lutPath) {
 }
 
 if ($items.Count -eq 0) {
-    $msg = "No usable LUT preview entries were found.`r`n`r`nLUT root:`r`n$LutRoot`r`n`r`nPreview root:`r`n$PreviewRoot`r`n`r`nIndex rows read: $indexRows`r`nCUBE files found: $diskLuts`r`nCUBE files with matching previews: $diskMatched"
-    if ($indexError) { $msg += "`r`n`r`nIndex error:`r`n$indexError" }
-    [System.Windows.Forms.MessageBox]::Show($msg, 'LUT Gallery - diagnostics', 'OK', 'Warning') | Out-Null
+    $msg = "没有找到可用的 LUT 预览记录。`r`n`r`nLUT 根目录：`r`n$LutRoot`r`n`r`n预览根目录：`r`n$PreviewRoot`r`n`r`n已读取索引记录：$indexRows`r`n找到的 CUBE 文件：$diskLuts`r`n具有匹配预览的 CUBE 文件：$diskMatched"
+    if ($indexError) { $msg += "`r`n`r`n索引错误：`r`n$indexError" }
+    [System.Windows.Forms.MessageBox]::Show($msg, 'LUT 图库诊断', 'OK', 'Warning') | Out-Null
     exit 3
 }
 
@@ -317,10 +399,10 @@ foreach ($entry in $items) {
         $folderSet[$current] = $true
     }
 }
-$folderOptions = @('All folders') + @($folderSet.Keys | Sort-Object)
+$folderOptions = @('全部文件夹') + @($folderSet.Keys | Sort-Object)
 
 $form = New-Object System.Windows.Forms.Form
-$form.Text = "Film Look LUT Gallery - $($items.Count) LUTs"
+$form.Text = "电影风格 LUT 图库 - $($items.Count) 个 LUT"
 $form.StartPosition = 'CenterScreen'
 $form.Size = New-Object System.Drawing.Size -ArgumentList 1500,1000
 $form.MinimumSize = New-Object System.Drawing.Size -ArgumentList 1200,780
@@ -331,7 +413,7 @@ $top.Dock = 'Top'; $top.Height = 46
 $form.Controls.Add($top)
 
 $label = New-Object System.Windows.Forms.Label
-$label.Text = 'Search:'; $label.AutoSize = $true
+$label.Text = '搜索：'; $label.AutoSize = $true
 $label.Location = New-Object System.Drawing.Point -ArgumentList 12,15
 $top.Controls.Add($label)
 
@@ -341,22 +423,22 @@ $search.Size = New-Object System.Drawing.Size -ArgumentList 160,26
 $top.Controls.Add($search)
 
 $allView = New-Object System.Windows.Forms.Button
-$allView.Text = 'All LUTs'; $allView.Size = New-Object System.Drawing.Size -ArgumentList 88,28
+$allView.Text = '全部 LUT'; $allView.Size = New-Object System.Drawing.Size -ArgumentList 88,28
 $allView.Location = New-Object System.Drawing.Point -ArgumentList 245,9
 $top.Controls.Add($allView)
 
 $recentView = New-Object System.Windows.Forms.Button
-$recentView.Text = 'Recent (0)'; $recentView.Size = New-Object System.Drawing.Size -ArgumentList 105,28
+$recentView.Text = '最近使用 (0)'; $recentView.Size = New-Object System.Drawing.Size -ArgumentList 105,28
 $recentView.Location = New-Object System.Drawing.Point -ArgumentList 340,9
 $top.Controls.Add($recentView)
 
 $favoriteView = New-Object System.Windows.Forms.Button
-$favoriteView.Text = 'Favorites (0)'; $favoriteView.Size = New-Object System.Drawing.Size -ArgumentList 112,28
+$favoriteView.Text = '我的最爱 (0)'; $favoriteView.Size = New-Object System.Drawing.Size -ArgumentList 112,28
 $favoriteView.Location = New-Object System.Drawing.Point -ArgumentList 452,9
 $top.Controls.Add($favoriteView)
 
 $folderLabel = New-Object System.Windows.Forms.Label
-$folderLabel.Text = 'Folder:'; $folderLabel.AutoSize = $true
+$folderLabel.Text = '文件夹：'; $folderLabel.AutoSize = $true
 $folderLabel.Location = New-Object System.Drawing.Point -ArgumentList 575,15
 $top.Controls.Add($folderLabel)
 
@@ -373,12 +455,12 @@ $top.Controls.Add($folderFilter)
 $status = New-Object System.Windows.Forms.Label
 $status.AutoSize = $false
 $status.Location = New-Object System.Drawing.Point -ArgumentList 805,13
-$status.Size = New-Object System.Drawing.Size -ArgumentList 230,22
+$status.Size = New-Object System.Drawing.Size -ArgumentList 200,22
 $status.AutoEllipsis = $true
 $top.Controls.Add($status)
 
 $none = New-Object System.Windows.Forms.Button
-$none.Text = 'None / Disable LUT'; $none.Size = New-Object System.Drawing.Size -ArgumentList 150,28
+$none.Text = '无 / 禁用 LUT'; $none.Size = New-Object System.Drawing.Size -ArgumentList 150,28
 $none.Anchor = 'Top,Right'; $none.Location = New-Object System.Drawing.Point -ArgumentList ($form.ClientSize.Width-170),9
 $top.Controls.Add($none)
 
@@ -396,7 +478,7 @@ $bottom.Dock = 'Bottom'; $bottom.Height = 48
 $form.Controls.Add($bottom); $bottom.BringToFront()
 
 $selectedLabel = New-Object System.Windows.Forms.Label
-$selectedLabel.Text = 'Double-click a thumbnail, or select one and click Use selected LUT.'
+$selectedLabel.Text = '双击缩略图，或选中后点击【使用选中的 LUT】。'
 $selectedLabel.AutoEllipsis = $true
 $selectedLabel.Location = New-Object System.Drawing.Point -ArgumentList 12,16
 $selectedLabel.Size = New-Object System.Drawing.Size -ArgumentList 850,22
@@ -404,7 +486,7 @@ $selectedLabel.Anchor = 'Left,Right,Top'
 $bottom.Controls.Add($selectedLabel)
 
 $use = New-Object System.Windows.Forms.Button
-$use.Text = 'Use selected LUT'; $use.Size = New-Object System.Drawing.Size -ArgumentList 160,30
+$use.Text = '使用选中的 LUT'; $use.Size = New-Object System.Drawing.Size -ArgumentList 160,30
 $use.Anchor = 'Top,Right'; $use.Location = New-Object System.Drawing.Point -ArgumentList ($form.ClientSize.Width-180),9
 $bottom.Controls.Add($use)
 
@@ -476,17 +558,32 @@ function Get-Thumb([string]$path) {
 }
 
 $prev = New-Object System.Windows.Forms.Button
-$prev.Text = '< Prev'; $prev.Size = New-Object System.Drawing.Size -ArgumentList 74,28
-$prev.Location = New-Object System.Drawing.Point -ArgumentList 1050,9
+$prev.Text = '< 上一页'; $prev.Size = New-Object System.Drawing.Size -ArgumentList 74,28
+$prev.Location = New-Object System.Drawing.Point -ArgumentList 1015,9
 $top.Controls.Add($prev)
 
-$pageLabel = New-Object System.Windows.Forms.Label
-$pageLabel.AutoSize = $true; $pageLabel.Location = New-Object System.Drawing.Point -ArgumentList 1133,15
-$top.Controls.Add($pageLabel)
+$pagePrefix = New-Object System.Windows.Forms.Label
+$pagePrefix.Text = '页码'
+$pagePrefix.AutoSize = $false; $pagePrefix.Size = New-Object System.Drawing.Size -ArgumentList 34,22
+$pagePrefix.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+$pagePrefix.Location = New-Object System.Drawing.Point -ArgumentList 1097,12
+$top.Controls.Add($pagePrefix)
+
+$pageInput = New-Object System.Windows.Forms.TextBox
+$pageInput.Size = New-Object System.Drawing.Size -ArgumentList 42,26
+$pageInput.TextAlign = [System.Windows.Forms.HorizontalAlignment]::Center
+$pageInput.Location = New-Object System.Drawing.Point -ArgumentList 1134,10
+$top.Controls.Add($pageInput)
+
+$pageTotal = New-Object System.Windows.Forms.Label
+$pageTotal.AutoSize = $false; $pageTotal.Size = New-Object System.Drawing.Size -ArgumentList 48,22
+$pageTotal.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+$pageTotal.Location = New-Object System.Drawing.Point -ArgumentList 1181,12
+$top.Controls.Add($pageTotal)
 
 $next = New-Object System.Windows.Forms.Button
-$next.Text = 'Next >'; $next.Size = New-Object System.Drawing.Size -ArgumentList 74,28
-$next.Location = New-Object System.Drawing.Point -ArgumentList 1220,9
+$next.Text = '下一页 >'; $next.Size = New-Object System.Drawing.Size -ArgumentList 74,28
+$next.Location = New-Object System.Drawing.Point -ArgumentList 1230,9
 $top.Controls.Add($next)
 
 function Clear-Page {
@@ -509,7 +606,12 @@ function Select-Card($card, $entry) {
 
 function Commit-Entry($entry) {
     if (-not $entry) { return }
-    Save-RecentUse ([string]$entry.LutPath)
+    $recentSaved = Save-RecentUse ([string]$entry.LutPath)
+    if (-not $recentSaved) {
+        $detail = [string]$script:RecentWriteError
+        if (-not $detail) { $detail = '没有返回具体错误。' }
+        [System.Windows.Forms.MessageBox]::Show("LUT 已选择，但无法更新【最近使用】：`r`n`r`n$detail", 'LUT 图库', 'OK', 'Warning') | Out-Null
+    }
     [System.IO.File]::WriteAllText($OutputFile, [string]$entry.LutPath, (New-Object System.Text.UTF8Encoding($false)))
     $form.Tag = 'selected'; $form.Close()
 }
@@ -556,14 +658,14 @@ function New-LutCard($entry) {
     $tip = New-Object System.Windows.Forms.ToolTip
     $tip.SetToolTip($pic,[string]$entry.Relative)
     $tip.SetToolTip($name,[string]$entry.Relative)
-    $tip.SetToolTip($fav,'Add/remove favorite')
+    $tip.SetToolTip($fav,'添加/移除我的最爱')
 
     # Right-click menu for the thumbnail only.
     # Keep the entry on each menu item so no shared/closure state is required.
     $ctx = New-Object System.Windows.Forms.ContextMenuStrip
 
     $openFolder = New-Object System.Windows.Forms.ToolStripMenuItem
-    $openFolder.Text = 'Open source folder'
+    $openFolder.Text = '打开 LUT 所在文件夹'
     $openFolder.Tag = $entry
     [void]$ctx.Items.Add($openFolder)
     $openFolder.Add_Click({
@@ -574,7 +676,7 @@ function New-LutCard($entry) {
     })
 
     $openPreview = New-Object System.Windows.Forms.ToolStripMenuItem
-    $openPreview.Text = 'Open preview image (full size)'
+    $openPreview.Text = '打开完整尺寸预览图'
     $openPreview.Tag = $entry
     [void]$ctx.Items.Add($openPreview)
     $openPreview.Add_Click({
@@ -638,22 +740,45 @@ function Refresh-Page {
                 }
             }
         }
-        $status.Text = "$count matched / $($allItems.Count) total"
-        if ($cardErrors -gt 0) { $status.Text += " / $cardErrors card errors" }
-        if ($imageErrors -gt 0) { $status.Text += " / $imageErrors image errors" }
-        $pageLabel.Text = "Page $($CurrentPage+1) / $pages"
-        $prev.Enabled = ($CurrentPage -gt 0)
-        $next.Enabled = ($CurrentPage -lt ($pages-1))
+        $status.Text = "匹配 $count 个 / 共 $($allItems.Count) 个"
+        if ($cardErrors -gt 0) { $status.Text += " / $cardErrors 个卡片错误" }
+        if ($imageErrors -gt 0) { $status.Text += " / $imageErrors 个图片错误" }
+        $pageInput.Text = [string]($CurrentPage + 1)
+        $pageTotal.Text = "/ $pages"
+        $prev.Enabled = ($pages -gt 1)
+        $next.Enabled = ($pages -gt 1)
     } finally {
         $gallery.ResumeLayout($true)
     }
 }
 
+function Move-Page([int]$Delta) {
+    $pages = [Math]::Max(1,[int][Math]::Ceiling($filteredItems.Count / [double]$PageSize))
+    if ($pages -le 1) { return }
+    $script:CurrentPage = ($CurrentPage + $Delta) % $pages
+    if ($script:CurrentPage -lt 0) { $script:CurrentPage += $pages }
+    Refresh-Page
+}
+
+function Jump-ToPage {
+    $pageNumber = 0
+    $pages = [Math]::Max(1,[int][Math]::Ceiling($filteredItems.Count / [double]$PageSize))
+    if ([int]::TryParse($pageInput.Text.Trim(), [ref]$pageNumber) -and $pageNumber -ge 1 -and $pageNumber -le $pages) {
+        $script:CurrentPage = $pageNumber - 1
+        Refresh-Page
+    } else {
+        [System.Media.SystemSounds]::Beep.Play()
+        $pageInput.Text = [string]($CurrentPage + 1)
+    }
+    [void]$pageInput.Focus()
+    $pageInput.SelectAll()
+}
+
 function Update-ViewButtons {
     $recentCount = @(Get-RecentItems).Count
     $favoriteCount = @(Get-FavoriteItems).Count
-    $recentView.Text = "Recent ($recentCount)"
-    $favoriteView.Text = "Favorites ($favoriteCount)"
+    $recentView.Text = "最近使用 ($recentCount)"
+    $favoriteView.Text = "我的最爱 ($favoriteCount)"
 
     $allView.BackColor = [System.Drawing.SystemColors]::Control
     $recentView.BackColor = [System.Drawing.SystemColors]::Control
@@ -718,17 +843,26 @@ $favoriteView.Add_Click({
 })
 $search.Add_TextChanged({ $searchTimer.Stop(); $searchTimer.Start() })
 $folderFilter.Add_SelectedIndexChanged({ Apply-Filter })
-$prev.Add_Click({ if ($CurrentPage -gt 0) { $script:CurrentPage--; Refresh-Page } })
-$next.Add_Click({ if ($next.Enabled) { $script:CurrentPage++; Refresh-Page } })
+$prev.Add_Click({ Move-Page -1 })
+$next.Add_Click({ Move-Page 1 })
+$pageInput.Add_Enter({ $pageInput.SelectAll() })
+$pageInput.Add_KeyPress({
+    if (-not [char]::IsControl($_.KeyChar) -and -not [char]::IsDigit($_.KeyChar)) { $_.Handled = $true }
+})
 $use.Add_Click({ Commit-Entry $script:SelectedEntry })
 $none.Add_Click({ [System.IO.File]::WriteAllText($OutputFile, '', (New-Object System.Text.UTF8Encoding($false))); $form.Tag='none'; $form.Close() })
 $form.Add_KeyDown({
     if ($_.KeyCode -eq 'Escape') { $form.Close() }
+    elseif ($_.KeyCode -eq 'Enter' -and $pageInput.Focused) {
+        $_.Handled = $true
+        $_.SuppressKeyPress = $true
+        Jump-ToPage
+    }
     elseif ($_.KeyCode -eq 'Enter' -and $script:SelectedEntry) { Commit-Entry $script:SelectedEntry }
     elseif ($_.KeyCode -eq 'F' -and $_.Control) { [void]$search.Focus(); $search.SelectAll() }
-    elseif ($_.KeyCode -eq 'PageDown') { if ($next.Enabled) { $script:CurrentPage++; Refresh-Page } }
-    elseif ($_.KeyCode -eq 'PageUp') { if ($prev.Enabled) { $script:CurrentPage--; Refresh-Page } }
-    elseif ($_.KeyCode -eq 'F12') { if ($script:lastCardError) { [System.Windows.Forms.MessageBox]::Show($script:lastCardError,'First card error') | Out-Null } elseif ($script:lastImageError) { [System.Windows.Forms.MessageBox]::Show($script:lastImageError,'First thumbnail error') | Out-Null } }
+    elseif ($_.KeyCode -eq 'PageDown') { Move-Page 1 }
+    elseif ($_.KeyCode -eq 'PageUp') { Move-Page -1 }
+    elseif ($_.KeyCode -eq 'F12') { if ($script:lastCardError) { [System.Windows.Forms.MessageBox]::Show($script:lastCardError,'首个卡片错误') | Out-Null } elseif ($script:lastImageError) { [System.Windows.Forms.MessageBox]::Show($script:lastImageError,'首个缩略图错误') | Out-Null } }
 })
 $form.Add_FormClosed({
     $searchTimer.Stop(); $searchTimer.Dispose()
