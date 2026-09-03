@@ -62,26 +62,26 @@ for /f "tokens=1,2 delims=x" %%A in ("%DIM%") do (
 )
 
 set /a PIXELS=%W%*%H%
-set "BR=18000k"
-set "MR=27000k"
-set "BS=36000k"
+set "BR=8000k"
+set "MR=12000k"
+set "BS=16000k"
 
 if %PIXELS% LEQ 921600 (
+    set "BR=6000k"
+    set "MR=9000k"
+    set "BS=12000k"
+) else if %PIXELS% LEQ 2073600 (
+    set "BR=8000k"
+    set "MR=12000k"
+    set "BS=16000k"
+) else if %PIXELS% LEQ 3686400 (
     set "BR=10000k"
     set "MR=15000k"
     set "BS=20000k"
-) else if %PIXELS% LEQ 2073600 (
-    set "BR=18000k"
-    set "MR=27000k"
-    set "BS=36000k"
-) else if %PIXELS% LEQ 3686400 (
-    set "BR=30000k"
-    set "MR=45000k"
-    set "BS=60000k"
 ) else (
-    set "BR=45000k"
-    set "MR=67500k"
-    set "BS=90000k"
+    set "BR=12000k"
+    set "MR=18000k"
+    set "BS=24000k"
 )
 
 echo.

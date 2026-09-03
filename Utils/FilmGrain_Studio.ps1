@@ -32,7 +32,10 @@ public static class FilmGrainNativeWindow
 $ScriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $PackageRoot = Split-Path -Parent $ScriptRoot
 $CoreBat = Join-Path $ScriptRoot 'FilmGrain_Universal_HEVC_AV1_StudioBridge.bat'
+$Ffmpeg = 'E:\EnCoder\FFMpeg\13.0\bin\ffmpeg.exe'
 $Ffprobe = 'E:\EnCoder\FFMpeg\13.0\bin\ffprobe.exe'
+$HardwareCapsScript = Join-Path $ScriptRoot 'FilmGrain_Hardware_Caps.ps1'
+$HardwareCapsCache = Join-Path $ScriptRoot '_HardwareCaps.json'
 $LutRoot = 'E:\Adobe Portable\LUTs'
 $LutPreviewRoot = Join-Path $LutRoot '_LUT_PREVIEWS'
 $LutSelector = Join-Path $PackageRoot '_LUT_Tools\LUT_Gallery_Selector.ps1'
@@ -69,6 +72,11 @@ $script:LoadingRecentLuts = $false
 $script:FavoriteLuts = @()
 $script:LoadingFavoriteLuts = $false
 $script:CurrentLutPreviewImage = $null
+$script:HardwareCaps = $null
+$script:HardwareCapsReady = $false
+$script:Av1Available = $true
+$script:Av1UhqAvailable = $false
+$script:HevcAvailable = $true
 $ColorHeader = [System.Drawing.Color]::FromArgb(45, 57, 72)
 $ColorAccent = [System.Drawing.Color]::FromArgb(47, 111, 173)
 $ColorSubtle = [System.Drawing.Color]::FromArgb(242, 244, 247)
@@ -155,6 +163,35 @@ function Show-Info {
         [System.Windows.Forms.MessageBoxIcon]::Information
     )
 }
+
+function Initialize-HardwareCaps {
+    if (-not (Test-Path -LiteralPath $HardwareCapsScript -PathType Leaf)) { return }
+    if (-not (Test-Path -LiteralPath $Ffmpeg -PathType Leaf)) { return }
+
+    try {
+        $powerShellExe = Join-Path $PSHOME 'powershell.exe'
+        & $powerShellExe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $HardwareCapsScript `
+            -FFmpeg $Ffmpeg -GpuIndex 0 -CudaDevice 0 -VulkanDevice 0 `
+            -CachePath $HardwareCapsCache -Quiet 2>$null | Out-Null
+        if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $HardwareCapsCache -PathType Leaf)) { return }
+
+        $caps = Get-Content -LiteralPath $HardwareCapsCache -Raw -Encoding UTF8 | ConvertFrom-Json
+        if (-not $caps.caps -or -not $caps.caps.av1 -or -not $caps.caps.hevc) { return }
+        $script:HardwareCaps = $caps
+        $script:HardwareCapsReady = $true
+        $script:Av1Available = [bool]$caps.caps.av1.available
+        $script:Av1UhqAvailable = [bool]$caps.caps.av1.uhq
+        $script:HevcAvailable = [bool]$caps.caps.hevcPipeline
+    } catch {
+        $script:HardwareCaps = $null
+        $script:HardwareCapsReady = $false
+        $script:Av1Available = $true
+        $script:Av1UhqAvailable = $false
+        $script:HevcAvailable = $true
+    }
+}
+
+Initialize-HardwareCaps
 
 $form = New-Object System.Windows.Forms.Form
 $form.Text = 'Film Grain Studio'
@@ -316,7 +353,14 @@ for ($i = 0; $i -lt 8; $i++) { Add-RowAbsolute $encodeTable 38 }
 Add-RowPercent $encodeTable 100
 [void]$grpEncode.Controls.Add($encodeTable)
 
-$cmbCodec = New-ComboBox @('AV1 Main10 + grav1synth（默认）', 'HEVC Main10 + Scanned Grain') 0
+$codecItems = @('AV1 Main10 + grav1synth（默认）', 'HEVC Main10 + Scanned Grain')
+$initialCodecIndex = 0
+if ($script:HardwareCapsReady -and -not $script:Av1Available) {
+    $codecItems[0] = 'AV1 Main10 + grav1synth（当前硬件不可用）'
+    $initialCodecIndex = 1
+}
+$cmbCodec = New-ComboBox $codecItems $initialCodecIndex
+$script:LastCodecIndex = $initialCodecIndex
 $cmbContainer = New-ComboBox @('MP4 · AAC 256k（默认）', 'MKV · 保留原始流') 0
 $cmbSpeed = New-ComboBox @('FAST · p5 / qres（默认）', 'Standard · p6 / fullres') 0
 
@@ -326,7 +370,10 @@ $cmbBitrate.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDown
 $cmbBitrate.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 4, 5, 6, 5
 
 $cmbFps = New-ComboBox @('自动电影帧率 · VFR 兼容（默认）', '保持源帧率') 0
-$cmbGpu = New-ComboBox @('RTX 4080（B-frame / TAQ / NVDEC）', 'RTX T600 Laptop（兼容）') 0
+$gpuDisplay = '自动检测（编码启动时再次校验）'
+if ($script:HardwareCapsReady) { $gpuDisplay = [string]$script:HardwareCaps.gpu.name + '（自动检测）' }
+$cmbGpu = New-ComboBox @($gpuDisplay) 0
+$cmbGpu.Enabled = $false
 
 $chkCinematic = New-Object System.Windows.Forms.CheckBox
 $chkCinematic.Text = '启用 Cinematic Style（约 2.39:1）'
@@ -358,7 +405,15 @@ $profileNote.Dock = 'Fill'
 $profileNote.ForeColor = $ColorMuted
 $profileNote.TextAlign = [System.Drawing.ContentAlignment]::TopLeft
 $profileNote.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 8, 3, 8, 0
-$profileNote.Text = "固定依赖：FFmpeg 13.0 / NVENC API 13.0`r`n4080：B-frame 4、Temporal AQ、NVDEC；T600：三项关闭。"
+if ($script:HardwareCapsReady) {
+    $yesNo = @('不可用', '可用')
+    $av1Text = $yesNo[[int]$script:Av1Available]
+    $av1UhqText = $yesNo[[int]$script:Av1UhqAvailable]
+    $hevcText = $yesNo[[int]$script:HevcAvailable]
+    $profileNote.Text = "驱动：$($script:HardwareCaps.gpu.driverVersion) · 配置：$($script:HardwareCaps.cacheState)`r`nAV1 Main10：$av1Text · UHQ：$av1UhqText；HEVC/Vulkan：$hevcText；其余参数按实测启用。"
+} else {
+    $profileNote.Text = "固定依赖：FFmpeg 13.0 / NVENC API 13.0`r`n硬件检测尚未完成，编码启动时会自动重试。"
+}
 [void]$encodeTable.Controls.Add($profileNote, 0, 8)
 $encodeTable.SetColumnSpan($profileNote, 2)
 [void]$main.Controls.Add($grpEncode, 1, 0)
@@ -1137,9 +1192,35 @@ function Update-Av1Controls {
     $chkChroma.Enabled = -not $presetMode
 }
 
+function Update-SpeedChoices {
+    $allowUhq = ($cmbCodec.SelectedIndex -eq 0 -and $script:HardwareCapsReady -and $script:Av1UhqAvailable)
+    $currentText = [string]$cmbSpeed.SelectedItem
+    $selectedIndex = if ($currentText -like 'Standard*') { 1 } else { 0 }
+    if ($allowUhq -and $currentText -like 'UHQ*') { $selectedIndex = 2 }
+
+    $cmbSpeed.BeginUpdate()
+    try {
+        $cmbSpeed.Items.Clear()
+        [void]$cmbSpeed.Items.Add('FAST · p5 / qres（默认）')
+        [void]$cmbSpeed.Items.Add('Standard · p6 / fullres')
+        if ($allowUhq) { [void]$cmbSpeed.Items.Add('UHQ · p4 / fullres（AV1 专用）') }
+        $cmbSpeed.SelectedIndex = $selectedIndex
+    } finally {
+        $cmbSpeed.EndUpdate()
+    }
+}
+
 function Update-CodecUi {
     $newIndex = $cmbCodec.SelectedIndex
     if ($newIndex -lt 0) { return }
+
+    if (-not $script:ChangingCodec -and $newIndex -eq 0 -and $script:HardwareCapsReady -and -not $script:Av1Available) {
+        $script:ChangingCodec = $true
+        try { $cmbCodec.SelectedIndex = 1 }
+        finally { $script:ChangingCodec = $false }
+        Show-Info '当前 GPU / 驱动不支持 AV1 Main10 NVENC，已自动切换到 HEVC。'
+        return
+    }
 
     if (-not $script:ChangingCodec) {
         $script:ChangingCodec = $true
@@ -1153,6 +1234,8 @@ function Update-CodecUi {
             $script:ChangingCodec = $false
         }
     }
+
+    Update-SpeedChoices
 
     if ($newIndex -eq 0) {
         $pnlHevc.Visible = $false
@@ -1936,6 +2019,18 @@ function Start-Encoding {
     }
 
     $mode = if ($cmbCodec.SelectedIndex -eq 0) { 'AV1' } else { 'HEVC' }
+    if ($script:HardwareCapsReady -and $mode -eq 'AV1' -and -not $script:Av1Available) {
+        Show-Error '当前 GPU / 驱动不支持 AV1 Main10 NVENC。请使用自动选择的 HEVC 模式。'
+        return
+    }
+    if ($script:HardwareCapsReady -and $mode -eq 'HEVC' -and -not $script:HevcAvailable) {
+        Show-Error '当前 GPU / 驱动不支持本项目所需的 HEVC Main10 NVENC + Vulkan 路径。'
+        return
+    }
+    if ($cmbSpeed.SelectedIndex -eq 2 -and ($mode -ne 'AV1' -or -not $script:Av1UhqAvailable)) {
+        Show-Error '当前 GPU / 驱动 / FFmpeg 不支持 AV1 UHQ，请选择 FAST 或 Standard。'
+        return
+    }
     $selectedGrainPath = $null
     if ($mode -eq 'HEVC') {
         $grainRoot = $txtGrainRoot.Text.Trim()
@@ -2011,13 +2106,13 @@ function Start-Encoding {
     $envs['FG_STUDIO_MODE'] = '1'
     $envs['FG_MODE'] = $mode
     $envs['FG_CONTAINER'] = if ($cmbContainer.SelectedIndex -eq 0) { 'MP4' } else { 'MKV' }
-    $envs['FG_SPEED'] = if ($cmbSpeed.SelectedIndex -eq 0) { 'FAST' } else { 'STANDARD' }
+    $speedModes = @('FAST', 'STANDARD', 'UHQ')
+    $envs['FG_SPEED'] = $speedModes[$cmbSpeed.SelectedIndex]
     $envs['FG_BITRATE'] = [string]$bitrate
     $envs['FG_MAXRATE'] = [string]$maxrate
     $envs['FG_BUFSIZE'] = [string]$bufsize
     $envs['FG_FPS_MODE'] = if ($cmbFps.SelectedIndex -eq 0) { 'AUTO' } else { 'SOURCE' }
     $envs['FG_CINEMATIC_FRAME'] = if ($chkCinematic.Checked) { '1' } else { '0' }
-    $envs['FG_GPU_PROFILE'] = if ($cmbGpu.SelectedIndex -eq 0) { 'RTX4080' } else { 'T600' }
     $envs['FG_KEEP_FAILED'] = '1'
 
     if ($chkLut.Checked) {
@@ -2307,7 +2402,7 @@ $form.Add_FormClosing({
 
 $form.Add_FormClosed({ Clear-StudioLutPreview })
 
-Load-BitrateChoices 0
+Load-BitrateChoices $cmbCodec.SelectedIndex
 Update-CodecUi
 Update-Av1Controls
 Refresh-RecentLuts

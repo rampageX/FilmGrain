@@ -1,5 +1,7 @@
 # Film Grain Studio
 
+![](images/Film_Grain_Studio_v3.1.jpg)
+
 基于 **FFmpeg、NVIDIA NVENC 与 grav1synth** 的 Windows 视频胶片化工具包，同时提供图形界面和命令行入口。
 
 项目包含两条可切换的 Film Grain 处理路线：
@@ -7,15 +9,26 @@
 - **HEVC Main10 + 真实扫描 Grain Plate**：将真实胶片颗粒合成到视频像素中。
 - **AV1 Main10 + grav1synth Film Grain**：将颗粒模型写入 AV1 Film Grain metadata，由播放器在解码时合成。
 
-当前正式稳定版为 **v3.0**，发布包名称：
+当前正式稳定版为 **v3.1**，发布包名称：
 
 ```text
-FilmGrain_Studio_v3.0_Stable.zip
+FilmGrain_Studio_v3.1_Stable.zip
 ```
 
 所有独立脚本使用固定文件名，不再包含组件版本号；版本号只体现在整个项目的发布压缩包上。升级时建议完整替换工具包，避免新旧脚本混用。
 
-默认配置为 **AV1 Main10 + MP4 + AAC 256k**，并集成 LUT Gallery、自动电影帧率、Cinematic Style、多文件处理、RTX 4080 NVENC 参数及 AV1 Film Grain 最终验证。
+默认配置为 **AV1 Main10 + MP4 + AAC 256k**，并集成 LUT Gallery、自动电影帧率、Cinematic Style、多文件处理、NVENC 硬件能力自动探测、AV1 UHQ 及 AV1 Film Grain 最终验证。
+
+## v3.1 更新摘要
+
+- 新增 NVIDIA GPU、驱动与 FFmpeg 实际能力探测，不再依赖 RTX 4080 / T600 固定型号配置；
+- 自动检测 AV1、HEVC、H.264 NVENC、Main10、B-frame、B-reference、Spatial/Temporal AQ、Lookahead、Multipass、NVDEC CUDA 与 Vulkan，并只启用当前环境实际支持的参数；
+- 新增 **AV1 UHQ** 模式；只有微型编码测试通过的 GPU / 驱动 / FFmpeg 组合才会显示；
+- 新增 `_HardwareCaps.json` 能力缓存；首次探测显示 `Detected`，后续命中缓存显示 `Cached`；
+- H.264 社交平台上传母版改为按分辨率自动使用 **6 / 8 / 10 / 12 Mbps**；
+- 修复 T600 / RTX 4080 能力探测与缓存状态显示问题。
+
+---
 
 <table>
   <tr>
@@ -65,9 +78,11 @@ AV1 Film Grain Synthesis 采用另一种方式：编码相对干净的画面，�
 ```text
 FilmGrain_Universal_HEVC_AV1_CLI.bat
 FilmGrain_Universal_HEVC_AV1_GUI.bat
+README.md
 README_FilmGrain_Studio.txt
 README_Toolkit.txt
 Utils\
+    FilmGrain_Hardware_Caps.ps1
     FilmGrain_Studio.ps1
     FilmGrain_Studio_Launcher.vbs
     FilmGrain_Universal_HEVC_AV1_StudioBridge.bat
@@ -92,7 +107,7 @@ _LUT_Tools\
 当前项目按以下 Windows 环境配置：
 
 ```text
-GPU：RTX 4080
+GPU：NVIDIA GPU（自动检测，已验证 RTX 4080 与 T600 Laptop）
 FFmpeg：E:\EnCoder\FFMpeg\13.0\bin\ffmpeg.exe
 FFprobe：E:\EnCoder\FFMpeg\13.0\bin\ffprobe.exe
 grav1synth：E:\EnCoder\FFMpeg\grav1synth\grav1synth.exe
@@ -102,23 +117,23 @@ LUT 根目录：E:\Adobe Portable\LUTs
 
 > `E:\EnCoder\FFMpeg\13.0` 中的 `13.0` 表示项目锁定使用的 NVENC API 13.0 兼容构建目录，不代表 FFmpeg 的正式主版本号。
 
-RTX 4080 默认启用：
+### 硬件能力自动探测
 
-```text
-B-frames：4
-B-reference mode：middle
-Temporal AQ：开启
-Spatial AQ：开启
-AQ Strength：8
-主视频 NVDEC：开启
-```
+GUI 和 CLI 启动时会调用 `Utils\FilmGrain_Hardware_Caps.ps1`，对当前 GPU、NVIDIA 驱动与 FFmpeg 执行小型实际编码测试。检测结果用于动态构造编码参数：
 
-GUI 可以直接切换到 **RTX T600 Laptop** 兼容配置。CLI 如需用于不支持当前参数的显卡，可在脚本顶部关闭 B-frame 和 Temporal AQ：
+| 能力 | 自动处理 |
+|---|---|
+| AV1 / HEVC / H.264 NVENC | 仅使用实际可用的编码器；AV1 不可用时回退到 HEVC |
+| Main10 | 验证 AV1 / HEVC 10-bit 实际编码 |
+| B-frame / B-reference | 不支持时不传递相关参数 |
+| Spatial AQ / Temporal AQ | 分别探测并按能力启用 |
+| Lookahead / Multipass | 按 fullres、qres 的实际支持情况选择 |
+| NVDEC CUDA / Vulkan | 只在通过实际路径测试后启用 |
+| AV1 UHQ | 只在 `-tune uhq` 微型编码成功时显示 |
 
-```bat
-set "ENABLE_BF=0"
-set "ENABLE_TEMPORAL_AQ=0"
-```
+能力结果会写入 `Utils\_HardwareCaps.json`。GPU、驱动、FFmpeg 文件或探测规则变化后会自动重新检测；环境未变时直接读取缓存。新包首次启动显示 `Detected` 属于正常现象，关闭并再次启动后应显示 `Cached`。
+
+RTX 4080 可自动启用 AV1、B-frame、AQ、Lookahead 及其他已通过测试的功能；T600 Laptop 会自动回退 HEVC，并移除不支持的 B-frame、Temporal AQ 等参数，无需手动切换硬件配置。
 
 ---
 
@@ -162,10 +177,10 @@ GUI 与 CLI 的输出均保存在源视频所在目录。已有同名输出时�
 - 选中单个视频时异步显示视频/音频编码、码率、分辨率、帧率、声道、采样率、时长、容器与总码率；
 - AV1 Main10 + grav1synth 与 HEVC Main10 + Scanned Grain；
 - MP4 与 MKV 输出；
-- FAST 与 Standard 编码模式；
+- FAST、Standard，以及能力探测通过后可选的 AV1 UHQ 编码模式；
 - 常用码率及自定义 kbps 码率；
 - 自动电影帧率或保持源帧率；
-- RTX 4080 与 RTX T600 Laptop 配置；
+- NVIDIA GPU / 驱动 / FFmpeg 能力自动探测与缓存；
 - AV1 Film Preset、Photon ISO、Film 格式、Film stock 与 Chroma Grain；
 - HEVC Grain 根目录递归扫描，只显示电脑上实际存在的 `.mov` Grain Plate；
 - 自动匹配 1080p 或原分辨率 HEVC Lossless Grain Cache；
@@ -184,7 +199,7 @@ GUI 与 CLI 的输出均保存在源视频所在目录。已有同名输出时�
 | 速度模式 | FAST：p5 / qres multipass / lookahead 16 |
 | Cinematic Style | 开启，约 2.39:1 |
 | 输出帧率 | 自动电影帧率 |
-| GPU | RTX 4080 |
+| GPU | 自动检测 |
 | LUT | 关闭 |
 | AV1 Grain 方式 | Film Preset |
 | AV1 Film Preset | Classic35 / Fujifilm Eterna 250D |
@@ -289,6 +304,18 @@ MP4 或 MKV
 ```
 
 这里的 Grain 不会在编码阶段直接写进每一个像素。播放器解码 AV1 时，根据码流中的 Film Grain 参数实时生成颗粒。
+
+### AV1 UHQ
+
+当硬件探测确认当前 GPU、驱动与 FFmpeg 支持时，GUI 和 CLI 会增加 **UHQ** 速度/质量模式：
+
+```text
+preset：p4
+tune：uhq
+multipass：fullres
+```
+
+UHQ 模式不再额外强制 B-frame、Temporal AQ 和 Lookahead，由 UHQ 自身进行时域分析与帧结构决策。不支持 UHQ 的环境不会显示该选项，FAST 与 Standard 保持原有 HQ 逻辑。
 
 ### Film Preset
 
@@ -407,6 +434,15 @@ AAC 320k / MP4 / faststart
 
 输出文件名带 `_UPLOAD_H264_GRAIN.mp4`，适合作为视频平台上传母版。
 
+H.264 视频码率根据有效画面分辨率自动选择，主流程内的附加上传版与独立转换工具使用相同规则：
+
+| 有效分辨率 | 平均码率 | Maxrate | Bufsize |
+|---|---:|---:|---:|
+| ≤ 720p | 6 Mbps | 9 Mbps | 12 Mbps |
+| ≤ 1080p | 8 Mbps | 12 Mbps | 16 Mbps |
+| ≤ 1440p | 10 Mbps | 15 Mbps | 20 Mbps |
+| > 1440p（含 4K） | 12 Mbps | 18 Mbps | 24 Mbps |
+
 ---
 
 ## 为现有 AV1 免重编码添加或替换 Film Grain
@@ -470,6 +506,8 @@ Variant : GPL static
 
 最低驱动要求取决于 FFmpeg 构建采用的 NVENC API / `nv-codec-headers`，不能只根据 FFmpeg 主版本号判断。
 
+v3.1 会在启动时自动校验当前环境。更换 GPU、升级 NVIDIA 驱动或替换 FFmpeg 后，原能力缓存会自动失效并重新检测。
+
 升级驱动或 FFmpeg 后，建议至少确认：
 
 ```bat
@@ -495,7 +533,7 @@ ffmpeg -hide_banner -h decoder=libdav1d
 ## 已知限制
 
 - 仅面向 Windows BAT、Windows PowerShell 5.1 与 WinForms 工作流；
-- 当前默认硬件参数以 RTX 4080 为目标；
+- 需要 NVIDIA GPU；AV1、UHQ、B-frame、AQ、NVDEC 和 Vulkan 的可用性由当前 GPU、驱动与 FFmpeg 组合决定；
 - HEVC 扫描 Grain 会增加编码压力和所需码率；
 - AV1 Film Grain 的显示依赖播放器和解码器正确实现 Film Grain Synthesis；
 - 部分平台和转码软件会移除 AV1 Film Grain metadata；
@@ -512,6 +550,8 @@ ffmpeg -hide_banner -h decoder=libdav1d
 选择 **HEVC + 真实扫描 Grain**，如果你更重视真实 Grain Plate 的具体质感、不依赖播放器生成颗粒，以及更广泛的播放兼容性。
 
 选择 **AV1 + grav1synth**，如果你更重视较低码率、快速批量处理，以及低码率下仍能保留明显颗粒。
+
+在硬件检测通过的设备上，如果更重视 AV1 编码质量而不是最高速度，可选择 **UHQ**。
 
 当前默认推荐：
 

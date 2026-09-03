@@ -25,15 +25,8 @@ set "GRAV1SYNTH=E:\EnCoder\FFMpeg\grav1synth\grav1synth.exe"
 rem GPU selectors. 0 normally selects the RTX 4080.
 set "VULKAN_DEVICE=0"
 set "CUDA_DEVICE=0"
-
-rem Main-video NVDEC switch: 1 = enabled, 0 = software decode.
-set "ENABLE_MAIN_NVDEC=1"
-
-rem RTX 4080 defaults. For a T600 Laptop, set both switches to 0.
-set "ENABLE_BF=1"
-set "BF=4"
-set "ENABLE_TEMPORAL_AQ=1"
 set "AQ_STRENGTH=8"
+set "HARDWARE_CAPS_SCRIPT=%~dp0Utils\FilmGrain_Hardware_Caps.ps1"
 
 rem HEVC scanned-Grain library. All subfolders are searched.
 set "DEFAULT_GRAIN_ROOT=D:\Film_Grain"
@@ -83,6 +76,9 @@ rem ============================================================
 call :CHECK_COMMON_TOOLS
 if errorlevel 1 goto FATAL_END
 
+call :LOAD_HARDWARE_CAPS
+if errorlevel 1 goto FATAL_END
+
 if "%~1"=="" goto NO_INPUT
 
 for %%# in (%*) do set /a FILE_COUNT+=1
@@ -94,6 +90,7 @@ if /i "%MODE%"=="AV1"  call :CHECK_AV1_TOOLS
 if errorlevel 1 goto FATAL_END
 
 call :SELECT_SPEED
+if errorlevel 1 goto FATAL_END
 call :SELECT_FRAMING
 call :SELECT_FPS
 call :SELECT_CONTAINER
@@ -141,7 +138,53 @@ if errorlevel 1 (
 exit /b 0
 
 
+:LOAD_HARDWARE_CAPS
+if not exist "%HARDWARE_CAPS_SCRIPT%" (
+    echo.
+    echo ERROR: Hardware capability detector was not found:
+    echo "%HARDWARE_CAPS_SCRIPT%"
+    echo.
+    exit /b 1
+)
+
+set "HW_CAPS_ENV=%TEMP%\FilmGrain_HardwareCaps_%RANDOM%_%RANDOM%.cmd"
+echo.
+echo [Hardware Detection] Loading the GPU capability profile...
+"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%HARDWARE_CAPS_SCRIPT%" -FFmpeg "%FFMPEG%" -GpuIndex %CUDA_DEVICE% -CudaDevice %CUDA_DEVICE% -VulkanDevice %VULKAN_DEVICE% -OutputCmd "%HW_CAPS_ENV%"
+if errorlevel 1 (
+    if exist "%HW_CAPS_ENV%" del /q "%HW_CAPS_ENV%" >nul 2>&1
+    echo.
+    echo ERROR: Hardware capability detection failed.
+    echo.
+    exit /b 1
+)
+if not exist "%HW_CAPS_ENV%" (
+    echo.
+    echo ERROR: Hardware capability profile was not created.
+    echo.
+    exit /b 1
+)
+call "%HW_CAPS_ENV%"
+del /q "%HW_CAPS_ENV%" >nul 2>&1
+
+if not "%FG_CAP_AV1%"=="1" if not "%FG_CAP_HEVC_PIPELINE%"=="1" (
+    echo.
+    echo ERROR: No supported Film Grain hardware pipeline is available.
+    echo AV1 NVENC requires AV1 Main10 hardware encoding.
+    echo HEVC mode requires HEVC Main10 NVENC and Vulkan.
+    echo.
+    exit /b 1
+)
+exit /b 0
+
+
 :CHECK_HEVC_TOOLS
+if not "%FG_CAP_HEVC_PIPELINE%"=="1" (
+    echo.
+    echo ERROR: HEVC Main10 NVENC or the required Vulkan path is not supported.
+    echo.
+    exit /b 1
+)
 "%FFMPEG%" -hide_banner -encoders 2>nul | findstr /i "hevc_nvenc" >nul
 if errorlevel 1 (
     echo.
@@ -169,6 +212,12 @@ exit /b 0
 
 
 :CHECK_AV1_TOOLS
+if not "%FG_CAP_AV1%"=="1" (
+    echo.
+    echo ERROR: AV1 Main10 NVENC is not supported by this GPU / driver.
+    echo.
+    exit /b 1
+)
 "%GRAV1SYNTH%" --version >nul 2>&1
 if errorlevel 1 (
     echo.
@@ -209,14 +258,29 @@ echo.
 echo Output codec / Grain method:
 echo.
 echo   [1] HEVC Main10 - scanned Grain plate / Vulkan overlay
-echo   [2] AV1 Main10  - NVENC + grav1synth Film Grain metadata ^(default^)
+if "%FG_CAP_AV1%"=="1" (
+    echo   [2] AV1 Main10  - NVENC + grav1synth Film Grain metadata ^(default^)
+) else (
+    echo   [2] AV1 Main10  - unavailable on %FG_CAP_GPU_NAME%
+)
 echo.
 set "MODE_SEL=2"
-set /p "MODE_SEL=Select [1-2, default 2]: "
+if "%FG_CAP_AV1%"=="1" (
+    set /p "MODE_SEL=Select [1-2, default 2]: "
+) else (
+    set "MODE_SEL=1"
+    set /p "MODE_SEL=Select [1-2, default 1]: "
+)
 
 if "%MODE_SEL%"=="2" (
-    set "MODE=AV1"
-    set "MODE_LABEL=AV1 NVENC + grav1synth Film Grain"
+    if "%FG_CAP_AV1%"=="1" (
+        set "MODE=AV1"
+        set "MODE_LABEL=AV1 NVENC + grav1synth Film Grain"
+    ) else (
+        echo AV1 is unavailable; automatically using HEVC.
+        set "MODE=HEVC"
+        set "MODE_LABEL=HEVC scanned Grain + Vulkan overlay"
+    )
 ) else (
     set "MODE=HEVC"
     set "MODE_LABEL=HEVC scanned Grain + Vulkan overlay"
@@ -230,20 +294,40 @@ echo Speed / quality:
 echo.
 echo   [1] Standard  - p6 / fullres / lookahead 32
 echo   [2] FAST      - p5 / qres    / lookahead 16   ^(default^)
+if /i "%MODE%"=="AV1" if "%FG_CAP_AV1_UHQ%"=="1" echo   [3] UHQ       - p4 / fullres / automatic temporal analysis
 echo.
 set "SPEED_SEL=2"
-set /p "SPEED_SEL=Select [1-2, default 2]: "
+if /i "%MODE%"=="AV1" if "%FG_CAP_AV1_UHQ%"=="1" (
+    set /p "SPEED_SEL=Select [1-3, default 2]: "
+) else (
+    set /p "SPEED_SEL=Select [1-2, default 2]: "
+)
+
+set "UHQ_SELECTED=0"
+if "%SPEED_SEL%"=="3" if /i "%MODE%"=="AV1" if "%FG_CAP_AV1_UHQ%"=="1" set "UHQ_SELECTED=1"
 
 if "%SPEED_SEL%"=="1" (
     set "PRESET=p6"
     set "LOOKAHEAD=32"
     set "MULTIPASS=fullres"
+    set "ENCODER_TUNE=hq"
+    set "UHQ_MODE=0"
     set "SPEED_LABEL=Standard"
     set "SPEED_SUFFIX=STD"
+) else if "%UHQ_SELECTED%"=="1" (
+    set "PRESET=p4"
+    set "LOOKAHEAD=0"
+    set "MULTIPASS=fullres"
+    set "ENCODER_TUNE=uhq"
+    set "UHQ_MODE=1"
+    set "SPEED_LABEL=UHQ"
+    set "SPEED_SUFFIX=UHQ"
 ) else (
     set "PRESET=p5"
     set "LOOKAHEAD=16"
     set "MULTIPASS=qres"
+    set "ENCODER_TUNE=hq"
+    set "UHQ_MODE=0"
     set "SPEED_LABEL=FAST"
     set "SPEED_SUFFIX=FAST"
 )
@@ -1120,6 +1204,14 @@ if "%UPLOAD_SEL%"=="2" (
 
 if not "%ENABLE_UPLOAD_BAKE%"=="1" exit /b 0
 
+if not "%FG_CAP_H264%"=="1" (
+    echo.
+    echo ERROR: H.264 NVENC is not supported by this GPU / driver.
+    echo Upload Bake requires H.264 hardware encoding.
+    echo.
+    exit /b 1
+)
+
 "%FFMPEG%" -hide_banner -h decoder=libdav1d >nul 2>&1
 if errorlevel 1 (
     echo.
@@ -1136,14 +1228,90 @@ rem Shared encoder arguments and session summary
 rem ============================================================
 
 :BUILD_ENCODER_ARGS
+set "ENABLE_BF=0"
+set "ENABLE_BREF=0"
+set "ENABLE_SPATIAL_AQ=0"
+set "ENABLE_TEMPORAL_AQ=0"
+set "ENABLE_LOOKAHEAD=0"
+set "ENABLE_QRES=0"
+set "ENABLE_FULLRES=0"
+
+if /i "%MODE%"=="AV1" (
+    set "ENABLE_BF=%FG_CAP_AV1_BF%"
+    set "ENABLE_BREF=%FG_CAP_AV1_BREF%"
+    set "ENABLE_SPATIAL_AQ=%FG_CAP_AV1_SAQ%"
+    set "ENABLE_TEMPORAL_AQ=%FG_CAP_AV1_TAQ%"
+    set "ENABLE_LOOKAHEAD=%FG_CAP_AV1_LOOKAHEAD%"
+    set "ENABLE_QRES=%FG_CAP_AV1_QRES%"
+    set "ENABLE_FULLRES=%FG_CAP_AV1_FULLRES%"
+)
+if /i "%MODE%"=="HEVC" (
+    set "ENABLE_BF=%FG_CAP_HEVC_BF%"
+    set "ENABLE_BREF=%FG_CAP_HEVC_BREF%"
+    set "ENABLE_SPATIAL_AQ=%FG_CAP_HEVC_SAQ%"
+    set "ENABLE_TEMPORAL_AQ=%FG_CAP_HEVC_TAQ%"
+    set "ENABLE_LOOKAHEAD=%FG_CAP_HEVC_LOOKAHEAD%"
+    set "ENABLE_QRES=%FG_CAP_HEVC_QRES%"
+    set "ENABLE_FULLRES=%FG_CAP_HEVC_FULLRES%"
+)
+
 set "BF_ARGS="
-if "%ENABLE_BF%"=="1" set "BF_ARGS=-bf %BF% -b_ref_mode middle"
+if "%ENABLE_BF%"=="1" set "BF_ARGS=-bf 4"
+if "%ENABLE_BREF%"=="1" set "BF_ARGS=-bf 4 -b_ref_mode middle"
+
+set "SPATIAL_AQ_ARGS="
+if "%ENABLE_SPATIAL_AQ%"=="1" set "SPATIAL_AQ_ARGS=-spatial-aq 1 -aq-strength %AQ_STRENGTH%"
 
 set "TAQ_ARGS="
 if "%ENABLE_TEMPORAL_AQ%"=="1" set "TAQ_ARGS=-temporal-aq 1"
 
+set "ACTIVE_LOOKAHEAD=Disabled"
+set "LOOKAHEAD_ARGS="
+if "%ENABLE_LOOKAHEAD%"=="1" (
+    set "ACTIVE_LOOKAHEAD=%LOOKAHEAD%"
+    set "LOOKAHEAD_ARGS=-rc-lookahead %LOOKAHEAD%"
+)
+
+set "ACTIVE_MULTIPASS=Disabled"
+set "MULTIPASS_ARGS="
+if /i "%MULTIPASS%"=="fullres" if "%ENABLE_FULLRES%"=="1" (
+    set "ACTIVE_MULTIPASS=fullres"
+    set "MULTIPASS_ARGS=-multipass fullres"
+)
+if /i "%MULTIPASS%"=="fullres" if not "%ENABLE_FULLRES%"=="1" if "%ENABLE_QRES%"=="1" (
+    set "ACTIVE_MULTIPASS=qres ^(hardware fallback^)"
+    set "MULTIPASS_ARGS=-multipass qres"
+)
+if /i "%MULTIPASS%"=="qres" if "%ENABLE_QRES%"=="1" (
+    set "ACTIVE_MULTIPASS=qres"
+    set "MULTIPASS_ARGS=-multipass qres"
+)
+
+set "ENCODER_CAP_ARGS=%MULTIPASS_ARGS% %LOOKAHEAD_ARGS% %SPATIAL_AQ_ARGS% %TAQ_ARGS% %BF_ARGS%"
+if "%UHQ_MODE%"=="1" (
+    set "ACTIVE_LOOKAHEAD=UHQ automatic"
+    set "LOOKAHEAD_ARGS="
+    set "TAQ_ARGS="
+    set "BF_ARGS="
+    set "ENCODER_CAP_ARGS=%MULTIPASS_ARGS% %SPATIAL_AQ_ARGS%"
+)
+
+set "H264_BF_ARGS="
+if "%FG_CAP_H264_BF%"=="1" set "H264_BF_ARGS=-bf 4"
+if "%FG_CAP_H264_BREF%"=="1" set "H264_BF_ARGS=-bf 4 -b_ref_mode middle"
+set "H264_SAQ_ARGS="
+if "%FG_CAP_H264_SAQ%"=="1" set "H264_SAQ_ARGS=-spatial-aq 1 -aq-strength %AQ_STRENGTH%"
+set "H264_TAQ_ARGS="
+if "%FG_CAP_H264_TAQ%"=="1" set "H264_TAQ_ARGS=-temporal-aq 1"
+set "H264_LOOKAHEAD_ARGS="
+if "%FG_CAP_H264_LOOKAHEAD%"=="1" set "H264_LOOKAHEAD_ARGS=-rc-lookahead 32"
+set "H264_MULTIPASS_ARGS="
+if "%FG_CAP_H264_FULLRES%"=="1" set "H264_MULTIPASS_ARGS=-multipass fullres"
+if not "%FG_CAP_H264_FULLRES%"=="1" if "%FG_CAP_H264_QRES%"=="1" set "H264_MULTIPASS_ARGS=-multipass qres"
+set "H264_CAP_ARGS=%H264_MULTIPASS_ARGS% %H264_LOOKAHEAD_ARGS% %H264_SAQ_ARGS% %H264_TAQ_ARGS% %H264_BF_ARGS%"
+
 set "MAIN_HWACCEL_ARGS="
-if "%ENABLE_MAIN_NVDEC%"=="1" set "MAIN_HWACCEL_ARGS=-hwaccel cuda -hwaccel_device %CUDA_DEVICE%"
+set "ENABLE_MAIN_NVDEC=0"
 exit /b 0
 
 
@@ -1162,15 +1330,32 @@ echo Cinema frame  : %FRAME_LABEL%
 echo Container     : %CONTAINER_LABEL%
 echo Film Look     : %LUT_LABEL%
 if "%LUT_ENABLED%"=="1" echo LUT compat    : DaVinci CUBE range converted for FFmpeg
+echo GPU           : %FG_CAP_GPU_NAME%
+if defined FG_CAP_DRIVER_VERSION echo Driver        : %FG_CAP_DRIVER_VERSION%
+echo HW profile    : %FG_CAP_CACHE_STATE%
 echo NVENC preset  : %PRESET%
-echo Multipass     : %MULTIPASS%
-echo Lookahead     : %LOOKAHEAD%
-if "%ENABLE_BF%"=="1" (
-    echo B-frames      : Enabled ^(%BF% / middle ref^)
+echo NVENC tuning  : %ENCODER_TUNE%
+echo Multipass     : %ACTIVE_MULTIPASS%
+echo Lookahead     : %ACTIVE_LOOKAHEAD%
+if "%ENABLE_SPATIAL_AQ%"=="1" (
+    echo Spatial AQ    : Enabled
+) else (
+    echo Spatial AQ    : Disabled
+)
+if "%UHQ_MODE%"=="1" (
+    echo B-frames      : UHQ automatic
+) else if "%ENABLE_BF%"=="1" (
+    if "%ENABLE_BREF%"=="1" (
+        echo B-frames      : Enabled ^(4 / middle ref^)
+    ) else (
+        echo B-frames      : Enabled ^(4 / no B-ref^)
+    )
 ) else (
     echo B-frames      : Disabled
 )
-if "%ENABLE_TEMPORAL_AQ%"=="1" (
+if "%UHQ_MODE%"=="1" (
+    echo Temporal AQ   : Not forced ^(UHQ temporal filter automatic^)
+) else if "%ENABLE_TEMPORAL_AQ%"=="1" (
     echo Temporal AQ   : Enabled
 ) else (
     echo Temporal AQ   : Disabled
@@ -1186,8 +1371,8 @@ echo Grain opacity : %GRAIN_OPACITY%
 echo Blend engine  : Vulkan GPU
 echo Vulkan device : %VULKAN_DEVICE%
 echo CUDA device   : %CUDA_DEVICE%
-if "%ENABLE_MAIN_NVDEC%"=="1" (
-    echo Main decode   : NVDEC CUDA
+if "%FG_CAP_NVDEC%"=="1" (
+    echo Main decode   : Auto ^(tested for each input^)
 ) else (
     echo Main decode   : Software
 )
@@ -1203,8 +1388,8 @@ echo Upload copy   : %UPLOAD_LABEL%
 if "%LUT_ENABLED%"=="1" (
     echo Main decode   : Software ^(required for CPU lut3d / blend^)
 ) else (
-    if "%ENABLE_MAIN_NVDEC%"=="1" (
-        echo Main decode   : NVDEC CUDA
+    if "%FG_CAP_NVDEC%"=="1" (
+        echo Main decode   : Auto ^(tested for each input^)
     ) else (
         echo Main decode   : Software
     )
@@ -1241,6 +1426,8 @@ if errorlevel 1 (
     shift
     goto PROCESS_NEXT
 )
+
+call :CONFIGURE_INPUT_DECODE
 
 set "OUT_FPS=%FPS%"
 set "FPS_FILTER="
@@ -1334,6 +1521,22 @@ if /i "%DURATION%"=="N/A" set "DURATION="
 exit /b 0
 
 
+:TEST_NVDEC_FILE
+if not "%FG_CAP_NVDEC%"=="1" exit /b 1
+"%FFMPEG%" -hide_banner -loglevel error -hwaccel cuda -hwaccel_device %CUDA_DEVICE% -i "%~1" -map 0:v:0 -frames:v 1 -f null NUL >nul 2>&1
+exit /b %ERRORLEVEL%
+
+
+:CONFIGURE_INPUT_DECODE
+set "ENABLE_MAIN_NVDEC=0"
+set "MAIN_HWACCEL_ARGS="
+call :TEST_NVDEC_FILE "%INPUT%"
+if errorlevel 1 exit /b 0
+set "ENABLE_MAIN_NVDEC=1"
+set "MAIN_HWACCEL_ARGS=-hwaccel cuda -hwaccel_device %CUDA_DEVICE%"
+exit /b 0
+
+
 rem ============================================================
 rem HEVC backend - scanned Grain + Vulkan overlay
 rem ============================================================
@@ -1373,8 +1576,7 @@ if %WIDTH% LEQ 1920 if %HEIGHT% LEQ 1080 set "USE_1080_CACHE=1"
 
 if "%USE_1080_CACHE%"=="1" if exist "%GRAIN_CACHE_1080%" (
     set "GRAIN_INPUT=%GRAIN_CACHE_1080%"
-    set "GRAIN_DECODE_LABEL=1080p HEVC Lossless cache / NVDEC CUDA"
-    set "GRAIN_HWACCEL_ARGS=-hwaccel cuda -hwaccel_device %CUDA_DEVICE%"
+    set "GRAIN_DECODE_LABEL=1080p HEVC Lossless cache / software decode"
     if "%WIDTH%x%HEIGHT%"=="1920x1080" (
         set "GRAIN_SCALE_REQUIRED=0"
     ) else (
@@ -1384,9 +1586,16 @@ if "%USE_1080_CACHE%"=="1" if exist "%GRAIN_CACHE_1080%" (
 
 if "%GRAIN_INPUT%"=="%GRAIN_SOURCE_MOV%" if exist "%GRAIN_CACHE%" (
     set "GRAIN_INPUT=%GRAIN_CACHE%"
-    set "GRAIN_DECODE_LABEL=4K HEVC Lossless cache / NVDEC CUDA"
-    set "GRAIN_HWACCEL_ARGS=-hwaccel cuda -hwaccel_device %CUDA_DEVICE%"
+    set "GRAIN_DECODE_LABEL=4K HEVC Lossless cache / software decode"
     set "GRAIN_SCALE_REQUIRED=1"
+)
+
+if not "%GRAIN_INPUT%"=="%GRAIN_SOURCE_MOV%" (
+    call :TEST_NVDEC_FILE "%GRAIN_INPUT%"
+    if not errorlevel 1 (
+        set "GRAIN_HWACCEL_ARGS=-hwaccel cuda -hwaccel_device %CUDA_DEVICE%"
+        call set "GRAIN_DECODE_LABEL=%%GRAIN_DECODE_LABEL:software decode=NVDEC CUDA%%"
+    )
 )
 
 echo Grain     : %GRAIN_DECODE_LABEL%
@@ -1405,7 +1614,7 @@ if "%LUT_ENABLED%"=="1" set "BASE_FILTER=[0:v:0]%FPS_FILTER%format=gbrp16le,setp
 
 rem Execute directly so CMD does not reparse ampersands or other metacharacters
 rem contained in quoted input/output paths.
-"%FFMPEG%" -hide_banner -stats -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk %MAIN_HWACCEL_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%LETTERBOX_FILTER%[vout]" -map "[vout]" %HEVC_STREAM_MAP_ARGS% -map_metadata 0 -map_chapters 0 -c:v hevc_nvenc -profile:v main10 -preset %PRESET% -tune hq -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% -multipass %MULTIPASS% -rc-lookahead %LOOKAHEAD% -spatial-aq 1 %TAQ_ARGS% -aq-strength %AQ_STRENGTH% %BF_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %HEVC_AUDIO_MUX_ARGS% %HEVC_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
+"%FFMPEG%" -hide_banner -stats -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk %MAIN_HWACCEL_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%LETTERBOX_FILTER%[vout]" -map "[vout]" %HEVC_STREAM_MAP_ARGS% -map_metadata 0 -map_chapters 0 -c:v hevc_nvenc -gpu %CUDA_DEVICE% -profile:v main10 -preset %PRESET% -tune hq -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %HEVC_AUDIO_MUX_ARGS% %HEVC_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
 
 if errorlevel 1 (
     echo.
@@ -1451,9 +1660,9 @@ if exist "%OUTPUT%" (
 
 rem Automatic high-quality upload-master bitrate by active resolution.
 set /a UPLOAD_PIXELS=%ACTIVE_WIDTH%*%ACTIVE_HEIGHT%
-set "UPLOAD_BITRATE=18000k"
-set "UPLOAD_MAXRATE=27000k"
-set "UPLOAD_BUFSIZE=36000k"
+set "UPLOAD_BITRATE=8000k"
+set "UPLOAD_MAXRATE=12000k"
+set "UPLOAD_BUFSIZE=16000k"
 
 if %UPLOAD_PIXELS% LEQ 921600 goto AV1_UPLOAD_RATE_720
 if %UPLOAD_PIXELS% LEQ 2073600 goto AV1_UPLOAD_RATE_1080
@@ -1461,27 +1670,27 @@ if %UPLOAD_PIXELS% LEQ 3686400 goto AV1_UPLOAD_RATE_1440
 goto AV1_UPLOAD_RATE_4K
 
 :AV1_UPLOAD_RATE_720
+set "UPLOAD_BITRATE=6000k"
+set "UPLOAD_MAXRATE=9000k"
+set "UPLOAD_BUFSIZE=12000k"
+goto AV1_UPLOAD_RATE_READY
+
+:AV1_UPLOAD_RATE_1080
+set "UPLOAD_BITRATE=8000k"
+set "UPLOAD_MAXRATE=12000k"
+set "UPLOAD_BUFSIZE=16000k"
+goto AV1_UPLOAD_RATE_READY
+
+:AV1_UPLOAD_RATE_1440
 set "UPLOAD_BITRATE=10000k"
 set "UPLOAD_MAXRATE=15000k"
 set "UPLOAD_BUFSIZE=20000k"
 goto AV1_UPLOAD_RATE_READY
 
-:AV1_UPLOAD_RATE_1080
-set "UPLOAD_BITRATE=18000k"
-set "UPLOAD_MAXRATE=27000k"
-set "UPLOAD_BUFSIZE=36000k"
-goto AV1_UPLOAD_RATE_READY
-
-:AV1_UPLOAD_RATE_1440
-set "UPLOAD_BITRATE=30000k"
-set "UPLOAD_MAXRATE=45000k"
-set "UPLOAD_BUFSIZE=60000k"
-goto AV1_UPLOAD_RATE_READY
-
 :AV1_UPLOAD_RATE_4K
-set "UPLOAD_BITRATE=45000k"
-set "UPLOAD_MAXRATE=67500k"
-set "UPLOAD_BUFSIZE=90000k"
+set "UPLOAD_BITRATE=12000k"
+set "UPLOAD_MAXRATE=18000k"
+set "UPLOAD_BUFSIZE=24000k"
 
 :AV1_UPLOAD_RATE_READY
 
@@ -1554,7 +1763,7 @@ rem ------------------------------------------------------------
 echo [1/%TOTAL_STAGES%] Encoding clean AV1 Main10 with NVENC...
 
 if "%LUT_ENABLED%"=="1" goto AV1_STAGE1_LUT
-"%FFMPEG%" -hide_banner -stats -y %MAIN_HWACCEL_ARGS% -i "%INPUT%" -vf "%VIDEO_FILTER%" -map 0:v:0 -an -sn -dn -c:v av1_nvenc -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune hq -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% -multipass %MULTIPASS% -rc-lookahead %LOOKAHEAD% -spatial-aq 1 %TAQ_ARGS% -aq-strength %AQ_STRENGTH% %BF_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
+"%FFMPEG%" -hide_banner -stats -y %MAIN_HWACCEL_ARGS% -i "%INPUT%" -vf "%VIDEO_FILTER%" -map 0:v:0 -an -sn -dn -c:v av1_nvenc -gpu %CUDA_DEVICE% -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune %ENCODER_TUNE% -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
 set "STAGE_RC=%ERRORLEVEL%"
 goto AV1_STAGE1_DONE
 
@@ -1712,7 +1921,7 @@ exit /b 0
 
 :RUN_LUT_AV1_ENCODE
 pushd "%JOBDIR%"
-"%FFMPEG%" -hide_banner -stats -y -i "%INPUT%" -filter_complex "[0:v:0]%FPS_FILTER%%CROP_FILTER%format=gbrp16le,split=2[lutorig][lutsrc];[lutsrc]lut3d=file=filmlook.cube:interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=p010le[vout]" -map "[vout]" -an -sn -dn -c:v av1_nvenc -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune hq -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% -multipass %MULTIPASS% -rc-lookahead %LOOKAHEAD% -spatial-aq 1 %TAQ_ARGS% -aq-strength %AQ_STRENGTH% %BF_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
+"%FFMPEG%" -hide_banner -stats -y -i "%INPUT%" -filter_complex "[0:v:0]%FPS_FILTER%%CROP_FILTER%format=gbrp16le,split=2[lutorig][lutsrc];[lutsrc]lut3d=file=filmlook.cube:interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=p010le[vout]" -map "[vout]" -an -sn -dn -c:v av1_nvenc -gpu %CUDA_DEVICE% -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune %ENCODER_TUNE% -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
 set "RUN_LUT_RC=%ERRORLEVEL%"
 popd
 exit /b %RUN_LUT_RC%
@@ -1735,7 +1944,7 @@ if exist "%UPLOAD_OUTPUT%" (
 )
 
 rem Respect the same B-frame / Temporal-AQ switches as the main encode.
-"%FFMPEG%" -hide_banner -stats -y -c:v libdav1d -i "%OUTPUT%" -map 0:v:0 -map 0:a:0? -map_metadata 0 -c:v h264_nvenc -profile:v high -pix_fmt yuv420p -preset p6 -tune hq -rc vbr -b:v %UPLOAD_BITRATE% -maxrate:v %UPLOAD_MAXRATE% -bufsize:v %UPLOAD_BUFSIZE% -multipass fullres -rc-lookahead 32 -spatial-aq 1 %TAQ_ARGS% -aq-strength %AQ_STRENGTH% %BF_ARGS% -c:a aac -b:a 320k -ac 2 -ar 48000 -movflags +faststart "%UPLOAD_OUTPUT%"
+"%FFMPEG%" -hide_banner -stats -y -c:v libdav1d -i "%OUTPUT%" -map 0:v:0 -map 0:a:0? -map_metadata 0 -c:v h264_nvenc -gpu %CUDA_DEVICE% -profile:v high -pix_fmt yuv420p -preset p6 -tune hq -rc vbr -b:v %UPLOAD_BITRATE% -maxrate:v %UPLOAD_MAXRATE% -bufsize:v %UPLOAD_BUFSIZE% %H264_CAP_ARGS% -c:a aac -b:a 320k -ac 2 -ar 48000 -movflags +faststart "%UPLOAD_OUTPUT%"
 
 if errorlevel 1 (
     echo.
@@ -1971,21 +2180,21 @@ if /i "%MODE%"=="HEVC" goto SHOW_HEVC_COMMAND
 goto SHOW_AV1_COMMANDS
 
 :SHOW_HEVC_COMMAND
-echo [HEVC] "%FFMPEG%" -hide_banner -stats -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk %MAIN_HWACCEL_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%LETTERBOX_FILTER%[vout]" -map "[vout]" %HEVC_STREAM_MAP_ARGS% -map_metadata 0 -map_chapters 0 -c:v hevc_nvenc -profile:v main10 -preset %PRESET% -tune hq -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% -multipass %MULTIPASS% -rc-lookahead %LOOKAHEAD% -spatial-aq 1 %TAQ_ARGS% -aq-strength %AQ_STRENGTH% %BF_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %HEVC_AUDIO_MUX_ARGS% %HEVC_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
+echo [HEVC] "%FFMPEG%" -hide_banner -stats -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk %MAIN_HWACCEL_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%LETTERBOX_FILTER%[vout]" -map "[vout]" %HEVC_STREAM_MAP_ARGS% -map_metadata 0 -map_chapters 0 -c:v hevc_nvenc -gpu %CUDA_DEVICE% -profile:v main10 -preset %PRESET% -tune hq -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %HEVC_AUDIO_MUX_ARGS% %HEVC_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
 exit /b 0
 
 :SHOW_AV1_COMMANDS
 if "%LUT_ENABLED%"=="1" goto SHOW_AV1_LUT_COMMAND
-echo [Encode] "%FFMPEG%" -hide_banner -stats -y %MAIN_HWACCEL_ARGS% -i "%INPUT%" -vf "%VIDEO_FILTER%" -map 0:v:0 -an -sn -dn -c:v av1_nvenc -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune hq -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% -multipass %MULTIPASS% -rc-lookahead %LOOKAHEAD% -spatial-aq 1 %TAQ_ARGS% -aq-strength %AQ_STRENGTH% %BF_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
+echo [Encode] "%FFMPEG%" -hide_banner -stats -y %MAIN_HWACCEL_ARGS% -i "%INPUT%" -vf "%VIDEO_FILTER%" -map 0:v:0 -an -sn -dn -c:v av1_nvenc -gpu %CUDA_DEVICE% -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune %ENCODER_TUNE% -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
 goto SHOW_AV1_REMAINING_COMMANDS
 
 :SHOW_AV1_LUT_COMMAND
-echo [Encode] "%FFMPEG%" -hide_banner -stats -y -i "%INPUT%" -filter_complex "[0:v:0]%FPS_FILTER%%CROP_FILTER%format=gbrp16le,split=2[lutorig][lutsrc];[lutsrc]lut3d=file=filmlook.cube:interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=p010le[vout]" -map "[vout]" -an -sn -dn -c:v av1_nvenc -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune hq -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% -multipass %MULTIPASS% -rc-lookahead %LOOKAHEAD% -spatial-aq 1 %TAQ_ARGS% -aq-strength %AQ_STRENGTH% %BF_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
+echo [Encode] "%FFMPEG%" -hide_banner -stats -y -i "%INPUT%" -filter_complex "[0:v:0]%FPS_FILTER%%CROP_FILTER%format=gbrp16le,split=2[lutorig][lutsrc];[lutsrc]lut3d=file=filmlook.cube:interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=p010le[vout]" -map "[vout]" -an -sn -dn -c:v av1_nvenc -gpu %CUDA_DEVICE% -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune %ENCODER_TUNE% -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
 
 :SHOW_AV1_REMAINING_COMMANDS
 echo [Grain] "%GRAV1SYNTH%" apply "%TMP_BASE%" -o "%TMP_GRAIN%" %GRAIN_APPLY_ARGS% --replace -y
 echo [Remux] "%FFMPEG%" -hide_banner -stats -y -i "%TMP_GRAIN%" -i "%INPUT%" -map 0:v:0 %AV1_FINAL_REMUX_MAP% -map_metadata 1 -map_chapters 1 %AV1_FINAL_REMUX_CODEC% %AV1_FINAL_REMUX_EXTRA% "%OUTPUT%"
-if "%CREATE_UPLOAD%"=="1" echo [Upload] "%FFMPEG%" -hide_banner -stats -y -c:v libdav1d -i "%OUTPUT%" -map 0:v:0 -map 0:a:0? -map_metadata 0 -c:v h264_nvenc -profile:v high -pix_fmt yuv420p -preset p6 -tune hq -rc vbr -b:v %UPLOAD_BITRATE% -maxrate:v %UPLOAD_MAXRATE% -bufsize:v %UPLOAD_BUFSIZE% -multipass fullres -rc-lookahead 32 -spatial-aq 1 %TAQ_ARGS% -aq-strength %AQ_STRENGTH% %BF_ARGS% -c:a aac -b:a 320k -ac 2 -ar 48000 -movflags +faststart "%UPLOAD_OUTPUT%"
+if "%CREATE_UPLOAD%"=="1" echo [Upload] "%FFMPEG%" -hide_banner -stats -y -c:v libdav1d -i "%OUTPUT%" -map 0:v:0 -map 0:a:0? -map_metadata 0 -c:v h264_nvenc -gpu %CUDA_DEVICE% -profile:v high -pix_fmt yuv420p -preset p6 -tune hq -rc vbr -b:v %UPLOAD_BITRATE% -maxrate:v %UPLOAD_MAXRATE% -bufsize:v %UPLOAD_BUFSIZE% %H264_CAP_ARGS% -c:a aac -b:a 320k -ac 2 -ar 48000 -movflags +faststart "%UPLOAD_OUTPUT%"
 exit /b 0
 
 
