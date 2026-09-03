@@ -1,5 +1,7 @@
 # Film Grain Studio
 
+![](images/Film_Grain_Studio_v3.1.jpg)
+
 基于 **FFmpeg、NVIDIA NVENC 与 grav1synth** 的 Windows 视频胶片化工具包，同时提供图形界面和命令行入口。
 
 项目包含两条可切换的 Film Grain 处理路线：
