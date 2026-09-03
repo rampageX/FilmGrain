@@ -1,4 +1,14 @@
-﻿$ErrorActionPreference = "Stop"
+﻿[CmdletBinding()]
+param(
+    [string]$LutRoot,
+    [string]$ReferencePath,
+    [string]$OutputRoot,
+    [switch]$ForceOverwrite,
+    [switch]$NonInteractive,
+    [switch]$NoPause
+)
+
+$ErrorActionPreference = "Stop"
 
 # ============================================================
 # User defaults - edit these values if you want different defaults.
@@ -143,29 +153,57 @@ function PrepareLutForFFmpeg($lut, $tempDirectory, $sequence) {
 if (-not (Test-Path -LiteralPath $FFMPEG)) { throw "FFmpeg not found: $FFMPEG" }
 
 Write-Host "`n=== Recursive LUT Preview Generator / Gallery + Resolve-Compatible ===`n" -ForegroundColor Cyan
-Write-Host "Press Enter at prompts to use the value shown in [brackets].`n" -ForegroundColor DarkGray
+if ($NonInteractive) {
+    Write-Host "Running from LUT Gallery with overwrite enabled.`n" -ForegroundColor DarkGray
+} else {
+    Write-Host "Press Enter at prompts to use the value shown in [brackets].`n" -ForegroundColor DarkGray
+}
 
-$root = AskPathWithDefault "LUT root directory" $DefaultLutRoot $true
-$source = AskPathWithDefault "Reference image or video" $DefaultReference $false
+if ($LutRoot) {
+    if (-not (Test-Path -LiteralPath $LutRoot -PathType Container)) { throw "Invalid LUT root directory: $LutRoot" }
+    $root = (Resolve-Path -LiteralPath $LutRoot).Path
+} else {
+    if ($NonInteractive) { throw 'LutRoot is required in non-interactive mode.' }
+    $root = AskPathWithDefault "LUT root directory" $DefaultLutRoot $true
+}
+
+if ($ReferencePath) {
+    if (-not (Test-Path -LiteralPath $ReferencePath -PathType Leaf)) { throw "Invalid reference image or video: $ReferencePath" }
+    $source = (Resolve-Path -LiteralPath $ReferencePath).Path
+} else {
+    if ($NonInteractive) { throw 'ReferencePath is required in non-interactive mode.' }
+    $source = AskPathWithDefault "Reference image or video" $DefaultReference $false
+}
 
 $video = IsVideo $source
 $seek = $DefaultVideoSeek
 if ($video) {
-    $s = (Read-Host "Video capture time in seconds [$DefaultVideoSeek]").Trim()
-    if ($s) { $seek = $s }
+    if (-not $NonInteractive) {
+        $s = (Read-Host "Video capture time in seconds [$DefaultVideoSeek]").Trim()
+        if ($s) { $seek = $s }
+    }
 }
 
-$o = (Read-Host "Output folder [Enter = $DefaultOutputFolderName]").Trim().Trim('"')
-if (-not $o) {
-    $out = Join-Path $root $DefaultOutputFolderName
-} else {
-    $out = $o
+if ($OutputRoot) {
+    $out = $OutputRoot.Trim().Trim('"')
     if (-not [IO.Path]::IsPathRooted($out)) { $out = Join-Path $root $out }
+} else {
+    if ($NonInteractive) {
+        $out = Join-Path $root $DefaultOutputFolderName
+    } else {
+        $o = (Read-Host "Output folder [Enter = $DefaultOutputFolderName]").Trim().Trim('"')
+        if (-not $o) {
+            $out = Join-Path $root $DefaultOutputFolderName
+        } else {
+            $out = $o
+            if (-not [IO.Path]::IsPathRooted($out)) { $out = Join-Path $root $out }
+        }
+    }
 }
 
 New-Item -ItemType Directory -Force -Path $out | Out-Null
 $out = (Resolve-Path $out).Path
-$overwrite = (Read-Host "Overwrite existing previews? [y/N]") -match '^(y|yes)$'
+$overwrite = if ($NonInteractive) { [bool]$ForceOverwrite } else { (Read-Host "Overwrite existing previews? [y/N]") -match '^(y|yes)$' }
 
 $luts = @(FindLuts $root $out | Sort-Object FullName)
 Write-Host "`nFound $($luts.Count) LUT files (junctions included).`n"
@@ -277,4 +315,4 @@ Write-Host "`nSuccess: $ok  Skipped: $skip  Unsupported: $unsupported  Failed: $
 Write-Host "Resolve CUBE files converted temporarily: $convertedCount"
 Write-Host "Output: $out"
 if (Test-Path -LiteralPath $log) { Write-Host "Log: $log" }
-Read-Host "Press Enter to exit"
+if (-not $NoPause) { Read-Host "Press Enter to exit" }

@@ -1,7 +1,5 @@
 # Film Grain Studio
 
-![](images/Film_Grain_Studio_v3.1.jpg)
-
 基于 **FFmpeg、NVIDIA NVENC 与 grav1synth** 的 Windows 视频胶片化工具包，同时提供图形界面和命令行入口。
 
 项目包含两条可切换的 Film Grain 处理路线：
@@ -9,15 +7,22 @@
 - **HEVC Main10 + 真实扫描 Grain Plate**：将真实胶片颗粒合成到视频像素中。
 - **AV1 Main10 + grav1synth Film Grain**：将颗粒模型写入 AV1 Film Grain metadata，由播放器在解码时合成。
 
-当前正式稳定版为 **v3.1**，发布包名称：
+当前正式稳定版为 **v3.2**，发布包名称：
 
 ```text
-FilmGrain_Studio_v3.1_Stable.zip
+FilmGrain_Studio_v3.2_Stable.zip
 ```
 
 所有独立脚本使用固定文件名，不再包含组件版本号；版本号只体现在整个项目的发布压缩包上。升级时建议完整替换工具包，避免新旧脚本混用。
 
 默认配置为 **AV1 Main10 + MP4 + AAC 256k**，并集成 LUT Gallery、自动电影帧率、Cinematic Style、多文件处理、NVENC 硬件能力自动探测、AV1 UHQ 及 AV1 Film Grain 最终验证。
+
+## v3.2 更新摘要
+
+- LUT Gallery 新增 **更换参考图**，可直接选择新图片并覆盖生成全部 LUT 预览；
+- 生成期间显示独立进度窗口，Gallery 暂时锁定操作，完成后自动刷新缩略图；
+- 将当前页码输入框改为只读下拉菜单，显示当前页并可直接选择任意页面；
+- 保留上一页/下一页、PageUp/PageDown 首尾循环、搜索、文件夹筛选、Recent 与收藏的原有行为。
 
 ## v3.1 更新摘要
 
@@ -184,7 +189,7 @@ GUI 与 CLI 的输出均保存在源视频所在目录。已有同名输出时�
 - AV1 Film Preset、Photon ISO、Film 格式、Film stock 与 Chroma Grain；
 - HEVC Grain 根目录递归扫描，只显示电脑上实际存在的 `.mov` Grain Plate；
 - 自动匹配 1080p 或原分辨率 HEVC Lossless Grain Cache；
-- LUT Gallery、最近使用、我的最爱、缩略图预览及 LUT 强度；
+- LUT Gallery、最近使用、我的最爱、缩略图预览、参考图更换及 LUT 强度；
 - 结构化实时进度、`fps`、`speed`、`ETA`、日志复制/清空与任务取消。
 
 ---
@@ -385,13 +390,13 @@ E:\Adobe Portable\LUTs
 Utils\LUT_Preview_Batch_Gallery.bat
 ```
 
-缩略图生成器支持默认或自定义参考素材、Junction/Symlink、防循环、1920 宽预览及 Resolve CUBE 兼容处理。
+缩略图生成器支持默认或自定义参考素材、Junction/Symlink、防循环、1920 宽预览及 Resolve CUBE 兼容处理。Gallery 中的“更换参考图”可在选择新图片后覆盖生成所有 LUT 预览，完成后自动刷新当前图库。
 
 中文 LUT Gallery 支持：
 
 - 全部 LUT、最近使用和我的最爱；
 - 搜索、文件夹筛选与缩略图显示；
-- 当前页码输入后按 Enter 直接跳转；
+- 页码下拉菜单显示当前页，并可直接选择任意页面；
 - 上一页/下一页及 PageUp/PageDown 首尾循环；
 - 右键菜单、收藏、双击选择、Enter 确认与 Esc 取消。
 
@@ -506,7 +511,7 @@ Variant : GPL static
 
 最低驱动要求取决于 FFmpeg 构建采用的 NVENC API / `nv-codec-headers`，不能只根据 FFmpeg 主版本号判断。
 
-v3.1 会在启动时自动校验当前环境。更换 GPU、升级 NVIDIA 驱动或替换 FFmpeg 后，原能力缓存会自动失效并重新检测。
+v3.1 起会在启动时自动校验当前环境。更换 GPU、升级 NVIDIA 驱动或替换 FFmpeg 后，原能力缓存会自动失效并重新检测。
 
 升级驱动或 FFmpeg 后，建议至少确认：
 
