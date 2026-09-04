@@ -1,7 +1,5 @@
 # Film Grain Studio
 
-![](images/Film_Grain_Studio_v3.1.jpg)
-
 基于 **FFmpeg、NVIDIA NVENC 与 grav1synth** 的 Windows 视频胶片化工具包，同时提供图形界面和命令行入口。
 
 项目包含两条可切换的 Film Grain 处理路线：
@@ -9,31 +7,17 @@
 - **HEVC Main10 + 真实扫描 Grain Plate**：将真实胶片颗粒合成到视频像素中。
 - **AV1 Main10 + grav1synth Film Grain**：将颗粒模型写入 AV1 Film Grain metadata，由播放器在解码时合成。
 
-当前正式稳定版为 **v3.2**，发布包名称：
+当前正式稳定版为 **v3.3.1**，发布包名称：
 
 ```text
-FilmGrain_Studio_v3.2_Stable.zip
+FilmGrain_Studio_v3.3.1_Stable.zip
 ```
 
 所有独立脚本使用固定文件名，不再包含组件版本号；版本号只体现在整个项目的发布压缩包上。升级时建议完整替换工具包，避免新旧脚本混用。
 
-默认配置为 **AV1 Main10 + MP4 + AAC 256k**，并集成 LUT Gallery、自动电影帧率、Cinematic Style、多文件处理、NVENC 硬件能力自动探测、AV1 UHQ 及 AV1 Film Grain 最终验证。
+默认配置为 **AV1 Main10 + MP4 + AAC 256k**，并集成 LUT Gallery、自动 Field-rate 反交错、自动电影帧率、Cinematic Style、多文件处理、NVENC 硬件能力自动探测、AV1 UHQ 及 AV1 Film Grain 最终验证。
 
-## v3.2 更新摘要
-
-- LUT Gallery 新增 **更换参考图**，可直接选择新图片并覆盖生成全部 LUT 预览；
-- 生成期间显示独立进度窗口，Gallery 暂时锁定操作，完成后自动刷新缩略图；
-- 将当前页码输入框改为只读下拉菜单，显示当前页并可直接选择任意页面；
-- 保留上一页/下一页、PageUp/PageDown 首尾循环、搜索、文件夹筛选、Recent 与收藏的原有行为。
-
-## v3.1 更新摘要
-
-- 新增 NVIDIA GPU、驱动与 FFmpeg 实际能力探测，不再依赖 RTX 4080 / T600 固定型号配置；
-- 自动检测 AV1、HEVC、H.264 NVENC、Main10、B-frame、B-reference、Spatial/Temporal AQ、Lookahead、Multipass、NVDEC CUDA 与 Vulkan，并只启用当前环境实际支持的参数；
-- 新增 **AV1 UHQ** 模式；只有微型编码测试通过的 GPU / 驱动 / FFmpeg 组合才会显示；
-- 新增 `_HardwareCaps.json` 能力缓存；首次探测显示 `Detected`，后续命中缓存显示 `Cached`；
-- H.264 社交平台上传母版改为按分辨率自动使用 **6 / 8 / 10 / 12 Mbps**；
-- 修复 T600 / RTX 4080 能力探测与缓存状态显示问题。
+历史版本变更请参阅 [`CHANGELOG.md`](CHANGELOG.md)。
 
 ---
 
@@ -55,7 +39,7 @@ FilmGrain_Studio_v3.2_Stable.zip
 | `FilmGrain_Universal_HEVC_AV1_GUI.bat` | 启动 Film Grain Studio 图形界面，推荐日常使用 |
 | `FilmGrain_Universal_HEVC_AV1_CLI.bat` | 独立命令行版本，保留完整交互菜单与多文件拖放 |
 
-GUI 与 CLI 使用一致的核心编码参数，并同步支持中文、空格以及 `&` 等 CMD 特殊字符路径。
+GUI 与 CLI 共用 `Utils\FilmGrain_Universal_HEVC_AV1_StudioBridge.bat` 编码核心：GUI 通过 `FG_*` 参数调用，CLI 入口则直接进入同一核心的交互模式。因此反交错、画幅、帧率、编码参数、LUT 与 Grain 逻辑保持同步。两种入口均支持中文、空格以及 `&` 等 CMD 特殊字符路径。
 
 ---
 
@@ -86,6 +70,7 @@ AV1 Film Grain Synthesis 采用另一种方式：编码相对干净的画面，�
 FilmGrain_Universal_HEVC_AV1_CLI.bat
 FilmGrain_Universal_HEVC_AV1_GUI.bat
 README.md
+CHANGELOG.md
 README_FilmGrain_Studio.txt
 README_Toolkit.txt
 Utils\
@@ -98,7 +83,6 @@ Utils\
     LUT_Preview_Batch_Gallery.bat
     Collect_BT709_LUTs_Conservative.bat
     FilmGrain_MOV_to_HEVC_Lossless_Cache.bat
-    FilmGrain_MOV_to_1080p_HEVC_Lossless_Cache.bat
 _LUT_Tools\
     LUT_Gallery_Selector.ps1
     LUT_Preview_Batch_Gallery.ps1
@@ -159,8 +143,8 @@ FilmGrain_Universal_HEVC_AV1_GUI.bat
 基本流程：
 
 1. 添加或拖入一个或多个视频。
-2. 选择 AV1 或 HEVC、输出容器、码率、帧率和 GPU 配置。
-3. 按需启用 Cinematic Style、Film Grain 与 LUT。
+2. 选择 AV1 或 HEVC、输出容器、码率、反交错方式和 GPU 配置。
+3. 按需选择 Cinematic Style 的“加黑边 / 裁剪”、Film Grain 与 LUT。
 4. 点击“开始编码”。
 5. 在任务区查看当前阶段、进度、`fps`、`speed`、`ETA` 与完整日志。
 
@@ -186,8 +170,11 @@ GUI 与 CLI 的输出均保存在源视频所在目录。已有同名输出时�
 - MP4 与 MKV 输出；
 - FAST、Standard，以及能力探测通过后可选的 AV1 UHQ 编码模式；
 - 常用码率及自定义 kbps 码率；
-- 自动电影帧率或保持源帧率；
+- 自动反交错：BWDIF Vulkan（默认）、BWDIF CUDA（备选）、W3FDIF Complex（高质量对照）；
+- 隔行素材自动使用 Field-rate 输出，例如 29.97i → 59.94p、25i → 50p；逐行素材自动旁路；
+- 逐行素材可使用自动电影帧率或保持源帧率；
 - NVIDIA GPU / 驱动 / FFmpeg 能力自动探测与缓存；
+- HEVC / AV1 统一 Cinematic Style：可烘焙上下黑边并保持原分辨率，或裁剪为约 2.39:1 有效画面；
 - AV1 Film Preset、Photon ISO、Film 格式、Film stock 与 Chroma Grain；
 - HEVC Grain 根目录递归扫描，只显示电脑上实际存在的 `.mov` Grain Plate；
 - 自动匹配 1080p 或原分辨率 HEVC Lossless Grain Cache；
@@ -204,8 +191,9 @@ GUI 与 CLI 的输出均保存在源视频所在目录。已有同名输出时�
 | 输出容器 | MP4 |
 | 音频 | AAC 256 kbps |
 | 速度模式 | FAST：p5 / qres multipass / lookahead 16 |
-| Cinematic Style | 开启，约 2.39:1 |
-| 输出帧率 | 自动电影帧率 |
+| Cinematic Style | 开启；默认“加黑边 · 保留原分辨率” |
+| 反交错 | 自动；BWDIF Vulkan（默认） |
+| 输出帧率 | 自动：隔行素材 Field-rate ×2；逐行素材自动电影帧率 |
 | GPU | 自动检测 |
 | LUT | 关闭 |
 | AV1 Grain 方式 | Film Preset |
@@ -246,9 +234,12 @@ GUI 与 CLI 的输出均保存在源视频所在目录。已有同名输出时�
 
 ### Cinematic Style
 
-HEVC 路线会保持原始输出分辨率，并添加约 **2.39:1** 上下黑边。
+HEVC 与 AV1 共用同一套约 **2.39:1** 画幅选项：
 
-例如 1920×1080 输入仍输出 1920×1080。黑边在 Grain 合成后添加，因此黑色区域不会叠加颗粒。
+- **加黑边 · 保留原分辨率（默认）**：例如 1920×1080 仍输出 1920×1080，将上下纯黑区域直接烘焙进视频，适合后期把字幕放在黑边上；
+- **裁剪 · 输出有效 2.39:1 画面**：例如 1920×1080 输出约 1920×804，不编码上下无效区域。
+
+HEVC 的黑边在扫描 Grain 合成完成后再添加，因此黑色区域不会叠加扫描颗粒。
 
 ### Grain Cache
 
@@ -267,14 +258,19 @@ HEVC 路线会保持原始输出分辨率，并添加约 **2.39:1** 上下黑边
 找不到适用 Cache → 回退到原始 Grain MOV
 ```
 
-生成工具位于：
+生成工具已合并为：
 
 ```text
-Utils\FilmGrain_MOV_to_1080p_HEVC_Lossless_Cache.bat
 Utils\FilmGrain_MOV_to_HEVC_Lossless_Cache.bat
 ```
 
-两个工具都会生成 HEVC Main10 Lossless Cache，并对源/预处理后的 P010 像素流与缓存解码结果执行 SHA-256 校验。
+运行后可选择：
+
+1. 生成原始分辨率 HEVC Main10 Lossless Cache；
+2. 生成经 Vulkan bilinear 缩放的 1920×1080 Cache；
+3. 同时生成两种 Cache（默认）。
+
+校验采用 **实际 10-bit sample-exact**：编码时从与 NVENC 完全相同的 P010 帧流中分出一路，规范化为 `yuv420p10le` 后计算 SHA-256，再与 HEVC 解码结果比较。这样可排除不同 GPU / 驱动在 P010 低 6 位填充位上的实现差异，避免 T600 上出现“有效 10-bit 像素完全一致但 P010 容器字节哈希不同”的假失败。RTX 4080 与 T600 Laptop 均已验证通过。
 
 免费 Grain Plate 素材：
 
@@ -344,14 +340,16 @@ Classic35、Modern35 和 16mm 还可以选择 Fujifilm Eterna 250D/500T、Kodak 
 
 ### AV1 的 2.39:1 画幅
 
-AV1 路线采用 **Active Picture Crop**，而不是将黑边编码进视频：
+AV1 与 HEVC 一样，可在 Cinematic Style 中选择：
 
 ```text
-1920×1080 → 约 1920×804
-2560×1440 → 约 2560×1072
+加黑边：1920×1080 → 1920×1080（上下黑边烘焙进视频）
+裁剪  ：1920×1080 → 约 1920×804
 ```
 
-这样可以避免 Film Grain 模型影响黑边，同时减少对黑色区域的无效编码。全屏播放时由播放器或显示设备补充黑边。
+需要后期在黑边区域添加字幕时，建议使用默认的“加黑边”。需要减少无效像素、只保留有效画面时，可选择“裁剪”。
+
+AV1 Film Grain 由 grav1synth 写入 metadata，并由播放器在解码时合成；因此烘焙黑边后的最终颗粒表现仍取决于播放器对 AV1 Film Grain Synthesis 的实现。
 
 ### 最终验证
 
@@ -364,9 +362,31 @@ AV1 任务完成前会运行 `grav1synth inspect`。只有最终输出中的 Fil
 
 ---
 
+## 自动反交错与 Field-rate
+
+GUI 默认启用自动反交错，并由 FFprobe 的 `field_order` 判断输入是否为隔行素材。CLI 提供相同的交互选择。
+
+| 模式 | 定位 | Field-rate |
+|---|---|---|
+| BWDIF Vulkan | 默认 | `send_field` |
+| BWDIF CUDA | 备选 | `send_field` |
+| W3FDIF Complex | 高质量对照 | `mode=field` |
+| 关闭 | 不进行反交错 | — |
+
+当 `field_order` 为 `tt`、`bb`、`tb` 或 `bt` 时，自动反交错启用，并按“一场一帧”输出：
+
+```text
+29.97i → 59.94p
+25i    → 50p
+```
+
+此时 Field-rate 输出优先于普通电影帧率选择。输入被标记为 progressive / unknown 时自动旁路反交错，并继续使用正常的逐行帧率逻辑。
+
+---
+
 ## 自动电影帧率
 
-自动模式会先将 FFprobe 返回的平均帧率分数换算为数值，再识别 VFR 和数学上等价的非标准分数，例如 `60/2` 或 `19001/317`。
+对于逐行素材（或自动反交错旁路的素材），自动模式会先将 FFprobe 返回的平均帧率分数换算为数值，再识别 VFR 和数学上等价的非标准分数，例如 `60/2` 或 `19001/317`。隔行素材启用自动反交错时则直接采用 Field-rate ×2 输出。
 
 | 源帧率族 | 输出 |
 |---|---|
@@ -421,7 +441,15 @@ Utils\LUT_Preview_Batch_Gallery.bat
 
 ### 在主流程中生成
 
-AV1 模式可以启用 H.264 社交网站上传版。主任务完成后会额外生成一份已将 Grain 烘焙到像素的 H.264/AAC MP4。
+AV1 与 HEVC 两种主编码方式都可以启用 **“同时生成 H.264 上传版”**。主任务完成后会额外生成一份已将 Grain 烘焙到像素的 H.264/AAC MP4。GUI 与 CLI 共用同一功能。
+
+主流程的上传版码率可直接选择，默认 **8000 kbps**：
+
+```text
+6000 / 8000 / 10000 / 12000 / 15000 / 18000 / 20000 / 30000 kbps
+```
+
+其中 6000 / 8000 / 10000 / 12000 分别作为 ≤720p / 1080p / 1440p / 4K 推荐档，15000 / 18000 / 20000 / 30000 用于高码率测试。`maxrate` 自动设为所选码率的 1.5 倍，`bufsize` 为 2 倍。输出文件名包含所选码率，例如 `_UPLOAD_H264_GRAIN_18000k.mp4`，方便同一素材并行比较不同上传母版。
 
 ### 独立转换工具
 
@@ -441,7 +469,9 @@ AAC 320k / MP4 / faststart
 
 输出文件名带 `_UPLOAD_H264_GRAIN.mp4`，适合作为视频平台上传母版。
 
-H.264 视频码率根据有效画面分辨率自动选择，主流程内的附加上传版与独立转换工具使用相同规则：
+> 独立的 `AV1_FilmGrain_Bake_for_Social_Upload.bat` 仍按有效分辨率自动选择推荐码率；主流程内的 H.264 上传版则使用上面的手动下拉档位。
+
+独立转换工具的自动推荐规则：
 
 | 有效分辨率 | 平均码率 | Maxrate | Bufsize |
 |---|---:|---:|---:|
@@ -490,8 +520,7 @@ grav1synth inspect
 | 文件 | 用途 |
 |---|---|
 | `Collect_BT709_LUTs_Conservative.bat` | 保守筛选明确标注 BT.709/Rec.709 输入的 CUBE LUT，复制到 LUT 根目录的 `BT.709` 子目录并生成 CSV 报告 |
-| `FilmGrain_MOV_to_HEVC_Lossless_Cache.bat` | 递归扫描 Grain 库，生成原分辨率 HEVC Main10 Lossless Cache 并验证像素哈希 |
-| `FilmGrain_MOV_to_1080p_HEVC_Lossless_Cache.bat` | 将 Grain Plate 缩放至 1920×1080，生成 HEVC Main10 Lossless Cache 并验证像素哈希 |
+| `FilmGrain_MOV_to_HEVC_Lossless_Cache.bat` | 统一 Cache 生成器：可生成原始分辨率、1080p 或两种 HEVC Main10 Lossless Cache，并进行实际 10-bit sample-exact SHA-256 校验 |
 | `LUT_Preview_Batch_Gallery.bat` | 生成 LUT Gallery 缩略图和索引 |
 
 ---
@@ -513,13 +542,13 @@ Variant : GPL static
 
 最低驱动要求取决于 FFmpeg 构建采用的 NVENC API / `nv-codec-headers`，不能只根据 FFmpeg 主版本号判断。
 
-v3.1 起会在启动时自动校验当前环境。更换 GPU、升级 NVIDIA 驱动或替换 FFmpeg 后，原能力缓存会自动失效并重新检测。
+启动时会自动校验当前环境。更换 GPU、升级 NVIDIA 驱动或替换 FFmpeg 后，原能力缓存会自动失效并重新检测。
 
 升级驱动或 FFmpeg 后，建议至少确认：
 
 ```bat
 ffmpeg -hide_banner -encoders | findstr /i "hevc_nvenc av1_nvenc"
-ffmpeg -hide_banner -filters  | findstr /i "blend_vulkan scale_vulkan"
+ffmpeg -hide_banner -filters  | findstr /i "blend_vulkan scale_vulkan bwdif bwdif_vulkan bwdif_cuda w3fdif"
 ffmpeg -hide_banner -hwaccels | findstr /i "cuda vulkan"
 ffmpeg -hide_banner -h decoder=libdav1d
 ```
@@ -527,6 +556,7 @@ ffmpeg -hide_banner -h decoder=libdav1d
 并重新测试：
 
 - HEVC/AV1 Main10 输出；
+- 29.97i → 59.94p、25i → 50p 的反交错输出与画质；
 - Vulkan Grain 合成的亮度、格式与帧同步；
 - 23.976/24 fps 转换后的时长与音画同步；
 - MP4/MKV 的音频、字幕、附件与章节行为；
@@ -546,6 +576,7 @@ ffmpeg -hide_banner -h decoder=libdav1d
 - 部分平台和转码软件会移除 AV1 Film Grain metadata；
 - MP4 兼容模式不会保留字幕、附件和数据流；
 - 启用 LUT 时，部分处理链会转为软件滤镜路径，速度可能下降；
+- 自动反交错依赖 FFprobe `field_order`；实际为隔行但被标记为 progressive / unknown 的异常素材需要人工确认；
 - 特殊 HDR、VFR、多视频流或非常规容器建议先使用短片测试；
 - 强制取消任务可能留下未完成输出或 `__AV1GS_TMP_*` 临时目录；
 - 重要素材应保留原文件，并在归档前检查画面、音频、时长、流信息及 Film Grain 验证结果。

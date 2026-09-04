@@ -19,7 +19,6 @@ Utils\
     LUT_Preview_Batch_Gallery.bat
     Collect_BT709_LUTs_Conservative.bat
     FilmGrain_MOV_to_HEVC_Lossless_Cache.bat
-    FilmGrain_MOV_to_1080p_HEVC_Lossless_Cache.bat
 _LUT_Tools\
     LUT_Gallery_Selector.ps1
     LUT_Preview_Batch_Gallery.ps1
@@ -35,7 +34,7 @@ FFprobe：E:\EnCoder\FFMpeg\13.0\bin\ffprobe.exe
 grav1synth：E:\EnCoder\FFMpeg\grav1synth\grav1synth.exe
 HEVC Grain 库：D:\Film_Grain
 LUT 根目录：E:\Adobe Portable\LUTs
-目标显卡：RTX 4080（B-frames 与 Temporal AQ 默认开启）
+GPU：NVIDIA GPU 自动探测（已验证 RTX 4080 与 T600 Laptop）
 
 1. 整合主脚本
 -------------
@@ -45,11 +44,13 @@ FilmGrain_Universal_HEVC_AV1_CLI.bat
 功能：
 - AV1 Main10：NVENC 编码后由 grav1synth 写入 Film Grain metadata。
 - HEVC Main10：使用扫描 Grain plate、Vulkan overlay 和 NVENC 编码。
-- 共享速度、画幅、帧率、容器、LUT Gallery、码率和批量处理菜单。
+- 共享速度、画幅、反交错、帧率、容器、LUT Gallery、码率和批量处理菜单。
 - 默认编码方式：AV1。
 - 默认输出容器：MP4（音频转 AAC 256k，不兼容的字幕、附件和数据流不写入）。
 - MKV 模式仍可保留原始音频、字幕、附件和数据流。
-- Cinematic style 画幅约为 2.39:1。
+- Cinematic Style 约 2.39:1；HEVC / AV1 均可选择“加黑边保留原分辨率”或“裁剪有效画面”。
+- 自动反交错默认使用 BWDIF Vulkan；隔行 29.97i → 59.94p、25i → 50p。
+- AV1 / HEVC 均可同时生成 H.264 上传版；可选 6000 / 8000 / 10000 / 12000 / 15000 / 18000 / 20000 / 30000 kbps，默认 8000 kbps。
 
 LUT 选择中选择 Gallery 后，可搜索、分页、双击选择，或使用 Enter、
 PageUp、PageDown 和 Esc。Resolve CUBE 兼容转换、tetrahedral 插值与
@@ -61,16 +62,16 @@ Studio“我的最爱”选择 LUT 并点击“开始编码”时，Studio 才�
 无界面入口，由 Gallery 登记一次 Recent。Recent 保持去重、25 条上限及
 同目录原子替换。
 
-CLI 与 GUI 的 HEVC、AV1、grav1synth、重封装和上传命令均直接执行，不把
-完整命令存入 BAT 变量后再次展开，因此输入文件名或目录名可包含 & 等 CMD
-特殊字符。自动电影帧率也已统一使用数值归一化：约 29.97/59.94 fps 输出
-23.976 CFR，约 30/60 fps 输出 24 CFR。
+CLI 入口与 GUI 直接共用 Utils\FilmGrain_Universal_HEVC_AV1_StudioBridge.bat
+编码核心，因此 HEVC、AV1、反交错、画幅、帧率、LUT 与 Grain 逻辑同步。
+输入文件名或目录名可包含 & 等 CMD 特殊字符。逐行素材的自动电影帧率继续
+使用数值归一化；隔行素材启用自动反交错时优先使用 Field-rate ×2 输出。
 
 Recent 写入发生在 Gallery 选择 LUT 的当下，与之后编码成功或失败无关；
 写入失败时 Gallery 会显示具体错误。
 
-Gallery 已统一为中文界面。页码框支持输入具体页码后按 Enter 跳转；
-上一页/下一页以及 PageUp/PageDown 均可在第一页与最后一页之间循环。
+Gallery 已统一为中文界面。页码使用只读下拉菜单，可显示当前页并直接选择
+任意页面；上一页/下一页以及 PageUp/PageDown 均可在第一页与最后一页之间循环。
 
 2. 社交网站转码工具
 -------------------
@@ -101,15 +102,15 @@ LUT 根目录和参考图片/视频均有默认值，直接回车采用默认值
 Collect_BT709_LUTs_Conservative.bat：保守筛选明确标注 BT.709/Rec.709
 输入的 CUBE LUT，复制到 LUT 根目录的 BT.709 子目录并生成 CSV 报告。
 
-FilmGrain_MOV_to_HEVC_Lossless_Cache.bat：递归扫描 D:\Film_Grain，生成
-同分辨率 HEVC Main10 无损缓存，并验证解码后的 P010 像素哈希。
-
-FilmGrain_MOV_to_1080p_HEVC_Lossless_Cache.bat：递归扫描 D:\Film_Grain，
-经 Vulkan 缩放到 1920×1080 后生成 HEVC Main10 无损缓存并验证。
+FilmGrain_MOV_to_HEVC_Lossless_Cache.bat：统一 Cache 生成器。递归扫描
+D:\Film_Grain，可选择生成原始分辨率、Vulkan bilinear 1920×1080，
+或同时生成两种 HEVC Main10 Lossless Cache。校验统一比较实际 10-bit
+YUV 样本；参考哈希来自与 NVENC 相同的同一帧流，避免 P010 低 6 位
+填充差异造成假失败。已验证 RTX 4080 与 T600 Laptop。
 
 注意事项
 --------
-- RTX T600 Laptop 不支持当前 RTX 4080 默认参数时，请在整合主脚本中将
-  ENABLE_BF 和 ENABLE_TEMPORAL_AQ 都设为 0。
+- GPU、驱动与 FFmpeg 能力由 FilmGrain_Hardware_Caps.ps1 自动探测，不需要
+  为 RTX 4080 / T600 Laptop 手工切换 B-frame 或 Temporal AQ。
 - 输出文件已存在时，脚本会跳过，避免覆盖现有结果。
 - AV1 免重编码工具失败时默认保留临时目录，便于查看日志。

@@ -101,6 +101,7 @@ if errorlevel 1 goto FATAL_END
 call :SELECT_SPEED
 if errorlevel 1 goto FATAL_END
 call :SELECT_FRAMING
+call :SELECT_DEINTERLACE
 call :SELECT_FPS
 call :SELECT_CONTAINER
 call :SELECT_FILM_LUT
@@ -114,7 +115,7 @@ if errorlevel 1 goto FATAL_END
 if /i "%MODE%"=="HEVC" call :SELECT_HEVC_BITRATE
 if /i "%MODE%"=="AV1"  call :SELECT_AV1_BITRATE
 
-if /i "%MODE%"=="AV1" call :SELECT_AV1_UPLOAD
+call :SELECT_UPLOAD
 if errorlevel 1 goto FATAL_END
 
 call :BUILD_ENCODER_ARGS
@@ -375,60 +376,50 @@ exit /b 0
 
 
 :SELECT_FRAMING
-if /i "%MODE%"=="HEVC" goto SELECT_HEVC_FRAMING
-goto SELECT_AV1_FRAMING
+set "ENABLE_CROP=0"
+set "ENABLE_LETTERBOX=0"
+set "FRAME_MODE=LETTERBOX"
+set "FRAME_LABEL=2.39:1 baked black bars / keep source resolution"
+set "FRAME_SUFFIX=_239LB"
 
-:SELECT_HEVC_FRAMING
-echo.
-echo Cinematic letterbox:
-echo.
-echo   [1] Off
-echo   [2] Cinematic style - approx. 2.39:1   ^(default^)
-echo.
-set "LETTERBOX_SEL=2"
 if "%FG_STUDIO_MODE%"=="1" (
-    if "%FG_CINEMATIC_FRAME%"=="0" set "LETTERBOX_SEL=1"
-    if "%FG_CINEMATIC_FRAME%"=="1" set "LETTERBOX_SEL=2"
+    if "%FG_CINEMATIC_FRAME%"=="0" set "FRAME_MODE=OFF"
+    if "%FG_CINEMATIC_FRAME%"=="1" if /i "%FG_FRAME_MODE%"=="CROP" set "FRAME_MODE=CROP"
+    if "%FG_CINEMATIC_FRAME%"=="1" if /i "%FG_FRAME_MODE%"=="LETTERBOX" set "FRAME_MODE=LETTERBOX"
 ) else (
-    set /p "LETTERBOX_SEL=Select [1-2, default 2]: "
+    echo.
+    echo Cinematic framing ^(HEVC / AV1^):
+    echo.
+    echo   [1] Off
+    echo   [2] Baked black bars - keep source resolution   ^(default^)
+    echo   [3] Active-picture crop - output approx. 2.39:1
+    echo.
+    echo       Letterbox is recommended when subtitles may be added later.
+    echo       Crop example: 1920x1080 -^> about 1920x804.
+    echo.
+    set "FRAME_SEL=2"
+    set /p "FRAME_SEL=Select [1-3, default 2]: "
+    if "%FRAME_SEL%"=="1" set "FRAME_MODE=OFF"
+    if "%FRAME_SEL%"=="3" set "FRAME_MODE=CROP"
 )
-if "%LETTERBOX_SEL%"=="1" (
-    set "ENABLE_LETTERBOX=0"
-    set "LETTERBOX_LABEL=Off"
-) else (
-    set "ENABLE_LETTERBOX=1"
-    set "LETTERBOX_LABEL=2.39:1"
-)
-set "FRAME_LABEL=%LETTERBOX_LABEL% letterbox"
-exit /b 0
 
-:SELECT_AV1_FRAMING
-echo.
-echo Cinema framing:
-echo.
-echo   [1] Off
-echo   [2] 2.39:1 active-picture crop   ^(default / recommended^)
-echo.
-echo       Example: 1920x1080 -^> about 1920x804
-echo       Player adds pure black bars during fullscreen playback.
-echo.
-set "CROP_SEL=2"
-if "%FG_STUDIO_MODE%"=="1" (
-    if "%FG_CINEMATIC_FRAME%"=="0" set "CROP_SEL=1"
-    if "%FG_CINEMATIC_FRAME%"=="1" set "CROP_SEL=2"
-) else (
-    set /p "CROP_SEL=Select [1-2, default 2]: "
+if /i "%FRAME_MODE%"=="OFF" (
+    set "FRAME_LABEL=Off"
+    set "FRAME_SUFFIX="
+    exit /b 0
 )
-if "%CROP_SEL%"=="1" (
-    set "ENABLE_CROP=0"
-    set "CROP_LABEL=Off"
-    set "CROP_SUFFIX="
-) else (
+
+if /i "%FRAME_MODE%"=="CROP" (
     set "ENABLE_CROP=1"
-    set "CROP_LABEL=2.39:1 active crop"
-    set "CROP_SUFFIX=_239"
+    set "FRAME_LABEL=2.39:1 active-picture crop"
+    set "FRAME_SUFFIX=_239"
+    exit /b 0
 )
-set "FRAME_LABEL=%CROP_LABEL%"
+
+set "FRAME_MODE=LETTERBOX"
+set "ENABLE_LETTERBOX=1"
+set "FRAME_LABEL=2.39:1 baked black bars / keep source resolution"
+set "FRAME_SUFFIX=_239LB"
 exit /b 0
 
 
@@ -436,8 +427,12 @@ exit /b 0
 echo.
 echo Output frame rate:
 echo.
-echo   [1] Keep source FPS
-echo   [2] Auto cinematic FPS   ^(default^)
+echo   [1] Keep source FPS for progressive input
+echo   [2] Auto cinematic FPS for progressive input   ^(default^)
+echo.
+echo       With Auto deinterlace enabled, interlaced input always uses
+echo       field-rate output: 29.97i -^> 59.94p / 25i -^> 50p.
+echo       Progressive input keeps the normal FPS choice below.
 echo.
 echo       NTSC fractional family -^> 23.976
 echo       Integer / PAL family    -^> 24.000
@@ -459,6 +454,74 @@ if "%FPS_SEL%"=="1" (
 exit /b 0
 
 
+
+rem ============================================================
+rem Deinterlace selector
+rem ============================================================
+:SELECT_DEINTERLACE
+set "DEINT_MODE=AUTO"
+set "DEINT_METHOD=BWDIF_VULKAN"
+
+if "%FG_STUDIO_MODE%"=="1" (
+    if /i "%FG_DEINTERLACE%"=="OFF"  set "DEINT_MODE=OFF"
+    if /i "%FG_DEINTERLACE%"=="AUTO" set "DEINT_MODE=AUTO"
+    if /i "%FG_DEINT_METHOD%"=="BWDIF_VULKAN" set "DEINT_METHOD=BWDIF_VULKAN"
+    if /i "%FG_DEINT_METHOD%"=="BWDIF_CUDA"   set "DEINT_METHOD=BWDIF_CUDA"
+    if /i "%FG_DEINT_METHOD%"=="W3FDIF"       set "DEINT_METHOD=W3FDIF"
+    goto SELECT_DEINTERLACE_BUILD
+)
+
+echo.
+echo Deinterlace:
+echo.
+echo   [1] Auto - BWDIF Vulkan   ^(default^)
+echo   [2] Auto - BWDIF CUDA     ^(backup^)
+echo   [3] Auto - W3FDIF Complex ^(quality comparison^)
+echo   [4] Off
+echo.
+echo       Auto only activates for input reported as interlaced by FFprobe.
+echo       Field-rate output: 29.97i -^> 59.94p / 25i -^> 50p.
+echo.
+set "DEINT_SEL=1"
+set /p "DEINT_SEL=Select [1-4, default 1]: "
+if "%DEINT_SEL%"=="2" set "DEINT_METHOD=BWDIF_CUDA"
+if "%DEINT_SEL%"=="3" set "DEINT_METHOD=W3FDIF"
+if "%DEINT_SEL%"=="4" set "DEINT_MODE=OFF"
+
+:SELECT_DEINTERLACE_BUILD
+if /i "%DEINT_MODE%"=="OFF" (
+    set "DEINT_METHOD=OFF"
+    set "DEINT_LABEL=Off"
+    set "DEINT_FILTER="
+    set "DEINT_HW_ARGS="
+    set "DEINT_SUFFIX="
+    exit /b 0
+)
+
+set "DEINT_FILTER="
+set "DEINT_HW_ARGS="
+set "DEINT_SUFFIX="
+
+if /i "%DEINT_METHOD%"=="BWDIF_VULKAN" (
+    set "DEINT_LABEL=BWDIF Vulkan / field-rate"
+    set "DEINT_FILTER=format=p010le,hwupload,bwdif_vulkan=mode=send_field:parity=auto:deint=all,hwdownload,format=p010le,"
+    set "DEINT_HW_ARGS=-init_hw_device vulkan=deintvk:%VULKAN_DEVICE% -filter_hw_device deintvk"
+    set "DEINT_SUFFIX=_DI_BWV"
+    exit /b 0
+)
+
+if /i "%DEINT_METHOD%"=="BWDIF_CUDA" (
+    set "DEINT_LABEL=BWDIF CUDA / field-rate"
+    set "DEINT_FILTER=format=p010le,hwupload_cuda=device=%CUDA_DEVICE%,bwdif_cuda=mode=send_field:parity=auto:deint=all,hwdownload,format=p010le,"
+    set "DEINT_SUFFIX=_DI_BWC"
+    exit /b 0
+)
+
+set "DEINT_METHOD=W3FDIF"
+set "DEINT_LABEL=W3FDIF Complex / field-rate"
+set "DEINT_FILTER=w3fdif=filter=complex:mode=field:parity=auto:deint=all,"
+set "DEINT_SUFFIX=_DI_W3F"
+exit /b 0
 :SELECT_CONTAINER
 echo.
 echo Output container:
@@ -952,7 +1015,6 @@ if "%GSEL%"=="4" set "GRAIN_OPACITY=1.00"
 if /i "%SPEED_LABEL%"=="FAST" (
     set "HEVC_SUFFIX=%HEVC_SUFFIX:_V20_HEVC=_V20FAST_HEVC%"
 )
-if "%ENABLE_LETTERBOX%"=="1" set "HEVC_SUFFIX=%HEVC_SUFFIX%_239LB"
 exit /b 0
 
 
@@ -1345,54 +1407,127 @@ exit /b 0
 
 
 rem ============================================================
-rem AV1 upload-master option
+rem Shared H.264 upload-copy option
 rem ============================================================
 
-:SELECT_AV1_UPLOAD
+:SELECT_UPLOAD
+set "ENABLE_UPLOAD_BAKE=0"
+set "UPLOAD_LABEL=Off"
+set "UPLOAD_BITRATE_NUM=8000"
+set "UPLOAD_BITRATE=8000k"
+set "UPLOAD_MAXRATE=12000k"
+set "UPLOAD_BUFSIZE=16000k"
+if /i "%MODE%"=="AV1" set "TOTAL_STAGES=4"
+
 echo.
-echo Social / video-sharing upload copy:
+echo Social / video-sharing H.264 upload copy:
 echo.
 echo   [1] Off   ^(default^)
-echo   [2] Bake Film Grain to pixels + H.264 MP4
+echo   [2] Create H.264 MP4 upload copy
 echo.
-echo       Universal upload master for YouTube / Bilibili /
-echo       Douyin / Tencent Video / etc.
+echo       AV1 : Film Grain is synthesized and baked to pixels.
+echo       HEVC: Same Grain / LUT pipeline is rendered directly to H.264.
 echo.
 set "UPLOAD_SEL=1"
 if "%FG_STUDIO_MODE%"=="1" (
-    if "%FG_AV1_UPLOAD%"=="1" set "UPLOAD_SEL=2"
+    if "%FG_UPLOAD%"=="1" set "UPLOAD_SEL=2"
+    if not defined FG_UPLOAD if "%FG_AV1_UPLOAD%"=="1" set "UPLOAD_SEL=2"
 ) else (
     set /p "UPLOAD_SEL=Select [1-2, default 1]: "
 )
 
-if "%UPLOAD_SEL%"=="2" (
-    set "ENABLE_UPLOAD_BAKE=1"
-    set "UPLOAD_LABEL=H.264 pixel-Grain MP4"
-    set "TOTAL_STAGES=5"
-) else (
-    set "ENABLE_UPLOAD_BAKE=0"
-    set "UPLOAD_LABEL=Off"
-    set "TOTAL_STAGES=4"
-)
+if not "%UPLOAD_SEL%"=="2" exit /b 0
 
-if not "%ENABLE_UPLOAD_BAKE%"=="1" exit /b 0
+set "ENABLE_UPLOAD_BAKE=1"
+if /i "%MODE%"=="AV1" set "TOTAL_STAGES=5"
 
 if not "%FG_CAP_H264%"=="1" (
     echo.
     echo ERROR: H.264 NVENC is not supported by this GPU / driver.
-    echo Upload Bake requires H.264 hardware encoding.
+    echo H.264 upload copy requires hardware H.264 encoding.
     echo.
     exit /b 1
 )
 
-"%FFMPEG%" -hide_banner -h decoder=libdav1d >nul 2>&1
+if /i "%MODE%"=="AV1" (
+    "%FFMPEG%" -hide_banner -h decoder=libdav1d >nul 2>&1
+    if errorlevel 1 (
+        echo.
+        echo ERROR: This FFmpeg build does not contain libdav1d.
+        echo AV1 upload copy requires libdav1d to synthesize Film Grain.
+        echo.
+        exit /b 1
+    )
+)
+
+if "%FG_STUDIO_MODE%"=="1" goto SELECT_UPLOAD_STUDIO
+
+echo.
+echo H.264 upload bitrate:
+echo.
+echo   [1]  6000 kbps   ^(recommended up to 720p^)
+echo   [2]  8000 kbps   ^(recommended for 1080p, default^)
+echo   [3] 10000 kbps   ^(recommended for 1440p^)
+echo   [4] 12000 kbps   ^(recommended for 4K^)
+echo   [5] 15000 kbps   ^(test^)
+echo   [6] 18000 kbps   ^(test^)
+echo   [7] 20000 kbps   ^(test^)
+echo   [8] 30000 kbps   ^(test^)
+echo.
+set "UPLOAD_RATE_SEL=2"
+set /p "UPLOAD_RATE_SEL=Select [1-8, default 2]: "
+set "UPLOAD_RATE_VALUE="
+if "%UPLOAD_RATE_SEL%"=="1" set "UPLOAD_RATE_VALUE=6000"
+if "%UPLOAD_RATE_SEL%"=="2" set "UPLOAD_RATE_VALUE=8000"
+if "%UPLOAD_RATE_SEL%"=="3" set "UPLOAD_RATE_VALUE=10000"
+if "%UPLOAD_RATE_SEL%"=="4" set "UPLOAD_RATE_VALUE=12000"
+if "%UPLOAD_RATE_SEL%"=="5" set "UPLOAD_RATE_VALUE=15000"
+if "%UPLOAD_RATE_SEL%"=="6" set "UPLOAD_RATE_VALUE=18000"
+if "%UPLOAD_RATE_SEL%"=="7" set "UPLOAD_RATE_VALUE=20000"
+if "%UPLOAD_RATE_SEL%"=="8" set "UPLOAD_RATE_VALUE=30000"
+if not defined UPLOAD_RATE_VALUE (
+    echo.
+    echo Invalid upload bitrate selection. Falling back to 8000 kbps.
+    set "UPLOAD_RATE_VALUE=8000"
+)
+call :SET_UPLOAD_RATE "%UPLOAD_RATE_VALUE%"
+exit /b 0
+
+:SELECT_UPLOAD_STUDIO
+if not defined FG_UPLOAD_BITRATE (
+    call :SET_UPLOAD_RATE 8000
+    exit /b 0
+)
+call :SET_UPLOAD_RATE "%FG_UPLOAD_BITRATE%"
 if errorlevel 1 (
     echo.
-    echo ERROR: This FFmpeg build does not contain libdav1d.
-    echo Upload Bake requires libdav1d to synthesize AV1 Film Grain.
+    echo ERROR: Invalid Studio H.264 upload bitrate: %FG_UPLOAD_BITRATE%
+    echo Allowed: 6000, 8000, 10000, 12000, 15000, 18000, 20000, 30000
     echo.
     exit /b 1
 )
+exit /b 0
+
+
+:SET_UPLOAD_RATE
+set "UPLOAD_BITRATE_NUM=%~1"
+if "%UPLOAD_BITRATE_NUM%"=="6000" goto SET_UPLOAD_RATE_OK
+if "%UPLOAD_BITRATE_NUM%"=="8000" goto SET_UPLOAD_RATE_OK
+if "%UPLOAD_BITRATE_NUM%"=="10000" goto SET_UPLOAD_RATE_OK
+if "%UPLOAD_BITRATE_NUM%"=="12000" goto SET_UPLOAD_RATE_OK
+if "%UPLOAD_BITRATE_NUM%"=="15000" goto SET_UPLOAD_RATE_OK
+if "%UPLOAD_BITRATE_NUM%"=="18000" goto SET_UPLOAD_RATE_OK
+if "%UPLOAD_BITRATE_NUM%"=="20000" goto SET_UPLOAD_RATE_OK
+if "%UPLOAD_BITRATE_NUM%"=="30000" goto SET_UPLOAD_RATE_OK
+exit /b 1
+
+:SET_UPLOAD_RATE_OK
+set /a UPLOAD_MAXRATE_NUM=(UPLOAD_BITRATE_NUM*3)/2
+set /a UPLOAD_BUFSIZE_NUM=UPLOAD_BITRATE_NUM*2
+set "UPLOAD_BITRATE=%UPLOAD_BITRATE_NUM%k"
+set "UPLOAD_MAXRATE=%UPLOAD_MAXRATE_NUM%k"
+set "UPLOAD_BUFSIZE=%UPLOAD_BUFSIZE_NUM%k"
+set "UPLOAD_LABEL=H.264 MP4 / %UPLOAD_BITRATE%"
 exit /b 0
 
 
@@ -1499,9 +1634,12 @@ echo Speed mode    : %SPEED_LABEL%
 echo Bitrate       : %BITRATE%
 echo Max bitrate   : %MAXRATE%
 echo Frame rate    : %FPS_LABEL%
+echo Deinterlace   : %DEINT_LABEL%
 echo Cinema frame  : %FRAME_LABEL%
 echo Container     : %CONTAINER_LABEL%
 echo Film Look     : %LUT_LABEL%
+echo Upload copy   : %UPLOAD_LABEL%
+if "%ENABLE_UPLOAD_BAKE%"=="1" echo Upload rate   : %UPLOAD_BITRATE% ^(max %UPLOAD_MAXRATE%, buf %UPLOAD_BUFSIZE%^)
 if "%LUT_ENABLED%"=="1" echo LUT compat    : DaVinci CUBE range converted for FFmpeg
 echo GPU           : %FG_CAP_GPU_NAME%
 if defined FG_CAP_DRIVER_VERSION echo Driver        : %FG_CAP_DRIVER_VERSION%
@@ -1557,7 +1695,6 @@ exit /b 0
 :SHOW_AV1_SESSION
 echo Grain mode    : %GRAIN_MODE%
 echo Grain profile : %GRAIN_LABEL%
-echo Upload copy   : %UPLOAD_LABEL%
 if "%LUT_ENABLED%"=="1" (
     echo Main decode   : Software ^(required for CPU lut3d / blend^)
 ) else (
@@ -1607,6 +1744,12 @@ set "FPS_DECISION=Source FPS"
 set "FPS_SUFFIX="
 if "%FPS_MODE%"=="AUTO" call :AUTO_CINEMA_FPS
 
+set "ACTIVE_DEINT_FILTER="
+set "ACTIVE_DEINT_HW_ARGS="
+set "DEINT_FILE_SUFFIX="
+set "DEINT_FILE_LABEL=Off"
+if /i "%DEINT_MODE%"=="AUTO" call :PREPARE_DEINTERLACE_FOR_INPUT
+
 if /i "%MODE%"=="HEVC" goto PROCESS_CURRENT_HEVC
 goto PROCESS_CURRENT_AV1
 
@@ -1633,6 +1776,7 @@ set "WIDTH="
 set "HEIGHT="
 set "FPS="
 set "DURATION="
+set "FIELD_ORDER="
 set "DIM="
 
 rem Write probe results to files. Do not use FOR /F command substitution;
@@ -1640,23 +1784,26 @@ rem CMD can otherwise damage filenames containing special characters.
 set "PROBE_DIM=%TEMP%\FGU_dim_%RANDOM%_%RANDOM%.txt"
 set "PROBE_FPS=%TEMP%\FGU_fps_%RANDOM%_%RANDOM%.txt"
 set "PROBE_DUR=%TEMP%\FGU_dur_%RANDOM%_%RANDOM%.txt"
+set "PROBE_FIELD=%TEMP%\FGU_field_%RANDOM%_%RANDOM%.txt"
 
 "%FFPROBE%" -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0:s=x "%INPUT%" > "%PROBE_DIM%" 2>nul
 if errorlevel 1 (
     echo ERROR: FFprobe could not open the input video.
     set "LAST_ERROR_STAGE=FFprobe input open"
-    del /q "%PROBE_DIM%" "%PROBE_FPS%" "%PROBE_DUR%" >nul 2>&1
+    del /q "%PROBE_DIM%" "%PROBE_FPS%" "%PROBE_DUR%" "%PROBE_FIELD%" >nul 2>&1
     exit /b 1
 )
 
 "%FFPROBE%" -v error -select_streams v:0 -show_entries stream=avg_frame_rate -of default=nokey=1:noprint_wrappers=1 "%INPUT%" > "%PROBE_FPS%" 2>nul
 "%FFPROBE%" -v error -show_entries format=duration -of default=nokey=1:noprint_wrappers=1 "%INPUT%" > "%PROBE_DUR%" 2>nul
+"%FFPROBE%" -v error -select_streams v:0 -show_entries stream=field_order -of default=nokey=1:noprint_wrappers=1 "%INPUT%" > "%PROBE_FIELD%" 2>nul
 
 if exist "%PROBE_DIM%" set /p "DIM="<"%PROBE_DIM%"
 if exist "%PROBE_FPS%" set /p "FPS="<"%PROBE_FPS%"
 if exist "%PROBE_DUR%" set /p "DURATION="<"%PROBE_DUR%"
+if exist "%PROBE_FIELD%" set /p "FIELD_ORDER="<"%PROBE_FIELD%"
 
-del /q "%PROBE_DIM%" "%PROBE_FPS%" "%PROBE_DUR%" >nul 2>&1
+del /q "%PROBE_DIM%" "%PROBE_FPS%" "%PROBE_DUR%" "%PROBE_FIELD%" >nul 2>&1
 
 for /f "tokens=1,2 delims=x" %%A in ("%DIM%") do (
     set "WIDTH=%%A"
@@ -1690,6 +1837,7 @@ if errorlevel 1 (
 if not defined FPS set "FPS=30000/1001"
 if "%FPS%"=="0/0" set "FPS=30000/1001"
 if /i "%DURATION%"=="N/A" set "DURATION="
+if not defined FIELD_ORDER set "FIELD_ORDER=unknown"
 exit /b 0
 
 
@@ -1714,14 +1862,21 @@ rem HEVC backend - scanned Grain + Vulkan overlay
 rem ============================================================
 
 :PROCESS_HEVC_FILE
-set "OUTPUT_BASE=%INDIR%%NAME%%HEVC_SUFFIX%%LUT_FILE_SUFFIX%"
-set "OUTPUT=%OUTPUT_BASE%%FPS_SUFFIX%.%EXT%"
+set "CROP_FILTER="
+set "CROP_POST_FILTER="
+set "LETTERBOX_FILTER="
+set "ACTIVE_WIDTH=%WIDTH%"
+set "ACTIVE_HEIGHT=%HEIGHT%"
+if "%ENABLE_CROP%"=="1" call :PREPARE_CROP
+if "%ENABLE_LETTERBOX%"=="1" call :PREPARE_LETTERBOX
 
-if exist "%OUTPUT%" (
-    echo SKIP: Output already exists:
-    echo "%OUTPUT%"
-    exit /b 2
-)
+set "FRAME_POST_FILTER="
+if "%ENABLE_CROP%"=="1" set "FRAME_POST_FILTER=%CROP_POST_FILTER%"
+if "%ENABLE_LETTERBOX%"=="1" set "FRAME_POST_FILTER=%LETTERBOX_FILTER%"
+
+set "OUTPUT_BASE=%INDIR%%NAME%%HEVC_SUFFIX%%FRAME_SUFFIX%%LUT_FILE_SUFFIX%"
+set "OUTPUT=%OUTPUT_BASE%%FPS_SUFFIX%%DEINT_FILE_SUFFIX%.%EXT%"
+set "UPLOAD_OUTPUT=%OUTPUT_BASE%%FPS_SUFFIX%%DEINT_FILE_SUFFIX%_UPLOAD_H264_GRAIN_%UPLOAD_BITRATE_NUM%k.mp4"
 
 set "DURATION_ARGS="
 set "GRAIN_TIME_ARGS="
@@ -1732,10 +1887,12 @@ if defined DURATION (
 
 echo Video     : %WIDTH%x%HEIGHT% @ %FPS%
 echo Output FPS: %OUT_FPS%
+echo Deinterlace: %DEINT_FILE_LABEL%
 if "%FPS_MODE%"=="AUTO" echo FPS choice : %FPS_DECISION%
 if defined DURATION echo Duration   : %DURATION% sec
 
-call :PREPARE_LETTERBOX
+if /i not "%FRAME_MODE%"=="OFF" echo Framing   : %FRAME_LABEL%
+if "%ENABLE_CROP%"=="1" echo Output size: %ACTIVE_WIDTH%x%ACTIVE_HEIGHT%
 
 rem Pick the fastest verified Grain source for this input size.
 set "GRAIN_INPUT=%GRAIN_SOURCE_MOV%"
@@ -1774,6 +1931,10 @@ echo Grain     : %GRAIN_DECODE_LABEL%
 echo             "%GRAIN_INPUT%"
 echo Film Look : %LUT_LABEL%
 echo Final file: "%OUTPUT%"
+if "%ENABLE_UPLOAD_BAKE%"=="1" (
+    echo Upload MP4: "%UPLOAD_OUTPUT%"
+    echo Upload rate: %UPLOAD_BITRATE%
+)
 echo.
 
 set "GRAIN_FILTER=[1:v:0]fps=%OUT_FPS%,format=p010le,setpts=PTS-STARTPTS,hwupload"
@@ -1781,12 +1942,28 @@ if "%GRAIN_SCALE_REQUIRED%"=="1" set "GRAIN_FILTER=%GRAIN_FILTER%,scale_vulkan=w
 set "GRAIN_FILTER=%GRAIN_FILTER%[grainvk]"
 
 rem No-LUT mode keeps the verified V20 branch.
-set "BASE_FILTER=[0:v:0]%FPS_FILTER%format=p010le,setpts=PTS-STARTPTS,hwupload[basevk]"
-if "%LUT_ENABLED%"=="1" set "BASE_FILTER=[0:v:0]%FPS_FILTER%format=gbrp16le,setpts=PTS-STARTPTS,split=2[lutorig][lutsrc];[lutsrc]lut3d=file='%LUT_FILTER_PATH%':interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=p010le,hwupload[basevk]"
+set "BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%format=p010le,setpts=PTS-STARTPTS,hwupload[basevk]"
+if "%LUT_ENABLED%"=="1" set "BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%format=gbrp16le,setpts=PTS-STARTPTS,split=2[lutorig][lutsrc];[lutsrc]lut3d=file='%LUT_FILTER_PATH%':interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=p010le,hwupload[basevk]"
+
+if exist "%OUTPUT%" (
+    echo SKIP: Main HEVC output already exists:
+    echo "%OUTPUT%"
+    if "%ENABLE_UPLOAD_BAKE%"=="1" (
+        if exist "%UPLOAD_OUTPUT%" (
+            echo SKIP: H.264 upload copy already exists:
+            echo "%UPLOAD_OUTPUT%"
+            exit /b 2
+        )
+        call :RUN_HEVC_UPLOAD
+        if errorlevel 1 exit /b 1
+        exit /b 0
+    )
+    exit /b 2
+)
 
 rem Execute the command directly. Expanding a complete command stored in a
 rem variable makes CMD reparse special filename characters such as ampersand.
-"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk %MAIN_HWACCEL_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%LETTERBOX_FILTER%[vout]" -map "[vout]" %HEVC_STREAM_MAP_ARGS% -map_metadata 0 -map_chapters 0 -c:v hevc_nvenc -gpu %CUDA_DEVICE% -profile:v main10 -preset %PRESET% -tune hq -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %HEVC_AUDIO_MUX_ARGS% %HEVC_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
+"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk %MAIN_HWACCEL_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%FRAME_POST_FILTER%[vout]" -map "[vout]" %HEVC_STREAM_MAP_ARGS% -map_metadata 0 -map_chapters 0 -c:v hevc_nvenc -gpu %CUDA_DEVICE% -profile:v main10 -preset %PRESET% -tune hq -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %HEVC_AUDIO_MUX_ARGS% %HEVC_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
 
 if errorlevel 1 (
     echo.
@@ -1807,6 +1984,11 @@ if not exist "%OUTPUT%" (
 echo.
 echo DONE:
 echo "%OUTPUT%"
+
+if "%ENABLE_UPLOAD_BAKE%"=="1" (
+    call :RUN_HEVC_UPLOAD
+    if errorlevel 1 exit /b 1
+)
 exit /b 0
 
 
@@ -1816,55 +1998,32 @@ rem ============================================================
 
 :PROCESS_AV1_FILE
 set "CROP_FILTER="
+set "CROP_POST_FILTER="
 set "CROP_DECISION=Off"
+set "LETTERBOX_FILTER="
 set "ACTIVE_WIDTH=%WIDTH%"
 set "ACTIVE_HEIGHT=%HEIGHT%"
 if "%ENABLE_CROP%"=="1" call :PREPARE_CROP
+if "%ENABLE_LETTERBOX%"=="1" call :PREPARE_LETTERBOX
 
-set "OUTPUT=%INDIR%%NAME%_AV1GS_%GRAIN_FILE_TAG%_%SPEED_SUFFIX%_%BITRATE_NUM%k%CROP_SUFFIX%%FPS_SUFFIX%%LUT_FILE_SUFFIX%.%EXT%"
-set "UPLOAD_OUTPUT=%INDIR%%NAME%_AV1GS_%GRAIN_FILE_TAG%_%SPEED_SUFFIX%_%BITRATE_NUM%k%CROP_SUFFIX%%FPS_SUFFIX%%LUT_FILE_SUFFIX%_UPLOAD_H264_GRAIN.mp4"
+set "OUTPUT=%INDIR%%NAME%_AV1GS_%GRAIN_FILE_TAG%_%SPEED_SUFFIX%_%BITRATE_NUM%k%FRAME_SUFFIX%%FPS_SUFFIX%%DEINT_FILE_SUFFIX%%LUT_FILE_SUFFIX%.%EXT%"
+set "UPLOAD_OUTPUT=%INDIR%%NAME%_AV1GS_%GRAIN_FILE_TAG%_%SPEED_SUFFIX%_%BITRATE_NUM%k%FRAME_SUFFIX%%FPS_SUFFIX%%DEINT_FILE_SUFFIX%%LUT_FILE_SUFFIX%_UPLOAD_H264_GRAIN_%UPLOAD_BITRATE_NUM%k.mp4"
 
 if exist "%OUTPUT%" (
-    echo SKIP: Output already exists:
+    echo SKIP: Main AV1 output already exists:
     echo "%OUTPUT%"
+    if "%ENABLE_UPLOAD_BAKE%"=="1" (
+        if exist "%UPLOAD_OUTPUT%" (
+            echo SKIP: H.264 upload copy already exists:
+            echo "%UPLOAD_OUTPUT%"
+            exit /b 2
+        )
+        call :RUN_AV1_UPLOAD
+        if errorlevel 1 exit /b 1
+        exit /b 0
+    )
     exit /b 2
 )
-
-rem Automatic high-quality upload-master bitrate by active resolution.
-set /a UPLOAD_PIXELS=%ACTIVE_WIDTH%*%ACTIVE_HEIGHT%
-set "UPLOAD_BITRATE=8000k"
-set "UPLOAD_MAXRATE=12000k"
-set "UPLOAD_BUFSIZE=16000k"
-
-if %UPLOAD_PIXELS% LEQ 921600 goto AV1_UPLOAD_RATE_720
-if %UPLOAD_PIXELS% LEQ 2073600 goto AV1_UPLOAD_RATE_1080
-if %UPLOAD_PIXELS% LEQ 3686400 goto AV1_UPLOAD_RATE_1440
-goto AV1_UPLOAD_RATE_4K
-
-:AV1_UPLOAD_RATE_720
-set "UPLOAD_BITRATE=6000k"
-set "UPLOAD_MAXRATE=9000k"
-set "UPLOAD_BUFSIZE=12000k"
-goto AV1_UPLOAD_RATE_READY
-
-:AV1_UPLOAD_RATE_1080
-set "UPLOAD_BITRATE=8000k"
-set "UPLOAD_MAXRATE=12000k"
-set "UPLOAD_BUFSIZE=16000k"
-goto AV1_UPLOAD_RATE_READY
-
-:AV1_UPLOAD_RATE_1440
-set "UPLOAD_BITRATE=10000k"
-set "UPLOAD_MAXRATE=15000k"
-set "UPLOAD_BUFSIZE=20000k"
-goto AV1_UPLOAD_RATE_READY
-
-:AV1_UPLOAD_RATE_4K
-set "UPLOAD_BITRATE=12000k"
-set "UPLOAD_MAXRATE=18000k"
-set "UPLOAD_BUFSIZE=24000k"
-
-:AV1_UPLOAD_RATE_READY
 
 rem Isolated same-drive temporary workspace.
 set "JOBID=%RANDOM%_%RANDOM%"
@@ -1895,12 +2054,14 @@ if errorlevel 1 (
 
 set "DURATION_ARGS="
 if defined DURATION set "DURATION_ARGS=-t %DURATION%"
-set "VIDEO_FILTER=%FPS_FILTER%%CROP_FILTER%format=p010le"
+set "VIDEO_FILTER=%ACTIVE_DEINT_FILTER%%FPS_FILTER%%CROP_FILTER%format=p010le%LETTERBOX_FILTER%"
 
 echo Source      : %WIDTH%x%HEIGHT% @ %FPS%
 echo Output      : %ACTIVE_WIDTH%x%ACTIVE_HEIGHT% @ %OUT_FPS%
+echo Deinterlace : %DEINT_FILE_LABEL%
 if "%FPS_MODE%"=="AUTO" echo FPS choice  : %FPS_DECISION%
-if "%ENABLE_CROP%"=="1" echo Framing     : %CROP_DECISION%
+if /i not "%FRAME_MODE%"=="OFF" echo Framing     : %FRAME_LABEL%
+if "%ENABLE_CROP%"=="1" echo Active size : %ACTIVE_WIDTH%x%ACTIVE_HEIGHT%
 echo Grain       : %GRAIN_LABEL%
 echo Bitrate     : %BITRATE%
 echo Container   : %CONTAINER_LABEL%
@@ -1935,7 +2096,7 @@ rem ------------------------------------------------------------
 echo [1/%TOTAL_STAGES%] Encoding clean AV1 Main10 with NVENC...
 
 if "%LUT_ENABLED%"=="1" goto AV1_STAGE1_LUT
-"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %MAIN_HWACCEL_ARGS% -i "%INPUT%" -vf "%VIDEO_FILTER%" -map 0:v:0 -an -sn -dn -c:v av1_nvenc -gpu %CUDA_DEVICE% -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune %ENCODER_TUNE% -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
+"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %ACTIVE_DEINT_HW_ARGS% %MAIN_HWACCEL_ARGS% -i "%INPUT%" -vf "%VIDEO_FILTER%" -map 0:v:0 -an -sn -dn -c:v av1_nvenc -gpu %CUDA_DEVICE% -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune %ENCODER_TUNE% -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
 set "STAGE_RC=%ERRORLEVEL%"
 goto AV1_STAGE1_DONE
 
@@ -2093,15 +2254,56 @@ exit /b 0
 
 :RUN_LUT_AV1_ENCODE
 pushd "%JOBDIR%"
-"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -i "%INPUT%" -filter_complex "[0:v:0]%FPS_FILTER%%CROP_FILTER%format=gbrp16le,split=2[lutorig][lutsrc];[lutsrc]lut3d=file=filmlook.cube:interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=p010le[vout]" -map "[vout]" -an -sn -dn -c:v av1_nvenc -gpu %CUDA_DEVICE% -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune %ENCODER_TUNE% -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
+"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %ACTIVE_DEINT_HW_ARGS% -i "%INPUT%" -filter_complex "[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%CROP_FILTER%format=gbrp16le,split=2[lutorig][lutsrc];[lutsrc]lut3d=file=filmlook.cube:interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=p010le%LETTERBOX_FILTER%[vout]" -map "[vout]" -an -sn -dn -c:v av1_nvenc -gpu %CUDA_DEVICE% -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune %ENCODER_TUNE% -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
 set "RUN_LUT_RC=%ERRORLEVEL%"
 popd
 exit /b %RUN_LUT_RC%
 
 
+:RUN_HEVC_UPLOAD
+echo.
+echo Rendering H.264 upload copy directly from the HEVC Grain / LUT pipeline...
+echo.
+echo Source       : Original video + selected scanned Grain
+echo Upload codec : H.264 NVENC / High / yuv420p
+echo Video rate   : %UPLOAD_BITRATE%
+echo Max rate     : %UPLOAD_MAXRATE%
+echo Buffer       : %UPLOAD_BUFSIZE%
+echo Audio        : AAC 320k stereo / 48 kHz
+echo.
+
+if exist "%UPLOAD_OUTPUT%" (
+    echo SKIP: Upload MP4 already exists:
+    echo "%UPLOAD_OUTPUT%"
+    exit /b 0
+)
+
+"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk %MAIN_HWACCEL_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%FRAME_POST_FILTER%,format=yuv420p[vout]" -map "[vout]" -map 0:a:0? -map_metadata 0 -c:v h264_nvenc -gpu %CUDA_DEVICE% -profile:v high -pix_fmt yuv420p -preset p6 -tune hq -rc vbr -b:v %UPLOAD_BITRATE% -maxrate:v %UPLOAD_MAXRATE% -bufsize:v %UPLOAD_BUFSIZE% %H264_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -c:a aac -b:a 320k -ac 2 -ar 48000 -movflags +faststart "%UPLOAD_OUTPUT%"
+
+if errorlevel 1 (
+    echo.
+    echo ERROR: HEVC H.264 upload encode failed.
+    if exist "%UPLOAD_OUTPUT%" del /q "%UPLOAD_OUTPUT%" >nul 2>&1
+    set "LAST_ERROR_STAGE=HEVC H.264 upload encode"
+    exit /b 1
+)
+
+if not exist "%UPLOAD_OUTPUT%" (
+    echo.
+    echo ERROR: HEVC H.264 upload MP4 was not created.
+    set "LAST_ERROR_STAGE=HEVC H.264 upload missing"
+    exit /b 1
+)
+
+echo.
+echo UPLOAD COPY DONE:
+echo "%UPLOAD_OUTPUT%"
+exit /b 0
+
+
 :RUN_AV1_UPLOAD
 echo.
-echo [5/5] Baking AV1 Film Grain to pixels for upload...
+echo [5/5] Baking AV1 Film Grain to pixels for H.264 upload...
 echo.
 echo Decoder      : libdav1d / Film Grain default ON
 echo Upload codec : H.264 NVENC / High / yuv420p
@@ -2156,6 +2358,53 @@ rem ============================================================
 rem Shared FPS and framing helpers
 rem ============================================================
 
+
+rem ============================================================
+rem Per-file field-rate deinterlace helper
+rem ============================================================
+:PREPARE_DEINTERLACE_FOR_INPUT
+set "INPUT_INTERLACED=0"
+if /i "%FIELD_ORDER%"=="tt" set "INPUT_INTERLACED=1"
+if /i "%FIELD_ORDER%"=="bb" set "INPUT_INTERLACED=1"
+if /i "%FIELD_ORDER%"=="tb" set "INPUT_INTERLACED=1"
+if /i "%FIELD_ORDER%"=="bt" set "INPUT_INTERLACED=1"
+
+if not "%INPUT_INTERLACED%"=="1" goto DEINT_PROGRESSIVE_BYPASS
+
+set "ACTIVE_DEINT_FILTER=%DEINT_FILTER%"
+set "ACTIVE_DEINT_HW_ARGS=%DEINT_HW_ARGS%"
+set "DEINT_FILE_SUFFIX=%DEINT_SUFFIX%"
+set "DEINT_FILE_LABEL=%DEINT_LABEL% / field_order=%FIELD_ORDER%"
+
+rem Field-rate/Bob: one progressive frame per input field.
+rem This overrides the normal cinematic/source FPS decision for this file.
+set "FPS_FILTER="
+set "FPS_SUFFIX="
+call :DOUBLE_SOURCE_FPS
+set "FPS_DECISION=Deinterlace field-rate 2x source"
+exit /b 0
+
+:DEINT_PROGRESSIVE_BYPASS
+set "ACTIVE_DEINT_FILTER="
+set "ACTIVE_DEINT_HW_ARGS="
+set "DEINT_FILE_SUFFIX="
+set "DEINT_FILE_LABEL=Auto bypass / field_order=%FIELD_ORDER%"
+exit /b 0
+
+:DOUBLE_SOURCE_FPS
+for /f "tokens=1,2 delims=/" %%A in ("%FPS%") do call :DOUBLE_SOURCE_FPS_PARTS %%A %%B
+exit /b 0
+
+:DOUBLE_SOURCE_FPS_PARTS
+set /a DEINT_FPS_NUM=%1*2
+if "%2"=="" goto DOUBLE_SOURCE_FPS_INTEGER
+if "%2"=="1" goto DOUBLE_SOURCE_FPS_INTEGER
+set "OUT_FPS=%DEINT_FPS_NUM%/%2"
+exit /b 0
+
+:DOUBLE_SOURCE_FPS_INTEGER
+set "OUT_FPS=%DEINT_FPS_NUM%"
+exit /b 0
 :AUTO_CINEMA_FPS
 set "FPS_CLASS_NOTE="
 if "%FPS%"=="24000/1001" goto AUTO_23976_SAME
@@ -2266,6 +2515,7 @@ exit /b 0
 
 :PREPARE_CROP
 set "CROP_FILTER="
+set "CROP_POST_FILTER="
 set "CROP_DECISION=No crop needed"
 set "ACTIVE_WIDTH=%WIDTH%"
 set "ACTIVE_HEIGHT=%HEIGHT%"
@@ -2284,6 +2534,7 @@ set /a CROP_Y=(CROP_Y/2)*2
 
 set "ACTIVE_HEIGHT=%TARGET_H%"
 set "CROP_FILTER=crop=w=iw:h=%TARGET_H%:x=0:y=%CROP_Y%,"
+set "CROP_POST_FILTER=,crop=w=iw:h=%TARGET_H%:x=0:y=%CROP_Y%"
 set "CROP_DECISION=%WIDTH%x%HEIGHT% to %WIDTH%x%TARGET_H% centered"
 exit /b 0
 
@@ -2305,6 +2556,7 @@ echo Film Look     : %LUT_LABEL%
 echo Speed mode    : %SPEED_LABEL%
 echo Bitrate       : %BITRATE%
 echo Frame rate    : %FPS_LABEL%
+echo Deinterlace   : %DEINT_LABEL%
 echo Cinema frame  : %FRAME_LABEL%
 echo Container     : %CONTAINER_LABEL%
 if /i "%MODE%"=="HEVC" echo Grain plate   : %GRAIN_LABEL%
@@ -2335,7 +2587,7 @@ if "%FILE_COUNT%"=="1" if not "%LAST_ERROR_STAGE%"=="" (
     )
 )
 
-if "%FILE_COUNT%"=="1" call :SHOW_ACTUAL_COMMANDS
+if "%FILE_COUNT%"=="1" if not "%FG_STUDIO_MODE%"=="1" call :SHOW_ACTUAL_COMMANDS
 
 echo.
 echo ============================================================
@@ -2363,21 +2615,21 @@ if /i "%MODE%"=="HEVC" goto SHOW_HEVC_COMMAND
 goto SHOW_AV1_COMMANDS
 
 :SHOW_HEVC_COMMAND
-echo [HEVC] "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk %MAIN_HWACCEL_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%LETTERBOX_FILTER%[vout]" -map "[vout]" %HEVC_STREAM_MAP_ARGS% -map_metadata 0 -map_chapters 0 -c:v hevc_nvenc -gpu %CUDA_DEVICE% -profile:v main10 -preset %PRESET% -tune hq -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %HEVC_AUDIO_MUX_ARGS% %HEVC_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
+echo [HEVC] "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk %MAIN_HWACCEL_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%FRAME_POST_FILTER%[vout]" -map "[vout]" %HEVC_STREAM_MAP_ARGS% -map_metadata 0 -map_chapters 0 -c:v hevc_nvenc -gpu %CUDA_DEVICE% -profile:v main10 -preset %PRESET% -tune hq -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %HEVC_AUDIO_MUX_ARGS% %HEVC_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
 exit /b 0
 
 :SHOW_AV1_COMMANDS
 if "%LUT_ENABLED%"=="1" goto SHOW_AV1_LUT_COMMAND
-echo [Encode] "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %MAIN_HWACCEL_ARGS% -i "%INPUT%" -vf "%VIDEO_FILTER%" -map 0:v:0 -an -sn -dn -c:v av1_nvenc -gpu %CUDA_DEVICE% -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune %ENCODER_TUNE% -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
+echo [Encode] "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %ACTIVE_DEINT_HW_ARGS% %MAIN_HWACCEL_ARGS% -i "%INPUT%" -vf "%VIDEO_FILTER%" -map 0:v:0 -an -sn -dn -c:v av1_nvenc -gpu %CUDA_DEVICE% -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune %ENCODER_TUNE% -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
 goto SHOW_AV1_REMAINING_COMMANDS
 
 :SHOW_AV1_LUT_COMMAND
-echo [Encode] "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -i "%INPUT%" -filter_complex "[0:v:0]%FPS_FILTER%%CROP_FILTER%format=gbrp16le,split=2[lutorig][lutsrc];[lutsrc]lut3d=file=filmlook.cube:interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=p010le[vout]" -map "[vout]" -an -sn -dn -c:v av1_nvenc -gpu %CUDA_DEVICE% -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune %ENCODER_TUNE% -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
+echo [Encode] "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %ACTIVE_DEINT_HW_ARGS% -i "%INPUT%" -filter_complex "[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%CROP_FILTER%format=gbrp16le,split=2[lutorig][lutsrc];[lutsrc]lut3d=file=filmlook.cube:interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=p010le%LETTERBOX_FILTER%[vout]" -map "[vout]" -an -sn -dn -c:v av1_nvenc -gpu %CUDA_DEVICE% -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune %ENCODER_TUNE% -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
 
 :SHOW_AV1_REMAINING_COMMANDS
 echo [Grain] "%GRAV1SYNTH%" apply "%TMP_BASE%" -o "%TMP_GRAIN%" %GRAIN_APPLY_ARGS% --replace -y
 echo [Remux] "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -i "%TMP_GRAIN%" -i "%INPUT%" -map 0:v:0 %AV1_FINAL_REMUX_MAP% -map_metadata 1 -map_chapters 1 %AV1_FINAL_REMUX_CODEC% %AV1_FINAL_REMUX_EXTRA% "%OUTPUT%"
-if "%CREATE_UPLOAD%"=="1" echo [Upload] "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -c:v libdav1d -i "%OUTPUT%" -map 0:v:0 -map 0:a:0? -map_metadata 0 -c:v h264_nvenc -gpu %CUDA_DEVICE% -profile:v high -pix_fmt yuv420p -preset p6 -tune hq -rc vbr -b:v %UPLOAD_BITRATE% -maxrate:v %UPLOAD_MAXRATE% -bufsize:v %UPLOAD_BUFSIZE% %H264_CAP_ARGS% -c:a aac -b:a 320k -ac 2 -ar 48000 -movflags +faststart "%UPLOAD_OUTPUT%"
+if "%ENABLE_UPLOAD_BAKE%"=="1" echo [Upload] "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -c:v libdav1d -i "%OUTPUT%" -map 0:v:0 -map 0:a:0? -map_metadata 0 -c:v h264_nvenc -gpu %CUDA_DEVICE% -profile:v high -pix_fmt yuv420p -preset p6 -tune hq -rc vbr -b:v %UPLOAD_BITRATE% -maxrate:v %UPLOAD_MAXRATE% -bufsize:v %UPLOAD_BUFSIZE% %H264_CAP_ARGS% -c:a aac -b:a 320k -ac 2 -ar 48000 -movflags +faststart "%UPLOAD_OUTPUT%"
 exit /b 0
 
 

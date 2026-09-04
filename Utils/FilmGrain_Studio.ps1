@@ -67,6 +67,7 @@ $script:ProbeOutputTask = $null
 $script:ProbeErrorTask = $null
 $script:ProbeTargetPath = ''
 $script:ProbeCache = @{}
+$script:ProbeVideoMeta = @{}
 $script:RecentLuts = @()
 $script:LoadingRecentLuts = $false
 $script:FavoriteLuts = @()
@@ -339,7 +340,7 @@ $encodeTable = New-Object System.Windows.Forms.TableLayoutPanel
 $encodeTable.Dock = 'Fill'
 $encodeTable.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 5, 7, 5, 5
 $encodeTable.ColumnCount = 2
-$encodeTable.RowCount = 9
+$encodeTable.RowCount = 13
 $encodeTable.ColumnStyles.Clear()
 $labelColumn = New-Object System.Windows.Forms.ColumnStyle
 $labelColumn.SizeType = [System.Windows.Forms.SizeType]::Absolute
@@ -349,7 +350,7 @@ $valueColumn = New-Object System.Windows.Forms.ColumnStyle
 $valueColumn.SizeType = [System.Windows.Forms.SizeType]::Percent
 $valueColumn.Width = 100
 [void]$encodeTable.ColumnStyles.Add($valueColumn)
-for ($i = 0; $i -lt 8; $i++) { Add-RowAbsolute $encodeTable 38 }
+for ($i = 0; $i -lt 12; $i++) { Add-RowAbsolute $encodeTable 34 }
 Add-RowPercent $encodeTable 100
 [void]$grpEncode.Controls.Add($encodeTable)
 
@@ -369,7 +370,11 @@ $cmbBitrate.Dock = 'Fill'
 $cmbBitrate.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDown
 $cmbBitrate.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 4, 5, 6, 5
 
-$cmbFps = New-ComboBox @('自动电影帧率 · VFR 兼容（默认）', '保持源帧率') 0
+$cmbFps = New-ComboBox @('自动（隔行→双帧率，如 29.97i → 59.94p）', '保持源帧率') 0
+
+$cmbDeint = New-ComboBox @('自动（仅对隔行素材启用）', '关闭') 0
+$cmbDeintMethod = New-ComboBox @('BWDIF Vulkan（默认）', 'BWDIF CUDA（备选）', 'W3FDIF Complex（高质量对照）') 0
+
 $gpuDisplay = '自动检测（编码启动时再次校验）'
 if ($script:HardwareCapsReady) { $gpuDisplay = [string]$script:HardwareCaps.gpu.name + '（自动检测）' }
 $cmbGpu = New-ComboBox @($gpuDisplay) 0
@@ -381,23 +386,67 @@ $chkCinematic.Checked = $true
 $chkCinematic.Dock = 'Fill'
 $chkCinematic.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 7, 7, 3, 3
 
+$cmbFrameMode = New-ComboBox @(
+    '加黑边 · 保留原分辨率（推荐后期字幕）',
+    '裁剪 · 输出有效 2.39:1 画面'
+) 0
+
+$uploadPanel = New-Object System.Windows.Forms.TableLayoutPanel
+$uploadPanel.Dock = 'Fill'
+$uploadPanel.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0, 0, 0, 0
+$uploadPanel.ColumnCount = 2
+$uploadPanel.RowCount = 1
+$uploadCheckCol = New-Object System.Windows.Forms.ColumnStyle
+$uploadCheckCol.SizeType = [System.Windows.Forms.SizeType]::Percent
+$uploadCheckCol.Width = 58
+[void]$uploadPanel.ColumnStyles.Add($uploadCheckCol)
+$uploadRateCol = New-Object System.Windows.Forms.ColumnStyle
+$uploadRateCol.SizeType = [System.Windows.Forms.SizeType]::Percent
+$uploadRateCol.Width = 42
+[void]$uploadPanel.ColumnStyles.Add($uploadRateCol)
+
+$chkUpload = New-Object System.Windows.Forms.CheckBox
+$chkUpload.Text = '同时生成 H.264 上传版'
+$chkUpload.Dock = 'Fill'
+$chkUpload.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 7, 4, 3, 3
+
+$cmbUploadBitrate = New-ComboBox @(
+    '6000 kbps · ≤720p 推荐',
+    '8000 kbps · 1080p 推荐',
+    '10000 kbps · 1440p 推荐',
+    '12000 kbps · 4K 推荐',
+    '15000 kbps · 测试',
+    '18000 kbps · 测试',
+    '20000 kbps · 测试',
+    '30000 kbps · 测试'
+) 1
+$cmbUploadBitrate.Enabled = $false
+$cmbUploadBitrate.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 3, 5, 6, 5
+[void]$uploadPanel.Controls.Add($chkUpload, 0, 0)
+[void]$uploadPanel.Controls.Add($cmbUploadBitrate, 1, 0)
+
 $frameHelp = New-Object System.Windows.Forms.Label
 $frameHelp.Dock = 'Fill'
 $frameHelp.AutoEllipsis = $true
 $frameHelp.ForeColor = $ColorMuted
 $frameHelp.TextAlign = [System.Drawing.ContentAlignment]::TopLeft
 $frameHelp.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 8, 6, 8, 0
-$frameHelp.Text = 'AV1 使用有效画面裁切；播放器全屏时补纯黑边。'
+$frameHelp.Text = 'HEVC / AV1 均可选择烘焙黑边或裁剪有效画面。'
 
 Add-LabeledRow $encodeTable 0 '编码方式' $cmbCodec
 Add-LabeledRow $encodeTable 1 '输出容器' $cmbContainer
 Add-LabeledRow $encodeTable 2 '速度 / 质量' $cmbSpeed
 Add-LabeledRow $encodeTable 3 '视频码率 (kbps)' $cmbBitrate
 Add-LabeledRow $encodeTable 4 '输出帧率' $cmbFps
-Add-LabeledRow $encodeTable 5 'GPU 配置' $cmbGpu
-[void]$encodeTable.Controls.Add($chkCinematic, 0, 6)
+Add-LabeledRow $encodeTable 5 '反交错' $cmbDeint
+Add-LabeledRow $encodeTable 6 '自动方式' $cmbDeintMethod
+Add-LabeledRow $encodeTable 7 'GPU 配置' $cmbGpu
+[void]$encodeTable.Controls.Add($chkCinematic, 0, 8)
 $encodeTable.SetColumnSpan($chkCinematic, 2)
-[void]$encodeTable.Controls.Add($frameHelp, 0, 7)
+Add-LabeledRow $encodeTable 9 '画幅处理' $cmbFrameMode
+[void]$encodeTable.Controls.Add($uploadPanel, 0, 10)
+$encodeTable.SetColumnSpan($uploadPanel, 2)
+[void]$encodeTable.Controls.Add($frameHelp, 0, 11)
 $encodeTable.SetColumnSpan($frameHelp, 2)
 
 $profileNote = New-Object System.Windows.Forms.Label
@@ -414,7 +463,7 @@ if ($script:HardwareCapsReady) {
 } else {
     $profileNote.Text = "固定依赖：FFmpeg 13.0 / NVENC API 13.0`r`n硬件检测尚未完成，编码启动时会自动重试。"
 }
-[void]$encodeTable.Controls.Add($profileNote, 0, 8)
+[void]$encodeTable.Controls.Add($profileNote, 0, 12)
 $encodeTable.SetColumnSpan($profileNote, 2)
 [void]$main.Controls.Add($grpEncode, 1, 0)
 
@@ -443,7 +492,7 @@ $grainHost.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 5, 5,
 $pnlAv1 = New-Object System.Windows.Forms.TableLayoutPanel
 $pnlAv1.Dock = 'Fill'
 $pnlAv1.ColumnCount = 2
-$pnlAv1.RowCount = 6
+$pnlAv1.RowCount = 5
 $av1LabelCol = New-Object System.Windows.Forms.ColumnStyle
 $av1LabelCol.SizeType = [System.Windows.Forms.SizeType]::Absolute
 $av1LabelCol.Width = 100
@@ -452,7 +501,7 @@ $av1ValueCol = New-Object System.Windows.Forms.ColumnStyle
 $av1ValueCol.SizeType = [System.Windows.Forms.SizeType]::Percent
 $av1ValueCol.Width = 100
 [void]$pnlAv1.ColumnStyles.Add($av1ValueCol)
-for ($i = 0; $i -lt 6; $i++) { Add-RowPercent $pnlAv1 (100 / 6) }
+for ($i = 0; $i -lt 5; $i++) { Add-RowPercent $pnlAv1 (100 / 5) }
 
 $cmbAv1Method = New-ComboBox @('Film preset（推荐）', 'Photon ISO（高级）') 0
 $cmbAv1Format = New-ComboBox @('Classic35 · Super 35', 'Modern35 · Full-frame', '16mm · Coarser', 'Super8 · Heavy', 'MaxMid · Synthetic') 0
@@ -471,19 +520,12 @@ $chkChroma.Text = 'Luma + Chroma（默认仅 Luma）'
 $chkChroma.Dock = 'Fill'
 $chkChroma.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 7, 4, 3, 3
 
-$chkUpload = New-Object System.Windows.Forms.CheckBox
-$chkUpload.Text = '同时生成 H.264 上传版（烘焙颗粒）'
-$chkUpload.Dock = 'Fill'
-$chkUpload.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 7, 4, 3, 3
-
 Add-LabeledRow $pnlAv1 0 'Grain 方式' $cmbAv1Method
 Add-LabeledRow $pnlAv1 1 'Film 格式' $cmbAv1Format
 Add-LabeledRow $pnlAv1 2 'Film stock' $cmbAv1Stock
 Add-LabeledRow $pnlAv1 3 'Photon ISO' $numIso
 [void]$pnlAv1.Controls.Add($chkChroma, 0, 4)
 $pnlAv1.SetColumnSpan($chkChroma, 2)
-[void]$pnlAv1.Controls.Add($chkUpload, 0, 5)
-$pnlAv1.SetColumnSpan($chkUpload, 2)
 [void]$grainHost.Controls.Add($pnlAv1)
 
 # HEVC Grain panel
@@ -909,7 +951,9 @@ function Format-ProbeResult {
     if ($video) {
         $resolution = if ($video.width -and $video.height) { "$($video.width)×$($video.height)" } else { '—' }
         $fps = Format-MediaFps $video.avg_frame_rate
-        $videoLine = '视频  ' + (Format-CodecName $video) + " · $resolution · $fps fps · " + (Format-MediaBitrate $video.bit_rate)
+        $fieldOrder = ([string]$video.field_order).ToLowerInvariant()
+        $scanText = if ($fieldOrder -in @('tt', 'bb', 'tb', 'bt')) { "隔行 $fieldOrder" } elseif ($fieldOrder -eq 'progressive') { '逐行' } elseif ($fieldOrder) { "扫描标记 $fieldOrder" } else { '扫描标记 —' }
+        $videoLine = '视频  ' + (Format-CodecName $video) + " · $resolution · $fps fps · $scanText · " + (Format-MediaBitrate $video.bit_rate)
     } else {
         $videoLine = '视频  未找到视频流'
     }
@@ -962,6 +1006,7 @@ function Start-VideoProbe {
     $cacheKey = $Path.ToLowerInvariant()
     if ($script:ProbeCache.ContainsKey($cacheKey)) {
         Set-MediaInfoText ([string]$script:ProbeCache[$cacheKey])
+        Update-DeinterlaceUi
         return
     }
 
@@ -979,7 +1024,7 @@ function Start-VideoProbe {
     try {
         $psi = New-Object System.Diagnostics.ProcessStartInfo
         $psi.FileName = $probeExe
-        $psi.Arguments = '-v error -show_entries "format=format_name,duration,bit_rate:stream=codec_type,codec_name,profile,width,height,avg_frame_rate,bit_rate,channels,channel_layout,sample_rate" -of json "' + $Path + '"'
+        $psi.Arguments = '-v error -show_entries "format=format_name,duration,bit_rate:stream=codec_type,codec_name,profile,width,height,avg_frame_rate,field_order,bit_rate,channels,channel_layout,sample_rate" -of json "' + $Path + '"'
         $psi.UseShellExecute = $false
         $psi.CreateNoWindow = $true
         $psi.RedirectStandardOutput = $true
@@ -1040,8 +1085,12 @@ $probeTimer.Add_Tick({
         }
         $data = $json | ConvertFrom-Json
         $summary = Format-ProbeResult $data
-        $script:ProbeCache[$targetPath.ToLowerInvariant()] = $summary
+        $cacheKey = $targetPath.ToLowerInvariant()
+        $script:ProbeCache[$cacheKey] = $summary
+        $videoMeta = @($data.streams | Where-Object { $_.codec_type -eq 'video' } | Select-Object -First 1)
+        if ($videoMeta.Count -gt 0) { $script:ProbeVideoMeta[$cacheKey] = $videoMeta[0] }
         Set-MediaInfoText $summary
+        Update-DeinterlaceUi
     } catch {
         Stop-VideoProbe
         Set-MediaInfoText ('读取失败：' + $_.Exception.Message) $true
@@ -1210,6 +1259,68 @@ function Update-SpeedChoices {
     }
 }
 
+function Get-DoubleFpsDisplay {
+    param([string]$Value)
+    if (-not $Value) { return $null }
+    try {
+        $parts = $Value.Split('/')
+        if ($parts.Count -eq 2) {
+            $num = [double]::Parse($parts[0], [System.Globalization.CultureInfo]::InvariantCulture)
+            $den = [double]::Parse($parts[1], [System.Globalization.CultureInfo]::InvariantCulture)
+            if ($den -eq 0) { return $null }
+            return ('{0:0.###}' -f (($num * 2.0) / $den))
+        }
+        $fps = [double]::Parse($Value, [System.Globalization.CultureInfo]::InvariantCulture)
+        return ('{0:0.###}' -f ($fps * 2.0))
+    } catch {
+        return $null
+    }
+}
+
+function Update-DeinterlaceUi {
+    $auto = ($cmbDeint.SelectedIndex -eq 0)
+    $cmbDeintMethod.Enabled = $auto
+
+    $autoText = '自动（隔行→双帧率，如 29.97i → 59.94p）'
+    if ($auto) {
+        $selected = @($listFiles.SelectedItems)
+        if ($selected.Count -eq 1) {
+            $key = ([string]$selected[0].Tag).ToLowerInvariant()
+            if ($script:ProbeVideoMeta.ContainsKey($key)) {
+                $meta = $script:ProbeVideoMeta[$key]
+                $fieldOrder = ([string]$meta.field_order).ToLowerInvariant()
+                if ($fieldOrder -in @('tt', 'bb', 'tb', 'bt')) {
+                    $srcFps = Format-MediaFps $meta.avg_frame_rate
+                    $dstFps = Get-DoubleFpsDisplay ([string]$meta.avg_frame_rate)
+                    if ($srcFps -and $srcFps -ne '—' -and $dstFps) {
+                        $autoText = "自动（${srcFps}i → ${dstFps}p）"
+                    }
+                }
+            }
+        }
+        if ($cmbFps.Items.Count -gt 0) { $cmbFps.Items[0] = $autoText }
+        $cmbFps.SelectedIndex = 0
+        $cmbFps.Enabled = $false
+    } else {
+        if ($cmbFps.Items.Count -gt 0) { $cmbFps.Items[0] = '自动电影帧率 · VFR 兼容（默认）' }
+        $cmbFps.Enabled = $true
+    }
+}
+
+function Update-FramingUi {
+    $enabled = $chkCinematic.Checked
+    $cmbFrameMode.Enabled = $enabled
+    if (-not $enabled) {
+        $frameHelp.Text = 'Cinematic Style 已关闭：HEVC / AV1 均保持原始画幅。'
+        return
+    }
+    if ($cmbFrameMode.SelectedIndex -eq 0) {
+        $frameHelp.Text = 'HEVC / AV1：保留原分辨率，将约 2.39:1 纯黑上下黑边烘焙进画面，适合后期字幕。'
+    } else {
+        $frameHelp.Text = 'HEVC / AV1：裁剪为约 2.39:1 有效画面；例如 1920×1080 → 1920×804。'
+    }
+}
+
 function Update-CodecUi {
     $newIndex = $cmbCodec.SelectedIndex
     if ($newIndex -lt 0) { return }
@@ -1242,13 +1353,11 @@ function Update-CodecUi {
         $pnlAv1.Visible = $true
         $pnlAv1.BringToFront()
         $grpGrain.Text = 'Film Grain · AV1 metadata'
-        $frameHelp.Text = 'AV1 使用有效画面裁切；播放器全屏时补纯黑边。'
     } else {
         $pnlAv1.Visible = $false
         $pnlHevc.Visible = $true
         $pnlHevc.BringToFront()
         $grpGrain.Text = 'Film Grain · HEVC Scanned Grain'
-        $frameHelp.Text = 'HEVC 保留原分辨率，并将纯黑 letterbox 烘焙进画面。'
         if ($script:LastScannedGrainRoot -ne $txtGrainRoot.Text.Trim() -or $script:HevcGrainFiles.Count -eq 0) {
             Refresh-HevcGrainPlates
         }
@@ -2112,8 +2221,15 @@ function Start-Encoding {
     $envs['FG_MAXRATE'] = [string]$maxrate
     $envs['FG_BUFSIZE'] = [string]$bufsize
     $envs['FG_FPS_MODE'] = if ($cmbFps.SelectedIndex -eq 0) { 'AUTO' } else { 'SOURCE' }
+    $envs['FG_DEINTERLACE'] = if ($cmbDeint.SelectedIndex -eq 0) { 'AUTO' } else { 'OFF' }
+    $deintMethods = @('BWDIF_VULKAN', 'BWDIF_CUDA', 'W3FDIF')
+    $envs['FG_DEINT_METHOD'] = $deintMethods[$cmbDeintMethod.SelectedIndex]
     $envs['FG_CINEMATIC_FRAME'] = if ($chkCinematic.Checked) { '1' } else { '0' }
+    $envs['FG_FRAME_MODE'] = if ($cmbFrameMode.SelectedIndex -eq 0) { 'LETTERBOX' } else { 'CROP' }
     $envs['FG_KEEP_FAILED'] = '1'
+    $uploadBitrates = @(6000, 8000, 10000, 12000, 15000, 18000, 20000, 30000)
+    $envs['FG_UPLOAD'] = if ($chkUpload.Checked) { '1' } else { '0' }
+    $envs['FG_UPLOAD_BITRATE'] = [string]$uploadBitrates[$cmbUploadBitrate.SelectedIndex]
 
     if ($chkLut.Checked) {
         $envs['FG_LUT_PATH'] = $script:SelectedLutPath
@@ -2130,7 +2246,6 @@ function Start-Encoding {
         $envs['FG_AV1_STOCK'] = [string]($cmbAv1Stock.SelectedIndex + 1)
         $envs['FG_AV1_ISO'] = [string][int]$numIso.Value
         $envs['FG_AV1_CHROMA'] = if ($chkChroma.Checked) { '1' } else { '0' }
-        $envs['FG_AV1_UPLOAD'] = if ($chkUpload.Checked) { '1' } else { '0' }
     } else {
         $envs['FG_GRAIN_ROOT'] = $txtGrainRoot.Text.Trim()
         $envs['FG_HEVC_GRAIN_PATH'] = $selectedGrainPath
@@ -2253,9 +2368,12 @@ $form.Add_DragEnter($dragEnterHandler)
 $form.Add_DragDrop($dragDropHandler)
 $listFiles.Add_DragEnter($dragEnterHandler)
 $listFiles.Add_DragDrop($dragDropHandler)
-$listFiles.Add_SelectedIndexChanged({ Update-SelectedMediaInfo })
+$listFiles.Add_SelectedIndexChanged({ Update-SelectedMediaInfo; Update-DeinterlaceUi })
 
-$cmbCodec.Add_SelectedIndexChanged({ Update-CodecUi })
+$cmbCodec.Add_SelectedIndexChanged({ Update-CodecUi; Update-FramingUi })
+$cmbDeint.Add_SelectedIndexChanged({ Update-DeinterlaceUi })
+$chkCinematic.Add_CheckedChanged({ Update-FramingUi })
+$cmbFrameMode.Add_SelectedIndexChanged({ Update-FramingUi })
 $cmbBitrate.Add_TextChanged({
     if (-not $script:ChangingCodec -and $cmbCodec.SelectedIndex -ge 0) {
         $script:ModeBitrate[$cmbCodec.SelectedIndex] = $cmbBitrate.Text.Trim()
@@ -2272,6 +2390,10 @@ $trackHevcStrength.Add_ValueChanged({
 $trackLutStrength.Add_ValueChanged({
     $strengths = @(25, 50, 75, 100)
     $lblLutStrength.Text = [string]$strengths[$trackLutStrength.Value] + '%'
+})
+
+$chkUpload.Add_CheckedChanged({
+    $cmbUploadBitrate.Enabled = $chkUpload.Checked
 })
 
 $chkLut.Add_CheckedChanged({ Set-LutUi })
@@ -2405,6 +2527,8 @@ $form.Add_FormClosed({ Clear-StudioLutPreview })
 Load-BitrateChoices $cmbCodec.SelectedIndex
 Update-CodecUi
 Update-Av1Controls
+Update-DeinterlaceUi
+Update-FramingUi
 Refresh-RecentLuts
 Refresh-FavoriteLuts
 Set-LutUi
