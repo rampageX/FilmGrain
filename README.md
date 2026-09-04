@@ -7,10 +7,10 @@
 - **HEVC Main10 + 真实扫描 Grain Plate**：将真实胶片颗粒合成到视频像素中。
 - **AV1 Main10 + grav1synth Film Grain**：将颗粒模型写入 AV1 Film Grain metadata，由播放器在解码时合成。
 
-当前正式稳定版为 **v3.3.1**，发布包名称：
+当前正式稳定版为 **v4.0.0**，发布包名称：
 
 ```text
-FilmGrain_Studio_v3.3.1_Stable.zip
+FilmGrain_Studio_v4.0.0_Stable.zip
 ```
 
 所有独立脚本使用固定文件名，不再包含组件版本号；版本号只体现在整个项目的发布压缩包上。升级时建议完整替换工具包，避免新旧脚本混用。
@@ -78,6 +78,7 @@ Utils\
     FilmGrain_Studio.ps1
     FilmGrain_Studio_Launcher.vbs
     FilmGrain_Universal_HEVC_AV1_StudioBridge.bat
+    FilmGrain_Subtitle_Prepare.ps1
     AV1_FilmGrain_Bake_for_Social_Upload.bat
     AV1_Grav1synth_Add_Replace_FilmGrain_NoReencode.bat
     LUT_Preview_Batch_Gallery.bat
@@ -179,7 +180,10 @@ GUI 与 CLI 的输出均保存在源视频所在目录。已有同名输出时�
 - HEVC Grain 根目录递归扫描，只显示电脑上实际存在的 `.mov` Grain Plate；
 - 自动匹配 1080p 或原分辨率 HEVC Lossless Grain Cache；
 - LUT Gallery、最近使用、我的最爱、缩略图预览、参考图更换及 LUT 强度；
-- 结构化实时进度、`fps`、`speed`、`ETA`、日志复制/清空与任务取消。
+- 结构化实时进度、`fps`、`speed`、`ETA`、日志复制/清空与任务取消；
+- HEVC / AV1 均可额外生成 H.264 上传版：NVENC P7 固定码率档，或 x264 Slow + `tune grain` + 2-pass 的 FPS / 分辨率联动高质量档，并可用“高动态视频”开关切换普通 / 高动态码率预算；
+- H.264 上传版支持硬字幕：内嵌文本字幕下拉选择、同名外部字幕自动匹配、浏览外部字幕文件，并支持自定义字体、字号、颜色、描边、阴影与位置。
+- Studio 中“高动态视频”和“字幕…”位于“同时生成 H.264 上传版”正下方；纯信息状态文字下移，避免编码设置区换行拥挤。
 
 ---
 
@@ -200,7 +204,7 @@ GUI 与 CLI 的输出均保存在源视频所在目录。已有同名输出时�
 | AV1 Film Preset | Classic35 / Fujifilm Eterna 250D |
 | AV1 平均码率 | 1500 kbps |
 | HEVC 平均码率 | 7500 kbps |
-| 社交平台上传副本 | 关闭 |
+| H.264 上传副本 | 关闭；启用后默认 8000 kbps NVENC P7 |
 
 ### 容器行为
 
@@ -441,15 +445,110 @@ Utils\LUT_Preview_Batch_Gallery.bat
 
 ### 在主流程中生成
 
-AV1 与 HEVC 两种主编码方式都可以启用 **“同时生成 H.264 上传版”**。主任务完成后会额外生成一份已将 Grain 烘焙到像素的 H.264/AAC MP4。GUI 与 CLI 共用同一功能。
+AV1 与 HEVC 两种主编码方式都可以启用 **“同时生成 H.264 上传版”**。主任务完成后会额外生成一份 H.264/AAC MP4；AV1 路线由 `libdav1d` 将 Film Grain metadata 合成为真实颗粒像素后再压制，HEVC 路线则从原始视频重新走同一套 Grain / LUT / 反交错 / Cinematic 处理链，避免从主 HEVC 成片再次转码。
 
-主流程的上传版码率可直接选择，默认 **8000 kbps**：
+GUI 与 CLI 共用同一套上传质量选择，共 6 档：
 
 ```text
-6000 / 8000 / 10000 / 12000 / 15000 / 18000 / 20000 / 30000 kbps
+6000 kbps · NVENC
+8000 kbps · NVENC（默认）
+15000 kbps · NVENC
+
+x264 Grain 推荐 · FPS联动
+x264 Grain 高质量 · FPS联动
+x264 Grain 极高 · FPS联动
 ```
 
-其中 6000 / 8000 / 10000 / 12000 分别作为 ≤720p / 1080p / 1440p / 4K 推荐档，15000 / 18000 / 20000 / 30000 用于高码率测试。`maxrate` 自动设为所选码率的 1.5 倍，`bufsize` 为 2 倍。输出文件名包含所选码率，例如 `_UPLOAD_H264_GRAIN_18000k.mp4`，方便同一素材并行比较不同上传母版。
+NVENC 三档统一使用 **H.264 NVENC P7 / HQ / VBR**，并继续按硬件能力自动启用 Multipass、Lookahead、AQ、B-frame 与 B-reference 等已通过探测的功能。
+
+x264 三档使用 **libx264 / preset slow / tune grain / 2-pass**。从 v4.0.0 起，平均码率不再只按 FPS 联动，而是同时考虑 **实际输出 FPS、实际输出分辨率和“高动态视频”开关**，最后四舍五入到最接近的 500 kbps：
+
+```text
+最终平均码率
+= 60p 档位基准
+× 实际输出 FPS / 60
+× sqrt(实际输出像素数 / 1920×1080)
+× 动态系数
+```
+
+分辨率系数采用像素面积平方根，因此典型值约为：
+
+```text
+1280×720   ≈ 0.67×
+1920×1080  = 1.00×
+2560×1440  ≈ 1.33×
+3840×2160  = 2.00×
+```
+
+动态系数：
+
+```text
+普通动态（默认，不勾“高动态视频”） = 0.5×
+高动态视频（勾选）                 = 1.0×
+```
+
+三档的 1080p60 高动态基准分别为：
+
+```text
+推荐      15 Mbps
+高质量    20 Mbps
+极高      25 Mbps
+```
+
+因此“推荐”档的典型自动结果为：
+
+| 实际输出 | 普通动态 | 高动态 |
+|---|---:|---:|
+| 1080p24 | 3 Mbps | 6 Mbps |
+| 1080p30 | 4 Mbps | 7.5 Mbps |
+| 1080p60 | 7.5 Mbps | 15 Mbps |
+| 1440p60 | 10 Mbps | 20 Mbps |
+| 4K24 | 6 Mbps | 12 Mbps |
+| 4K30 | 7.5 Mbps | 15 Mbps |
+| 4K60 | 15 Mbps | 30 Mbps |
+
+Cinematic 裁剪后会使用**实际有效输出尺寸**参与计算，因此 1920×804、3840×1608 等非 16:9 输出也会自然得到对应码率。
+
+x264 Grain 三档继续采用已经过实测的 VBV 比例：
+
+```text
+maxrate = 平均码率 × 3
+bufsize = 平均码率 × 6
+```
+
+例如 1080p60 推荐档普通动态为 **7.5M / 22.5M / 45M**；勾选高动态后为 **15M / 45M / 90M**。4K60 推荐档则自动提升为普通动态 **15M / 45M / 90M**，高动态 **30M / 90M / 180M**。
+
+输出文件名会包含实际计算出的码率，方便确认和对比。
+
+### H.264 硬字幕
+
+H.264 上传版可选择烧写文本字幕，主 HEVC / AV1 成片不受影响。
+
+字幕来源支持：
+
+- 视频内嵌文本字幕：自动读取并在下拉列表中选择；
+- 同目录同名外部字幕：自动匹配 `.srt / .ass / .ssa / .vtt`；
+- 浏览本地硬盘选择外部字幕文件；
+- 多文件任务可使用自动匹配：优先各自同名外部字幕，找不到时再尝试第一个内嵌文本字幕。
+
+外部字幕字符集会先判断 Unicode BOM / 严格 UTF-8；不是合法 UTF-8 时自动使用 **GB18030（兼容常见 GBK/ANSI 中文字幕）**。
+
+默认字幕样式：
+
+```text
+字体：huiwen-mincho
+字号：69（以 1920×1080 为基准）
+颜色：白色
+描边 / 阴影：黑色，Outline 1 / Shadow 1
+距有效画面下沿：25 px
+对齐：水平居中
+```
+
+字号、边距、描边和阴影均可在 GUI 中自定义，并按**输出宽度相对 1920 px 自动等比缩放**。例如 3840 宽输出会使用约 2× 的实际字幕尺寸；1920×804 的 2.39:1 输出仍按 1920 宽度保持相同视觉字号。
+
+当 Cinematic 下方黑边存在时，字幕定位在该黑边内，默认距有效画面下沿 25 px；没有下方黑边时则回退到底部居中定位。脚本不会为了字幕额外制造新的黑边。
+
+H.264 上传版音频统一为 **AAC 320 kbps / stereo / 48 kHz**。
 
 ### 独立转换工具
 

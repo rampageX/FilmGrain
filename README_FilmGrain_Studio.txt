@@ -27,7 +27,12 @@ Studio 打开后会自动加入文件列表。
   或裁剪为约 2.39:1 有效画面；默认加黑边，适合后期字幕。
 - NVIDIA GPU / 驱动 / FFmpeg 能力自动探测；已验证 RTX 4080 与 T600 Laptop。
 - AV1 Film preset / Photon ISO、Film 格式、Film stock、Chroma Grain。
-- AV1 / HEVC 均可选“同时生成 H.264 上传版”，码率下拉档位为 6000 / 8000 / 10000 / 12000 / 15000 / 18000 / 20000 / 30000 kbps，默认 8000 kbps。
+- AV1 / HEVC 均可选“同时生成 H.264 上传版”：NVENC P7 固定 6000 / 8000 / 15000 kbps，
+  或 x264 Slow + tune grain + 2-pass 的推荐 / 高质量 / 极高三档。
+- x264 Grain 码率按实际输出 FPS + 分辨率自动联动；默认普通动态使用 0.5× 预算，
+  勾选“高动态视频”后使用完整 1.0× 预算；VBV 固定为 maxrate=平均×3、bufsize=平均×6。
+- H.264 上传版可烧写内嵌或外部文本字幕；默认 huiwen-mincho、1080p 基准字号 69、白字黑边阴影，
+  距有效画面下沿 25 px；字幕尺寸按输出宽度自动缩放，并支持 GB18030 中文字幕。
 - HEVC Grain 根目录递归扫描：界面仅显示电脑上实际存在的 .mov 颗粒片。
 - Grain 列表支持选择目录后自动刷新，也可点击 ↻ 手动刷新。
 - HEVC Grain 4 档强度，并自动匹配同名 1080p / 原分辨率 Lossless Cache。
@@ -72,6 +77,9 @@ Utils\FilmGrain_Studio_Launcher.vbs
 
 Utils\FilmGrain_Universal_HEVC_AV1_StudioBridge.bat
     GUI / CLI 共用编码核心；GUI 通过 FG_* 参数调用，CLI 使用交互模式。
+
+Utils\FilmGrain_Subtitle_Prepare.ps1
+    H.264 上传版文本字幕识别、字符集处理、ASS 样式与位置准备。
 
 FilmGrain_Universal_HEVC_AV1_CLI.bat
     CLI 入口，直接进入同一 StudioBridge 核心的交互模式，可独立拖放使用。

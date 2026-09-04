@@ -78,6 +78,20 @@ $script:HardwareCapsReady = $false
 $script:Av1Available = $true
 $script:Av1UhqAvailable = $false
 $script:HevcAvailable = $true
+$script:UploadSubtitle = [ordered]@{
+    Enabled = $false
+    Mode = 'OFF'
+    EmbeddedIndex = 0
+    ExternalPath = ''
+    FontName = 'huiwen-mincho'
+    FontSize = 69
+    PrimaryHex = 'FFFFFF'
+    BorderHex = '000000'
+    Outline = 1.0
+    Shadow = 1.0
+    MarginV = 25
+    Label = '字幕：关闭'
+}
 $ColorHeader = [System.Drawing.Color]::FromArgb(45, 57, 72)
 $ColorAccent = [System.Drawing.Color]::FromArgb(47, 111, 173)
 $ColorSubtle = [System.Drawing.Color]::FromArgb(242, 244, 247)
@@ -340,7 +354,7 @@ $encodeTable = New-Object System.Windows.Forms.TableLayoutPanel
 $encodeTable.Dock = 'Fill'
 $encodeTable.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 5, 7, 5, 5
 $encodeTable.ColumnCount = 2
-$encodeTable.RowCount = 13
+$encodeTable.RowCount = 14
 $encodeTable.ColumnStyles.Clear()
 $labelColumn = New-Object System.Windows.Forms.ColumnStyle
 $labelColumn.SizeType = [System.Windows.Forms.SizeType]::Absolute
@@ -350,7 +364,7 @@ $valueColumn = New-Object System.Windows.Forms.ColumnStyle
 $valueColumn.SizeType = [System.Windows.Forms.SizeType]::Percent
 $valueColumn.Width = 100
 [void]$encodeTable.ColumnStyles.Add($valueColumn)
-for ($i = 0; $i -lt 12; $i++) { Add-RowAbsolute $encodeTable 34 }
+for ($i = 0; $i -lt 13; $i++) { Add-RowAbsolute $encodeTable 34 }
 Add-RowPercent $encodeTable 100
 [void]$grpEncode.Controls.Add($encodeTable)
 
@@ -391,6 +405,49 @@ $cmbFrameMode = New-ComboBox @(
     '裁剪 · 输出有效 2.39:1 画面'
 ) 0
 
+$cinematicPanel = New-Object System.Windows.Forms.TableLayoutPanel
+$cinematicPanel.Dock = 'Fill'
+$cinematicPanel.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0, 0, 0, 0
+$cinematicPanel.ColumnCount = 1
+$cinematicPanel.RowCount = 1
+$cinematicCheckCol = New-Object System.Windows.Forms.ColumnStyle
+$cinematicCheckCol.SizeType = [System.Windows.Forms.SizeType]::Percent
+$cinematicCheckCol.Width = 100
+[void]$cinematicPanel.ColumnStyles.Add($cinematicCheckCol)
+[void]$cinematicPanel.Controls.Add($chkCinematic, 0, 0)
+
+$chkUploadHighMotion = New-Object System.Windows.Forms.CheckBox
+$chkUploadHighMotion.Text = '高动态视频'
+$chkUploadHighMotion.Checked = $false
+$chkUploadHighMotion.Dock = 'Fill'
+$chkUploadHighMotion.Enabled = $false
+$chkUploadHighMotion.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 8, 7, 3, 3
+
+$btnUploadSubtitle = New-Object System.Windows.Forms.Button
+$btnUploadSubtitle.Text = '字幕…'
+$btnUploadSubtitle.Dock = 'Fill'
+$btnUploadSubtitle.Enabled = $false
+$btnUploadSubtitle.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 3, 4, 8, 4
+
+$uploadExtraPanel = New-Object System.Windows.Forms.TableLayoutPanel
+$uploadExtraPanel.Dock = 'Fill'
+$uploadExtraPanel.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0, 0, 0, 0
+$uploadExtraPanel.ColumnCount = 2
+$uploadExtraPanel.RowCount = 1
+
+$uploadExtraMotionCol = New-Object System.Windows.Forms.ColumnStyle
+$uploadExtraMotionCol.SizeType = [System.Windows.Forms.SizeType]::Percent
+$uploadExtraMotionCol.Width = 68
+[void]$uploadExtraPanel.ColumnStyles.Add($uploadExtraMotionCol)
+
+$uploadExtraSubCol = New-Object System.Windows.Forms.ColumnStyle
+$uploadExtraSubCol.SizeType = [System.Windows.Forms.SizeType]::Percent
+$uploadExtraSubCol.Width = 32
+[void]$uploadExtraPanel.ColumnStyles.Add($uploadExtraSubCol)
+
+[void]$uploadExtraPanel.Controls.Add($chkUploadHighMotion, 0, 0)
+[void]$uploadExtraPanel.Controls.Add($btnUploadSubtitle, 1, 0)
+
 $uploadPanel = New-Object System.Windows.Forms.TableLayoutPanel
 $uploadPanel.Dock = 'Fill'
 $uploadPanel.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0, 0, 0, 0
@@ -398,11 +455,11 @@ $uploadPanel.ColumnCount = 2
 $uploadPanel.RowCount = 1
 $uploadCheckCol = New-Object System.Windows.Forms.ColumnStyle
 $uploadCheckCol.SizeType = [System.Windows.Forms.SizeType]::Percent
-$uploadCheckCol.Width = 58
+$uploadCheckCol.Width = 52
 [void]$uploadPanel.ColumnStyles.Add($uploadCheckCol)
 $uploadRateCol = New-Object System.Windows.Forms.ColumnStyle
 $uploadRateCol.SizeType = [System.Windows.Forms.SizeType]::Percent
-$uploadRateCol.Width = 42
+$uploadRateCol.Width = 48
 [void]$uploadPanel.ColumnStyles.Add($uploadRateCol)
 
 $chkUpload = New-Object System.Windows.Forms.CheckBox
@@ -411,17 +468,16 @@ $chkUpload.Dock = 'Fill'
 $chkUpload.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 7, 4, 3, 3
 
 $cmbUploadBitrate = New-ComboBox @(
-    '6000 kbps · ≤720p 推荐',
-    '8000 kbps · 1080p 推荐',
-    '10000 kbps · 1440p 推荐',
-    '12000 kbps · 4K 推荐',
-    '15000 kbps · 测试',
-    '18000 kbps · 测试',
-    '20000 kbps · 测试',
-    '30000 kbps · 测试'
+    '6000 kbps · NVENC',
+    '8000 kbps · NVENC',
+    '15000 kbps · NVENC',
+    'x264 Grain 推荐 · FPS联动',
+    'x264 Grain 高质量 · FPS联动',
+    'x264 Grain 极高 · FPS联动'
 ) 1
 $cmbUploadBitrate.Enabled = $false
 $cmbUploadBitrate.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 3, 5, 6, 5
+
 [void]$uploadPanel.Controls.Add($chkUpload, 0, 0)
 [void]$uploadPanel.Controls.Add($cmbUploadBitrate, 1, 0)
 
@@ -441,12 +497,14 @@ Add-LabeledRow $encodeTable 4 '输出帧率' $cmbFps
 Add-LabeledRow $encodeTable 5 '反交错' $cmbDeint
 Add-LabeledRow $encodeTable 6 '自动方式' $cmbDeintMethod
 Add-LabeledRow $encodeTable 7 'GPU 配置' $cmbGpu
-[void]$encodeTable.Controls.Add($chkCinematic, 0, 8)
-$encodeTable.SetColumnSpan($chkCinematic, 2)
+[void]$encodeTable.Controls.Add($cinematicPanel, 0, 8)
+$encodeTable.SetColumnSpan($cinematicPanel, 2)
 Add-LabeledRow $encodeTable 9 '画幅处理' $cmbFrameMode
 [void]$encodeTable.Controls.Add($uploadPanel, 0, 10)
 $encodeTable.SetColumnSpan($uploadPanel, 2)
-[void]$encodeTable.Controls.Add($frameHelp, 0, 11)
+[void]$encodeTable.Controls.Add($uploadExtraPanel, 0, 11)
+$encodeTable.SetColumnSpan($uploadExtraPanel, 2)
+[void]$encodeTable.Controls.Add($frameHelp, 0, 12)
 $encodeTable.SetColumnSpan($frameHelp, 2)
 
 $profileNote = New-Object System.Windows.Forms.Label
@@ -463,7 +521,7 @@ if ($script:HardwareCapsReady) {
 } else {
     $profileNote.Text = "固定依赖：FFmpeg 13.0 / NVENC API 13.0`r`n硬件检测尚未完成，编码启动时会自动重试。"
 }
-[void]$encodeTable.Controls.Add($profileNote, 0, 12)
+[void]$encodeTable.Controls.Add($profileNote, 0, 13)
 $encodeTable.SetColumnSpan($profileNote, 2)
 [void]$main.Controls.Add($grpEncode, 1, 0)
 
@@ -757,6 +815,9 @@ $lblLutStrength.Enabled = $false
 $toolTip = New-Object System.Windows.Forms.ToolTip
 $toolTip.SetToolTip($btnGrainRoot, '选择 Grain 根目录')
 $toolTip.SetToolTip($btnRefreshGrain, '重新扫描根目录中的 .mov 颗粒片')
+$toolTip.SetToolTip($btnUploadSubtitle, '为 H.264 上传版烧写硬字幕；默认在下方黑边中距画面下沿 25px、水平居中；尺寸按 1080p 基准等比缩放。')
+$toolTip.SetToolTip($cmbUploadBitrate, 'NVENC：固定 6M / 8M / 15M。x264 Grain：按实际输出 FPS 与分辨率自动换算；分辨率按相对 1080p 像素面积平方根缩放。默认普通动态再乘 0.5，高动态视频勾选后使用完整码率。x264 使用 Slow + tune grain + 2-pass，VBV Max=3×、Buf=6×。')
+$toolTip.SetToolTip($chkUploadHighMotion, '仅影响 x264 Grain FPS联动模式。默认不勾选：自动计算码率减半；勾选：使用完整高动态码率。NVENC 不受影响。')
 
 # Log area
 $grpLog = New-Object System.Windows.Forms.GroupBox
@@ -890,6 +951,258 @@ $openDialog.Filter = '视频文件|*.mp4;*.mkv;*.mov;*.mxf;*.avi;*.webm;*.ts;*.m
 $folderDialog = New-Object System.Windows.Forms.FolderBrowserDialog
 $folderDialog.Description = '选择 HEVC Scanned Grain 根目录'
 $folderDialog.ShowNewFolderButton = $false
+
+function Get-SubtitleProbeExe {
+    $probeExe = $Ffprobe
+    if (Test-Path -LiteralPath $probeExe -PathType Leaf) { return $probeExe }
+    $probeCommand = Get-Command 'ffprobe.exe' -ErrorAction SilentlyContinue
+    if ($probeCommand) { return $probeCommand.Source }
+    return $null
+}
+
+function Get-TextSubtitleTracks {
+    param([string]$Path)
+    $result = @()
+    if (-not $Path -or -not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $result }
+    $probeExe = Get-SubtitleProbeExe
+    if (-not $probeExe) { return $result }
+    try {
+        $json = (& $probeExe -v error -select_streams s -show_entries 'stream=index,codec_name:stream_tags=language,title' -of json $Path 2>$null | Out-String)
+        if (-not $json) { return $result }
+        $data = $json | ConvertFrom-Json
+        $ordinal = 0
+        $textCodecs = @('subrip','ass','ssa','webvtt','mov_text','text','sami','microdvd','jacosub','realtext','subviewer','subviewer1','vplayer')
+        foreach ($stream in @($data.streams)) {
+            $codec = ([string]$stream.codec_name).ToLowerInvariant()
+            if ($codec -in $textCodecs) {
+                $lang = if ($stream.tags -and $stream.tags.language) { [string]$stream.tags.language } else { 'und' }
+                $title = if ($stream.tags -and $stream.tags.title) { [string]$stream.tags.title } else { '' }
+                $label = "内嵌 #$($ordinal + 1) · $lang · $codec"
+                if ($title) { $label += " · $title" }
+                $result += [pscustomobject]@{ Ordinal = $ordinal; Label = $label; Codec = $codec }
+            }
+            $ordinal++
+        }
+    } catch {}
+    return $result
+}
+
+function Find-SameNameSubtitleFile {
+    param([string]$VideoPath)
+    if (-not $VideoPath) { return $null }
+    $dir = [System.IO.Path]::GetDirectoryName($VideoPath)
+    $base = [System.IO.Path]::GetFileNameWithoutExtension($VideoPath)
+    foreach ($ext in @('.ass','.srt','.ssa','.vtt')) {
+        $candidate = Join-Path $dir ($base + $ext)
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) { return $candidate }
+    }
+    return $null
+}
+
+function Set-SubtitleColorButton {
+    param([System.Windows.Forms.Button]$Button, [string]$Hex)
+    $hexValue = ([string]$Hex).Trim().TrimStart('#')
+    if ($hexValue -notmatch '^[0-9A-Fa-f]{6}$') { $hexValue = 'FFFFFF' }
+    $Button.Text = '#' + $hexValue.ToUpperInvariant()
+    $Button.BackColor = [System.Drawing.ColorTranslator]::FromHtml('#' + $hexValue)
+    $brightness = ($Button.BackColor.R * 299 + $Button.BackColor.G * 587 + $Button.BackColor.B * 114) / 1000
+    $Button.ForeColor = if ($brightness -lt 128) { [System.Drawing.Color]::White } else { [System.Drawing.Color]::Black }
+}
+
+function Show-UploadSubtitleDialog {
+    $targetPath = $null
+    $selected = @($listFiles.SelectedItems)
+    if ($selected.Count -eq 1) { $targetPath = [string]$selected[0].Tag }
+    elseif ($listFiles.Items.Count -eq 1) { $targetPath = [string]$listFiles.Items[0].Tag }
+
+    $tracks = @()
+    $sameName = $null
+    if ($targetPath) {
+        $tracks = @(Get-TextSubtitleTracks $targetPath)
+        $sameName = Find-SameNameSubtitleFile $targetPath
+    }
+
+    $dlg = New-Object System.Windows.Forms.Form
+    $dlg.Text = 'H.264 上传版 · 硬字幕'
+    $dlg.StartPosition = 'CenterParent'
+    $dlg.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedDialog
+    $dlg.MaximizeBox = $false
+    $dlg.MinimizeBox = $false
+    $dlg.ShowInTaskbar = $false
+    $dlg.ClientSize = New-Object System.Drawing.Size -ArgumentList 610, 425
+    $dlg.Font = New-UiFont 9
+
+    $table = New-Object System.Windows.Forms.TableLayoutPanel
+    $table.Dock = 'Fill'
+    $table.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 12
+    $table.ColumnCount = 3
+    $table.RowCount = 10
+    $c0 = New-Object System.Windows.Forms.ColumnStyle
+    $c0.SizeType = [System.Windows.Forms.SizeType]::Absolute
+    $c0.Width = 118
+    [void]$table.ColumnStyles.Add($c0)
+    $c1 = New-Object System.Windows.Forms.ColumnStyle
+    $c1.SizeType = [System.Windows.Forms.SizeType]::Percent
+    $c1.Width = 100
+    [void]$table.ColumnStyles.Add($c1)
+    $c2 = New-Object System.Windows.Forms.ColumnStyle
+    $c2.SizeType = [System.Windows.Forms.SizeType]::Absolute
+    $c2.Width = 92
+    [void]$table.ColumnStyles.Add($c2)
+    for ($i=0; $i -lt 8; $i++) { Add-RowAbsolute $table 36 }
+    Add-RowPercent $table 100
+    Add-RowAbsolute $table 42
+    [void]$dlg.Controls.Add($table)
+
+    $cmbSource = New-ComboBox @() 0
+    $cmbSource.DropDownWidth = 500
+    $sourceDefs = New-Object System.Collections.ArrayList
+    [void]$cmbSource.Items.Add('关闭 · 不烧写字幕')
+    [void]$sourceDefs.Add([pscustomobject]@{ Mode='OFF'; Index=0; Path=''; Label='字幕：关闭' })
+    [void]$cmbSource.Items.Add('自动匹配 · 同名外部字幕优先，否则内嵌 #1')
+    [void]$sourceDefs.Add([pscustomobject]@{ Mode='AUTO'; Index=0; Path=''; Label='字幕：自动匹配' })
+
+    foreach ($track in $tracks) {
+        [void]$cmbSource.Items.Add([string]$track.Label)
+        [void]$sourceDefs.Add([pscustomobject]@{ Mode='EMBEDDED'; Index=[int]$track.Ordinal; Path=''; Label=('字幕：内嵌 #' + ([int]$track.Ordinal + 1)) })
+    }
+    if ($sameName) {
+        [void]$cmbSource.Items.Add('同名外部 · ' + [System.IO.Path]::GetFileName($sameName))
+        [void]$sourceDefs.Add([pscustomobject]@{ Mode='EXTERNAL'; Index=0; Path=$sameName; Label=('字幕：' + [System.IO.Path]::GetFileName($sameName)) })
+    }
+    [void]$cmbSource.Items.Add('浏览外部字幕文件…')
+    [void]$sourceDefs.Add([pscustomobject]@{ Mode='BROWSE'; Index=0; Path=''; Label='字幕：外部文件' })
+
+    $desired = 0
+    if ($script:UploadSubtitle.Enabled) {
+        for ($i=0; $i -lt $sourceDefs.Count; $i++) {
+            $d=$sourceDefs[$i]
+            if ($script:UploadSubtitle.Mode -eq 'AUTO' -and $d.Mode -eq 'AUTO') { $desired=$i; break }
+            if ($script:UploadSubtitle.Mode -eq 'EMBEDDED' -and $d.Mode -eq 'EMBEDDED' -and [int]$d.Index -eq [int]$script:UploadSubtitle.EmbeddedIndex) { $desired=$i; break }
+            if ($script:UploadSubtitle.Mode -eq 'EXTERNAL' -and $d.Mode -eq 'EXTERNAL' -and $script:UploadSubtitle.ExternalPath -and $d.Path -eq $script:UploadSubtitle.ExternalPath) { $desired=$i; break }
+        }
+    } elseif ($tracks.Count -gt 0) {
+        $desired = 2
+    } elseif ($sameName) {
+        $desired = $sourceDefs.Count - 2
+    } else {
+        $desired = 1
+    }
+    if ($cmbSource.Items.Count -gt 0) { $cmbSource.SelectedIndex = $desired }
+
+    $btnBrowseSub = New-Object System.Windows.Forms.Button
+    $btnBrowseSub.Text = '浏览…'
+    $btnBrowseSub.Dock = 'Fill'
+    $btnBrowseSub.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 3,4,3,4
+
+    $txtFont = New-Object System.Windows.Forms.TextBox
+    $txtFont.Text = [string]$script:UploadSubtitle.FontName
+    $txtFont.Dock = 'Fill'
+    $txtFont.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 4,6,3,5
+
+    $numSize = New-Object System.Windows.Forms.NumericUpDown
+    $numSize.Minimum = 6; $numSize.Maximum = 200; $numSize.Value = [decimal]$script:UploadSubtitle.FontSize
+    $numSize.Dock = 'Fill'; $numSize.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 4,5,3,5
+
+    $btnPrimary = New-Object System.Windows.Forms.Button
+    $btnPrimary.Dock='Fill'; $btnPrimary.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 4,4,3,4
+    Set-SubtitleColorButton $btnPrimary ([string]$script:UploadSubtitle.PrimaryHex)
+    $btnBorder = New-Object System.Windows.Forms.Button
+    $btnBorder.Dock='Fill'; $btnBorder.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 4,4,3,4
+    Set-SubtitleColorButton $btnBorder ([string]$script:UploadSubtitle.BorderHex)
+
+    $numOutline = New-Object System.Windows.Forms.NumericUpDown
+    $numOutline.DecimalPlaces=1; $numOutline.Increment=[decimal]0.5; $numOutline.Minimum=0; $numOutline.Maximum=10; $numOutline.Value=[decimal]$script:UploadSubtitle.Outline
+    $numOutline.Dock='Fill'; $numOutline.Margin=New-Object System.Windows.Forms.Padding -ArgumentList 4,5,3,5
+    $numShadow = New-Object System.Windows.Forms.NumericUpDown
+    $numShadow.DecimalPlaces=1; $numShadow.Increment=[decimal]0.5; $numShadow.Minimum=0; $numShadow.Maximum=10; $numShadow.Value=[decimal]$script:UploadSubtitle.Shadow
+    $numShadow.Dock='Fill'; $numShadow.Margin=New-Object System.Windows.Forms.Padding -ArgumentList 4,5,3,5
+    $numMargin = New-Object System.Windows.Forms.NumericUpDown
+    $numMargin.Minimum=0; $numMargin.Maximum=300; $numMargin.Value=[decimal]$script:UploadSubtitle.MarginV
+    $numMargin.Dock='Fill'; $numMargin.Margin=New-Object System.Windows.Forms.Padding -ArgumentList 4,5,3,5
+
+    function Add-SubDialogLabel([int]$row,[string]$text,[System.Windows.Forms.Control]$control,[int]$span=1) {
+        $lbl=New-Object System.Windows.Forms.Label
+        $lbl.Text=$text; $lbl.Dock='Fill'; $lbl.TextAlign=[System.Drawing.ContentAlignment]::MiddleLeft
+        $lbl.Margin=New-Object System.Windows.Forms.Padding -ArgumentList 4,3,3,3
+        [void]$table.Controls.Add($lbl,0,$row)
+        [void]$table.Controls.Add($control,1,$row)
+        if ($span -gt 1) { $table.SetColumnSpan($control,$span) }
+    }
+
+    Add-SubDialogLabel 0 '字幕来源' $cmbSource 1
+    [void]$table.Controls.Add($btnBrowseSub,2,0)
+    Add-SubDialogLabel 1 '字体' $txtFont 2
+    Add-SubDialogLabel 2 '字号' $numSize 2
+    Add-SubDialogLabel 3 '字体颜色' $btnPrimary 2
+    Add-SubDialogLabel 4 '边框/阴影颜色' $btnBorder 2
+    Add-SubDialogLabel 5 '边框宽度' $numOutline 2
+    Add-SubDialogLabel 6 '阴影' $numShadow 2
+    Add-SubDialogLabel 7 '距画面下沿' $numMargin 2
+
+    $note = New-Object System.Windows.Forms.Label
+    $note.Dock='Fill'; $note.ForeColor=$ColorMuted; $note.Padding=New-Object System.Windows.Forms.Padding -ArgumentList 4,6,4,0
+    $note.Text = "默认：huiwen-mincho / 69 / 白色 / 黑色边框与阴影 / Outline 1 / Shadow 1 / 在下方黑边中距画面下沿 25px、水平居中。字号、边距、描边和阴影均以 1920×1080 为基准，实际编码按输出宽度等比缩放。`r`n支持 SRT / ASS / SSA / WebVTT 等文本字幕；PGS/DVD 图形字幕暂不烧写。多文件任务建议使用各视频同名字幕。"
+    [void]$table.Controls.Add($note,0,8); $table.SetColumnSpan($note,3)
+
+    $buttons = New-Object System.Windows.Forms.FlowLayoutPanel
+    $buttons.Dock='Fill'; $buttons.FlowDirection='RightToLeft'; $buttons.WrapContents=$false
+    $ok = New-Object System.Windows.Forms.Button; $ok.Text='确定'; $ok.Width=82; $ok.DialogResult=[System.Windows.Forms.DialogResult]::OK
+    $cancel = New-Object System.Windows.Forms.Button; $cancel.Text='取消'; $cancel.Width=82; $cancel.DialogResult=[System.Windows.Forms.DialogResult]::Cancel
+    [void]$buttons.Controls.Add($ok); [void]$buttons.Controls.Add($cancel)
+    [void]$table.Controls.Add($buttons,0,9); $table.SetColumnSpan($buttons,3)
+    $dlg.AcceptButton=$ok; $dlg.CancelButton=$cancel
+
+    $colorDialog = New-Object System.Windows.Forms.ColorDialog
+    $btnPrimary.Add_Click({ $colorDialog.Color=$btnPrimary.BackColor; if ($colorDialog.ShowDialog($dlg) -eq [System.Windows.Forms.DialogResult]::OK) { $hex = ('{0:X2}{1:X2}{2:X2}' -f $colorDialog.Color.R,$colorDialog.Color.G,$colorDialog.Color.B); Set-SubtitleColorButton $btnPrimary $hex } })
+    $btnBorder.Add_Click({ $colorDialog.Color=$btnBorder.BackColor; if ($colorDialog.ShowDialog($dlg) -eq [System.Windows.Forms.DialogResult]::OK) { $hex = ('{0:X2}{1:X2}{2:X2}' -f $colorDialog.Color.R,$colorDialog.Color.G,$colorDialog.Color.B); Set-SubtitleColorButton $btnBorder $hex } })
+
+    $browseDialog = New-Object System.Windows.Forms.OpenFileDialog
+    $browseDialog.Title='选择外部字幕文件'
+    $browseDialog.Filter='字幕文件|*.srt;*.ass;*.ssa;*.vtt|所有文件|*.*'
+    if ($targetPath) { $browseDialog.InitialDirectory=[System.IO.Path]::GetDirectoryName($targetPath) }
+    $chosenBrowsePath = ''
+    $btnBrowseSub.Add_Click({
+        if ($browseDialog.ShowDialog($dlg) -eq [System.Windows.Forms.DialogResult]::OK) {
+            $chosenBrowsePath=$browseDialog.FileName
+            $browseIndex=$sourceDefs.Count-1
+            $sourceDefs[$browseIndex].Path=$chosenBrowsePath
+            $sourceDefs[$browseIndex].Label='字幕：' + [System.IO.Path]::GetFileName($chosenBrowsePath)
+            $cmbSource.Items[$browseIndex]='外部 · ' + [System.IO.Path]::GetFileName($chosenBrowsePath)
+            $cmbSource.SelectedIndex=$browseIndex
+        }
+    })
+
+    $result=$dlg.ShowDialog($form)
+    if ($result -ne [System.Windows.Forms.DialogResult]::OK) { $dlg.Dispose(); return }
+    $def=$sourceDefs[$cmbSource.SelectedIndex]
+    if ($def.Mode -eq 'BROWSE' -and -not $def.Path) {
+        Show-Info '尚未选择外部字幕文件。'
+        $dlg.Dispose(); return
+    }
+
+    $script:UploadSubtitle.Enabled = ($def.Mode -ne 'OFF')
+    $script:UploadSubtitle.Mode = if ($def.Mode -eq 'BROWSE') { 'EXTERNAL' } else { [string]$def.Mode }
+    $script:UploadSubtitle.EmbeddedIndex = [int]$def.Index
+    $script:UploadSubtitle.ExternalPath = [string]$def.Path
+    $script:UploadSubtitle.FontName = $txtFont.Text.Trim()
+    if (-not $script:UploadSubtitle.FontName) { $script:UploadSubtitle.FontName='huiwen-mincho' }
+    $script:UploadSubtitle.FontSize = [int]$numSize.Value
+    $script:UploadSubtitle.PrimaryHex = $btnPrimary.Text.TrimStart('#')
+    $script:UploadSubtitle.BorderHex = $btnBorder.Text.TrimStart('#')
+    $script:UploadSubtitle.Outline = [double]$numOutline.Value
+    $script:UploadSubtitle.Shadow = [double]$numShadow.Value
+    $script:UploadSubtitle.MarginV = [int]$numMargin.Value
+    $script:UploadSubtitle.Label = if ($script:UploadSubtitle.Enabled) { [string]$def.Label } else { '字幕：关闭' }
+    $btnUploadSubtitle.Text = if ($script:UploadSubtitle.Enabled) { '字幕 ✓' } else { '字幕…' }
+    $toolTip.SetToolTip($btnUploadSubtitle, [string]$script:UploadSubtitle.Label)
+    $dlg.Dispose()
+}
+
+function Update-UploadHighMotionUi {
+    $isX264 = ($cmbUploadBitrate.SelectedIndex -ge 3)
+    $chkUploadHighMotion.Enabled = ($chkUpload.Checked -and $isX264)
+}
 
 function Set-MediaInfoText {
     param([string]$Text, [bool]$IsMuted = $false)
@@ -2227,9 +2540,31 @@ function Start-Encoding {
     $envs['FG_CINEMATIC_FRAME'] = if ($chkCinematic.Checked) { '1' } else { '0' }
     $envs['FG_FRAME_MODE'] = if ($cmbFrameMode.SelectedIndex -eq 0) { 'LETTERBOX' } else { 'CROP' }
     $envs['FG_KEEP_FAILED'] = '1'
-    $uploadBitrates = @(6000, 8000, 10000, 12000, 15000, 18000, 20000, 30000)
+    $uploadBitrates = @(6000, 8000, 15000)
     $envs['FG_UPLOAD'] = if ($chkUpload.Checked) { '1' } else { '0' }
-    $envs['FG_UPLOAD_BITRATE'] = [string]$uploadBitrates[$cmbUploadBitrate.SelectedIndex]
+    $envs['FG_UPLOAD_HIGH_MOTION'] = if ($chkUpload.Checked -and $cmbUploadBitrate.SelectedIndex -ge 3 -and $chkUploadHighMotion.Checked) { '1' } else { '0' }
+    if ($cmbUploadBitrate.SelectedIndex -le 2) {
+        $envs['FG_UPLOAD_MODE'] = 'VBR'
+        $envs['FG_UPLOAD_BITRATE'] = [string]$uploadBitrates[$cmbUploadBitrate.SelectedIndex]
+        $envs['FG_UPLOAD_X264_TIER'] = ''
+        $envs['FG_UPLOAD_QP'] = ''
+    } else {
+        $envs['FG_UPLOAD_MODE'] = 'X264'
+        $envs['FG_UPLOAD_BITRATE'] = ''
+        $envs['FG_UPLOAD_X264_TIER'] = [string]($cmbUploadBitrate.SelectedIndex - 2)
+        $envs['FG_UPLOAD_QP'] = ''
+    }
+    $envs['FG_UPLOAD_SUBTITLE'] = if ($chkUpload.Checked -and $script:UploadSubtitle.Enabled) { '1' } else { '0' }
+    $envs['FG_SUB_MODE'] = [string]$script:UploadSubtitle.Mode
+    $envs['FG_SUB_INDEX'] = [string]$script:UploadSubtitle.EmbeddedIndex
+    $envs['FG_SUB_PATH'] = [string]$script:UploadSubtitle.ExternalPath
+    $envs['FG_SUB_FONT'] = [string]$script:UploadSubtitle.FontName
+    $envs['FG_SUB_FONT_SIZE'] = [string]$script:UploadSubtitle.FontSize
+    $envs['FG_SUB_PRIMARY_HEX'] = [string]$script:UploadSubtitle.PrimaryHex
+    $envs['FG_SUB_BORDER_HEX'] = [string]$script:UploadSubtitle.BorderHex
+    $envs['FG_SUB_OUTLINE'] = [string]::Format([System.Globalization.CultureInfo]::InvariantCulture, '{0:0.##}', [double]$script:UploadSubtitle.Outline)
+    $envs['FG_SUB_SHADOW'] = [string]::Format([System.Globalization.CultureInfo]::InvariantCulture, '{0:0.##}', [double]$script:UploadSubtitle.Shadow)
+    $envs['FG_SUB_MARGINV'] = [string]$script:UploadSubtitle.MarginV
 
     if ($chkLut.Checked) {
         $envs['FG_LUT_PATH'] = $script:SelectedLutPath
@@ -2394,7 +2729,11 @@ $trackLutStrength.Add_ValueChanged({
 
 $chkUpload.Add_CheckedChanged({
     $cmbUploadBitrate.Enabled = $chkUpload.Checked
+    $btnUploadSubtitle.Enabled = $chkUpload.Checked
+    Update-UploadHighMotionUi
 })
+$cmbUploadBitrate.Add_SelectedIndexChanged({ Update-UploadHighMotionUi })
+$btnUploadSubtitle.Add_Click({ Show-UploadSubtitleDialog })
 
 $chkLut.Add_CheckedChanged({ Set-LutUi })
 $btnLutGallery.Add_Click({ Open-LutGallery })

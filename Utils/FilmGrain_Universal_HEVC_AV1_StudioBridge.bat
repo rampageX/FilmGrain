@@ -27,6 +27,7 @@ set "VULKAN_DEVICE=0"
 set "CUDA_DEVICE=0"
 set "AQ_STRENGTH=8"
 set "HARDWARE_CAPS_SCRIPT=%~dp0FilmGrain_Hardware_Caps.ps1"
+set "SUBTITLE_HELPER=%~dp0FilmGrain_Subtitle_Prepare.ps1"
 
 rem HEVC scanned-Grain library. All subfolders are searched.
 set "DEFAULT_GRAIN_ROOT=D:\Film_Grain"
@@ -116,6 +117,8 @@ if /i "%MODE%"=="HEVC" call :SELECT_HEVC_BITRATE
 if /i "%MODE%"=="AV1"  call :SELECT_AV1_BITRATE
 
 call :SELECT_UPLOAD
+if errorlevel 1 goto FATAL_END
+call :SELECT_UPLOAD_SUBTITLE
 if errorlevel 1 goto FATAL_END
 
 call :BUILD_ENCODER_ARGS
@@ -1413,10 +1416,14 @@ rem ============================================================
 :SELECT_UPLOAD
 set "ENABLE_UPLOAD_BAKE=0"
 set "UPLOAD_LABEL=Off"
+set "UPLOAD_MODE=VBR"
 set "UPLOAD_BITRATE_NUM=8000"
 set "UPLOAD_BITRATE=8000k"
 set "UPLOAD_MAXRATE=12000k"
 set "UPLOAD_BUFSIZE=16000k"
+set "UPLOAD_QP="
+set "UPLOAD_FILE_TAG=8000k"
+set "UPLOAD_CODEC_ARGS=-preset p7 -tune hq -rc vbr -b:v 8000k -maxrate:v 12000k -bufsize:v 16000k"
 if /i "%MODE%"=="AV1" set "TOTAL_STAGES=4"
 
 echo.
@@ -1463,37 +1470,32 @@ if /i "%MODE%"=="AV1" (
 if "%FG_STUDIO_MODE%"=="1" goto SELECT_UPLOAD_STUDIO
 
 echo.
-echo H.264 upload bitrate:
+echo H.264 upload quality:
 echo.
-echo   [1]  6000 kbps   ^(recommended up to 720p^)
-echo   [2]  8000 kbps   ^(recommended for 1080p, default^)
-echo   [3] 10000 kbps   ^(recommended for 1440p^)
-echo   [4] 12000 kbps   ^(recommended for 4K^)
-echo   [5] 15000 kbps   ^(test^)
-echo   [6] 18000 kbps   ^(test^)
-echo   [7] 20000 kbps   ^(test^)
-echo   [8] 30000 kbps   ^(test^)
+echo   NVENC P7 / fixed bitrate:
+echo   [1]  6000 kbps
+echo   [2]  8000 kbps   ^(default^)
+echo   [3] 15000 kbps
+echo.
+echo   CPU libx264 / slow / tune grain / 2-pass / FPS-linked:
+echo   [4] Recommended   ^(24p~6M / 30p~7.5M / 60p~15M^)
+echo   [5] High quality  ^(24p~8M / 30p~10M / 60p~20M^)
+echo   [6] Very high     ^(24p~10M / 30p~12.5M / 60p~25M^)
 echo.
 set "UPLOAD_RATE_SEL=2"
-set /p "UPLOAD_RATE_SEL=Select [1-8, default 2]: "
-set "UPLOAD_RATE_VALUE="
-if "%UPLOAD_RATE_SEL%"=="1" set "UPLOAD_RATE_VALUE=6000"
-if "%UPLOAD_RATE_SEL%"=="2" set "UPLOAD_RATE_VALUE=8000"
-if "%UPLOAD_RATE_SEL%"=="3" set "UPLOAD_RATE_VALUE=10000"
-if "%UPLOAD_RATE_SEL%"=="4" set "UPLOAD_RATE_VALUE=12000"
-if "%UPLOAD_RATE_SEL%"=="5" set "UPLOAD_RATE_VALUE=15000"
-if "%UPLOAD_RATE_SEL%"=="6" set "UPLOAD_RATE_VALUE=18000"
-if "%UPLOAD_RATE_SEL%"=="7" set "UPLOAD_RATE_VALUE=20000"
-if "%UPLOAD_RATE_SEL%"=="8" set "UPLOAD_RATE_VALUE=30000"
-if not defined UPLOAD_RATE_VALUE (
-    echo.
-    echo Invalid upload bitrate selection. Falling back to 8000 kbps.
-    set "UPLOAD_RATE_VALUE=8000"
-)
-call :SET_UPLOAD_RATE "%UPLOAD_RATE_VALUE%"
+set /p "UPLOAD_RATE_SEL=Select [1-6, default 2]: "
+
+if "%UPLOAD_RATE_SEL%"=="1" call :SET_UPLOAD_RATE 6000
+if "%UPLOAD_RATE_SEL%"=="2" call :SET_UPLOAD_RATE 8000
+if "%UPLOAD_RATE_SEL%"=="3" call :SET_UPLOAD_RATE 15000
+if "%UPLOAD_RATE_SEL%"=="4" call :SET_UPLOAD_X264_TIER 1
+if "%UPLOAD_RATE_SEL%"=="5" call :SET_UPLOAD_X264_TIER 2
+if "%UPLOAD_RATE_SEL%"=="6" call :SET_UPLOAD_X264_TIER 3
+if errorlevel 1 exit /b 1
 exit /b 0
 
 :SELECT_UPLOAD_STUDIO
+if /i "%FG_UPLOAD_MODE%"=="X264" goto SELECT_UPLOAD_STUDIO_X264
 if not defined FG_UPLOAD_BITRATE (
     call :SET_UPLOAD_RATE 8000
     exit /b 0
@@ -1502,32 +1504,281 @@ call :SET_UPLOAD_RATE "%FG_UPLOAD_BITRATE%"
 if errorlevel 1 (
     echo.
     echo ERROR: Invalid Studio H.264 upload bitrate: %FG_UPLOAD_BITRATE%
-    echo Allowed: 6000, 8000, 10000, 12000, 15000, 18000, 20000, 30000
+    echo Allowed NVENC bitrates: 6000, 8000, 15000
     echo.
     exit /b 1
 )
 exit /b 0
 
+:SELECT_UPLOAD_STUDIO_QP
+if not defined FG_UPLOAD_QP set "FG_UPLOAD_QP=16"
+call :SET_UPLOAD_QP "%FG_UPLOAD_QP%"
+if errorlevel 1 (
+    echo.
+    echo ERROR: Invalid Studio H.264 upload QP: %FG_UPLOAD_QP%
+    echo Allowed: 18, 16, 14
+    echo.
+    exit /b 1
+)
+exit /b 0
 
 :SET_UPLOAD_RATE
 set "UPLOAD_BITRATE_NUM=%~1"
 if "%UPLOAD_BITRATE_NUM%"=="6000" goto SET_UPLOAD_RATE_OK
 if "%UPLOAD_BITRATE_NUM%"=="8000" goto SET_UPLOAD_RATE_OK
-if "%UPLOAD_BITRATE_NUM%"=="10000" goto SET_UPLOAD_RATE_OK
-if "%UPLOAD_BITRATE_NUM%"=="12000" goto SET_UPLOAD_RATE_OK
 if "%UPLOAD_BITRATE_NUM%"=="15000" goto SET_UPLOAD_RATE_OK
-if "%UPLOAD_BITRATE_NUM%"=="18000" goto SET_UPLOAD_RATE_OK
-if "%UPLOAD_BITRATE_NUM%"=="20000" goto SET_UPLOAD_RATE_OK
-if "%UPLOAD_BITRATE_NUM%"=="30000" goto SET_UPLOAD_RATE_OK
 exit /b 1
 
 :SET_UPLOAD_RATE_OK
 set /a UPLOAD_MAXRATE_NUM=(UPLOAD_BITRATE_NUM*3)/2
 set /a UPLOAD_BUFSIZE_NUM=UPLOAD_BITRATE_NUM*2
+set "UPLOAD_MODE=VBR"
+set "UPLOAD_QP="
 set "UPLOAD_BITRATE=%UPLOAD_BITRATE_NUM%k"
 set "UPLOAD_MAXRATE=%UPLOAD_MAXRATE_NUM%k"
 set "UPLOAD_BUFSIZE=%UPLOAD_BUFSIZE_NUM%k"
-set "UPLOAD_LABEL=H.264 MP4 / %UPLOAD_BITRATE%"
+set "UPLOAD_FILE_TAG=%UPLOAD_BITRATE_NUM%k"
+set "UPLOAD_CODEC_ARGS=-preset p7 -tune hq -rc vbr -b:v %UPLOAD_BITRATE% -maxrate:v %UPLOAD_MAXRATE% -bufsize:v %UPLOAD_BUFSIZE%"
+set "UPLOAD_LABEL=H.264 MP4 / p7 VBR / %UPLOAD_BITRATE%"
+exit /b 0
+
+:SET_UPLOAD_QP
+set "UPLOAD_QP=%~1"
+if "%UPLOAD_QP%"=="18" goto SET_UPLOAD_QP_OK
+if "%UPLOAD_QP%"=="16" goto SET_UPLOAD_QP_OK
+if "%UPLOAD_QP%"=="14" goto SET_UPLOAD_QP_OK
+exit /b 1
+
+:SET_UPLOAD_QP_OK
+set "UPLOAD_MODE=QP"
+set "UPLOAD_BITRATE_NUM="
+set "UPLOAD_BITRATE="
+set "UPLOAD_MAXRATE="
+set "UPLOAD_BUFSIZE="
+set "UPLOAD_FILE_TAG=QP%UPLOAD_QP%"
+set "UPLOAD_CODEC_ARGS=-preset p7 -tune hq -rc constqp -qp %UPLOAD_QP%"
+set "UPLOAD_LABEL=H.264 MP4 / p7 CONSTQP / QP%UPLOAD_QP%"
+exit /b 0
+
+
+:SELECT_UPLOAD_STUDIO_X264
+if not defined FG_UPLOAD_X264_TIER set "FG_UPLOAD_X264_TIER=1"
+call :SET_UPLOAD_X264_TIER "%FG_UPLOAD_X264_TIER%"
+if errorlevel 1 (
+    echo.
+    echo ERROR: Invalid Studio x264 FPS-linked tier or libx264 is unavailable: %FG_UPLOAD_X264_TIER%
+    echo Allowed x264 tiers: 1, 2, 3
+    echo.
+    exit /b 1
+)
+exit /b 0
+
+:SET_UPLOAD_X264_TIER
+set "UPLOAD_X264_TIER=%~1"
+if "%UPLOAD_X264_TIER%"=="1" goto SET_UPLOAD_X264_TIER_CHECK
+if "%UPLOAD_X264_TIER%"=="2" goto SET_UPLOAD_X264_TIER_CHECK
+if "%UPLOAD_X264_TIER%"=="3" goto SET_UPLOAD_X264_TIER_CHECK
+exit /b 1
+
+:SET_UPLOAD_X264_TIER_CHECK
+"%FFMPEG%" -hide_banner -h encoder=libx264 >nul 2>&1
+if errorlevel 1 (
+    echo.
+    echo ERROR: This FFmpeg build does not contain libx264.
+    echo CPU x264 Slow Grain upload requires the libx264 encoder.
+    echo.
+    exit /b 1
+)
+
+set "UPLOAD_MODE=X264"
+set "UPLOAD_QP="
+set "UPLOAD_BITRATE_NUM="
+set "UPLOAD_BITRATE="
+set "UPLOAD_MAXRATE="
+set "UPLOAD_BUFSIZE="
+set "UPLOAD_FILE_TAG=X264FPS_T%UPLOAD_X264_TIER%"
+set "UPLOAD_CODEC_ARGS="
+set "UPLOAD_HIGH_MOTION=0"
+
+if "%FG_STUDIO_MODE%"=="1" (
+    if "%FG_UPLOAD_HIGH_MOTION%"=="1" set "UPLOAD_HIGH_MOTION=1"
+) else (
+    echo.
+    echo High-motion video:
+    echo   [1] No   ^(default / FPS-linked bitrate x 0.5^)
+    echo   [2] Yes  ^(use full FPS-linked bitrate^)
+    echo.
+    set "UPLOAD_MOTION_SEL=1"
+    set /p "UPLOAD_MOTION_SEL=Select [1-2, default 1]: "
+    if "%UPLOAD_MOTION_SEL%"=="2" set "UPLOAD_HIGH_MOTION=1"
+)
+
+set "UPLOAD_LABEL=H.264 MP4 / x264 slow grain / 2-pass / FPS-linked tier %UPLOAD_X264_TIER%"
+exit /b 0
+
+:RESOLVE_X264_UPLOAD_RATE
+if /i not "%UPLOAD_MODE%"=="X264" exit /b 0
+
+set "UPLOAD_X264_BASE60="
+set "UPLOAD_X264_TIER_LABEL="
+if "%UPLOAD_X264_TIER%"=="1" (
+    set "UPLOAD_X264_BASE60=15000"
+    set "UPLOAD_X264_TIER_LABEL=Recommended"
+)
+if "%UPLOAD_X264_TIER%"=="2" (
+    set "UPLOAD_X264_BASE60=20000"
+    set "UPLOAD_X264_TIER_LABEL=High"
+)
+if "%UPLOAD_X264_TIER%"=="3" (
+    set "UPLOAD_X264_BASE60=25000"
+    set "UPLOAD_X264_TIER_LABEL=Very High"
+)
+if not defined UPLOAD_X264_BASE60 exit /b 1
+
+set "FG_X264_OUT_FPS=%OUT_FPS%"
+set "FG_X264_BASE60=%UPLOAD_X264_BASE60%"
+set "FG_X264_HIGH_MOTION=%UPLOAD_HIGH_MOTION%"
+set "FG_X264_OUT_W=%ACTIVE_WIDTH%"
+set "FG_X264_OUT_H=%ACTIVE_HEIGHT%"
+set "X264_RATE_FILE=%TEMP%\FGU_x264rate_%RANDOM%_%RANDOM%.txt"
+
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=$env:FG_X264_OUT_FPS; try { $p=$s -split '/'; if($p.Count -eq 2){$fps=[double]$p[0]/[double]$p[1]}else{$fps=[double]$s}; $base=[double]$env:FG_X264_BASE60; $w=[double]$env:FG_X264_OUT_W; $h=[double]$env:FG_X264_OUT_H; if($fps -le 0 -or $base -le 0 -or $w -le 0 -or $h -le 0){exit 1}; $motion=0.5; if($env:FG_X264_HIGH_MOTION -eq '1'){$motion=1.0}; $res=[Math]::Sqrt(($w*$h)/(1920.0*1080.0)); $raw=$base*$fps/60.0*$res*$motion; $br=[int]([Math]::Floor(($raw+250.0)/500.0)*500.0); if($br -lt 1000){$br=1000}; [Console]::Out.Write($br) } catch { exit 1 }" > "%X264_RATE_FILE%" 2>nul
+
+set "UPLOAD_BITRATE_NUM="
+if exist "%X264_RATE_FILE%" set /p "UPLOAD_BITRATE_NUM="<"%X264_RATE_FILE%"
+del /q "%X264_RATE_FILE%" >nul 2>&1
+set "FG_X264_OUT_FPS="
+set "FG_X264_BASE60="
+set "FG_X264_HIGH_MOTION="
+set "FG_X264_OUT_W="
+set "FG_X264_OUT_H="
+
+if not defined UPLOAD_BITRATE_NUM (
+    echo.
+    echo ERROR: Could not calculate FPS/resolution-linked x264 bitrate for %ACTIVE_WIDTH%x%ACTIVE_HEIGHT% @ %OUT_FPS%.
+    echo.
+    exit /b 1
+)
+
+set /a UPLOAD_MAXRATE_NUM=UPLOAD_BITRATE_NUM*3
+set /a UPLOAD_BUFSIZE_NUM=UPLOAD_BITRATE_NUM*6
+set "UPLOAD_BITRATE=%UPLOAD_BITRATE_NUM%k"
+set "UPLOAD_MAXRATE=%UPLOAD_MAXRATE_NUM%k"
+set "UPLOAD_BUFSIZE=%UPLOAD_BUFSIZE_NUM%k"
+set "UPLOAD_FILE_TAG=X264FPS_%UPLOAD_BITRATE_NUM%k"
+set "UPLOAD_CODEC_ARGS=-preset slow -tune grain -b:v %UPLOAD_BITRATE% -maxrate %UPLOAD_MAXRATE% -bufsize %UPLOAD_BUFSIZE%"
+set "UPLOAD_X264_MOTION_LABEL=Normal motion / half rate"
+if "%UPLOAD_HIGH_MOTION%"=="1" set "UPLOAD_X264_MOTION_LABEL=High motion / full rate"
+set "UPLOAD_LABEL=H.264 MP4 / x264 slow grain / 2-pass / %UPLOAD_X264_TIER_LABEL% / %UPLOAD_X264_MOTION_LABEL% / %ACTIVE_WIDTH%x%ACTIVE_HEIGHT% @ %OUT_FPS% / %UPLOAD_BITRATE% / VBV %UPLOAD_MAXRATE% max / %UPLOAD_BUFSIZE% buf"
+exit /b 0
+
+:SELECT_UPLOAD_SUBTITLE
+set "ENABLE_UPLOAD_SUBTITLE=0"
+set "UPLOAD_SUB_SUFFIX="
+set "SUB_MODE=OFF"
+if not defined FG_SUB_MODE set "FG_SUB_MODE=OFF"
+if not defined FG_SUB_INDEX set "FG_SUB_INDEX=0"
+if not defined FG_SUB_FONT set "FG_SUB_FONT=huiwen-mincho"
+if not defined FG_SUB_FONT_SIZE set "FG_SUB_FONT_SIZE=69"
+if not defined FG_SUB_PRIMARY_HEX set "FG_SUB_PRIMARY_HEX=FFFFFF"
+if not defined FG_SUB_BORDER_HEX set "FG_SUB_BORDER_HEX=000000"
+if not defined FG_SUB_OUTLINE set "FG_SUB_OUTLINE=1"
+if not defined FG_SUB_SHADOW set "FG_SUB_SHADOW=1"
+if not defined FG_SUB_MARGINV set "FG_SUB_MARGINV=25"
+
+if not "%ENABLE_UPLOAD_BAKE%"=="1" exit /b 0
+
+if "%FG_STUDIO_MODE%"=="1" goto SELECT_UPLOAD_SUBTITLE_STUDIO
+
+echo.
+echo Burn hard subtitles into the H.264 upload copy:
+echo.
+echo   [1] Off ^(default^)
+echo   [2] Auto - same-name external subtitle, otherwise embedded subtitle #1
+echo   [3] Embedded text subtitle track
+echo   [4] External subtitle file
+echo.
+set "SUB_SEL=1"
+set /p "SUB_SEL=Select [1-4, default 1]: "
+if "%SUB_SEL%"=="1" exit /b 0
+if "%SUB_SEL%"=="2" set "FG_SUB_MODE=AUTO"
+if "%SUB_SEL%"=="3" set "FG_SUB_MODE=EMBEDDED"
+if "%SUB_SEL%"=="4" set "FG_SUB_MODE=EXTERNAL"
+if /i "%FG_SUB_MODE%"=="OFF" (
+    echo Invalid subtitle selection. Subtitle burn disabled.
+    exit /b 0
+)
+
+if /i "%FG_SUB_MODE%"=="EMBEDDED" (
+    set "SUB_TRACK=1"
+    set /p "SUB_TRACK=Embedded subtitle track number [1]: "
+    echo(%SUB_TRACK%| findstr /r /x "[1-9][0-9]*" >nul
+    if errorlevel 1 set "SUB_TRACK=1"
+    set /a FG_SUB_INDEX=SUB_TRACK-1
+)
+if /i "%FG_SUB_MODE%"=="EXTERNAL" (
+    echo.
+    echo Enter the full subtitle path. Leave blank to auto-use a same-name ASS/SRT/SSA/VTT file.
+    set /p "FG_SUB_PATH=Subtitle path: "
+)
+
+echo.
+echo Subtitle style. Press Enter to keep each default.
+set "SUB_TMP="
+set /p "SUB_TMP=Font [huiwen-mincho]: "
+if defined SUB_TMP set "FG_SUB_FONT=%SUB_TMP%"
+set "SUB_TMP="
+set /p "SUB_TMP=Font size [23]: "
+if defined SUB_TMP set "FG_SUB_FONT_SIZE=%SUB_TMP%"
+set "SUB_TMP="
+set /p "SUB_TMP=Text color RGB hex [FFFFFF]: "
+if defined SUB_TMP set "FG_SUB_PRIMARY_HEX=%SUB_TMP%"
+set "SUB_TMP="
+set /p "SUB_TMP=Border/shadow color RGB hex [000000]: "
+if defined SUB_TMP set "FG_SUB_BORDER_HEX=%SUB_TMP%"
+set "SUB_TMP="
+set /p "SUB_TMP=Outline [1]: "
+if defined SUB_TMP set "FG_SUB_OUTLINE=%SUB_TMP%"
+set "SUB_TMP="
+set /p "SUB_TMP=Shadow [1]: "
+if defined SUB_TMP set "FG_SUB_SHADOW=%SUB_TMP%"
+set "SUB_TMP="
+set /p "SUB_TMP=Gap below active picture [3]: "
+if defined SUB_TMP set "FG_SUB_MARGINV=%SUB_TMP%"
+goto SELECT_UPLOAD_SUBTITLE_ENABLE
+
+:SELECT_UPLOAD_SUBTITLE_STUDIO
+if not "%FG_UPLOAD_SUBTITLE%"=="1" exit /b 0
+if defined FG_SUB_MODE set "SUB_MODE=%FG_SUB_MODE%"
+if not defined FG_SUB_MODE set "SUB_MODE=OFF"
+if /i "%SUB_MODE%"=="OFF" exit /b 0
+if /i not "%SUB_MODE%"=="AUTO" if /i not "%SUB_MODE%"=="EMBEDDED" if /i not "%SUB_MODE%"=="EXTERNAL" (
+    echo ERROR: Invalid Studio subtitle mode: %SUB_MODE%
+    exit /b 1
+)
+set "FG_SUB_MODE=%SUB_MODE%"
+if not defined FG_SUB_INDEX set "FG_SUB_INDEX=0"
+if not defined FG_SUB_FONT set "FG_SUB_FONT=huiwen-mincho"
+if not defined FG_SUB_FONT_SIZE set "FG_SUB_FONT_SIZE=69"
+if not defined FG_SUB_PRIMARY_HEX set "FG_SUB_PRIMARY_HEX=FFFFFF"
+if not defined FG_SUB_BORDER_HEX set "FG_SUB_BORDER_HEX=000000"
+if not defined FG_SUB_OUTLINE set "FG_SUB_OUTLINE=1"
+if not defined FG_SUB_SHADOW set "FG_SUB_SHADOW=1"
+if not defined FG_SUB_MARGINV set "FG_SUB_MARGINV=25"
+
+:SELECT_UPLOAD_SUBTITLE_ENABLE
+if not exist "%SUBTITLE_HELPER%" (
+    echo ERROR: Subtitle helper was not found:
+    echo "%SUBTITLE_HELPER%"
+    exit /b 1
+)
+"%FFMPEG%" -hide_banner -h filter=subtitles >nul 2>&1
+if errorlevel 1 (
+    echo ERROR: This FFmpeg build does not contain the subtitles/libass filter.
+    exit /b 1
+)
+set "ENABLE_UPLOAD_SUBTITLE=1"
+set "UPLOAD_SUB_SUFFIX=_SUB"
 exit /b 0
 
 
@@ -1617,6 +1868,9 @@ set "H264_MULTIPASS_ARGS="
 if "%FG_CAP_H264_FULLRES%"=="1" set "H264_MULTIPASS_ARGS=-multipass fullres"
 if not "%FG_CAP_H264_FULLRES%"=="1" if "%FG_CAP_H264_QRES%"=="1" set "H264_MULTIPASS_ARGS=-multipass qres"
 set "H264_CAP_ARGS=%H264_MULTIPASS_ARGS% %H264_LOOKAHEAD_ARGS% %H264_SAQ_ARGS% %H264_TAQ_ARGS% %H264_BF_ARGS%"
+set "UPLOAD_CAP_ARGS=%H264_CAP_ARGS%"
+if /i "%UPLOAD_MODE%"=="QP" set "UPLOAD_CAP_ARGS=%H264_BF_ARGS%"
+if /i "%UPLOAD_MODE%"=="X264" set "UPLOAD_CAP_ARGS="
 
 set "MAIN_HWACCEL_ARGS="
 set "ENABLE_MAIN_NVDEC=0"
@@ -1639,7 +1893,8 @@ echo Cinema frame  : %FRAME_LABEL%
 echo Container     : %CONTAINER_LABEL%
 echo Film Look     : %LUT_LABEL%
 echo Upload copy   : %UPLOAD_LABEL%
-if "%ENABLE_UPLOAD_BAKE%"=="1" echo Upload rate   : %UPLOAD_BITRATE% ^(max %UPLOAD_MAXRATE%, buf %UPLOAD_BUFSIZE%^)
+if "%ENABLE_UPLOAD_BAKE%"=="1" echo Upload       : %UPLOAD_LABEL%
+if "%ENABLE_UPLOAD_SUBTITLE%"=="1" echo Upload subs   : Enabled / prepared per input
 if "%LUT_ENABLED%"=="1" echo LUT compat    : DaVinci CUBE range converted for FFmpeg
 echo GPU           : %FG_CAP_GPU_NAME%
 if defined FG_CAP_DRIVER_VERSION echo Driver        : %FG_CAP_DRIVER_VERSION%
@@ -1869,6 +2124,8 @@ set "ACTIVE_WIDTH=%WIDTH%"
 set "ACTIVE_HEIGHT=%HEIGHT%"
 if "%ENABLE_CROP%"=="1" call :PREPARE_CROP
 if "%ENABLE_LETTERBOX%"=="1" call :PREPARE_LETTERBOX
+if /i "%UPLOAD_MODE%"=="X264" call :RESOLVE_X264_UPLOAD_RATE
+if errorlevel 1 exit /b 1
 
 set "FRAME_POST_FILTER="
 if "%ENABLE_CROP%"=="1" set "FRAME_POST_FILTER=%CROP_POST_FILTER%"
@@ -1876,7 +2133,7 @@ if "%ENABLE_LETTERBOX%"=="1" set "FRAME_POST_FILTER=%LETTERBOX_FILTER%"
 
 set "OUTPUT_BASE=%INDIR%%NAME%%HEVC_SUFFIX%%FRAME_SUFFIX%%LUT_FILE_SUFFIX%"
 set "OUTPUT=%OUTPUT_BASE%%FPS_SUFFIX%%DEINT_FILE_SUFFIX%.%EXT%"
-set "UPLOAD_OUTPUT=%OUTPUT_BASE%%FPS_SUFFIX%%DEINT_FILE_SUFFIX%_UPLOAD_H264_GRAIN_%UPLOAD_BITRATE_NUM%k.mp4"
+set "UPLOAD_OUTPUT=%OUTPUT_BASE%%FPS_SUFFIX%%DEINT_FILE_SUFFIX%_UPLOAD_H264_GRAIN_%UPLOAD_FILE_TAG%%UPLOAD_SUB_SUFFIX%.mp4"
 
 set "DURATION_ARGS="
 set "GRAIN_TIME_ARGS="
@@ -1933,7 +2190,7 @@ echo Film Look : %LUT_LABEL%
 echo Final file: "%OUTPUT%"
 if "%ENABLE_UPLOAD_BAKE%"=="1" (
     echo Upload MP4: "%UPLOAD_OUTPUT%"
-    echo Upload rate: %UPLOAD_BITRATE%
+    echo Upload: %UPLOAD_LABEL%
 )
 echo.
 
@@ -2005,9 +2262,11 @@ set "ACTIVE_WIDTH=%WIDTH%"
 set "ACTIVE_HEIGHT=%HEIGHT%"
 if "%ENABLE_CROP%"=="1" call :PREPARE_CROP
 if "%ENABLE_LETTERBOX%"=="1" call :PREPARE_LETTERBOX
+if /i "%UPLOAD_MODE%"=="X264" call :RESOLVE_X264_UPLOAD_RATE
+if errorlevel 1 exit /b 1
 
 set "OUTPUT=%INDIR%%NAME%_AV1GS_%GRAIN_FILE_TAG%_%SPEED_SUFFIX%_%BITRATE_NUM%k%FRAME_SUFFIX%%FPS_SUFFIX%%DEINT_FILE_SUFFIX%%LUT_FILE_SUFFIX%.%EXT%"
-set "UPLOAD_OUTPUT=%INDIR%%NAME%_AV1GS_%GRAIN_FILE_TAG%_%SPEED_SUFFIX%_%BITRATE_NUM%k%FRAME_SUFFIX%%FPS_SUFFIX%%DEINT_FILE_SUFFIX%%LUT_FILE_SUFFIX%_UPLOAD_H264_GRAIN_%UPLOAD_BITRATE_NUM%k.mp4"
+set "UPLOAD_OUTPUT=%INDIR%%NAME%_AV1GS_%GRAIN_FILE_TAG%_%SPEED_SUFFIX%_%BITRATE_NUM%k%FRAME_SUFFIX%%FPS_SUFFIX%%DEINT_FILE_SUFFIX%%LUT_FILE_SUFFIX%_UPLOAD_H264_GRAIN_%UPLOAD_FILE_TAG%%UPLOAD_SUB_SUFFIX%.mp4"
 
 if exist "%OUTPUT%" (
     echo SKIP: Main AV1 output already exists:
@@ -2069,7 +2328,7 @@ echo Film Look   : %LUT_LABEL%
 echo Final file  : "%OUTPUT%"
 if "%ENABLE_UPLOAD_BAKE%"=="1" (
     echo Upload MP4 : "%UPLOAD_OUTPUT%"
-    echo Upload rate: %UPLOAD_BITRATE%
+    echo Upload: %UPLOAD_LABEL%
 )
 if defined DURATION echo Duration    : %DURATION% sec
 echo.
@@ -2260,16 +2519,58 @@ popd
 exit /b %RUN_LUT_RC%
 
 
+:PREPARE_UPLOAD_SUBTITLE
+set "UPLOAD_SUB_FILTER="
+set "SUB_TEMP_NAME="
+set "SUB_TEMP_PATH="
+set "FG_SUB_OUT_ASS="
+if not "%ENABLE_UPLOAD_SUBTITLE%"=="1" exit /b 0
+
+set "SUB_TEMP_NAME=__FGSUB_%RANDOM%_%RANDOM%.ass"
+set "SUB_TEMP_PATH=%INDIR%%SUB_TEMP_NAME%"
+set "FG_SUB_OUT_ASS=%SUB_TEMP_PATH%"
+set "FG_SUB_PLAYRESX=%ACTIVE_WIDTH%"
+set "FG_SUB_PLAYRESY=%ACTIVE_HEIGHT%"
+set "FG_SUB_BAR_H=%BAR_H%"
+if not defined FG_SUB_BAR_H set "FG_SUB_BAR_H=0"
+
+"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%SUBTITLE_HELPER%"
+if errorlevel 1 (
+    if exist "%SUB_TEMP_PATH%" del /q "%SUB_TEMP_PATH%" >nul 2>&1
+    set "LAST_ERROR_STAGE=H.264 subtitle preparation"
+    exit /b 1
+)
+if not exist "%SUB_TEMP_PATH%" (
+    echo ERROR: Prepared ASS subtitle file is missing.
+    set "LAST_ERROR_STAGE=H.264 subtitle prepared file missing"
+    exit /b 1
+)
+set "UPLOAD_SUB_FILTER=,subtitles=filename='%SUB_TEMP_NAME%'"
+exit /b 0
+
+:CLEAN_UPLOAD_SUBTITLE
+if defined SUB_TEMP_PATH if exist "%SUB_TEMP_PATH%" del /q "%SUB_TEMP_PATH%" >nul 2>&1
+set "UPLOAD_SUB_FILTER="
+set "SUB_TEMP_NAME="
+set "SUB_TEMP_PATH="
+set "FG_SUB_OUT_ASS="
+set "FG_SUB_BAR_H="
+exit /b 0
+
+
 :RUN_HEVC_UPLOAD
 echo.
 echo Rendering H.264 upload copy directly from the HEVC Grain / LUT pipeline...
 echo.
 echo Source       : Original video + selected scanned Grain
-echo Upload codec : H.264 NVENC / High / yuv420p
-echo Video rate   : %UPLOAD_BITRATE%
-echo Max rate     : %UPLOAD_MAXRATE%
-echo Buffer       : %UPLOAD_BUFSIZE%
+if /i "%UPLOAD_MODE%"=="X264" echo Upload codec : libx264 / High / yuv420p / slow / tune grain / 2-pass
+if /i not "%UPLOAD_MODE%"=="X264" echo Upload codec : H.264 NVENC / High / yuv420p / preset p7
+echo Quality      : %UPLOAD_LABEL%
+if /i "%UPLOAD_MODE%"=="X264" echo VBV          : max %UPLOAD_MAXRATE% / buf %UPLOAD_BUFSIZE%
+if /i "%UPLOAD_MODE%"=="VBR" echo Max rate     : %UPLOAD_MAXRATE%
+if /i "%UPLOAD_MODE%"=="VBR" echo Buffer       : %UPLOAD_BUFSIZE%
 echo Audio        : AAC 320k stereo / 48 kHz
+if "%ENABLE_UPLOAD_SUBTITLE%"=="1" echo Hard subtitle: Enabled / prepared per input
 echo.
 
 if exist "%UPLOAD_OUTPUT%" (
@@ -2278,9 +2579,15 @@ if exist "%UPLOAD_OUTPUT%" (
     exit /b 0
 )
 
-"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk %MAIN_HWACCEL_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%FRAME_POST_FILTER%,format=yuv420p[vout]" -map "[vout]" -map 0:a:0? -map_metadata 0 -c:v h264_nvenc -gpu %CUDA_DEVICE% -profile:v high -pix_fmt yuv420p -preset p6 -tune hq -rc vbr -b:v %UPLOAD_BITRATE% -maxrate:v %UPLOAD_MAXRATE% -bufsize:v %UPLOAD_BUFSIZE% %H264_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -c:a aac -b:a 320k -ac 2 -ar 48000 -movflags +faststart "%UPLOAD_OUTPUT%"
-
-if errorlevel 1 (
+call :PREPARE_UPLOAD_SUBTITLE
+if errorlevel 1 exit /b 1
+pushd "%INDIR%"
+if /i "%UPLOAD_MODE%"=="X264" goto RUN_HEVC_UPLOAD_X264
+"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk %MAIN_HWACCEL_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%FRAME_POST_FILTER%,format=yuv420p%UPLOAD_SUB_FILTER%[vout]" -map "[vout]" -map 0:a:0? -map_metadata 0 -c:v h264_nvenc -gpu %CUDA_DEVICE% -profile:v high -pix_fmt yuv420p %UPLOAD_CODEC_ARGS% %UPLOAD_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -c:a aac -b:a 320k -ac 2 -ar 48000 -movflags +faststart "%UPLOAD_OUTPUT%"
+set "UPLOAD_RUN_RC=%ERRORLEVEL%"
+popd
+call :CLEAN_UPLOAD_SUBTITLE
+if not "%UPLOAD_RUN_RC%"=="0" (
     echo.
     echo ERROR: HEVC H.264 upload encode failed.
     if exist "%UPLOAD_OUTPUT%" del /q "%UPLOAD_OUTPUT%" >nul 2>&1
@@ -2301,14 +2608,66 @@ echo "%UPLOAD_OUTPUT%"
 exit /b 0
 
 
+
+:RUN_HEVC_UPLOAD_X264
+set "UPLOAD_PASSLOG=%TEMP%\FilmGrain_x264_%RANDOM%_%RANDOM%"
+call :CLEAN_X264_PASSLOG
+
+echo.
+echo x264 pass 1/2: analysis...
+pushd "%INDIR%"
+"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk %MAIN_HWACCEL_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%FRAME_POST_FILTER%,format=yuv420p%UPLOAD_SUB_FILTER%[vout]" -map "[vout]" -an -c:v libx264 -profile:v high -pix_fmt yuv420p %UPLOAD_CODEC_ARGS% -pass 1 -passlogfile "%UPLOAD_PASSLOG%" -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f null NUL
+set "UPLOAD_RUN_RC=%ERRORLEVEL%"
+popd
+if not "%UPLOAD_RUN_RC%"=="0" (
+    call :CLEAN_X264_PASSLOG
+    call :CLEAN_UPLOAD_SUBTITLE
+    echo.
+    echo ERROR: HEVC x264 upload pass 1 failed.
+    set "LAST_ERROR_STAGE=HEVC x264 upload pass 1"
+    exit /b 1
+)
+
+echo.
+echo x264 pass 2/2: final encode...
+pushd "%INDIR%"
+"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk %MAIN_HWACCEL_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%FRAME_POST_FILTER%,format=yuv420p%UPLOAD_SUB_FILTER%[vout]" -map "[vout]" -map 0:a:0? -map_metadata 0 -c:v libx264 -profile:v high -pix_fmt yuv420p %UPLOAD_CODEC_ARGS% -pass 2 -passlogfile "%UPLOAD_PASSLOG%" -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -c:a aac -b:a 320k -ac 2 -ar 48000 -movflags +faststart "%UPLOAD_OUTPUT%"
+set "UPLOAD_RUN_RC=%ERRORLEVEL%"
+popd
+call :CLEAN_X264_PASSLOG
+call :CLEAN_UPLOAD_SUBTITLE
+
+if not "%UPLOAD_RUN_RC%"=="0" (
+    echo.
+    echo ERROR: HEVC x264 upload pass 2 failed.
+    if exist "%UPLOAD_OUTPUT%" del /q "%UPLOAD_OUTPUT%" >nul 2>&1
+    set "LAST_ERROR_STAGE=HEVC x264 upload pass 2"
+    exit /b 1
+)
+
+if not exist "%UPLOAD_OUTPUT%" (
+    echo.
+    echo ERROR: HEVC x264 upload MP4 was not created.
+    set "LAST_ERROR_STAGE=HEVC x264 upload missing"
+    exit /b 1
+)
+
+echo.
+echo UPLOAD COPY DONE:
+echo "%UPLOAD_OUTPUT%"
+exit /b 0
+
 :RUN_AV1_UPLOAD
 echo.
 echo [5/5] Baking AV1 Film Grain to pixels for H.264 upload...
 echo.
 echo Decoder      : libdav1d / Film Grain default ON
-echo Upload codec : H.264 NVENC / High / yuv420p
-echo Video rate   : %UPLOAD_BITRATE%
+if /i "%UPLOAD_MODE%"=="X264" echo Upload codec : libx264 / High / yuv420p / slow / tune grain / 2-pass
+if /i not "%UPLOAD_MODE%"=="X264" echo Upload codec : H.264 NVENC / High / yuv420p / preset p7
+echo Quality      : %UPLOAD_LABEL%
+if /i "%UPLOAD_MODE%"=="X264" echo VBV          : max %UPLOAD_MAXRATE% / buf %UPLOAD_BUFSIZE%
 echo Audio        : AAC 320k stereo / 48 kHz
+if "%ENABLE_UPLOAD_SUBTITLE%"=="1" echo Hard subtitle: Enabled / prepared per input
 echo.
 
 if exist "%UPLOAD_OUTPUT%" (
@@ -2317,10 +2676,16 @@ if exist "%UPLOAD_OUTPUT%" (
     exit /b 0
 )
 
+call :PREPARE_UPLOAD_SUBTITLE
+if errorlevel 1 exit /b 1
+pushd "%INDIR%"
 rem Respect the same B-frame / Temporal-AQ switches as the main encode.
-"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -c:v libdav1d -i "%OUTPUT%" -map 0:v:0 -map 0:a:0? -map_metadata 0 -c:v h264_nvenc -gpu %CUDA_DEVICE% -profile:v high -pix_fmt yuv420p -preset p6 -tune hq -rc vbr -b:v %UPLOAD_BITRATE% -maxrate:v %UPLOAD_MAXRATE% -bufsize:v %UPLOAD_BUFSIZE% %H264_CAP_ARGS% -c:a aac -b:a 320k -ac 2 -ar 48000 -movflags +faststart "%UPLOAD_OUTPUT%"
-
-if errorlevel 1 (
+if /i "%UPLOAD_MODE%"=="X264" goto RUN_AV1_UPLOAD_X264
+"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -c:v libdav1d -i "%OUTPUT%" -map 0:v:0 -map 0:a:0? -map_metadata 0 -vf "format=yuv420p%UPLOAD_SUB_FILTER%" -c:v h264_nvenc -gpu %CUDA_DEVICE% -profile:v high -pix_fmt yuv420p %UPLOAD_CODEC_ARGS% %UPLOAD_CAP_ARGS% -c:a aac -b:a 320k -ac 2 -ar 48000 -movflags +faststart "%UPLOAD_OUTPUT%"
+set "UPLOAD_RUN_RC=%ERRORLEVEL%"
+popd
+call :CLEAN_UPLOAD_SUBTITLE
+if not "%UPLOAD_RUN_RC%"=="0" (
     echo.
     echo ERROR: Upload Bake encode failed.
     if exist "%UPLOAD_OUTPUT%" del /q "%UPLOAD_OUTPUT%" >nul 2>&1
@@ -2340,6 +2705,63 @@ echo UPLOAD MASTER DONE:
 echo "%UPLOAD_OUTPUT%"
 exit /b 0
 
+
+
+:RUN_AV1_UPLOAD_X264
+set "UPLOAD_PASSLOG=%TEMP%\FilmGrain_x264_%RANDOM%_%RANDOM%"
+call :CLEAN_X264_PASSLOG
+
+echo.
+echo x264 pass 1/2: analysis...
+pushd "%INDIR%"
+"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -c:v libdav1d -i "%OUTPUT%" -map 0:v:0 -vf "format=yuv420p%UPLOAD_SUB_FILTER%" -c:v libx264 -profile:v high -pix_fmt yuv420p %UPLOAD_CODEC_ARGS% -pass 1 -passlogfile "%UPLOAD_PASSLOG%" -an -f null NUL
+set "UPLOAD_RUN_RC=%ERRORLEVEL%"
+popd
+if not "%UPLOAD_RUN_RC%"=="0" (
+    call :CLEAN_X264_PASSLOG
+    call :CLEAN_UPLOAD_SUBTITLE
+    echo.
+    echo ERROR: AV1 x264 upload pass 1 failed.
+    set "LAST_ERROR_STAGE=Stage 5 - x264 upload pass 1"
+    exit /b 1
+)
+
+echo.
+echo x264 pass 2/2: final encode...
+pushd "%INDIR%"
+"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -c:v libdav1d -i "%OUTPUT%" -map 0:v:0 -map 0:a:0? -map_metadata 0 -vf "format=yuv420p%UPLOAD_SUB_FILTER%" -c:v libx264 -profile:v high -pix_fmt yuv420p %UPLOAD_CODEC_ARGS% -pass 2 -passlogfile "%UPLOAD_PASSLOG%" -c:a aac -b:a 320k -ac 2 -ar 48000 -movflags +faststart "%UPLOAD_OUTPUT%"
+set "UPLOAD_RUN_RC=%ERRORLEVEL%"
+popd
+call :CLEAN_X264_PASSLOG
+call :CLEAN_UPLOAD_SUBTITLE
+
+if not "%UPLOAD_RUN_RC%"=="0" (
+    echo.
+    echo ERROR: AV1 x264 upload pass 2 failed.
+    if exist "%UPLOAD_OUTPUT%" del /q "%UPLOAD_OUTPUT%" >nul 2>&1
+    set "LAST_ERROR_STAGE=Stage 5 - x264 upload pass 2"
+    exit /b 1
+)
+
+if not exist "%UPLOAD_OUTPUT%" (
+    echo.
+    echo ERROR: x264 upload MP4 was not created.
+    set "LAST_ERROR_STAGE=Stage 5 - x264 upload MP4 missing"
+    exit /b 1
+)
+
+echo.
+echo UPLOAD MASTER DONE:
+echo "%UPLOAD_OUTPUT%"
+exit /b 0
+
+:CLEAN_X264_PASSLOG
+if defined UPLOAD_PASSLOG (
+    del /q "%UPLOAD_PASSLOG%-0.log" >nul 2>&1
+    del /q "%UPLOAD_PASSLOG%-0.log.mbtree" >nul 2>&1
+    del /q "%UPLOAD_PASSLOG%-0.mbtree" >nul 2>&1
+)
+exit /b 0
 
 :HANDLE_AV1_FAILED_JOB
 if "%KEEP_FAILED_INTERMEDIATES%"=="1" (
@@ -2629,7 +3051,8 @@ echo [Encode] "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %A
 :SHOW_AV1_REMAINING_COMMANDS
 echo [Grain] "%GRAV1SYNTH%" apply "%TMP_BASE%" -o "%TMP_GRAIN%" %GRAIN_APPLY_ARGS% --replace -y
 echo [Remux] "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -i "%TMP_GRAIN%" -i "%INPUT%" -map 0:v:0 %AV1_FINAL_REMUX_MAP% -map_metadata 1 -map_chapters 1 %AV1_FINAL_REMUX_CODEC% %AV1_FINAL_REMUX_EXTRA% "%OUTPUT%"
-if "%ENABLE_UPLOAD_BAKE%"=="1" echo [Upload] "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -c:v libdav1d -i "%OUTPUT%" -map 0:v:0 -map 0:a:0? -map_metadata 0 -c:v h264_nvenc -gpu %CUDA_DEVICE% -profile:v high -pix_fmt yuv420p -preset p6 -tune hq -rc vbr -b:v %UPLOAD_BITRATE% -maxrate:v %UPLOAD_MAXRATE% -bufsize:v %UPLOAD_BUFSIZE% %H264_CAP_ARGS% -c:a aac -b:a 320k -ac 2 -ar 48000 -movflags +faststart "%UPLOAD_OUTPUT%"
+if "%ENABLE_UPLOAD_BAKE%"=="1" if /i not "%UPLOAD_MODE%"=="X264" echo [Upload] "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -c:v libdav1d -i "%OUTPUT%" -map 0:v:0 -map 0:a:0? -map_metadata 0 -c:v h264_nvenc -gpu %CUDA_DEVICE% -profile:v high -pix_fmt yuv420p %UPLOAD_CODEC_ARGS% %UPLOAD_CAP_ARGS% -c:a aac -b:a 320k -ac 2 -ar 48000 -movflags +faststart "%UPLOAD_OUTPUT%"
+if "%ENABLE_UPLOAD_BAKE%"=="1" if /i "%UPLOAD_MODE%"=="X264" echo [Upload x264] 2-pass / preset slow / tune grain / %UPLOAD_BITRATE%
 exit /b 0
 
 

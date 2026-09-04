@@ -14,6 +14,7 @@ Utils\
     FilmGrain_Studio.ps1
     FilmGrain_Studio_Launcher.vbs
     FilmGrain_Universal_HEVC_AV1_StudioBridge.bat
+    FilmGrain_Subtitle_Prepare.ps1
     AV1_FilmGrain_Bake_for_Social_Upload.bat
     AV1_Grav1synth_Add_Replace_FilmGrain_NoReencode.bat
     LUT_Preview_Batch_Gallery.bat
@@ -50,7 +51,11 @@ FilmGrain_Universal_HEVC_AV1_CLI.bat
 - MKV 模式仍可保留原始音频、字幕、附件和数据流。
 - Cinematic Style 约 2.39:1；HEVC / AV1 均可选择“加黑边保留原分辨率”或“裁剪有效画面”。
 - 自动反交错默认使用 BWDIF Vulkan；隔行 29.97i → 59.94p、25i → 50p。
-- AV1 / HEVC 均可同时生成 H.264 上传版；可选 6000 / 8000 / 10000 / 12000 / 15000 / 18000 / 20000 / 30000 kbps，默认 8000 kbps。
+- AV1 / HEVC 均可同时生成 H.264 上传版；NVENC P7 提供 6000 / 8000 / 15000 kbps。
+- x264 Slow + tune grain + 2-pass 提供推荐 / 高质量 / 极高三档，并按实际输出 FPS + 分辨率
+  自动联动码率；普通动态默认 0.5×，勾选“高动态视频”后为 1.0×。
+- H.264 上传版支持内嵌 / 同名外部 / 浏览外部文本字幕；默认字幕为 huiwen-mincho、69 号
+  1080p 基准、距有效画面下沿 25 px，并按输出宽度等比缩放。
 
 LUT 选择中选择 Gallery 后，可搜索、分页、双击选择，或使用 Enter、
 PageUp、PageDown 和 Esc。Resolve CUBE 兼容转换、tetrahedral 插值与
