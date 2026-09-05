@@ -297,15 +297,12 @@ try {
     [void][double]::TryParse([Environment]::GetEnvironmentVariable('FG_SUB_OUTLINE'), [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$outline)
     $shadow = 1.0
     [void][double]::TryParse([Environment]::GetEnvironmentVariable('FG_SUB_SHADOW'), [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$shadow)
-    $marginV = 25
+    $marginV = 5
     [void][int]::TryParse([Environment]::GetEnvironmentVariable('FG_SUB_MARGINV'), [ref]$marginV)
     $playResX = 1920
     [void][int]::TryParse([Environment]::GetEnvironmentVariable('FG_SUB_PLAYRESX'), [ref]$playResX)
     $playResY = 1080
     [void][int]::TryParse([Environment]::GetEnvironmentVariable('FG_SUB_PLAYRESY'), [ref]$playResY)
-    $barH = 0
-    [void][int]::TryParse([Environment]::GetEnvironmentVariable('FG_SUB_BAR_H'), [ref]$barH)
-
     # GUI subtitle dimensions are defined as a 1920x1080 reference.
     # Scale by output width so 2.39:1 crops keep the same apparent subtitle
     # size as a 1920-wide 16:9 master, while 4K doubles the dimensions.
@@ -322,19 +319,13 @@ try {
     $renderOutline = $outline * $renderScale
     $renderShadow = $shadow * $renderScale
 
-    # User-facing MarginV is the gap below the active picture. When a lower
-    # cinematic bar exists, top-align the subtitle inside that bar at
-    # active-picture-bottom + scaled gap. Without a bar, fall back to normal
-    # bottom-center placement using the same scaled gap as the bottom margin.
+    # Subtitle placement is always relative to the final output frame bottom.
+    # Cinematic letterbox bars are part of that final frame, so bottom-center
+    # naturally lands inside the lower bar. Without letterbox, the subtitle
+    # simply overlays the bottom of the picture.
     $alignment = 2
     $assMarginV = $renderMarginV
-    $placementLabel = "bottom-center / base-gap ${marginV}px / render-gap ${renderMarginV}px"
-    if ($barH -gt 0 -and $barH -lt $playResY) {
-        $alignment = 8
-        $assMarginV = ($playResY - $barH) + $renderMarginV
-        if ($assMarginV -gt ($playResY - 1)) { $assMarginV = $playResY - 1 }
-        $placementLabel = "lower black bar / base-gap ${marginV}px / render-gap ${renderMarginV}px / centered"
-    }
+    $placementLabel = "final-bottom / base-margin ${marginV}px / render-margin ${renderMarginV}px / centered"
 
     if (Test-Path -LiteralPath $outputAss) { Remove-Item -LiteralPath $outputAss -Force }
 

@@ -1674,7 +1674,7 @@ exit /b 0
 
 :SELECT_UPLOAD_SUBTITLE
 set "ENABLE_UPLOAD_SUBTITLE=0"
-set "UPLOAD_SUB_SUFFIX="
+set "SUB_FILE_SUFFIX="
 set "SUB_MODE=OFF"
 if not defined FG_SUB_MODE set "FG_SUB_MODE=OFF"
 if not defined FG_SUB_INDEX set "FG_SUB_INDEX=0"
@@ -1684,14 +1684,12 @@ if not defined FG_SUB_PRIMARY_HEX set "FG_SUB_PRIMARY_HEX=FFFFFF"
 if not defined FG_SUB_BORDER_HEX set "FG_SUB_BORDER_HEX=000000"
 if not defined FG_SUB_OUTLINE set "FG_SUB_OUTLINE=1"
 if not defined FG_SUB_SHADOW set "FG_SUB_SHADOW=1"
-if not defined FG_SUB_MARGINV set "FG_SUB_MARGINV=25"
-
-if not "%ENABLE_UPLOAD_BAKE%"=="1" exit /b 0
+if not defined FG_SUB_MARGINV set "FG_SUB_MARGINV=5"
 
 if "%FG_STUDIO_MODE%"=="1" goto SELECT_UPLOAD_SUBTITLE_STUDIO
 
 echo.
-echo Burn hard subtitles into the H.264 upload copy:
+echo Burn hard subtitles into output video^(s^):
 echo.
 echo   [1] Off ^(default^)
 echo   [2] Auto - same-name external subtitle, otherwise embedded subtitle #1
@@ -1728,7 +1726,7 @@ set "SUB_TMP="
 set /p "SUB_TMP=Font [huiwen-mincho]: "
 if defined SUB_TMP set "FG_SUB_FONT=%SUB_TMP%"
 set "SUB_TMP="
-set /p "SUB_TMP=Font size [23]: "
+set /p "SUB_TMP=Font size [69]: "
 if defined SUB_TMP set "FG_SUB_FONT_SIZE=%SUB_TMP%"
 set "SUB_TMP="
 set /p "SUB_TMP=Text color RGB hex [FFFFFF]: "
@@ -1743,12 +1741,12 @@ set "SUB_TMP="
 set /p "SUB_TMP=Shadow [1]: "
 if defined SUB_TMP set "FG_SUB_SHADOW=%SUB_TMP%"
 set "SUB_TMP="
-set /p "SUB_TMP=Gap below active picture [3]: "
+set /p "SUB_TMP=Bottom margin from final output [5]: "
 if defined SUB_TMP set "FG_SUB_MARGINV=%SUB_TMP%"
 goto SELECT_UPLOAD_SUBTITLE_ENABLE
 
 :SELECT_UPLOAD_SUBTITLE_STUDIO
-if not "%FG_UPLOAD_SUBTITLE%"=="1" exit /b 0
+if not "%FG_SUBTITLE%"=="1" if not "%FG_UPLOAD_SUBTITLE%"=="1" exit /b 0
 if defined FG_SUB_MODE set "SUB_MODE=%FG_SUB_MODE%"
 if not defined FG_SUB_MODE set "SUB_MODE=OFF"
 if /i "%SUB_MODE%"=="OFF" exit /b 0
@@ -1764,7 +1762,7 @@ if not defined FG_SUB_PRIMARY_HEX set "FG_SUB_PRIMARY_HEX=FFFFFF"
 if not defined FG_SUB_BORDER_HEX set "FG_SUB_BORDER_HEX=000000"
 if not defined FG_SUB_OUTLINE set "FG_SUB_OUTLINE=1"
 if not defined FG_SUB_SHADOW set "FG_SUB_SHADOW=1"
-if not defined FG_SUB_MARGINV set "FG_SUB_MARGINV=25"
+if not defined FG_SUB_MARGINV set "FG_SUB_MARGINV=5"
 
 :SELECT_UPLOAD_SUBTITLE_ENABLE
 if not exist "%SUBTITLE_HELPER%" (
@@ -1778,7 +1776,7 @@ if errorlevel 1 (
     exit /b 1
 )
 set "ENABLE_UPLOAD_SUBTITLE=1"
-set "UPLOAD_SUB_SUFFIX=_SUB"
+set "SUB_FILE_SUFFIX=_SUB"
 exit /b 0
 
 
@@ -1894,7 +1892,7 @@ echo Container     : %CONTAINER_LABEL%
 echo Film Look     : %LUT_LABEL%
 echo Upload copy   : %UPLOAD_LABEL%
 if "%ENABLE_UPLOAD_BAKE%"=="1" echo Upload       : %UPLOAD_LABEL%
-if "%ENABLE_UPLOAD_SUBTITLE%"=="1" echo Upload subs   : Enabled / prepared per input
+if "%ENABLE_UPLOAD_SUBTITLE%"=="1" echo Hard subtitle : Enabled / main output; upload copy also includes it when enabled
 if "%LUT_ENABLED%"=="1" echo LUT compat    : DaVinci CUBE range converted for FFmpeg
 echo GPU           : %FG_CAP_GPU_NAME%
 if defined FG_CAP_DRIVER_VERSION echo Driver        : %FG_CAP_DRIVER_VERSION%
@@ -2132,8 +2130,8 @@ if "%ENABLE_CROP%"=="1" set "FRAME_POST_FILTER=%CROP_POST_FILTER%"
 if "%ENABLE_LETTERBOX%"=="1" set "FRAME_POST_FILTER=%LETTERBOX_FILTER%"
 
 set "OUTPUT_BASE=%INDIR%%NAME%%HEVC_SUFFIX%%FRAME_SUFFIX%%LUT_FILE_SUFFIX%"
-set "OUTPUT=%OUTPUT_BASE%%FPS_SUFFIX%%DEINT_FILE_SUFFIX%.%EXT%"
-set "UPLOAD_OUTPUT=%OUTPUT_BASE%%FPS_SUFFIX%%DEINT_FILE_SUFFIX%_UPLOAD_H264_GRAIN_%UPLOAD_FILE_TAG%%UPLOAD_SUB_SUFFIX%.mp4"
+set "OUTPUT=%OUTPUT_BASE%%FPS_SUFFIX%%DEINT_FILE_SUFFIX%%SUB_FILE_SUFFIX%.%EXT%"
+set "UPLOAD_OUTPUT=%OUTPUT_BASE%%FPS_SUFFIX%%DEINT_FILE_SUFFIX%_UPLOAD_H264_GRAIN_%UPLOAD_FILE_TAG%%SUB_FILE_SUFFIX%.mp4"
 
 set "DURATION_ARGS="
 set "GRAIN_TIME_ARGS="
@@ -2220,9 +2218,15 @@ if exist "%OUTPUT%" (
 
 rem Execute the command directly. Expanding a complete command stored in a
 rem variable makes CMD reparse special filename characters such as ampersand.
-"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk %MAIN_HWACCEL_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%FRAME_POST_FILTER%[vout]" -map "[vout]" %HEVC_STREAM_MAP_ARGS% -map_metadata 0 -map_chapters 0 -c:v hevc_nvenc -gpu %CUDA_DEVICE% -profile:v main10 -preset %PRESET% -tune hq -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %HEVC_AUDIO_MUX_ARGS% %HEVC_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
+call :PREPARE_UPLOAD_SUBTITLE "%INDIR%"
+if errorlevel 1 exit /b 1
+pushd "%INDIR%"
+"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk %MAIN_HWACCEL_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%FRAME_POST_FILTER%%MAIN_SUB_FILTER%[vout]" -map "[vout]" %HEVC_STREAM_MAP_ARGS% -map_metadata 0 -map_chapters 0 -c:v hevc_nvenc -gpu %CUDA_DEVICE% -profile:v main10 -preset %PRESET% -tune hq -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %HEVC_AUDIO_MUX_ARGS% %HEVC_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
+set "MAIN_RUN_RC=%ERRORLEVEL%"
+popd
+call :CLEAN_UPLOAD_SUBTITLE
 
-if errorlevel 1 (
+if not "%MAIN_RUN_RC%"=="0" (
     echo.
     echo ERROR: HEVC encoding failed:
     echo "%INPUT%"
@@ -2265,8 +2269,8 @@ if "%ENABLE_LETTERBOX%"=="1" call :PREPARE_LETTERBOX
 if /i "%UPLOAD_MODE%"=="X264" call :RESOLVE_X264_UPLOAD_RATE
 if errorlevel 1 exit /b 1
 
-set "OUTPUT=%INDIR%%NAME%_AV1GS_%GRAIN_FILE_TAG%_%SPEED_SUFFIX%_%BITRATE_NUM%k%FRAME_SUFFIX%%FPS_SUFFIX%%DEINT_FILE_SUFFIX%%LUT_FILE_SUFFIX%.%EXT%"
-set "UPLOAD_OUTPUT=%INDIR%%NAME%_AV1GS_%GRAIN_FILE_TAG%_%SPEED_SUFFIX%_%BITRATE_NUM%k%FRAME_SUFFIX%%FPS_SUFFIX%%DEINT_FILE_SUFFIX%%LUT_FILE_SUFFIX%_UPLOAD_H264_GRAIN_%UPLOAD_FILE_TAG%%UPLOAD_SUB_SUFFIX%.mp4"
+set "OUTPUT=%INDIR%%NAME%_AV1GS_%GRAIN_FILE_TAG%_%SPEED_SUFFIX%_%BITRATE_NUM%k%FRAME_SUFFIX%%FPS_SUFFIX%%DEINT_FILE_SUFFIX%%LUT_FILE_SUFFIX%%SUB_FILE_SUFFIX%.%EXT%"
+set "UPLOAD_OUTPUT=%INDIR%%NAME%_AV1GS_%GRAIN_FILE_TAG%_%SPEED_SUFFIX%_%BITRATE_NUM%k%FRAME_SUFFIX%%FPS_SUFFIX%%DEINT_FILE_SUFFIX%%LUT_FILE_SUFFIX%_UPLOAD_H264_GRAIN_%UPLOAD_FILE_TAG%%SUB_FILE_SUFFIX%.mp4"
 
 if exist "%OUTPUT%" (
     echo SKIP: Main AV1 output already exists:
@@ -2354,9 +2358,22 @@ rem Stage 1 - clean AV1 Main10 video-only encode to IVF
 rem ------------------------------------------------------------
 echo [1/%TOTAL_STAGES%] Encoding clean AV1 Main10 with NVENC...
 
+if "%LUT_ENABLED%"=="1" (
+    call :PREPARE_UPLOAD_SUBTITLE "%JOBDIR%"
+) else (
+    call :PREPARE_UPLOAD_SUBTITLE "%INDIR%"
+)
+if errorlevel 1 (
+    set "LAST_ERROR_STAGE=Stage 1 - subtitle preparation"
+    call :HANDLE_AV1_FAILED_JOB
+    exit /b 1
+)
+
 if "%LUT_ENABLED%"=="1" goto AV1_STAGE1_LUT
-"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %ACTIVE_DEINT_HW_ARGS% %MAIN_HWACCEL_ARGS% -i "%INPUT%" -vf "%VIDEO_FILTER%" -map 0:v:0 -an -sn -dn -c:v av1_nvenc -gpu %CUDA_DEVICE% -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune %ENCODER_TUNE% -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
+pushd "%INDIR%"
+"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %ACTIVE_DEINT_HW_ARGS% %MAIN_HWACCEL_ARGS% -i "%INPUT%" -vf "%VIDEO_FILTER%%MAIN_SUB_FILTER%" -map 0:v:0 -an -sn -dn -c:v av1_nvenc -gpu %CUDA_DEVICE% -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune %ENCODER_TUNE% -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
 set "STAGE_RC=%ERRORLEVEL%"
+popd
 goto AV1_STAGE1_DONE
 
 :AV1_STAGE1_LUT
@@ -2364,6 +2381,7 @@ call :RUN_LUT_AV1_ENCODE
 set "STAGE_RC=%ERRORLEVEL%"
 
 :AV1_STAGE1_DONE
+call :CLEAN_UPLOAD_SUBTITLE
 if not "%STAGE_RC%"=="0" (
     echo.
     echo ERROR: AV1 NVENC encode failed.
@@ -2513,48 +2531,52 @@ exit /b 0
 
 :RUN_LUT_AV1_ENCODE
 pushd "%JOBDIR%"
-"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %ACTIVE_DEINT_HW_ARGS% -i "%INPUT%" -filter_complex "[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%CROP_FILTER%format=gbrp16le,split=2[lutorig][lutsrc];[lutsrc]lut3d=file=filmlook.cube:interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=p010le%LETTERBOX_FILTER%[vout]" -map "[vout]" -an -sn -dn -c:v av1_nvenc -gpu %CUDA_DEVICE% -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune %ENCODER_TUNE% -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
+"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %ACTIVE_DEINT_HW_ARGS% -i "%INPUT%" -filter_complex "[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%CROP_FILTER%format=gbrp16le,split=2[lutorig][lutsrc];[lutsrc]lut3d=file=filmlook.cube:interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=p010le%LETTERBOX_FILTER%%MAIN_SUB_FILTER%[vout]" -map "[vout]" -an -sn -dn -c:v av1_nvenc -gpu %CUDA_DEVICE% -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune %ENCODER_TUNE% -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
 set "RUN_LUT_RC=%ERRORLEVEL%"
 popd
 exit /b %RUN_LUT_RC%
 
 
 :PREPARE_UPLOAD_SUBTITLE
+set "MAIN_SUB_FILTER="
 set "UPLOAD_SUB_FILTER="
 set "SUB_TEMP_NAME="
 set "SUB_TEMP_PATH="
+set "SUB_PREP_DIR=%~1"
 set "FG_SUB_OUT_ASS="
 if not "%ENABLE_UPLOAD_SUBTITLE%"=="1" exit /b 0
 
+if not defined SUB_PREP_DIR set "SUB_PREP_DIR=%INDIR%"
+if not "%SUB_PREP_DIR:~-1%"=="\" set "SUB_PREP_DIR=%SUB_PREP_DIR%\"
 set "SUB_TEMP_NAME=__FGSUB_%RANDOM%_%RANDOM%.ass"
-set "SUB_TEMP_PATH=%INDIR%%SUB_TEMP_NAME%"
+set "SUB_TEMP_PATH=%SUB_PREP_DIR%%SUB_TEMP_NAME%"
 set "FG_SUB_OUT_ASS=%SUB_TEMP_PATH%"
 set "FG_SUB_PLAYRESX=%ACTIVE_WIDTH%"
 set "FG_SUB_PLAYRESY=%ACTIVE_HEIGHT%"
-set "FG_SUB_BAR_H=%BAR_H%"
-if not defined FG_SUB_BAR_H set "FG_SUB_BAR_H=0"
 
 "%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%SUBTITLE_HELPER%"
 if errorlevel 1 (
     if exist "%SUB_TEMP_PATH%" del /q "%SUB_TEMP_PATH%" >nul 2>&1
-    set "LAST_ERROR_STAGE=H.264 subtitle preparation"
+    set "LAST_ERROR_STAGE=subtitle preparation"
     exit /b 1
 )
 if not exist "%SUB_TEMP_PATH%" (
     echo ERROR: Prepared ASS subtitle file is missing.
-    set "LAST_ERROR_STAGE=H.264 subtitle prepared file missing"
+    set "LAST_ERROR_STAGE=subtitle prepared file missing"
     exit /b 1
 )
+set "MAIN_SUB_FILTER=,format=yuv420p10le,subtitles=filename='%SUB_TEMP_NAME%',format=p010le"
 set "UPLOAD_SUB_FILTER=,subtitles=filename='%SUB_TEMP_NAME%'"
 exit /b 0
 
 :CLEAN_UPLOAD_SUBTITLE
 if defined SUB_TEMP_PATH if exist "%SUB_TEMP_PATH%" del /q "%SUB_TEMP_PATH%" >nul 2>&1
+set "MAIN_SUB_FILTER="
 set "UPLOAD_SUB_FILTER="
 set "SUB_TEMP_NAME="
 set "SUB_TEMP_PATH="
+set "SUB_PREP_DIR="
 set "FG_SUB_OUT_ASS="
-set "FG_SUB_BAR_H="
 exit /b 0
 
 
@@ -2579,7 +2601,7 @@ if exist "%UPLOAD_OUTPUT%" (
     exit /b 0
 )
 
-call :PREPARE_UPLOAD_SUBTITLE
+call :PREPARE_UPLOAD_SUBTITLE "%INDIR%"
 if errorlevel 1 exit /b 1
 pushd "%INDIR%"
 if /i "%UPLOAD_MODE%"=="X264" goto RUN_HEVC_UPLOAD_X264
@@ -2667,7 +2689,7 @@ if /i not "%UPLOAD_MODE%"=="X264" echo Upload codec : H.264 NVENC / High / yuv42
 echo Quality      : %UPLOAD_LABEL%
 if /i "%UPLOAD_MODE%"=="X264" echo VBV          : max %UPLOAD_MAXRATE% / buf %UPLOAD_BUFSIZE%
 echo Audio        : AAC 320k stereo / 48 kHz
-if "%ENABLE_UPLOAD_SUBTITLE%"=="1" echo Hard subtitle: Enabled / prepared per input
+if "%ENABLE_UPLOAD_SUBTITLE%"=="1" echo Hard subtitle: Inherited from main AV1 output
 echo.
 
 if exist "%UPLOAD_OUTPUT%" (
@@ -2676,9 +2698,9 @@ if exist "%UPLOAD_OUTPUT%" (
     exit /b 0
 )
 
-call :PREPARE_UPLOAD_SUBTITLE
-if errorlevel 1 exit /b 1
+set "UPLOAD_SUB_FILTER="
 pushd "%INDIR%"
+rem Hard subtitles, when enabled, are already baked into the main AV1 picture.
 rem Respect the same B-frame / Temporal-AQ switches as the main encode.
 if /i "%UPLOAD_MODE%"=="X264" goto RUN_AV1_UPLOAD_X264
 "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -c:v libdav1d -i "%OUTPUT%" -map 0:v:0 -map 0:a:0? -map_metadata 0 -vf "format=yuv420p%UPLOAD_SUB_FILTER%" -c:v h264_nvenc -gpu %CUDA_DEVICE% -profile:v high -pix_fmt yuv420p %UPLOAD_CODEC_ARGS% %UPLOAD_CAP_ARGS% -c:a aac -b:a 320k -ac 2 -ar 48000 -movflags +faststart "%UPLOAD_OUTPUT%"
@@ -3046,7 +3068,7 @@ echo [Encode] "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %A
 goto SHOW_AV1_REMAINING_COMMANDS
 
 :SHOW_AV1_LUT_COMMAND
-echo [Encode] "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %ACTIVE_DEINT_HW_ARGS% -i "%INPUT%" -filter_complex "[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%CROP_FILTER%format=gbrp16le,split=2[lutorig][lutsrc];[lutsrc]lut3d=file=filmlook.cube:interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=p010le%LETTERBOX_FILTER%[vout]" -map "[vout]" -an -sn -dn -c:v av1_nvenc -gpu %CUDA_DEVICE% -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune %ENCODER_TUNE% -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
+echo [Encode] "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %ACTIVE_DEINT_HW_ARGS% -i "%INPUT%" -filter_complex "[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%CROP_FILTER%format=gbrp16le,split=2[lutorig][lutsrc];[lutsrc]lut3d=file=filmlook.cube:interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=p010le%LETTERBOX_FILTER%%MAIN_SUB_FILTER%[vout]" -map "[vout]" -an -sn -dn -c:v av1_nvenc -gpu %CUDA_DEVICE% -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune %ENCODER_TUNE% -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
 
 :SHOW_AV1_REMAINING_COMMANDS
 echo [Grain] "%GRAV1SYNTH%" apply "%TMP_BASE%" -o "%TMP_GRAIN%" %GRAIN_APPLY_ARGS% --replace -y

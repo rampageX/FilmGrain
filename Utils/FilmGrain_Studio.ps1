@@ -89,7 +89,7 @@ $script:UploadSubtitle = [ordered]@{
     BorderHex = '000000'
     Outline = 1.0
     Shadow = 1.0
-    MarginV = 25
+    MarginV = 5
     Label = '字幕：关闭'
 }
 $ColorHeader = [System.Drawing.Color]::FromArgb(45, 57, 72)
@@ -426,7 +426,7 @@ $chkUploadHighMotion.Margin = New-Object System.Windows.Forms.Padding -ArgumentL
 $btnUploadSubtitle = New-Object System.Windows.Forms.Button
 $btnUploadSubtitle.Text = '字幕…'
 $btnUploadSubtitle.Dock = 'Fill'
-$btnUploadSubtitle.Enabled = $false
+$btnUploadSubtitle.Enabled = $true
 $btnUploadSubtitle.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 3, 4, 8, 4
 
 $uploadExtraPanel = New-Object System.Windows.Forms.TableLayoutPanel
@@ -815,7 +815,7 @@ $lblLutStrength.Enabled = $false
 $toolTip = New-Object System.Windows.Forms.ToolTip
 $toolTip.SetToolTip($btnGrainRoot, '选择 Grain 根目录')
 $toolTip.SetToolTip($btnRefreshGrain, '重新扫描根目录中的 .mov 颗粒片')
-$toolTip.SetToolTip($btnUploadSubtitle, '为 H.264 上传版烧写硬字幕；默认在下方黑边中距画面下沿 25px、水平居中；尺寸按 1080p 基准等比缩放。')
+$toolTip.SetToolTip($btnUploadSubtitle, '硬字幕独立于 H.264 上传版；启用后烧写到主输出，若同时生成 H.264 上传版则副本也包含同一字幕。默认距最终输出画面下沿 5px、水平居中。')
 $toolTip.SetToolTip($cmbUploadBitrate, 'NVENC：固定 6M / 8M / 15M。x264 Grain：按实际输出 FPS 与分辨率自动换算；分辨率按相对 1080p 像素面积平方根缩放。默认普通动态再乘 0.5，高动态视频勾选后使用完整码率。x264 使用 Slow + tune grain + 2-pass，VBV Max=3×、Buf=6×。')
 $toolTip.SetToolTip($chkUploadHighMotion, '仅影响 x264 Grain FPS联动模式。默认不勾选：自动计算码率减半；勾选：使用完整高动态码率。NVENC 不受影响。')
 
@@ -1023,7 +1023,7 @@ function Show-UploadSubtitleDialog {
     }
 
     $dlg = New-Object System.Windows.Forms.Form
-    $dlg.Text = 'H.264 上传版 · 硬字幕'
+    $dlg.Text = '硬字幕'
     $dlg.StartPosition = 'CenterParent'
     $dlg.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedDialog
     $dlg.MaximizeBox = $false
@@ -1142,7 +1142,7 @@ function Show-UploadSubtitleDialog {
 
     $note = New-Object System.Windows.Forms.Label
     $note.Dock='Fill'; $note.ForeColor=$ColorMuted; $note.Padding=New-Object System.Windows.Forms.Padding -ArgumentList 4,6,4,0
-    $note.Text = "默认：huiwen-mincho / 69 / 白色 / 黑色边框与阴影 / Outline 1 / Shadow 1 / 在下方黑边中距画面下沿 25px、水平居中。字号、边距、描边和阴影均以 1920×1080 为基准，实际编码按输出宽度等比缩放。`r`n支持 SRT / ASS / SSA / WebVTT 等文本字幕；PGS/DVD 图形字幕暂不烧写。多文件任务建议使用各视频同名字幕。"
+    $note.Text = "默认：huiwen-mincho / 69 / 白色 / 黑色边框与阴影 / Outline 1 / Shadow 1 / 距最终输出画面下沿 5px、水平居中。启用添加黑边时，黑边属于最终输出画面，字幕自然位于下方黑边内；不添加黑边时，字幕位于视频画面底部并覆盖少量内容。字号、边距、描边和阴影均以 1920×1080 为基准，实际编码按输出宽度等比缩放。`r`n支持 SRT / ASS / SSA / WebVTT 等文本字幕；PGS/DVD 图形字幕暂不烧写。多文件任务建议使用各视频同名字幕。"
     [void]$table.Controls.Add($note,0,8); $table.SetColumnSpan($note,3)
 
     $buttons = New-Object System.Windows.Forms.FlowLayoutPanel
@@ -2554,7 +2554,8 @@ function Start-Encoding {
         $envs['FG_UPLOAD_X264_TIER'] = [string]($cmbUploadBitrate.SelectedIndex - 2)
         $envs['FG_UPLOAD_QP'] = ''
     }
-    $envs['FG_UPLOAD_SUBTITLE'] = if ($chkUpload.Checked -and $script:UploadSubtitle.Enabled) { '1' } else { '0' }
+    $envs['FG_SUBTITLE'] = if ($script:UploadSubtitle.Enabled) { '1' } else { '0' }
+    $envs['FG_UPLOAD_SUBTITLE'] = $envs['FG_SUBTITLE']
     $envs['FG_SUB_MODE'] = [string]$script:UploadSubtitle.Mode
     $envs['FG_SUB_INDEX'] = [string]$script:UploadSubtitle.EmbeddedIndex
     $envs['FG_SUB_PATH'] = [string]$script:UploadSubtitle.ExternalPath
@@ -2729,7 +2730,6 @@ $trackLutStrength.Add_ValueChanged({
 
 $chkUpload.Add_CheckedChanged({
     $cmbUploadBitrate.Enabled = $chkUpload.Checked
-    $btnUploadSubtitle.Enabled = $chkUpload.Checked
     Update-UploadHighMotionUi
 })
 $cmbUploadBitrate.Add_SelectedIndexChanged({ Update-UploadHighMotionUi })

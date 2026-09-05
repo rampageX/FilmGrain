@@ -54,8 +54,9 @@ FilmGrain_Universal_HEVC_AV1_CLI.bat
 - AV1 / HEVC 均可同时生成 H.264 上传版；NVENC P7 提供 6000 / 8000 / 15000 kbps。
 - x264 Slow + tune grain + 2-pass 提供推荐 / 高质量 / 极高三档，并按实际输出 FPS + 分辨率
   自动联动码率；普通动态默认 0.5×，勾选“高动态视频”后为 1.0×。
-- H.264 上传版支持内嵌 / 同名外部 / 浏览外部文本字幕；默认字幕为 huiwen-mincho、69 号
-  1080p 基准、距有效画面下沿 25 px，并按输出宽度等比缩放。
+- 字幕功能独立开关，可烧写进主 HEVC / AV1；同时生成 H.264 上传副本时也会继承字幕。
+- 支持内嵌 / 同名外部 / 浏览外部文本字幕；默认 huiwen-mincho、69 号 1080p 基准，
+  统一以最终输出底边定位，MarginV=5 px，并按输出宽度等比缩放。
 
 LUT 选择中选择 Gallery 后，可搜索、分页、双击选择，或使用 Enter、
 PageUp、PageDown 和 Esc。Resolve CUBE 兼容转换、tetrahedral 插值与
