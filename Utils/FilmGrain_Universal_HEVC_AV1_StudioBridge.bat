@@ -1043,13 +1043,15 @@ echo Grain source:
 echo.
 echo   [1] Film preset   ^(default / recommended^)
 echo   [2] Photon ISO    ^(advanced strength control^)
+echo   [3] Grain table   ^(.tbl / .txt via grav1synth --grain^)
 echo.
 set "GRAIN_MODE_SEL=1"
 if "%FG_STUDIO_MODE%"=="1" (
     if /i "%FG_AV1_GRAIN_MODE%"=="PRESET" set "GRAIN_MODE_SEL=1"
     if /i "%FG_AV1_GRAIN_MODE%"=="ISO"    set "GRAIN_MODE_SEL=2"
+    if /i "%FG_AV1_GRAIN_MODE%"=="TABLE"  set "GRAIN_MODE_SEL=3"
 ) else (
-    set /p "GRAIN_MODE_SEL=Select [1-2, default 1]: "
+    set /p "GRAIN_MODE_SEL=Select [1-3, default 1]: "
 )
 
 set "GRAIN_MODE=PRESET"
@@ -1058,6 +1060,7 @@ set "GRAIN_LABEL="
 set "GRAIN_FILE_TAG="
 
 if "%GRAIN_MODE_SEL%"=="2" goto AV1_GRAIN_PHOTON_MENU
+if "%GRAIN_MODE_SEL%"=="3" goto AV1_GRAIN_TABLE_MENU
 
 echo.
 echo Film format:
@@ -1199,6 +1202,40 @@ if "%CHROMA_SEL%"=="2" (
 set "GRAIN_APPLY_ARGS=--iso %GRAIN_ISO% %CHROMA_ARGS%"
 set "GRAIN_LABEL=Photon ISO %GRAIN_ISO% / %CHROMA_LABEL%"
 set "GRAIN_FILE_TAG=ISO%GRAIN_ISO%"
+exit /b 0
+
+:AV1_GRAIN_TABLE_MENU
+set "GRAIN_MODE=TABLE"
+set "GRAIN_TABLE_PATH="
+if "%FG_STUDIO_MODE%"=="1" (
+    if defined FG_AV1_GRAIN_TABLE set "GRAIN_TABLE_PATH=%FG_AV1_GRAIN_TABLE%"
+) else (
+    echo.
+    echo Grain table file ^(.tbl / .txt^):
+    echo You can drag a table file into this window and press Enter.
+    echo.
+    set /p "GRAIN_TABLE_PATH=Table file: "
+)
+set "GRAIN_TABLE_PATH=%GRAIN_TABLE_PATH:"=%"
+
+if not defined GRAIN_TABLE_PATH (
+    echo ERROR: No Grain table file was selected.
+    exit /b 1
+)
+if not exist "%GRAIN_TABLE_PATH%" (
+    echo ERROR: Grain table file not found:
+    echo "%GRAIN_TABLE_PATH%"
+    exit /b 1
+)
+
+set "FG_TABLE_TAG_SOURCE=%GRAIN_TABLE_PATH%"
+set "GRAIN_TABLE_STEM="
+for /f "usebackq delims=" %%T in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$n=[System.IO.Path]::GetFileNameWithoutExtension($env:FG_TABLE_TAG_SOURCE); $n=[System.Text.RegularExpressions.Regex]::Replace($n,'[^A-Za-z0-9]+','_').Trim('_'); if([string]::IsNullOrWhiteSpace($n)){$n='TABLE'}; if($n.Length -gt 48){$n=$n.Substring(0,48)}; [Console]::Out.Write($n)"`) do set "GRAIN_TABLE_STEM=%%T"
+set "FG_TABLE_TAG_SOURCE="
+if not defined GRAIN_TABLE_STEM set "GRAIN_TABLE_STEM=TABLE"
+set "GRAIN_APPLY_ARGS="
+set "GRAIN_LABEL=Grain Table / %GRAIN_TABLE_STEM%"
+set "GRAIN_FILE_TAG=TABLE_%GRAIN_TABLE_STEM%"
 exit /b 0
 
 
@@ -2402,7 +2439,11 @@ echo.
 echo [2/%TOTAL_STAGES%] Injecting AV1 Film Grain with grav1synth...
 
 pushd "%JOBDIR%"
-"%GRAV1SYNTH%" apply "%TMP_BASE%" -o "%TMP_GRAIN%" %GRAIN_APPLY_ARGS% --replace -y > "%GRAIN_LOG%" 2>&1
+if /i "%GRAIN_MODE%"=="TABLE" (
+    "%GRAV1SYNTH%" apply "%TMP_BASE%" -o "%TMP_GRAIN%" --grain "%GRAIN_TABLE_PATH%" --replace -y > "%GRAIN_LOG%" 2>&1
+) else (
+    "%GRAV1SYNTH%" apply "%TMP_BASE%" -o "%TMP_GRAIN%" %GRAIN_APPLY_ARGS% --replace -y > "%GRAIN_LOG%" 2>&1
+)
 set "GRAIN_RC=%ERRORLEVEL%"
 popd
 
@@ -2588,7 +2629,7 @@ echo Quality      : %UPLOAD_LABEL%
 if /i "%UPLOAD_MODE%"=="X264" echo VBV          : max %UPLOAD_MAXRATE% / buf %UPLOAD_BUFSIZE%
 if /i "%UPLOAD_MODE%"=="VBR" echo Max rate     : %UPLOAD_MAXRATE%
 if /i "%UPLOAD_MODE%"=="VBR" echo Buffer       : %UPLOAD_BUFSIZE%
-echo Audio        : AAC 320k stereo / 48 kHz
+echo Audio        : AAC 256k stereo / 48 kHz
 if "%ENABLE_UPLOAD_SUBTITLE%"=="1" echo Hard subtitle: Enabled / prepared per input
 echo.
 
@@ -2602,7 +2643,7 @@ call :PREPARE_UPLOAD_SUBTITLE "%INDIR%"
 if errorlevel 1 exit /b 1
 pushd "%INDIR%"
 if /i "%UPLOAD_MODE%"=="X264" goto RUN_HEVC_UPLOAD_X264
-"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk %MAIN_HWACCEL_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%FRAME_POST_FILTER%,format=yuv420p%UPLOAD_SUB_FILTER%[vout]" -map "[vout]" -map 0:a:0? -map_metadata 0 -c:v h264_nvenc -gpu %CUDA_DEVICE% -profile:v high -pix_fmt yuv420p %UPLOAD_CODEC_ARGS% %UPLOAD_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -c:a aac -b:a 320k -ac 2 -ar 48000 -movflags +faststart "%UPLOAD_OUTPUT%"
+"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk %MAIN_HWACCEL_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%FRAME_POST_FILTER%,format=yuv420p%UPLOAD_SUB_FILTER%[vout]" -map "[vout]" -map 0:a:0? -map_metadata 0 -c:v h264_nvenc -gpu %CUDA_DEVICE% -profile:v high -pix_fmt yuv420p %UPLOAD_CODEC_ARGS% %UPLOAD_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -c:a aac -b:a 256k -ac 2 -ar 48000 -movflags +faststart "%UPLOAD_OUTPUT%"
 set "UPLOAD_RUN_RC=%ERRORLEVEL%"
 popd
 call :CLEAN_UPLOAD_SUBTITLE
@@ -2650,7 +2691,7 @@ if not "%UPLOAD_RUN_RC%"=="0" (
 echo.
 echo x264 pass 2/2: final encode...
 pushd "%INDIR%"
-"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk %MAIN_HWACCEL_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%FRAME_POST_FILTER%,format=yuv420p%UPLOAD_SUB_FILTER%[vout]" -map "[vout]" -map 0:a:0? -map_metadata 0 -c:v libx264 -profile:v high -pix_fmt yuv420p %UPLOAD_CODEC_ARGS% -pass 2 -passlogfile "%UPLOAD_PASSLOG%" -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -c:a aac -b:a 320k -ac 2 -ar 48000 -movflags +faststart "%UPLOAD_OUTPUT%"
+"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk %MAIN_HWACCEL_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%FRAME_POST_FILTER%,format=yuv420p%UPLOAD_SUB_FILTER%[vout]" -map "[vout]" -map 0:a:0? -map_metadata 0 -c:v libx264 -profile:v high -pix_fmt yuv420p %UPLOAD_CODEC_ARGS% -pass 2 -passlogfile "%UPLOAD_PASSLOG%" -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -c:a aac -b:a 256k -ac 2 -ar 48000 -movflags +faststart "%UPLOAD_OUTPUT%"
 set "UPLOAD_RUN_RC=%ERRORLEVEL%"
 popd
 call :CLEAN_X264_PASSLOG
@@ -2685,7 +2726,7 @@ if /i "%UPLOAD_MODE%"=="X264" echo Upload codec : libx264 / High / yuv420p / slo
 if /i not "%UPLOAD_MODE%"=="X264" echo Upload codec : H.264 NVENC / High / yuv420p / preset p7
 echo Quality      : %UPLOAD_LABEL%
 if /i "%UPLOAD_MODE%"=="X264" echo VBV          : max %UPLOAD_MAXRATE% / buf %UPLOAD_BUFSIZE%
-echo Audio        : AAC 320k stereo / 48 kHz
+echo Audio        : AAC 256k stereo / 48 kHz
 if "%ENABLE_UPLOAD_SUBTITLE%"=="1" echo Hard subtitle: Inherited from main AV1 output
 echo.
 
@@ -2700,7 +2741,7 @@ pushd "%INDIR%"
 rem Hard subtitles, when enabled, are already baked into the main AV1 picture.
 rem Respect the same B-frame / Temporal-AQ switches as the main encode.
 if /i "%UPLOAD_MODE%"=="X264" goto RUN_AV1_UPLOAD_X264
-"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -c:v libdav1d -i "%OUTPUT%" -map 0:v:0 -map 0:a:0? -map_metadata 0 -vf "format=yuv420p%UPLOAD_SUB_FILTER%" -c:v h264_nvenc -gpu %CUDA_DEVICE% -profile:v high -pix_fmt yuv420p %UPLOAD_CODEC_ARGS% %UPLOAD_CAP_ARGS% -c:a aac -b:a 320k -ac 2 -ar 48000 -movflags +faststart "%UPLOAD_OUTPUT%"
+"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -c:v libdav1d -i "%OUTPUT%" -map 0:v:0 -map 0:a:0? -map_metadata 0 -vf "format=yuv420p%UPLOAD_SUB_FILTER%" -c:v h264_nvenc -gpu %CUDA_DEVICE% -profile:v high -pix_fmt yuv420p %UPLOAD_CODEC_ARGS% %UPLOAD_CAP_ARGS% -c:a aac -b:a 256k -ac 2 -ar 48000 -movflags +faststart "%UPLOAD_OUTPUT%"
 set "UPLOAD_RUN_RC=%ERRORLEVEL%"
 popd
 call :CLEAN_UPLOAD_SUBTITLE
@@ -2748,7 +2789,7 @@ if not "%UPLOAD_RUN_RC%"=="0" (
 echo.
 echo x264 pass 2/2: final encode...
 pushd "%INDIR%"
-"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -c:v libdav1d -i "%OUTPUT%" -map 0:v:0 -map 0:a:0? -map_metadata 0 -vf "format=yuv420p%UPLOAD_SUB_FILTER%" -c:v libx264 -profile:v high -pix_fmt yuv420p %UPLOAD_CODEC_ARGS% -pass 2 -passlogfile "%UPLOAD_PASSLOG%" -c:a aac -b:a 320k -ac 2 -ar 48000 -movflags +faststart "%UPLOAD_OUTPUT%"
+"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -c:v libdav1d -i "%OUTPUT%" -map 0:v:0 -map 0:a:0? -map_metadata 0 -vf "format=yuv420p%UPLOAD_SUB_FILTER%" -c:v libx264 -profile:v high -pix_fmt yuv420p %UPLOAD_CODEC_ARGS% -pass 2 -passlogfile "%UPLOAD_PASSLOG%" -c:a aac -b:a 256k -ac 2 -ar 48000 -movflags +faststart "%UPLOAD_OUTPUT%"
 set "UPLOAD_RUN_RC=%ERRORLEVEL%"
 popd
 call :CLEAN_X264_PASSLOG
@@ -3068,9 +3109,13 @@ goto SHOW_AV1_REMAINING_COMMANDS
 echo [Encode] "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %ACTIVE_DEINT_HW_ARGS% -i "%INPUT%" -filter_complex "[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%CROP_FILTER%format=gbrp16le,split=2[lutorig][lutsrc];[lutsrc]lut3d=file=filmlook.cube:interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=p010le%LETTERBOX_FILTER%%MAIN_SUB_FILTER%[vout]" -map "[vout]" -an -sn -dn -c:v av1_nvenc -gpu %CUDA_DEVICE% -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune %ENCODER_TUNE% -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
 
 :SHOW_AV1_REMAINING_COMMANDS
-echo [Grain] "%GRAV1SYNTH%" apply "%TMP_BASE%" -o "%TMP_GRAIN%" %GRAIN_APPLY_ARGS% --replace -y
+if /i "%GRAIN_MODE%"=="TABLE" (
+    echo [Grain] "%GRAV1SYNTH%" apply "%TMP_BASE%" -o "%TMP_GRAIN%" --grain "%GRAIN_TABLE_PATH%" --replace -y
+) else (
+    echo [Grain] "%GRAV1SYNTH%" apply "%TMP_BASE%" -o "%TMP_GRAIN%" %GRAIN_APPLY_ARGS% --replace -y
+)
 echo [Remux] "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -i "%TMP_GRAIN%" -i "%INPUT%" -map 0:v:0 %AV1_FINAL_REMUX_MAP% -map_metadata 1 -map_chapters 1 %AV1_FINAL_REMUX_CODEC% %AV1_FINAL_REMUX_EXTRA% "%OUTPUT%"
-if "%ENABLE_UPLOAD_BAKE%"=="1" if /i not "%UPLOAD_MODE%"=="X264" echo [Upload] "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -c:v libdav1d -i "%OUTPUT%" -map 0:v:0 -map 0:a:0? -map_metadata 0 -c:v h264_nvenc -gpu %CUDA_DEVICE% -profile:v high -pix_fmt yuv420p %UPLOAD_CODEC_ARGS% %UPLOAD_CAP_ARGS% -c:a aac -b:a 320k -ac 2 -ar 48000 -movflags +faststart "%UPLOAD_OUTPUT%"
+if "%ENABLE_UPLOAD_BAKE%"=="1" if /i not "%UPLOAD_MODE%"=="X264" echo [Upload] "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -c:v libdav1d -i "%OUTPUT%" -map 0:v:0 -map 0:a:0? -map_metadata 0 -c:v h264_nvenc -gpu %CUDA_DEVICE% -profile:v high -pix_fmt yuv420p %UPLOAD_CODEC_ARGS% %UPLOAD_CAP_ARGS% -c:a aac -b:a 256k -ac 2 -ar 48000 -movflags +faststart "%UPLOAD_OUTPUT%"
 if "%ENABLE_UPLOAD_BAKE%"=="1" if /i "%UPLOAD_MODE%"=="X264" echo [Upload x264] 2-pass / preset slow / tune grain / %UPLOAD_BITRATE%
 exit /b 0
 

@@ -25,12 +25,13 @@ Studio 打开后会自动加入文件列表。
 - 逐行素材使用自动电影帧率或保持源帧率。
 - Cinematic Style（默认开启）：HEVC / AV1 均可选择加黑边保留原分辨率，
   或裁剪为约 2.39:1 有效画面；默认加黑边，适合后期字幕。
-- NVIDIA GPU / 驱动 / FFmpeg 能力自动探测；界面同时显示驱动与 FFmpeg 版本；已验证 RTX 4080 与 T600 Laptop。
+- NVIDIA GPU / 驱动 / FFmpeg 能力自动探测；界面同时显示驱动与 FFmpeg 版本；能力状态显示“配置：已适配 / 已缓存”；已验证 RTX 4080 与 T600 Laptop。
 - 右上角“配置…”统一管理 FFmpeg 目录、grav1synth、Grain 与 LUT 路径，并写入根目录 FilmGrain_Config.ini。
 - 四项路径均提供“浏览…”与 ↻ 刷新：浏览选择后立即检测；手工输入后点击 ↻ 检测。
 - FFmpeg 显示 ffmpeg.exe / ffprobe.exe 版本；grav1synth 显示版本；Grain 同时统计原始 MOV、原分辨率/1080p Cache，并可补齐缺失缓存；LUT 同时统计 .cube 与 Gallery 预览图，并可创建缺失缩略图。
 - 保存时只做快速路径存在性检查，不重新运行版本检测或递归扫描。
 - AV1 胶片颗粒元数据支持胶片预设 / 感光度 ISO、胶片格式、胶片型号，以及亮度 + 色度。
+- AV1 另支持现成 .tbl / .txt Grain Table；_AV1_Grain_Tables 按 720p / 1080p / 1440p / 2160p 分类，GUI 默认只显示与源视频最接近的档位，勾选右侧无文字复选框可显示全部。
 - AV1 / HEVC 均可选“同时生成 H.264 上传版”：NVENC P7 固定 6000 / 8000 / 15000 kbps，
   或 x264 Slow + tune grain + 2-pass 的推荐 / 高质量 / 极高三档。
 - x264 Grain 码率按实际输出 FPS + 分辨率自动联动；默认普通动态使用 0.5× 预算，
@@ -100,7 +101,7 @@ Utils\FilmGrain_Subtitle_Prepare.ps1
 FilmGrain_Universal_HEVC_AV1_CLI.bat
     CLI 入口，直接进入同一 StudioBridge 核心的交互模式，可独立拖放使用。
 
-请保持两个入口 BAT、Utils 与 _LUT_Tools 文件夹的相对位置不变。
+请保持两个入口 BAT、Utils、_LUT_Tools 与 _AV1_Grain_Tables 文件夹的相对位置不变。
 
 历史变更
 --------

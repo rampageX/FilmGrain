@@ -5,12 +5,12 @@
 项目包含两条可切换的 Film Grain 处理路线：
 
 - **HEVC Main10 + 真实扫描 Grain Plate**：将真实胶片颗粒合成到视频像素中。
-- **AV1 Main10 + grav1synth Film Grain**：将颗粒模型写入 AV1 Film Grain metadata，由播放器在解码时合成。
+- **AV1 Main10 + grav1synth Film Grain**：将颗粒模型写入 AV1 Film Grain metadata，由播放器在解码时合成；除内置 Film Preset / Photon ISO 外，还可直接加载现成 `.tbl / .txt` Grain Table。
 
-当前正式稳定版为 **v4.3.1**，发布包名称：
+当前正式稳定版为 **v4.4.1**，发布包名称：
 
 ```text
-FilmGrain_Studio_v4.3.1_Stable.zip
+FilmGrain_Studio_v4.4.1_Stable.zip
 ```
 
 所有独立脚本使用固定文件名，不再包含组件版本号；版本号只体现在整个项目的发布压缩包上。升级时建议完整替换工具包，避免新旧脚本混用。
@@ -53,7 +53,7 @@ AV1 Film Grain Synthesis 采用另一种方式：编码相对干净的画面，�
 
 | 项目 | HEVC + 扫描 Grain | AV1 + grav1synth |
 |---|---|---|
-| Grain 来源 | 真实胶片扫描素材 | Film Preset 或 Photon ISO 模型 |
+| Grain 来源 | 真实胶片扫描素材 | Film Preset、Photon ISO 或现成 Grain Table |
 | 是否写进像素 | 是 | 否，由解码器合成 |
 | 低码率效率 | 较低 | 很高 |
 | 播放兼容性 | 较好 | 依赖播放器正确支持 AV1 Film Grain |
@@ -92,9 +92,15 @@ _LUT_Tools\
     LUT_Preview_Batch_Gallery.ps1
     LUT_Reference_Default.jpg
     LUT_Reference_Current.jpg    # 用户更换参考图后自动生成；发布包默认不存在
+_AV1_Grain_Tables\
+    README.txt                   # Grain Table 来源、分辨率分类与使用说明
+    720p\
+    1080p\
+    1440p\
+    2160p\
 ```
 
-请保持两个入口 BAT、`Utils` 与 `_LUT_Tools` 的相对位置不变。
+请保持两个入口 BAT、`Utils`、`_LUT_Tools` 与 `_AV1_Grain_Tables` 的相对位置不变。
 
 ---
 
@@ -128,7 +134,7 @@ GUI 和 CLI 启动时会调用 `Utils\FilmGrain_Hardware_Caps.ps1`，对当前 G
 | NVDEC CUDA / Vulkan | 只在通过实际路径测试后启用 |
 | AV1 UHQ | 只在 `-tune uhq` 微型编码成功时显示 |
 
-能力结果会写入 `Utils\_HardwareCaps.json`。GPU、驱动、FFmpeg 文件或探测规则变化后会自动重新检测；环境未变时直接读取缓存。新包首次启动显示 `Detected` 属于正常现象，关闭并再次启动后应显示 `Cached`。
+能力结果会写入 `Utils\_HardwareCaps.json`。GPU、驱动、FFmpeg 文件或探测规则变化后会自动重新检测；环境未变时直接读取缓存。新包首次完成能力探测后显示 `配置：已适配`；环境未变化、后续直接读取缓存时显示 `配置：已缓存`。
 
 RTX 4080 可自动启用 AV1、B-frame、AQ、Lookahead 及其他已通过测试的功能；T600 Laptop 会自动回退 HEVC，并移除不支持的 B-frame、Temporal AQ 等参数，无需手动切换硬件配置。
 
@@ -153,6 +159,29 @@ FilmGrain_Universal_HEVC_AV1_GUI.bat
 3. 按需选择 Cinematic Style 的“加黑边 / 裁剪”、Film Grain 与 LUT。
 4. 点击“开始编码”。
 5. 在任务区查看当前阶段、进度、`fps`、`speed`、`ETA` 与完整日志。
+
+### AV1 现成 Grain Table
+
+AV1 的“颗粒方式”新增 **`现成 Grain Table（影视 / Photon）`**。GUI 会递归扫描项目根目录 `_AV1_Grain_Tables` 中的 `.tbl` 与 `.txt`。用户侧目录推荐按 `720p / 1080p / 1440p / 2160p` 分类；表仍可继续放更深的子目录，扫描逻辑不受影响。默认不再把全部表塞进下拉菜单：读取源视频分辨率后，GUI 会按画面宽度自动匹配最接近的档位（≤1280→720p、≤1920→1080p、≤2560→1440p、>2560→2160p），只显示该档位目录中的表；刷新按钮右侧的无文字复选框勾选后才显示全部分辨率。复选框提供 ToolTip 提示当前自动匹配档位。GUI 会解析旧式 `1080p` 命名以及新式 `3840x2160` 实际帧尺寸，例如：
+
+```text
+LOTR FOTR Remastered · Light · 1080p · B/W · AOM
+Star Trek TNG · Medium · 1080p · Color · SVT · P2
+16mm · ISO 1000 · Medium · 1080p · Size8 · Photon
+ISO 400 · 3840×2160 · sRGB · Photon
+ISO 800 · 3840×2160 · BT.2020 · Photon
+```
+
+推荐的现成 Grain Table 仓库：
+
+- [Boulder08 / chunknorris](https://github.com/Boulder08/chunknorris) — `av1-graintables` 中包含多种影视来源、AOM / SVT 与 Photon Noise 表。
+- [nekotrix / AV1-Photon-Noise-Tables](https://github.com/nekotrix/AV1-Photon-Noise-Tables) — 提供大量按实际分辨率生成的 Photon Noise 表，尤其适合 1440p / 4K。
+
+Chunk Norris 已下载的影视表可按文件名分辨率移入对应目录。4K / 2160p Photon Noise 可优先使用 `nekotrix/AV1-Photon-Noise-Tables`；该库不只有 3840×2160，还包含 3840×1600、1604、1608、1616、1632、2016、2064、2080 等实际电影画幅尺寸。同一档位内，带实际 `宽x高` 命名的表会按与源视频尺寸的接近程度优先排序，因此 3840×1600 素材会把 3840×1600 / 1608 / 1616 一类表排在 3840×2160 前面。实测建议优先选 **与源/最终输出宽高完全一致** 的 Grain Table，其次才按 2160p / 1440p / 1080p 级别近似匹配。
+
+选择 Grain Table 模式后，Film 格式、Film stock、ISO 与 Chroma 参数自动禁用，因为颗粒参数已由表文件本身决定。普通 AV1 重编码与“AV1 不重编码 · 添加/替换胶片颗粒”两条路线均使用同一张表，通过 grav1synth `apply --grain <FILE> --replace` 注入。Grain Table 分支的 GUI 后台 CMD、临时结果文件与 .NET 日志读取统一使用 UTF-8，避免中文路径与状态文字乱码。
+
+v4.4.1 已将现成 Grain Table 路线正式纳入 Studio；Film Preset、Photon ISO、HEVC Grain Plate、LUT、反交错、字幕、Cinematic 与上传版等既有路线继续保持原有逻辑。
 
 ### CLI 命令行
 
@@ -181,7 +210,7 @@ GUI 与 CLI 的输出均保存在源视频所在目录。已有同名输出时�
 - 逐行素材可使用自动电影帧率或保持源帧率；
 - NVIDIA GPU / 驱动 / FFmpeg 能力自动探测与缓存；
 - HEVC / AV1 统一 Cinematic Style：可烘焙上下黑边并保持原分辨率，或裁剪为约 2.39:1 有效画面；
-- AV1 Film Preset、Photon ISO、Film 格式、Film stock 与 Chroma Grain；
+- AV1 Film Preset、Photon ISO、Film 格式、Film stock 与 Chroma Grain；另支持 `_AV1_Grain_Tables` 现成 `.tbl / .txt` Grain Table，按分辨率自动筛选并解析常见命名；
 - HEVC Grain 根目录递归扫描，只显示电脑上实际存在的 `.mov` Grain Plate；配置界面可检测原分辨率 / 1080p Cache 完整度，并直接生成缺失高速缓存；
 - 编码时自动匹配 1080p 或原分辨率 HEVC Lossless Grain Cache；
 - LUT Gallery、最近使用、我的最爱、缩略图预览、参考图更换及 LUT 强度；更换参考图后会在 `_LUT_Tools` 保存 `LUT_Reference_Current.jpg`，后续从配置界面补建缺失缩略图或独立运行预览生成器时优先复用该当前参考图；不存在时才回退 `LUT_Reference_Default.jpg`；
@@ -217,7 +246,7 @@ GUI 与 CLI 的输出均保存在源视频所在目录。已有同名输出时�
 
 **MKV**：尽量复制并保留原始音频、字幕、附件、数据流、章节与 metadata，更适合完整归档。
 
-可选的 H.264 社交平台上传版使用独立的 AAC 320 kbps 设置。
+可选的 H.264 社交平台上传版使用独立的 AAC 256 kbps 设置。
 
 ---
 
@@ -564,7 +593,7 @@ bufsize = 平均码率 × 6
 - 不启用黑边时，字幕会直接位于视频画面底部，允许覆盖少量原始画面；
 - Cinematic 裁剪后同样以裁剪后的最终输出底边作为定位基准。
 
-H.264 上传版音频统一为 **AAC 320 kbps / stereo / 48 kHz**。
+H.264 上传版音频统一为 **AAC 256 kbps / stereo / 48 kHz**。
 
 ### 独立转换工具
 
@@ -579,7 +608,7 @@ AV1 + Film Grain metadata
     ↓ libdav1d 解码并合成颗粒像素
 H.264 NVENC
     ↓
-AAC 320k / MP4 / faststart
+AAC 256k / MP4 / faststart
 ```
 
 输出文件名带 `_UPLOAD_H264_GRAIN.mp4`，适合作为视频平台上传母版。
@@ -628,7 +657,7 @@ GUI 在所选视频信息中会使用 `grav1synth inspect` 显示当前 AV1 的�
 - v4.3.0 起自动命名区分首次添加与替换：首次添加为 `_AV1FG_<Preset>_ADDED`，已有颗粒再次处理为 `_AV1FG_<Preset>_REPLACED`；
 - 连续替换时会先清理文件名末尾由本项目生成的旧 `_AV1FG_..._ADDED/REPLACED` 链，只保留当前颗粒信息，避免文件名不断增长；
 - 默认输出 MKV 并尽量保留原始流；
-- MP4 模式将音频转换为 AAC 320 kbps，并省略字幕、附件和数据流；
+- MP4 模式将音频转换为 AAC 256 kbps，并省略字幕、附件和数据流；
 - 失败时默认保留临时目录和日志；
 - 非 AV1 视频会被跳过。
 

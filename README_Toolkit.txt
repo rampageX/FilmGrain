@@ -28,9 +28,14 @@ _LUT_Tools\
     LUT_Preview_Batch_Gallery.ps1
     LUT_Reference_Default.jpg
     LUT_Reference_Current.jpg  （用户更换参考图后自动生成；发布包默认不存在）
+_AV1_Grain_Tables\
+    720p\
+    1080p\
+    1440p\
+    2160p\
 
-根目录保留 CLI / GUI 两个 BAT 入口以及 FilmGrain_Config.ini。请保持 Utils、README 和
-_LUT_Tools 文件夹的相对位置不变。
+根目录保留 CLI / GUI 两个 BAT 入口以及 FilmGrain_Config.ini。请保持 Utils、README、
+_LUT_Tools 与 _AV1_Grain_Tables 文件夹的相对位置不变。
 
 统一依赖与默认路径
 ------------------
@@ -48,6 +53,7 @@ FilmGrain_Universal_HEVC_AV1_CLI.bat
 
 功能：
 - AV1 Main10：NVENC 编码后由 grav1synth 写入 Film Grain metadata。
+- AV1 Grain 可使用内置 Film Preset / Photon ISO，也可加载 _AV1_Grain_Tables 中现成 .tbl / .txt；GUI 默认按源视频分辨率档位过滤。
 - HEVC Main10：使用扫描 Grain plate、Vulkan overlay 和 NVENC 编码。
 - 共享速度、画幅、反交错、帧率、容器、LUT Gallery、码率和批量处理菜单。
 - 默认编码方式：AV1。
@@ -98,7 +104,7 @@ Utils\AV1_Grav1synth_Add_Replace_FilmGrain_NoReencode.bat
 
 脚本不重新编码视频，只将 AV1 视频流复制到 IVF，使用 grav1synth 添加或
 替换 Film Grain metadata，再封装为 MKV 或 MP4，并检查最终 Film Grain。
-默认输出 MKV；MP4 模式会将音频转换为 AAC 320k。
+默认输出 MKV；MP4 模式会将音频转换为 AAC 256k。
 Studio GUI 在单个 AV1 输入时也会提供“AV1 不重编码 · 添加/替换胶片颗粒”，
 并自动禁用需要重新编码的视频处理功能；所选 AV1 会显示胶片颗粒为无、亮度或亮度 + 色度。
 

@@ -61,6 +61,7 @@ $Ffmpeg = [string]$script:PathConfig.FFMPEG
 $Ffprobe = [string]$script:PathConfig.FFPROBE
 $Grav1synth = [string]$script:PathConfig.GRAV1SYNTH
 $DefaultGrainRoot = [string]$script:PathConfig.GRAIN_ROOT
+$DefaultAv1GrainTableRoot = Join-Path $PackageRoot '_AV1_Grain_Tables'
 $HardwareCapsScript = Join-Path $ScriptRoot 'FilmGrain_Hardware_Caps.ps1'
 $HardwareCapsCache = Join-Path $ScriptRoot '_HardwareCaps.json'
 $LutRoot = [string]$script:PathConfig.LUT_ROOT
@@ -89,6 +90,8 @@ $script:ChangingCodec = $false
 $script:ModeBitrate = @{ 0 = '1500'; 1 = '7500' }
 $script:HevcGrainFiles = @()
 $script:LastScannedGrainRoot = ''
+$script:Av1GrainTableFiles = @()
+$script:LastScannedAv1GrainTableRoot = ''
 $script:ProbeProcess = $null
 $script:ProbeOutputTask = $null
 $script:ProbeErrorTask = $null
@@ -273,7 +276,12 @@ function Update-HardwareProfileUi {
         $av1Text = $yesNo[[int]$script:Av1Available]
         $av1UhqText = $yesNo[[int]$script:Av1UhqAvailable]
         $hevcText = $yesNo[[int]$script:HevcAvailable]
-        $profileNote.Text = "驱动：$($script:HardwareCaps.gpu.driverVersion) · FFmpeg：$ffmpegVersion · 配置：$($script:HardwareCaps.cacheState)`r`nAV1 Main10：$av1Text · UHQ：$av1UhqText；HEVC/Vulkan：$hevcText；其余参数按实测启用。"
+        $cacheStateText = switch ([string]$script:HardwareCaps.cacheState) {
+            'Detected' { '已适配' }
+            'Cached'   { '已缓存' }
+            default    { [string]$script:HardwareCaps.cacheState }
+        }
+        $profileNote.Text = "驱动：$($script:HardwareCaps.gpu.driverVersion) · FFmpeg：$ffmpegVersion · 配置：$cacheStateText`r`nAV1 Main10：$av1Text · UHQ：$av1UhqText；HEVC/Vulkan：$hevcText；其余参数按实测启用。"
         $cmbGpu.Items.Clear()
         [void]$cmbGpu.Items.Add(([string]$script:HardwareCaps.gpu.name + '（自动检测）'))
         $cmbGpu.SelectedIndex = 0
@@ -635,7 +643,7 @@ $grainHost.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 5, 5,
 $pnlAv1 = New-Object System.Windows.Forms.TableLayoutPanel
 $pnlAv1.Dock = 'Fill'
 $pnlAv1.ColumnCount = 2
-$pnlAv1.RowCount = 5
+$pnlAv1.RowCount = 6
 $av1LabelCol = New-Object System.Windows.Forms.ColumnStyle
 $av1LabelCol.SizeType = [System.Windows.Forms.SizeType]::Absolute
 $av1LabelCol.Width = 100
@@ -644,9 +652,9 @@ $av1ValueCol = New-Object System.Windows.Forms.ColumnStyle
 $av1ValueCol.SizeType = [System.Windows.Forms.SizeType]::Percent
 $av1ValueCol.Width = 100
 [void]$pnlAv1.ColumnStyles.Add($av1ValueCol)
-for ($i = 0; $i -lt 5; $i++) { Add-RowPercent $pnlAv1 (100 / 5) }
+for ($i = 0; $i -lt 6; $i++) { Add-RowPercent $pnlAv1 (100 / 6) }
 
-$cmbAv1Method = New-ComboBox @('胶片预设（推荐）', '感光度 ISO（高级）') 0
+$cmbAv1Method = New-ComboBox @('胶片预设（推荐）', '感光度 ISO（高级）', '现成 Grain Table（影视 / Photon）') 0
 $cmbAv1Format = New-ComboBox @('Classic35 · Super 35', 'Modern35 · Full-frame', '16mm · Coarser', 'Super8 · Heavy', 'MaxMid · Synthetic') 0
 $cmbAv1Stock = New-ComboBox @('Fujifilm Eterna 250D', 'Fujifilm Eterna 500T', 'Kodak Vision3 250D', 'Kodak Vision3 200T') 0
 
@@ -663,11 +671,46 @@ $chkChroma.Text = '亮度 + 色度（默认仅亮度）'
 $chkChroma.Dock = 'Fill'
 $chkChroma.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 7, 4, 3, 3
 
+$av1TablePanel = New-Object System.Windows.Forms.TableLayoutPanel
+$av1TablePanel.Dock = 'Fill'
+$av1TablePanel.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0
+$av1TablePanel.ColumnCount = 3
+$av1TablePanel.RowCount = 1
+$av1TableComboCol = New-Object System.Windows.Forms.ColumnStyle
+$av1TableComboCol.SizeType = [System.Windows.Forms.SizeType]::Percent
+$av1TableComboCol.Width = 100
+[void]$av1TablePanel.ColumnStyles.Add($av1TableComboCol)
+$av1TableRefreshCol = New-Object System.Windows.Forms.ColumnStyle
+$av1TableRefreshCol.SizeType = [System.Windows.Forms.SizeType]::Absolute
+$av1TableRefreshCol.Width = 42
+[void]$av1TablePanel.ColumnStyles.Add($av1TableRefreshCol)
+$av1TableAllCol = New-Object System.Windows.Forms.ColumnStyle
+$av1TableAllCol.SizeType = [System.Windows.Forms.SizeType]::Absolute
+$av1TableAllCol.Width = 28
+[void]$av1TablePanel.ColumnStyles.Add($av1TableAllCol)
+
+$cmbAv1GrainTable = New-ComboBox @('正在扫描 Grain Table…') 0
+$cmbAv1GrainTable.DropDownWidth = 560
+$cmbAv1GrainTable.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 4, 5, 3, 5
+$btnRefreshAv1Table = New-Object System.Windows.Forms.Button
+$btnRefreshAv1Table.Text = '↻'
+$btnRefreshAv1Table.Dock = 'Fill'
+$btnRefreshAv1Table.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0, 4, 0, 4
+$chkShowAllAv1Tables = New-Object System.Windows.Forms.CheckBox
+$chkShowAllAv1Tables.Text = ''
+$chkShowAllAv1Tables.Checked = $false
+$chkShowAllAv1Tables.Dock = 'Fill'
+$chkShowAllAv1Tables.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 6, 4, 0, 4
+[void]$av1TablePanel.Controls.Add($cmbAv1GrainTable, 0, 0)
+[void]$av1TablePanel.Controls.Add($btnRefreshAv1Table, 1, 0)
+[void]$av1TablePanel.Controls.Add($chkShowAllAv1Tables, 2, 0)
+
 Add-LabeledRow $pnlAv1 0 '颗粒方式' $cmbAv1Method
 Add-LabeledRow $pnlAv1 1 '胶片格式' $cmbAv1Format
 Add-LabeledRow $pnlAv1 2 '胶片型号' $cmbAv1Stock
 Add-LabeledRow $pnlAv1 3 '感光度 ISO' $numIso
-[void]$pnlAv1.Controls.Add($chkChroma, 0, 4)
+Add-LabeledRow $pnlAv1 4 'Grain Table' $av1TablePanel
+[void]$pnlAv1.Controls.Add($chkChroma, 0, 5)
 $pnlAv1.SetColumnSpan($chkChroma, 2)
 [void]$grainHost.Controls.Add($pnlAv1)
 
@@ -900,6 +943,9 @@ $lblLutStrength.Enabled = $false
 $toolTip = New-Object System.Windows.Forms.ToolTip
 $toolTip.SetToolTip($btnGrainRoot, '选择颗粒根目录')
 $toolTip.SetToolTip($btnRefreshGrain, '重新扫描根目录中的 .mov 颗粒片')
+$toolTip.SetToolTip($cmbAv1GrainTable, '默认仅显示与源视频分辨率最接近的 Grain Table 档位。')
+$toolTip.SetToolTip($btnRefreshAv1Table, '重新扫描 _AV1_Grain_Tables。')
+$toolTip.SetToolTip($chkShowAllAv1Tables, '显示全部分辨率 Grain Table；默认仅显示与源视频最接近的分辨率档位。')
 $toolTip.SetToolTip($btnUploadSubtitle, '硬字幕独立于 H.264 上传版；启用后烧写到主输出，若同时生成 H.264 上传版则副本也包含同一字幕。默认距最终输出画面下沿 5px、水平居中。')
 $toolTip.SetToolTip($cmbUploadBitrate, 'NVENC：固定 6M / 8M / 15M。x264 Grain：按实际输出 FPS 与分辨率自动换算；分辨率按相对 1080p 像素面积平方根缩放。默认普通动态再乘 0.5，高动态视频勾选后使用完整码率。x264 使用 Slow + tune grain + 2-pass，VBV Max=3×、Buf=6×。')
 $toolTip.SetToolTip($chkUploadHighMotion, '仅影响 x264 Grain FPS联动模式。默认不勾选：自动计算码率减半；勾选：使用完整高动态码率。NVENC 不受影响。')
@@ -1409,6 +1455,7 @@ function Start-VideoProbe {
         } else {
             Stop-Av1GrainInspect
         }
+        if ($cmbAv1Method.SelectedIndex -eq 2 -and -not $chkShowAllAv1Tables.Checked) { Refresh-Av1GrainTables }
         return
     }
 
@@ -1605,6 +1652,7 @@ $probeTimer.Add_Tick({
         Set-MediaInfoText $summary
         Update-DeinterlaceUi
         Update-NoReencodeAvailability
+        if ($cmbAv1Method.SelectedIndex -eq 2 -and -not $chkShowAllAv1Tables.Checked) { Refresh-Av1GrainTables }
         if ($videoMeta.Count -gt 0 -and ([string]$videoMeta[0].codec_name).ToLowerInvariant() -eq 'av1') {
             Start-Av1GrainInspect $targetPath $summary
         } else {
@@ -1799,12 +1847,263 @@ function Load-BitrateChoices {
     }
 }
 
+function Get-Av1GrainTierFromDimensions {
+    param([int]$Width, [int]$Height)
+    if ($Width -le 0) { return '' }
+    if ($Width -le 1280) { return '720p' }
+    if ($Width -le 1920) { return '1080p' }
+    if ($Width -le 2560) { return '1440p' }
+    return '2160p'
+}
+
+function Get-Av1GrainTableTier {
+    param([string]$Path)
+    if (-not $Path) { return '' }
+    $pathLower = $Path.ToLowerInvariant()
+    if ($pathLower -match '[\\/](720p|1080p|1440p|2160p)([\\/]|$)') {
+        return $matches[1].ToLowerInvariant()
+    }
+
+    $stem = [System.IO.Path]::GetFileNameWithoutExtension($Path)
+    if ($stem -match '(?i)([0-9]{3,4})x([0-9]{3,4})') {
+        return (Get-Av1GrainTierFromDimensions ([int]$matches[1]) ([int]$matches[2]))
+    }
+    if ($stem -match '(?i)(^|[_-])(720p|1080p|1440p|2160p)([_-]|$)') {
+        return $matches[2].ToLowerInvariant()
+    }
+    return ''
+}
+
+function Get-Av1GrainTableDimensions {
+    param([string]$Path)
+    $width = 0
+    $height = 0
+    if ($Path) {
+        $stem = [System.IO.Path]::GetFileNameWithoutExtension($Path)
+        if ($stem -match '(?i)([0-9]{3,4})x([0-9]{3,4})') {
+            $width = [int]$matches[1]
+            $height = [int]$matches[2]
+        }
+    }
+    return [pscustomobject]@{ Width = $width; Height = $height }
+}
+
+function Get-Av1GrainSourceContext {
+    $item = $null
+    $selected = @($listFiles.SelectedItems)
+    if ($selected.Count -eq 1) {
+        $item = $selected[0]
+    } elseif ($listFiles.Items.Count -gt 0) {
+        $item = $listFiles.Items[0]
+    }
+    if ($null -eq $item -or -not $item.Tag) {
+        return [pscustomobject]@{ Width = 0; Height = 0; Tier = ''; Path = '' }
+    }
+
+    $path = [string]$item.Tag
+    $key = $path.ToLowerInvariant()
+    if (-not $script:ProbeVideoMeta.ContainsKey($key)) {
+        return [pscustomobject]@{ Width = 0; Height = 0; Tier = ''; Path = $path }
+    }
+
+    $meta = $script:ProbeVideoMeta[$key]
+    $width = 0
+    $height = 0
+    if ($meta.width) { $width = [int]$meta.width }
+    if ($meta.height) { $height = [int]$meta.height }
+    return [pscustomobject]@{
+        Width = $width
+        Height = $height
+        Tier = (Get-Av1GrainTierFromDimensions $width $height)
+        Path = $path
+    }
+}
+
+function Get-Av1GrainTableSortDistance {
+    param([string]$Path, [int]$SourceWidth, [int]$SourceHeight)
+    $dims = Get-Av1GrainTableDimensions $Path
+    if ($dims.Width -gt 0 -and $dims.Height -gt 0 -and $SourceWidth -gt 0 -and $SourceHeight -gt 0) {
+        return ([Math]::Abs($dims.Width - $SourceWidth) + [Math]::Abs($dims.Height - $SourceHeight))
+    }
+    return 2147483647
+}
+
+function Get-Av1GrainTableDisplayName {
+    param([string]$Path)
+
+    $stem = [System.IO.Path]::GetFileNameWithoutExtension($Path)
+    $pathLower = $Path.ToLowerInvariant()
+    $folder = ([System.IO.Path]::GetFileName([System.IO.Path]::GetDirectoryName($Path))).ToLowerInvariant()
+
+    # Source folders may now sit below resolution folders. Detect from the
+    # whole path so 1080p\AOM\... and imported legacy trees both work.
+    $source = 'Table'
+    if ($pathLower -match '[\\/](aomenc-created|aom)([\\/]|$)') { $source = 'AOM' }
+    elseif ($pathLower -match '[\\/](svt-created|svt)([\\/]|$)') { $source = 'SVT' }
+    elseif ($pathLower -match 'photon') { $source = 'Photon' }
+
+    $resolution = ''
+    $exactResolution = ''
+    if ($stem -match '(?i)([0-9]{3,4})x([0-9]{3,4})') {
+        $exactResolution = $matches[1] + [char]0x00D7 + $matches[2]
+        $w = [int]$matches[1]; $h = [int]$matches[2]
+        if ($w -ge 3800 -or $h -ge 2000) { $resolution = '2160p' }
+        elseif ($w -ge 2500 -or $h -ge 1400) { $resolution = '1440p' }
+        elseif ($w -ge 1900 -or $h -ge 1000) { $resolution = '1080p' }
+        elseif ($w -ge 1200 -or $h -ge 700) { $resolution = '720p' }
+    } elseif ($stem -match '(?i)(^|[_-])(720p|1080p|1440p|2160p)([_-]|$)') {
+        $resolution = $matches[2].ToLowerInvariant()
+    } elseif ($pathLower -match '[\\/](720p|1080p|1440p|2160p)([\\/]|$)') {
+        $resolution = $matches[1].ToLowerInvariant()
+    }
+
+    $strength = ''
+    if ($stem -match '(?i)(^|_)(ultra_high|ultrahigh|heavy|medium|med|light|low)_grain(_|$)') {
+        switch ($matches[2].ToLowerInvariant()) {
+            'ultra_high' { $strength = 'Ultra High' }
+            'ultrahigh'  { $strength = 'Ultra High' }
+            'heavy'      { $strength = 'Heavy' }
+            'medium'     { $strength = 'Medium' }
+            'med'        { $strength = 'Medium' }
+            'light'      { $strength = 'Light' }
+            'low'        { $strength = 'Low' }
+        }
+    }
+
+    $isBw = ($stem -match '(?i)(^|_)BW(_|$)')
+    $pass = ''
+    if ($stem -match '(?i)_P([0-9]+)$') { $pass = 'P' + $matches[1] }
+
+    if ($pathLower -match 'photon' -or $stem -match '(?i)(^|[_-])iso[0-9]+([_-]|$)') {
+        $film = ''
+        if ($stem -match '(?i)(^|[_-])(8mm|16mm|35mm)([_-]|$)') { $film = $matches[2].ToLowerInvariant() }
+        $iso = ''
+        if ($stem -match '(?i)(^|[_-])iso([0-9]+)([_-]|$)') { $iso = 'ISO ' + $matches[2] }
+        $size = ''
+        if ($stem -match '(?i)(^|[_-])size([0-9]+)([_-]|$)') { $size = 'Size' + $matches[2] }
+        $colorSpace = ''
+        if ($stem -match '(?i)(^|[_-])BT2020([_-]|$)') { $colorSpace = 'BT.2020' }
+        elseif ($stem -match '(?i)(^|[_-])SRGB([_-]|$)') { $colorSpace = 'sRGB' }
+        $resLabel = if ($exactResolution) { $exactResolution } else { $resolution }
+        $parts = @($film, $iso, $strength, $resLabel, $colorSpace, $size, $source) | Where-Object { $_ }
+        return ($parts -join ' · ')
+    }
+
+    $title = $stem
+    $title = [System.Text.RegularExpressions.Regex]::Replace($title, '(?i)_P[0-9]+$', '')
+    $title = [System.Text.RegularExpressions.Regex]::Replace($title, '(?i)(^|_)BW(?=_|$)', '$1')
+    $title = [System.Text.RegularExpressions.Regex]::Replace($title, '(?i)(^|_)(720p|1080p|1440p|2160p)(?=_|$)', '$1')
+    $title = [System.Text.RegularExpressions.Regex]::Replace($title, '(?i)(^|_)(ultra_high|ultrahigh|heavy|medium|med|light|low)_grain(?=_|$)', '$1')
+    $title = [System.Text.RegularExpressions.Regex]::Replace($title, '_+', ' ').Trim()
+
+    $plane = if ($isBw) { 'B/W' } else { 'Color' }
+    $resLabel = if ($exactResolution) { $exactResolution } else { $resolution }
+    $parts = @($title, $strength, $resLabel, $plane, $source, $pass) | Where-Object { $_ }
+    return ($parts -join ' · ')
+}
+
+function Refresh-Av1GrainTables {
+    $previousPath = ''
+    if ($cmbAv1GrainTable.SelectedIndex -ge 0 -and $cmbAv1GrainTable.SelectedIndex -lt $script:Av1GrainTableFiles.Count) {
+        $previousPath = [string]$script:Av1GrainTableFiles[$cmbAv1GrainTable.SelectedIndex]
+    }
+
+    $script:Av1GrainTableFiles = @()
+    $script:LastScannedAv1GrainTableRoot = $DefaultAv1GrainTableRoot
+    $source = Get-Av1GrainSourceContext
+    $showAll = $chkShowAllAv1Tables.Checked
+    $preferredTier = [string]$source.Tier
+
+    if ($toolTip) {
+        $tip = if ($preferredTier) {
+            "显示全部分辨率 Grain Table；当前源视频自动匹配：$preferredTier。"
+        } else {
+            '显示全部分辨率 Grain Table；读取到源视频分辨率后会自动匹配档位。'
+        }
+        $toolTip.SetToolTip($chkShowAllAv1Tables, $tip)
+    }
+
+    $cmbAv1GrainTable.BeginUpdate()
+    try {
+        $cmbAv1GrainTable.Items.Clear()
+        if (-not (Test-Path -LiteralPath $DefaultAv1GrainTableRoot -PathType Container)) {
+            [void]$cmbAv1GrainTable.Items.Add('未找到 _AV1_Grain_Tables 目录')
+            $cmbAv1GrainTable.SelectedIndex = 0
+            return
+        }
+
+        $files = @(Get-ChildItem -LiteralPath $DefaultAv1GrainTableRoot -Recurse -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Extension -ieq '.tbl' -or $_.Extension -ieq '.txt' } |
+            Where-Object { $_.Name -notmatch '(?i)^README(?:_|\.|$)' })
+
+        if (-not $showAll) {
+            if ($preferredTier) {
+                $files = @($files | Where-Object { (Get-Av1GrainTableTier $_.FullName) -eq $preferredTier })
+            } else {
+                $files = @()
+            }
+        }
+
+        if ($source.Width -gt 0 -and $source.Height -gt 0) {
+            $tierOrder = @{ '720p' = 0; '1080p' = 1; '1440p' = 2; '2160p' = 3; '' = 9 }
+            $preferredOrder = if ($tierOrder.ContainsKey($preferredTier)) { [int]$tierOrder[$preferredTier] } else { 9 }
+            $sortProps = @(
+                @{ Expression = {
+                    $tier = Get-Av1GrainTableTier $_.FullName
+                    if ($showAll -and $tierOrder.ContainsKey($tier)) { [Math]::Abs([int]$tierOrder[$tier] - $preferredOrder) } else { 0 }
+                } }
+                @{ Expression = { Get-Av1GrainTableSortDistance $_.FullName $source.Width $source.Height } }
+                @{ Expression = { $_.FullName } }
+            )
+            $files = @($files | Sort-Object -Property $sortProps)
+        } else {
+            $files = @($files | Sort-Object FullName)
+        }
+
+        foreach ($file in $files) {
+            $script:Av1GrainTableFiles += $file.FullName
+            [void]$cmbAv1GrainTable.Items.Add((Get-Av1GrainTableDisplayName $file.FullName))
+        }
+
+        if ($script:Av1GrainTableFiles.Count -eq 0) {
+            if (-not $showAll -and $preferredTier) {
+                [void]$cmbAv1GrainTable.Items.Add("$preferredTier 目录未扫描到 Grain Table；勾选右侧方框可显示全部")
+            } elseif (-not $showAll -and -not $preferredTier) {
+                [void]$cmbAv1GrainTable.Items.Add('正在等待源视频分辨率；可勾选右侧方框显示全部')
+            } else {
+                [void]$cmbAv1GrainTable.Items.Add('未扫描到 .tbl / .txt')
+            }
+            $cmbAv1GrainTable.SelectedIndex = 0
+            return
+        }
+
+        $selectIndex = 0
+        if ($previousPath) {
+            for ($i = 0; $i -lt $script:Av1GrainTableFiles.Count; $i++) {
+                if ([string]::Equals([string]$script:Av1GrainTableFiles[$i], $previousPath, [System.StringComparison]::OrdinalIgnoreCase)) {
+                    $selectIndex = $i
+                    break
+                }
+            }
+        }
+        $cmbAv1GrainTable.SelectedIndex = $selectIndex
+    } finally {
+        $cmbAv1GrainTable.EndUpdate()
+        Update-Av1Controls
+    }
+}
+
 function Update-Av1Controls {
     $presetMode = ($cmbAv1Method.SelectedIndex -eq 0)
+    $isoMode = ($cmbAv1Method.SelectedIndex -eq 1)
+    $tableMode = ($cmbAv1Method.SelectedIndex -eq 2)
     $cmbAv1Format.Enabled = $presetMode
     $cmbAv1Stock.Enabled = $presetMode -and ($cmbAv1Format.SelectedIndex -lt 3)
-    $numIso.Enabled = -not $presetMode
-    $chkChroma.Enabled = -not $presetMode
+    $numIso.Enabled = $isoMode
+    $chkChroma.Enabled = $isoMode
+    $cmbAv1GrainTable.Enabled = $tableMode -and ($script:Av1GrainTableFiles.Count -gt 0)
+    $btnRefreshAv1Table.Enabled = $tableMode
+    $chkShowAllAv1Tables.Enabled = $tableMode
 }
 
 function Update-SpeedChoices {
@@ -1906,7 +2205,7 @@ function Update-CodecUi {
     if ($newIndex -eq 2) {
         $script:NoReencodeUiActive = $true
         if ($cmbContainer.Items.Count -ge 2) {
-            $cmbContainer.Items[0] = 'MP4 · AAC 320k（兼容模式）'
+            $cmbContainer.Items[0] = 'MP4 · AAC 256k（兼容模式）'
             $cmbContainer.Items[1] = 'MKV · 保留原始流（推荐）'
         }
         $pnlHevc.Visible = $false
@@ -2750,6 +3049,20 @@ function Start-NoReencodeProcessing {
         return
     }
 
+    $selectedAv1GrainTable = ''
+    if ($cmbAv1Method.SelectedIndex -eq 2) {
+        if ($script:Av1GrainTableFiles.Count -eq 0 -or $cmbAv1GrainTable.SelectedIndex -lt 0 -or $cmbAv1GrainTable.SelectedIndex -ge $script:Av1GrainTableFiles.Count) {
+            Show-Error '当前没有可用的 Grain Table。请将 .tbl / .txt Grain Table 放入项目根目录 _AV1_Grain_Tables 的对应分辨率目录后点击刷新。'
+            return
+        }
+        $selectedAv1GrainTable = [string]$script:Av1GrainTableFiles[$cmbAv1GrainTable.SelectedIndex]
+        if (-not (Test-Path -LiteralPath $selectedAv1GrainTable -PathType Leaf)) {
+            Refresh-Av1GrainTables
+            Show-Error '所选 Grain Table 已不存在，请刷新后重新选择。'
+            return
+        }
+    }
+
     $script:RunWasCancelled = $false
     $script:RunCompletionHandled = $false
     $script:OutputReadTask = $null
@@ -2768,7 +3081,10 @@ function Start-NoReencodeProcessing {
 
     $cmdPath = $env:ComSpec
     if (-not $cmdPath) { $cmdPath = Join-Path $env:SystemRoot 'System32\cmd.exe' }
-    $inner = 'call ' + (Quote-CmdArgument $NoReencodeBat) + ' ' + (Quote-CmdArgument $path) + ' 2>&1'
+    # The Studio log is read through redirected pipes. Force CMD and the
+    # .NET StreamReaders to the same UTF-8 code page so Chinese file names
+    # and status text cannot fall back to the system OEM code page.
+    $inner = 'chcp 65001 >nul & call ' + (Quote-CmdArgument $NoReencodeBat) + ' ' + (Quote-CmdArgument $path) + ' 2>&1'
 
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $cmdPath
@@ -2778,16 +3094,22 @@ function Start-NoReencodeProcessing {
     $psi.CreateNoWindow = $true
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true
+    $utf8Log = New-Object System.Text.UTF8Encoding($false)
+    $psi.StandardOutputEncoding = $utf8Log
+    $psi.StandardErrorEncoding = $utf8Log
 
     $envs = $psi.EnvironmentVariables
     $envs['FG_STUDIO_MODE'] = '1'
     $envs['FG_TOOL_NO_PAUSE'] = '1'
     $envs['FG_CONTAINER'] = if ($cmbContainer.SelectedIndex -eq 0) { 'MP4' } else { 'MKV' }
-    $envs['FG_AV1_GRAIN_MODE'] = if ($cmbAv1Method.SelectedIndex -eq 0) { 'PRESET' } else { 'ISO' }
+    $av1Modes = @('PRESET', 'ISO', 'TABLE')
+    $envs['FG_AV1_GRAIN_MODE'] = $av1Modes[$cmbAv1Method.SelectedIndex]
     $envs['FG_AV1_FORMAT'] = [string]($cmbAv1Format.SelectedIndex + 1)
     $envs['FG_AV1_STOCK'] = [string]($cmbAv1Stock.SelectedIndex + 1)
     $envs['FG_AV1_ISO'] = [string][int]$numIso.Value
     $envs['FG_AV1_CHROMA'] = if ($chkChroma.Checked) { '1' } else { '0' }
+    if ($selectedAv1GrainTable) { $envs['FG_AV1_GRAIN_TABLE'] = $selectedAv1GrainTable }
+    else { [void]$envs.Remove('FG_AV1_GRAIN_TABLE') }
 
     if ($script:Av1GrainCache.ContainsKey($key)) {
         $grainState = [string]$script:Av1GrainCache[$key]
@@ -2878,6 +3200,20 @@ function Start-Encoding {
         Show-Error '当前 GPU / 驱动 / FFmpeg 不支持 AV1 UHQ，请选择 FAST 或 Standard。'
         return
     }
+    $selectedAv1GrainTable = ''
+    if ($mode -eq 'AV1' -and $cmbAv1Method.SelectedIndex -eq 2) {
+        if ($script:Av1GrainTableFiles.Count -eq 0 -or $cmbAv1GrainTable.SelectedIndex -lt 0 -or $cmbAv1GrainTable.SelectedIndex -ge $script:Av1GrainTableFiles.Count) {
+            Show-Error '当前没有可用的 Grain Table。请将 .tbl / .txt Grain Table 放入项目根目录 _AV1_Grain_Tables 的对应分辨率目录后点击刷新。'
+            return
+        }
+        $selectedAv1GrainTable = [string]$script:Av1GrainTableFiles[$cmbAv1GrainTable.SelectedIndex]
+        if (-not (Test-Path -LiteralPath $selectedAv1GrainTable -PathType Leaf)) {
+            Refresh-Av1GrainTables
+            Show-Error '所选 Grain Table 已不存在，请刷新后重新选择。'
+            return
+        }
+    }
+
     $selectedGrainPath = $null
     if ($mode -eq 'HEVC') {
         $grainRoot = $txtGrainRoot.Text.Trim()
@@ -2938,7 +3274,10 @@ function Start-Encoding {
 
     $quotedInputs = @()
     foreach ($path in $paths) { $quotedInputs += (Quote-CmdArgument $path) }
-    $inner = 'call ' + (Quote-CmdArgument $CoreBat) + ' ' + ($quotedInputs -join ' ') + ' 2>&1'
+    # Keep the hidden CMD code page and .NET redirected readers aligned.
+    # This fixes mojibake in the GUI log for Chinese paths/status messages,
+    # including the existing Grain Table branch.
+    $inner = 'chcp 65001 >nul & call ' + (Quote-CmdArgument $CoreBat) + ' ' + ($quotedInputs -join ' ') + ' 2>&1'
 
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $cmdPath
@@ -2948,6 +3287,9 @@ function Start-Encoding {
     $psi.CreateNoWindow = $true
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true
+    $utf8Log = New-Object System.Text.UTF8Encoding($false)
+    $psi.StandardOutputEncoding = $utf8Log
+    $psi.StandardErrorEncoding = $utf8Log
 
     $envs = $psi.EnvironmentVariables
     $envs['FG_STUDIO_MODE'] = '1'
@@ -3002,11 +3344,14 @@ function Start-Encoding {
     }
 
     if ($mode -eq 'AV1') {
-        $envs['FG_AV1_GRAIN_MODE'] = if ($cmbAv1Method.SelectedIndex -eq 0) { 'PRESET' } else { 'ISO' }
+        $av1Modes = @('PRESET', 'ISO', 'TABLE')
+        $envs['FG_AV1_GRAIN_MODE'] = $av1Modes[$cmbAv1Method.SelectedIndex]
         $envs['FG_AV1_FORMAT'] = [string]($cmbAv1Format.SelectedIndex + 1)
         $envs['FG_AV1_STOCK'] = [string]($cmbAv1Stock.SelectedIndex + 1)
         $envs['FG_AV1_ISO'] = [string][int]$numIso.Value
         $envs['FG_AV1_CHROMA'] = if ($chkChroma.Checked) { '1' } else { '0' }
+        if ($selectedAv1GrainTable) { $envs['FG_AV1_GRAIN_TABLE'] = $selectedAv1GrainTable }
+        else { [void]$envs.Remove('FG_AV1_GRAIN_TABLE') }
     } else {
         $envs['FG_GRAIN_ROOT'] = $txtGrainRoot.Text.Trim()
         $envs['FG_HEVC_GRAIN_PATH'] = $selectedGrainPath
@@ -3773,8 +4118,13 @@ $cmbBitrate.Add_TextChanged({
         $script:ModeBitrate[$cmbCodec.SelectedIndex] = $cmbBitrate.Text.Trim()
     }
 })
-$cmbAv1Method.Add_SelectedIndexChanged({ Update-Av1Controls })
+$cmbAv1Method.Add_SelectedIndexChanged({
+    Update-Av1Controls
+    if ($cmbAv1Method.SelectedIndex -eq 2) { Refresh-Av1GrainTables }
+})
 $cmbAv1Format.Add_SelectedIndexChanged({ Update-Av1Controls })
+$btnRefreshAv1Table.Add_Click({ Refresh-Av1GrainTables })
+$chkShowAllAv1Tables.Add_CheckedChanged({ Refresh-Av1GrainTables })
 
 $trackHevcStrength.Add_ValueChanged({
     $names = @('Light · 65%', 'Natural · 75%', 'Strong · 85%', 'Full · 100%')
@@ -3925,6 +4275,7 @@ $form.Add_FormClosed({ Clear-StudioLutPreview })
 Load-BitrateChoices $cmbCodec.SelectedIndex
 Update-CodecUi
 Update-Av1Controls
+Refresh-Av1GrainTables
 Update-DeinterlaceUi
 Update-FramingUi
 Refresh-RecentLuts

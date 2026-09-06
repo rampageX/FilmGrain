@@ -108,7 +108,7 @@ if exist "%OUTPUT%" (
     goto LOOP
 )
 
-set "CMD="%FFMPEG%" -hide_banner -stats -y -c:v libdav1d -i "%INPUT%" -map 0:v:0 -map 0:a:0? -map_metadata 0 -c:v h264_nvenc -profile:v high -pix_fmt yuv420p -preset p6 -tune hq -rc vbr -b:v %BR% -maxrate:v %MR% -bufsize:v %BS% -multipass fullres -rc-lookahead 32 -spatial-aq 1 -aq-strength %AQ_STRENGTH% -temporal-aq 1 -bf 4 -b_ref_mode middle -c:a aac -b:a 320k -ac 2 -ar 48000 -movflags +faststart "%OUTPUT%""
+set "CMD="%FFMPEG%" -hide_banner -stats -y -c:v libdav1d -i "%INPUT%" -map 0:v:0 -map 0:a:0? -map_metadata 0 -c:v h264_nvenc -profile:v high -pix_fmt yuv420p -preset p6 -tune hq -rc vbr -b:v %BR% -maxrate:v %MR% -bufsize:v %BS% -multipass fullres -rc-lookahead 32 -spatial-aq 1 -aq-strength %AQ_STRENGTH% -temporal-aq 1 -bf 4 -b_ref_mode middle -c:a aac -b:a 256k -ac 2 -ar 48000 -movflags +faststart "%OUTPUT%""
 %CMD%
 
 if errorlevel 1 (

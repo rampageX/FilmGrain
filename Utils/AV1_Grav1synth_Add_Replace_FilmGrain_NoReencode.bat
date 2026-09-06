@@ -98,7 +98,7 @@ echo   - Chapters / metadata preserved
 echo.
 echo MP4:
 echo   - AV1 video stream copy
-echo   - Audio converted to AAC 320k
+echo   - Audio converted to AAC 256k
 echo   - Subtitles / attachments / data omitted
 echo   - Chapters / metadata preserved
 echo   - faststart enabled
@@ -117,9 +117,9 @@ set "FINAL_REMUX_EXTRA="
 if "%CONTAINER_SEL%"=="2" (
     set "EXT=mp4"
     set "CONTAINER_MODE=MP4"
-    set "CONTAINER_LABEL=MP4 compatibility / AAC audio"
+    set "CONTAINER_LABEL=MP4 compatibility / AAC 256k"
     set "FINAL_REMUX_MAP=-map 1:a?"
-    set "FINAL_REMUX_CODEC=-c:v copy -c:a aac -b:a 320k"
+    set "FINAL_REMUX_CODEC=-c:v copy -c:a aac -b:a 256k"
     set "FINAL_REMUX_EXTRA=-movflags +faststart"
 )
 
@@ -131,6 +131,7 @@ rem ============================================================
 if "%FG_STUDIO_MODE%"=="1" (
     set "GRAIN_MODE_SEL=1"
     if /i "%FG_AV1_GRAIN_MODE%"=="ISO" set "GRAIN_MODE_SEL=2"
+    if /i "%FG_AV1_GRAIN_MODE%"=="TABLE" set "GRAIN_MODE_SEL=3"
     goto GRAIN_SOURCE_SELECTED
 )
 
@@ -143,9 +144,10 @@ echo Grain source:
 echo.
 echo   [1] Film preset   ^(default / recommended^)
 echo   [2] Photon ISO    ^(advanced strength control^)
+echo   [3] Grain table   ^(.tbl / .txt via grav1synth --grain^)
 echo.
 set "GRAIN_MODE_SEL=1"
-set /p "GRAIN_MODE_SEL=Select [1-2, default 1]: "
+set /p "GRAIN_MODE_SEL=Select [1-3, default 1]: "
 
 :GRAIN_SOURCE_SELECTED
 set "GRAIN_MODE=PRESET"
@@ -154,6 +156,7 @@ set "GRAIN_LABEL="
 set "GRAIN_FILE_TAG="
 
 if "%GRAIN_MODE_SEL%"=="2" goto GRAIN_PHOTON_MENU
+if "%GRAIN_MODE_SEL%"=="3" goto GRAIN_TABLE_MENU
 
 
 rem ------------------------------------------------------------
@@ -327,6 +330,45 @@ if "%CHROMA_SEL%"=="2" (
 set "GRAIN_APPLY_ARGS=--iso %GRAIN_ISO% %CHROMA_ARGS%"
 set "GRAIN_LABEL=Photon ISO %GRAIN_ISO% / %CHROMA_LABEL%"
 set "GRAIN_FILE_TAG=ISO%GRAIN_ISO%"
+goto GRAIN_MENU_DONE
+
+rem ------------------------------------------------------------
+rem Existing Grain table mode
+rem ------------------------------------------------------------
+
+:GRAIN_TABLE_MENU
+set "GRAIN_MODE=TABLE"
+set "GRAIN_TABLE_PATH="
+if "%FG_STUDIO_MODE%"=="1" (
+    if defined FG_AV1_GRAIN_TABLE set "GRAIN_TABLE_PATH=%FG_AV1_GRAIN_TABLE%"
+) else (
+    echo.
+    echo Grain table file ^(.tbl / .txt^):
+    echo You can drag a table file into this window and press Enter.
+    echo.
+    set /p "GRAIN_TABLE_PATH=Table file: "
+)
+set "GRAIN_TABLE_PATH=%GRAIN_TABLE_PATH:"=%"
+
+if not defined GRAIN_TABLE_PATH (
+    echo ERROR: No Grain table file was selected.
+    exit /b 1
+)
+if not exist "%GRAIN_TABLE_PATH%" (
+    echo ERROR: Grain table file not found:
+    echo "%GRAIN_TABLE_PATH%"
+    exit /b 1
+)
+
+set "FG_TABLE_TAG_SOURCE=%GRAIN_TABLE_PATH%"
+set "GRAIN_TABLE_STEM="
+for /f "usebackq delims=" %%T in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$n=[System.IO.Path]::GetFileNameWithoutExtension($env:FG_TABLE_TAG_SOURCE); $n=[System.Text.RegularExpressions.Regex]::Replace($n,'[^A-Za-z0-9]+','_').Trim('_'); if([string]::IsNullOrWhiteSpace($n)){$n='TABLE'}; if($n.Length -gt 48){$n=$n.Substring(0,48)}; [Console]::Out.Write($n)"`) do set "GRAIN_TABLE_STEM=%%T"
+set "FG_TABLE_TAG_SOURCE="
+if not defined GRAIN_TABLE_STEM set "GRAIN_TABLE_STEM=TABLE"
+set "GRAIN_APPLY_ARGS="
+set "GRAIN_LABEL=Grain Table / %GRAIN_TABLE_STEM%"
+set "GRAIN_FILE_TAG=TABLE_%GRAIN_TABLE_STEM%"
+goto GRAIN_MENU_DONE
 
 :GRAIN_MENU_DONE
 
@@ -394,18 +436,13 @@ if /i not "%VIDEO_CODEC%"=="av1" (
     exit /b
 )
 
-set "OUTPUT=%INDIR%%NAME%_AV1FG_%GRAIN_FILE_TAG%_REPLACED.%EXT%"
-
-if exist "%OUTPUT%" (
-    echo.
-    echo SKIP: Output already exists:
-    echo "%OUTPUT%"
-    set /a SKIP_COUNT+=1
-    exit /b
-)
+rem Keep the raw remux filename short. The verified file is renamed by
+rem FilmGrain_AV1_FinalizeName.ps1 after processing succeeds. This avoids
+rem path growth when a FilmGrain Studio AV1 output is processed repeatedly.
+set "JOBID=%RANDOM%_%RANDOM%"
+set "OUTPUT=%INDIR%__AV1FG_OUT_%JOBID%.%EXT%"
 
 rem ---------- isolated temporary workspace ----------
-set "JOBID=%RANDOM%_%RANDOM%"
 set "JOBDIR=%INDIR%__AV1FG_TMP_%JOBID%"
 
 mkdir "%JOBDIR%" >nul 2>&1
@@ -461,7 +498,11 @@ echo.
 echo [2/4] Adding / replacing AV1 Film Grain with grav1synth...
 echo.
 
-"%GRAV1SYNTH%" apply "%TMP_BASE%" -o "%TMP_GRAIN%" %GRAIN_APPLY_ARGS% --replace -y > "%GRAIN_LOG%" 2>&1
+if /i "%GRAIN_MODE%"=="TABLE" (
+    "%GRAV1SYNTH%" apply "%TMP_BASE%" -o "%TMP_GRAIN%" --grain "%GRAIN_TABLE_PATH%" --replace -y > "%GRAIN_LOG%" 2>&1
+) else (
+    "%GRAV1SYNTH%" apply "%TMP_BASE%" -o "%TMP_GRAIN%" %GRAIN_APPLY_ARGS% --replace -y > "%GRAIN_LOG%" 2>&1
+)
 set "GRAIN_RC=%ERRORLEVEL%"
 
 if not "%GRAIN_RC%"=="0" (
