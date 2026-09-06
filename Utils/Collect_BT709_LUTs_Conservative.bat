@@ -1,7 +1,8 @@
 @echo off
 setlocal EnableExtensions DisableDelayedExpansion
 
-set "LUT_ROOT=E:\Adobe Portable\LUTs"
+call "%~dp0FilmGrain_Config_Load.bat"
+if errorlevel 1 exit /b 1
 set "DEST_ROOT=%LUT_ROOT%\BT.709"
 set "REPORT=%DEST_ROOT%\BT709_LUT_Scan_Report.csv"
 set "PS1=%TEMP%\Collect_BT709_LUTs_%RANDOM%_%RANDOM%.ps1"

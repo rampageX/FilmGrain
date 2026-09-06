@@ -9,7 +9,7 @@ rem    [1] Original-resolution HEVC Main10 Lossless
 rem    [2] 1080p HEVC Main10 Lossless (Vulkan bilinear)
 rem    [3] Build both (default)
 rem
-rem  D:\Film_Grain is scanned recursively.
+rem  The configured Grain root is scanned recursively.
 rem
 rem  Verification:
 rem    Compares the actual meaningful 10-bit YUV 4:2:0 samples.
@@ -20,10 +20,13 @@ rem ============================================================
 
 rem ---------- USER SETTINGS ----------
 
-set "FFMPEG=E:\EnCoder\FFMpeg\13.0\bin\ffmpeg.exe"
-set "FFPROBE=E:\EnCoder\FFMpeg\13.0\bin\ffprobe.exe"
+call "%~dp0FilmGrain_Config_Load.bat"
+if errorlevel 1 exit /b 1
 
-set "ROOT=D:\Film_Grain"
+set "ROOT=%GRAIN_ROOT%"
+if defined FG_GRAIN_ROOT_OVERRIDE set "ROOT=%FG_GRAIN_ROOT_OVERRIDE%"
+if defined FG_FFMPEG_OVERRIDE set "FFMPEG=%FG_FFMPEG_OVERRIDE%"
+if defined FG_FFPROBE_OVERRIDE set "FFPROBE=%FG_FFPROBE_OVERRIDE%"
 set "VULKAN_DEVICE=0"
 set "PRESET=p5"
 
@@ -37,6 +40,25 @@ set "SUFFIX_1080=_1080p_HEVC_Lossless"
 
 rem ---------- END USER SETTINGS ----------
 
+
+rem Optional mode argument for GUI/non-interactive callers.
+rem Direct double-click/manual use still falls through to the menu below.
+set "MODE="
+if "%~1"=="1" set "MODE=1"
+if "%~1"=="2" set "MODE=2"
+if "%~1"=="3" set "MODE=3"
+if defined MODE goto :START
+if not "%~1"=="" (
+    echo ERROR: Invalid cache mode argument: "%~1"
+    exit /b 2
+)
+
+rem Backward-compatible environment override. Keep comparisons outside
+rem a parenthesized block because delayed expansion is intentionally off.
+if "%FG_CACHE_MODE%"=="1" set "MODE=1"
+if "%FG_CACHE_MODE%"=="2" set "MODE=2"
+if "%FG_CACHE_MODE%"=="3" set "MODE=3"
+if defined MODE goto :START
 
 :MENU
 cls
@@ -74,7 +96,7 @@ if "%MODE%"=="3" goto :START
 echo.
 echo Invalid choice.
 echo.
-pause
+if not "%FG_CACHE_NO_PAUSE%"=="1" pause
 goto :MENU
 
 
@@ -84,7 +106,7 @@ if not exist "%ROOT%\" (
     echo ERROR: Grain library folder not found:
     echo "%ROOT%"
     echo.
-    pause
+    if not "%FG_CACHE_NO_PAUSE%"=="1" pause
     exit /b 1
 )
 
@@ -93,7 +115,7 @@ if not exist "%FFMPEG%" (
     echo ERROR: FFmpeg not found:
     echo "%FFMPEG%"
     echo.
-    pause
+    if not "%FG_CACHE_NO_PAUSE%"=="1" pause
     exit /b 1
 )
 
@@ -102,7 +124,7 @@ if not exist "%FFPROBE%" (
     echo ERROR: FFprobe not found:
     echo "%FFPROBE%"
     echo.
-    pause
+    if not "%FG_CACHE_NO_PAUSE%"=="1" pause
     exit /b 1
 )
 
@@ -111,7 +133,7 @@ if errorlevel 1 (
     echo.
     echo ERROR: This FFmpeg build does not expose HEVC NVENC lossless mode.
     echo.
-    pause
+    if not "%FG_CACHE_NO_PAUSE%"=="1" pause
     exit /b 1
 )
 
@@ -125,7 +147,7 @@ if errorlevel 1 (
     echo.
     echo ERROR: This FFmpeg build does not expose scale_vulkan bilinear.
     echo.
-    pause
+    if not "%FG_CACHE_NO_PAUSE%"=="1" pause
     exit /b 1
 )
 
@@ -179,8 +201,10 @@ echo.
 echo Source MOV files were NOT deleted.
 echo Existing cache files were NOT overwritten.
 echo.
-pause
-exit /b
+if not "%FG_CACHE_NO_PAUSE%"=="1" pause
+if not "%FAILED%"=="0" exit /b 1
+if not "%VERIFY_FAILED%"=="0" exit /b 1
+exit /b 0
 
 
 :PROCESS_MOV

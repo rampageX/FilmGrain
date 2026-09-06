@@ -3,6 +3,7 @@ param(
     [string]$LutRoot,
     [string]$ReferencePath,
     [string]$OutputRoot,
+    [string]$FFmpegPath,
     [switch]$ForceOverwrite,
     [switch]$NonInteractive,
     [switch]$NoPause
@@ -11,12 +12,18 @@ param(
 $ErrorActionPreference = "Stop"
 
 # ============================================================
-# User defaults - edit these values if you want different defaults.
+# Shared external paths come from FilmGrain_Config.ini.
 # At runtime, just press Enter to accept the value shown in [brackets].
 # ============================================================
-$FFMPEG = "E:\EnCoder\FFMpeg\13.0\bin\ffmpeg.exe"
-$DefaultLutRoot = "E:\Adobe Portable\LUTs"
-$DefaultReference = Join-Path $PSScriptRoot "LUT_Reference_Default.jpg"
+$ConfigScript = Join-Path (Split-Path -Parent $PSScriptRoot) 'Utils\FilmGrain_Config.ps1'
+if (-not (Test-Path -LiteralPath $ConfigScript -PathType Leaf)) { throw "Film Grain configuration helper not found: $ConfigScript" }
+. $ConfigScript
+$PathConfig = Get-FilmGrainConfig
+$FFMPEG = if ($FFmpegPath) { $FFmpegPath.Trim().Trim('"') } else { [string]$PathConfig.FFMPEG }
+$DefaultLutRoot = [string]$PathConfig.LUT_ROOT
+$FactoryReference = Join-Path $PSScriptRoot "LUT_Reference_Default.jpg"
+$CurrentReference = Join-Path $PSScriptRoot "LUT_Reference_Current.jpg"
+$DefaultReference = if (Test-Path -LiteralPath $CurrentReference -PathType Leaf) { $CurrentReference } else { $FactoryReference }
 $DefaultVideoSeek = "0"
 $DefaultOutputFolderName = "_LUT_PREVIEWS"
 $PreviewWidth = 1920

@@ -17,10 +17,10 @@ rem ============================================================
 
 rem ---------- USER SETTINGS ----------
 
-rem Fixed project FFmpeg/FFprobe build (NVENC API 13.0).
-set "FFMPEG=E:\EnCoder\FFMpeg\13.0\bin\ffmpeg.exe"
-set "FFPROBE=E:\EnCoder\FFMpeg\13.0\bin\ffprobe.exe"
-set "GRAV1SYNTH=E:\EnCoder\FFMpeg\grav1synth\grav1synth.exe"
+rem Shared external paths. Edit them from the GUI Configuration window.
+call "%~dp0FilmGrain_Config_Load.bat"
+if errorlevel 1 exit /b 1
+set "DEFAULT_GRAIN_ROOT=%GRAIN_ROOT%"
 
 rem GPU selectors. 0 normally selects the RTX 4080.
 set "VULKAN_DEVICE=0"
@@ -29,11 +29,8 @@ set "AQ_STRENGTH=8"
 set "HARDWARE_CAPS_SCRIPT=%~dp0FilmGrain_Hardware_Caps.ps1"
 set "SUBTITLE_HELPER=%~dp0FilmGrain_Subtitle_Prepare.ps1"
 
-rem HEVC scanned-Grain library. All subfolders are searched.
-set "DEFAULT_GRAIN_ROOT=D:\Film_Grain"
-
-rem Shared visual LUT Gallery.
-set "LUT_ROOT=E:\Adobe Portable\LUTs"
+rem HEVC scanned-Grain library and LUT root come from FilmGrain_Config.ini.
+rem All Grain subfolders are searched.
 set "LUT_PREVIEW_ROOT=%LUT_ROOT%\_LUT_PREVIEWS"
 set "LUT_GALLERY_SELECTOR=%~dp0..\_LUT_Tools\LUT_Gallery_Selector.ps1"
 

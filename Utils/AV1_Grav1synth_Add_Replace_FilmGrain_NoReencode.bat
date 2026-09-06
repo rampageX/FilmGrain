@@ -22,9 +22,8 @@ rem ============================================================
 rem Paths
 rem ============================================================
 
-set "FFMPEG=E:\EnCoder\FFMpeg\13.0\bin\ffmpeg.exe"
-set "FFPROBE=E:\EnCoder\FFMpeg\13.0\bin\ffprobe.exe"
-set "GRAV1SYNTH=E:\EnCoder\FFMpeg\grav1synth\grav1synth.exe"
+call "%~dp0FilmGrain_Config_Load.bat"
+if errorlevel 1 exit /b 1
 
 rem Keep failed temporary workspace:
 rem   1 = keep for troubleshooting
@@ -40,7 +39,7 @@ rem ============================================================
 if errorlevel 1 (
     echo ERROR: FFmpeg not found:
     echo "%FFMPEG%"
-    pause
+    if not "%FG_TOOL_NO_PAUSE%"=="1" pause
     exit /b 1
 )
 
@@ -48,7 +47,7 @@ if errorlevel 1 (
 if errorlevel 1 (
     echo ERROR: FFprobe not found:
     echo "%FFPROBE%"
-    pause
+    if not "%FG_TOOL_NO_PAUSE%"=="1" pause
     exit /b 1
 )
 
@@ -56,7 +55,7 @@ if errorlevel 1 (
 if errorlevel 1 (
     echo ERROR: grav1synth not found:
     echo "%GRAV1SYNTH%"
-    pause
+    if not "%FG_TOOL_NO_PAUSE%"=="1" pause
     exit /b 1
 )
 
@@ -67,7 +66,7 @@ if "%~1"=="" (
     echo The AV1 video stream will NOT be re-encoded.
     echo Film Grain will be added or replaced in the AV1 bitstream.
     echo.
-    pause
+    if not "%FG_TOOL_NO_PAUSE%"=="1" pause
     exit /b 0
 )
 
@@ -75,6 +74,12 @@ if "%~1"=="" (
 rem ============================================================
 rem Final container
 rem ============================================================
+
+if "%FG_STUDIO_MODE%"=="1" (
+    set "CONTAINER_SEL=1"
+    if /i "%FG_CONTAINER%"=="MP4" set "CONTAINER_SEL=2"
+    goto CONTAINER_SELECTED
+)
 
 cls
 echo ============================================================
@@ -101,6 +106,7 @@ echo.
 set "CONTAINER_SEL=1"
 set /p "CONTAINER_SEL=Select [1-2, default 1]: "
 
+:CONTAINER_SELECTED
 set "EXT=mkv"
 set "CONTAINER_MODE=MKV"
 set "CONTAINER_LABEL=MKV / preserve original streams"
@@ -122,6 +128,12 @@ rem ============================================================
 rem Grain mode
 rem ============================================================
 
+if "%FG_STUDIO_MODE%"=="1" (
+    set "GRAIN_MODE_SEL=1"
+    if /i "%FG_AV1_GRAIN_MODE%"=="ISO" set "GRAIN_MODE_SEL=2"
+    goto GRAIN_SOURCE_SELECTED
+)
+
 cls
 echo ============================================================
 echo              grav1synth Film Grain
@@ -135,6 +147,7 @@ echo.
 set "GRAIN_MODE_SEL=1"
 set /p "GRAIN_MODE_SEL=Select [1-2, default 1]: "
 
+:GRAIN_SOURCE_SELECTED
 set "GRAIN_MODE=PRESET"
 set "GRAIN_APPLY_ARGS="
 set "GRAIN_LABEL="
@@ -146,6 +159,12 @@ if "%GRAIN_MODE_SEL%"=="2" goto GRAIN_PHOTON_MENU
 rem ------------------------------------------------------------
 rem Built-in film preset mode
 rem ------------------------------------------------------------
+
+if "%FG_STUDIO_MODE%"=="1" (
+    set "GRAIN_SEL=1"
+    if defined FG_AV1_FORMAT set "GRAIN_SEL=%FG_AV1_FORMAT%"
+    goto FILM_FORMAT_SELECTED
+)
 
 echo.
 echo Film format:
@@ -159,6 +178,7 @@ echo.
 set "GRAIN_SEL=1"
 set /p "GRAIN_SEL=Select [1-5, default 1]: "
 
+:FILM_FORMAT_SELECTED
 set "GRAIN_BASE=Classic35"
 set "GRAIN_FORMAT_LABEL=Classic35"
 set "USE_STOCK=1"
@@ -189,6 +209,12 @@ set "STOCK_LABEL=Built-in"
 
 if "%USE_STOCK%"=="0" goto GRAIN_PRESET_READY
 
+if "%FG_STUDIO_MODE%"=="1" (
+    set "STOCK_SEL=1"
+    if defined FG_AV1_STOCK set "STOCK_SEL=%FG_AV1_STOCK%"
+    goto FILM_STOCK_SELECTED
+)
+
 echo.
 echo Film stock:
 echo.
@@ -200,6 +226,7 @@ echo.
 set "STOCK_SEL=1"
 set /p "STOCK_SEL=Select [1-4, default 1]: "
 
+:FILM_STOCK_SELECTED
 if "%STOCK_SEL%"=="1" (
     set "GRAIN_PRESET=%GRAIN_BASE%"
     set "STOCK_LABEL=Fujifilm Eterna 250D"
@@ -231,6 +258,12 @@ rem ------------------------------------------------------------
 
 :GRAIN_PHOTON_MENU
 set "GRAIN_MODE=ISO"
+
+if "%FG_STUDIO_MODE%"=="1" (
+    set "GRAIN_ISO=1600"
+    if defined FG_AV1_ISO set "GRAIN_ISO=%FG_AV1_ISO%"
+    goto ISO_READY
+)
 
 echo.
 echo Photon Grain ISO:
@@ -267,6 +300,12 @@ if errorlevel 1 (
 set "GRAIN_ISO=%CUSTOM_ISO%"
 
 :ISO_READY
+if "%FG_STUDIO_MODE%"=="1" (
+    set "CHROMA_SEL=1"
+    if "%FG_AV1_CHROMA%"=="1" set "CHROMA_SEL=2"
+    goto CHROMA_SELECTED
+)
+
 echo.
 echo Chroma grain:
 echo.
@@ -276,6 +315,7 @@ echo.
 set "CHROMA_SEL=1"
 set /p "CHROMA_SEL=Select [1-2, default 1]: "
 
+:CHROMA_SELECTED
 set "CHROMA_ARGS="
 set "CHROMA_LABEL=Luma only"
 
@@ -500,11 +540,88 @@ if exist "%VERIFY_LOG%" type "%VERIFY_LOG%"
 echo.
 echo VERIFIED: AV1 Film Grain headers are present.
 echo.
+
+rem ============================================================
+rem Finalize clean AV1 Film Grain filename
+rem
+rem The proven processing path above stays unchanged.
+rem Filename cleanup happens only after successful verification.
+rem ============================================================
+
+set "AV1FG_FINAL_HELPER=%~dp0FilmGrain_AV1_FinalizeName.ps1"
+set "AV1FG_FINAL_RESULT=%TEMP%\AV1FG_final_%RANDOM%_%RANDOM%.txt"
+set "AV1FG_FINAL_LOG=%TEMP%\AV1FG_final_%RANDOM%_%RANDOM%.log"
+
+if not exist "%AV1FG_FINAL_HELPER%" (
+    echo ERROR: AV1 filename finalizer not found:
+    echo "%AV1FG_FINAL_HELPER%"
+    set /a FAIL_COUNT+=1
+    rmdir /s /q "%JOBDIR%" >nul 2>&1
+    exit /b
+)
+
+if exist "%AV1FG_FINAL_RESULT%" del /q "%AV1FG_FINAL_RESULT%" >nul 2>&1
+if exist "%AV1FG_FINAL_LOG%" del /q "%AV1FG_FINAL_LOG%" >nul 2>&1
+
+set "FG_AV1_FINAL_INPUT=%INPUT%"
+set "FG_AV1_FINAL_RAW_OUTPUT=%OUTPUT%"
+set "FG_AV1_FINAL_TAG=%GRAIN_FILE_TAG%"
+set "FG_AV1_FINAL_EXT=%EXT%"
+set "FG_AV1_FINAL_GRAV1SYNTH=%GRAV1SYNTH%"
+set "FG_AV1_FINAL_RESULT=%AV1FG_FINAL_RESULT%"
+
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%AV1FG_FINAL_HELPER%" > "%AV1FG_FINAL_LOG%" 2>&1
+set "AV1FG_FINAL_RC=%ERRORLEVEL%"
+
+if not "%AV1FG_FINAL_RC%"=="0" (
+    echo.
+    echo ============================================================
+    echo AV1 OUTPUT NAMING ERROR
+    echo ============================================================
+    if exist "%AV1FG_FINAL_LOG%" type "%AV1FG_FINAL_LOG%"
+    echo ============================================================
+    echo.
+    echo The processed video was kept with its temporary output name:
+    echo "%OUTPUT%"
+    set /a FAIL_COUNT+=1
+    rmdir /s /q "%JOBDIR%" >nul 2>&1
+    goto FINALIZE_NAME_CLEANUP_FAILED
+)
+
 echo DONE - VIDEO WAS NOT RE-ENCODED:
-echo "%OUTPUT%"
+if exist "%AV1FG_FINAL_RESULT%" type "%AV1FG_FINAL_RESULT%"
+echo.
 
 set /a SUCCESS_COUNT+=1
 rmdir /s /q "%JOBDIR%" >nul 2>&1
+
+if exist "%AV1FG_FINAL_RESULT%" del /q "%AV1FG_FINAL_RESULT%" >nul 2>&1
+if exist "%AV1FG_FINAL_LOG%" del /q "%AV1FG_FINAL_LOG%" >nul 2>&1
+set "FG_AV1_FINAL_INPUT="
+set "FG_AV1_FINAL_RAW_OUTPUT="
+set "FG_AV1_FINAL_TAG="
+set "FG_AV1_FINAL_EXT="
+set "FG_AV1_FINAL_GRAV1SYNTH="
+set "FG_AV1_FINAL_RESULT="
+set "AV1FG_FINAL_HELPER="
+set "AV1FG_FINAL_RESULT="
+set "AV1FG_FINAL_LOG="
+set "AV1FG_FINAL_RC="
+exit /b
+
+:FINALIZE_NAME_CLEANUP_FAILED
+if exist "%AV1FG_FINAL_RESULT%" del /q "%AV1FG_FINAL_RESULT%" >nul 2>&1
+if exist "%AV1FG_FINAL_LOG%" del /q "%AV1FG_FINAL_LOG%" >nul 2>&1
+set "FG_AV1_FINAL_INPUT="
+set "FG_AV1_FINAL_RAW_OUTPUT="
+set "FG_AV1_FINAL_TAG="
+set "FG_AV1_FINAL_EXT="
+set "FG_AV1_FINAL_GRAV1SYNTH="
+set "FG_AV1_FINAL_RESULT="
+set "AV1FG_FINAL_HELPER="
+set "AV1FG_FINAL_RESULT="
+set "AV1FG_FINAL_LOG="
+set "AV1FG_FINAL_RC="
 exit /b
 
 
@@ -553,5 +670,7 @@ if "%FAIL_COUNT%"=="0" (
 )
 
 echo.
-pause
-endlocal
+set "FINAL_RC=0"
+if not "%FAIL_COUNT%"=="0" set "FINAL_RC=1"
+if not "%FG_TOOL_NO_PAUSE%"=="1" pause
+endlocal & exit /b %FINAL_RC%

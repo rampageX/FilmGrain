@@ -12,13 +12,22 @@ rem The result is then encoded as high-quality H.264/AAC MP4
 rem for broad video-sharing / social-platform compatibility.
 rem ============================================================
 
-set "FFMPEG=E:\EnCoder\FFMpeg\13.0\bin\ffmpeg.exe"
+call "%~dp0FilmGrain_Config_Load.bat"
+if errorlevel 1 exit /b 1
 set "AQ_STRENGTH=8"
 
 "%FFMPEG%" -version >nul 2>&1
 if errorlevel 1 (
     echo ERROR: FFmpeg not found:
     echo "%FFMPEG%"
+    pause
+    exit /b 1
+)
+
+"%FFPROBE%" -version >nul 2>&1
+if errorlevel 1 (
+    echo ERROR: FFprobe not found:
+    echo "%FFPROBE%"
     pause
     exit /b 1
 )
@@ -49,7 +58,7 @@ set "NAME=%~n1"
 set "OUTPUT=%INDIR%%NAME%_UPLOAD_H264_GRAIN.mp4"
 
 set "DIMFILE=%TEMP%\AV1BAKE_dim_%RANDOM%_%RANDOM%.txt"
-"E:\EnCoder\FFMpeg\13.0\bin\ffprobe.exe" -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0:s=x "%INPUT%" > "%DIMFILE%" 2>nul
+"%FFPROBE%" -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0:s=x "%INPUT%" > "%DIMFILE%" 2>nul
 set "DIM="
 set /p "DIM="<"%DIMFILE%"
 del /q "%DIMFILE%" >nul 2>&1

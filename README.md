@@ -7,10 +7,10 @@
 - **HEVC Main10 + 真实扫描 Grain Plate**：将真实胶片颗粒合成到视频像素中。
 - **AV1 Main10 + grav1synth Film Grain**：将颗粒模型写入 AV1 Film Grain metadata，由播放器在解码时合成。
 
-当前正式稳定版为 **v4.1.0**，发布包名称：
+当前正式稳定版为 **v4.3.1**，发布包名称：
 
 ```text
-FilmGrain_Studio_v4.1.0_Stable.zip
+FilmGrain_Studio_v4.3.1_Stable.zip
 ```
 
 所有独立脚本使用固定文件名，不再包含组件版本号；版本号只体现在整个项目的发布压缩包上。升级时建议完整替换工具包，避免新旧脚本混用。
@@ -69,11 +69,14 @@ AV1 Film Grain Synthesis 采用另一种方式：编码相对干净的画面，�
 ```text
 FilmGrain_Universal_HEVC_AV1_CLI.bat
 FilmGrain_Universal_HEVC_AV1_GUI.bat
+FilmGrain_Config.ini
 README.md
 CHANGELOG.md
 README_FilmGrain_Studio.txt
 README_Toolkit.txt
 Utils\
+    FilmGrain_Config.ps1
+    FilmGrain_Config_Load.bat
     FilmGrain_Hardware_Caps.ps1
     FilmGrain_Studio.ps1
     FilmGrain_Studio_Launcher.vbs
@@ -88,26 +91,28 @@ _LUT_Tools\
     LUT_Gallery_Selector.ps1
     LUT_Preview_Batch_Gallery.ps1
     LUT_Reference_Default.jpg
+    LUT_Reference_Current.jpg    # 用户更换参考图后自动生成；发布包默认不存在
 ```
 
 请保持两个入口 BAT、`Utils` 与 `_LUT_Tools` 的相对位置不变。
 
 ---
 
-## 环境与固定路径
+## 环境与统一路径配置
 
-当前项目按以下 Windows 环境配置：
+外部路径统一保存在根目录 `FilmGrain_Config.ini`。GUI 右上角的 **“配置…”** 可修改并保存；GUI、CLI、StudioBridge 与相关 Utils 工具均读取同一份配置，不再分别维护硬编码路径。配置窗口的每项路径均提供“浏览…”和 `↻` 刷新；浏览选择后立即检测，手工输入后由用户点击刷新。FFmpeg/FFprobe 与 grav1synth 显示版本；Grain 根目录同时统计原始 `.mov`、原分辨率 Cache 与 1080p Cache，并可直接补齐缺失高速缓存；LUT 根目录同时统计 `.cube` LUT 与 Gallery 预览图，并可直接为缺失项创建缩略图。保存时不重新执行程序检测或递归扫描。
+
+当前默认值：
 
 ```text
 GPU：NVIDIA GPU（自动检测，已验证 RTX 4080 与 T600 Laptop）
-FFmpeg：E:\EnCoder\FFMpeg\13.0\bin\ffmpeg.exe
-FFprobe：E:\EnCoder\FFMpeg\13.0\bin\ffprobe.exe
+FFmpeg 目录：E:\EnCoder\FFMpeg\x64\bin（目录内同时使用 `ffmpeg.exe` 与 `ffprobe.exe`）
 grav1synth：E:\EnCoder\FFMpeg\grav1synth\grav1synth.exe
 HEVC Grain 库：D:\Film_Grain
 LUT 根目录：E:\Adobe Portable\LUTs
 ```
 
-> `E:\EnCoder\FFMpeg\13.0` 中的 `13.0` 表示项目锁定使用的 NVENC API 13.0 兼容构建目录，不代表 FFmpeg 的正式主版本号。
+`FilmGrain_Config.ini` 使用 UTF-8 无 BOM；PS1 显式按 UTF-8 读写，BAT 读取时临时切换 UTF-8 代码页并恢复原代码页。GUI 的硬件信息区同时显示 NVIDIA 驱动版本、FFmpeg 版本与能力缓存状态。
 
 ### 硬件能力自动探测
 
@@ -166,8 +171,8 @@ GUI 与 CLI 的输出均保存在源视频所在目录。已有同名输出时�
 ## GUI 主要功能
 
 - 多视频添加、拖放、移除与清空；
-- 选中单个视频时异步显示视频/音频编码、码率、分辨率、帧率、声道、采样率、时长、容器与总码率；
-- AV1 Main10 + grav1synth 与 HEVC Main10 + Scanned Grain；
+- 选中单个视频时异步显示视频/音频编码、码率、分辨率、帧率、声道、采样率、时长与总码率；AV1 输入会额外显示胶片颗粒状态（无 / 亮度 / 亮度 + 色度）；
+- 编码方式统一为 `AV1 · grav1synth 胶片颗粒（默认）`、`HEVC · 扫描胶片颗粒`；单个 AV1 输入还可选择 `AV1 不重编码 · 添加/替换胶片颗粒`；
 - MP4 与 MKV 输出；
 - FAST、Standard，以及能力探测通过后可选的 AV1 UHQ 编码模式；
 - 常用码率及自定义 kbps 码率；
@@ -177,9 +182,9 @@ GUI 与 CLI 的输出均保存在源视频所在目录。已有同名输出时�
 - NVIDIA GPU / 驱动 / FFmpeg 能力自动探测与缓存；
 - HEVC / AV1 统一 Cinematic Style：可烘焙上下黑边并保持原分辨率，或裁剪为约 2.39:1 有效画面；
 - AV1 Film Preset、Photon ISO、Film 格式、Film stock 与 Chroma Grain；
-- HEVC Grain 根目录递归扫描，只显示电脑上实际存在的 `.mov` Grain Plate；
-- 自动匹配 1080p 或原分辨率 HEVC Lossless Grain Cache；
-- LUT Gallery、最近使用、我的最爱、缩略图预览、参考图更换及 LUT 强度；
+- HEVC Grain 根目录递归扫描，只显示电脑上实际存在的 `.mov` Grain Plate；配置界面可检测原分辨率 / 1080p Cache 完整度，并直接生成缺失高速缓存；
+- 编码时自动匹配 1080p 或原分辨率 HEVC Lossless Grain Cache；
+- LUT Gallery、最近使用、我的最爱、缩略图预览、参考图更换及 LUT 强度；更换参考图后会在 `_LUT_Tools` 保存 `LUT_Reference_Current.jpg`，后续从配置界面补建缺失缩略图或独立运行预览生成器时优先复用该当前参考图；不存在时才回退 `LUT_Reference_Default.jpg`；
 - 结构化实时进度、`fps`、`speed`、`ETA`、日志复制/清空与任务取消；
 - HEVC / AV1 均可额外生成 H.264 上传版：NVENC P7 固定码率档，或 x264 Slow + `tune grain` + 2-pass 的 FPS / 分辨率联动高质量档，并可用“高动态视频”开关切换普通 / 高动态码率预算；
 - 字幕功能独立于 H.264 上传版：可直接烧写进主 HEVC / AV1 输出；如同时生成 H.264 上传副本，副本也继承同一套字幕。支持内嵌文本字幕下拉选择、同名外部字幕自动匹配、浏览外部字幕文件，以及自定义字体、字号、颜色、描边、阴影与位置。
@@ -273,6 +278,8 @@ Utils\FilmGrain_MOV_to_HEVC_Lossless_Cache.bat
 1. 生成原始分辨率 HEVC Main10 Lossless Cache；
 2. 生成经 Vulkan bilinear 缩放的 1920×1080 Cache；
 3. 同时生成两种 Cache（默认）。
+
+从 v4.2.9 起，也可以直接在 GUI **配置 → Grain 根目录** 中点击 `↻` 检查 Cache 完整度。存在缺失时会启用 **“生成高速缓存”**，GUI 以非交互方式调用同一个 Cache 工具并补齐原分辨率与 1080p 两种缺失缓存；已有 Cache 不覆盖。单独双击 BAT 时原 1 / 2 / 3 菜单继续保留。
 
 校验采用 **实际 10-bit sample-exact**：编码时从与 NVENC 完全相同的 P010 帧流中分出一路，规范化为 `yuv420p10le` 后计算 SHA-256，再与 HEVC 解码结果比较。这样可排除不同 GPU / 驱动在 P010 低 6 位填充位上的实现差异，避免 T600 上出现“有效 10-bit 像素完全一致但 P010 容器字节哈希不同”的假失败。RTX 4080 与 T600 Laptop 均已验证通过。
 
@@ -416,7 +423,7 @@ E:\Adobe Portable\LUTs
 Utils\LUT_Preview_Batch_Gallery.bat
 ```
 
-缩略图生成器支持默认或自定义参考素材、Junction/Symlink、防循环、1920 宽预览及 Resolve CUBE 兼容处理。Gallery 中的“更换参考图”可在选择新图片后覆盖生成所有 LUT 预览，完成后自动刷新当前图库。
+缩略图生成器支持默认或自定义参考素材、Junction/Symlink、防循环、1920 宽预览及 Resolve CUBE 兼容处理。GUI **配置 → LUT 根目录** 的 `↻` 会同时统计 `.cube` LUT 与已有 Gallery 预览图；存在缺失时可点击 **“创建缩略图”**，只生成缺失预览且不覆盖已有文件。v4.3.1 起，Gallery 中的 **“更换参考图”** 会将所选图片统一转换并保存为 `_LUT_Tools\LUT_Reference_Current.jpg`，随后使用这张当前参考图覆盖重建全部 LUT 预览；配置界面的“创建缩略图”和独立预览生成器也统一优先使用 `LUT_Reference_Current.jpg`，若尚未生成则回退到出厂 `LUT_Reference_Default.jpg`。因此删除部分缩略图后再次补建，也会继续沿用最近一次选择的参考图，不再混入默认图。
 
 中文 LUT Gallery 支持：
 
@@ -610,10 +617,16 @@ MKV 或 MP4
 grav1synth inspect
 ```
 
+从 v4.2.9 起，这项功能已并入 Studio GUI：当输入列表中只有 **1 个 AV1 文件**且媒体探测完成后，“编码方式”会增加 **`AV1 不重编码 · 添加/替换胶片颗粒`**。选择后会禁用码率、速度、反交错、LUT、Cinematic、上传版等需要重编码的选项，只保留 AV1 胶片颗粒参数与容器选择。当前版本 GUI 的该模式仅支持单文件；独立 BAT 仍支持一个或多个 AV1 文件。
+
+GUI 在所选视频信息中会使用 `grav1synth inspect` 显示当前 AV1 的胶片颗粒状态：`无`、`亮度` 或 `亮度 + 色度`。
+
 特点：
 
 - AV1 视频流不重新编码；
 - 没有 Film Grain 时执行添加，已有时执行替换；
+- v4.3.0 起自动命名区分首次添加与替换：首次添加为 `_AV1FG_<Preset>_ADDED`，已有颗粒再次处理为 `_AV1FG_<Preset>_REPLACED`；
+- 连续替换时会先清理文件名末尾由本项目生成的旧 `_AV1FG_..._ADDED/REPLACED` 链，只保留当前颗粒信息，避免文件名不断增长；
 - 默认输出 MKV 并尽量保留原始流；
 - MP4 模式将音频转换为 AAC 320 kbps，并省略字幕、附件和数据流；
 - 失败时默认保留临时目录和日志；
@@ -635,20 +648,13 @@ grav1synth inspect
 
 ## FFmpeg 与 NVIDIA 驱动
 
-当前稳定测试环境使用 NVIDIA Driver 596.49，以及采用 NVENC API 13.0 headers 构建的 FFmpeg：
+当前 RTX 4080 实测环境已更新为 **NVIDIA Driver 616.86 + FFmpeg 9.0.1**。默认 FFmpeg / FFprobe 目录为：
 
 ```text
-BtbN FFmpeg Auto-Build
-Date    : 2026-04-30 13:44
-Version : N-124278-gcc3ca17127
-Target  : Windows x86_64
-Variant : GPL static
+E:\EnCoder\FFMpeg\x64\bin
 ```
 
-- [对应的 BtbN Release](https://github.com/BtbN/FFmpeg-Builds/releases/tag/autobuild-2026-04-30-13-44)
-- [BtbN / FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds)
-
-最低驱动要求取决于 FFmpeg 构建采用的 NVENC API / `nv-codec-headers`，不能只根据 FFmpeg 主版本号判断。
+项目不再按 GPU 型号或固定 NVENC API 版本写死功能开关；实际可用能力仍由启动时的小型编码测试决定。最低驱动要求取决于当前 FFmpeg 构建采用的 NVENC API / `nv-codec-headers`，不能只根据 FFmpeg 主版本号判断。
 
 启动时会自动校验当前环境。更换 GPU、升级 NVIDIA 驱动或替换 FFmpeg 后，原能力缓存会自动失效并重新检测。
 

@@ -2,6 +2,53 @@
 
 本文件记录正式发布版本的主要变化。`README.md` 只维护当前版本功能与使用说明，不再重复版本更新摘要。
 
+## v4.3.1 — 2026-09-06
+
+- 修复 LUT Gallery 更换参考图后，从 GUI 配置页“创建缩略图”补建缺失预览时又使用出厂默认参考图，导致同一 Gallery 中缩略图参考画面不一致的问题。
+- 保留 `_LUT_Tools\LUT_Reference_Default.jpg` 作为只读的出厂默认参考图；用户在 Gallery 中执行“更换参考图”后，将所选图片统一转换并保存为 `_LUT_Tools\LUT_Reference_Current.jpg`。
+- Gallery 全量重建、GUI 配置页补建缺失缩略图以及独立 LUT 预览生成器统一优先使用 `LUT_Reference_Current.jpg`；当前参考图不存在时才回退 `LUT_Reference_Default.jpg`。
+- `LUT_Reference_Current.jpg` 为运行时用户状态文件，不预置在正式发布包中；首次更换参考图后自动生成，因此工具包整体移动后仍可继续复用最近一次参考图，不依赖原始图片外部路径。
+- LUT 选择、Recent / Favorites、预览命名、已有缩略图不覆盖策略及编码核心保持 v4.3.0 已验证逻辑不变。
+
+
+## v4.3.0 — 2026-09-06
+
+- 细化 AV1 不重编码模式的自动命名：源文件没有 Film Grain 时输出 `_AV1FG_<Preset>_ADDED`，源文件已有 Film Grain 时输出 `_AV1FG_<Preset>_REPLACED`。
+- 连续替换颗粒时，自动清理文件名末尾由本项目生成的旧 `_AV1FG_..._ADDED/REPLACED` 链，再写入当前颗粒名称，避免测试多次后文件名无限增长。
+- 最终文件名整理改为在 AV1 Film Grain 验证成功后执行；使用独立 `FilmGrain_AV1_FinalizeName.ps1` 通过 Literal/.NET 路径操作完成，避免中文路径以及 `& ^ ( ) !` 等 CMD 特殊字符参与二次解析。
+- Studio GUI 已经完成源 AV1 颗粒检测时直接复用该结果判断 `ADDED / REPLACED`；独立 BAT 使用时才由 helper 通过 `.NET Process` 进行一次 shell-free `grav1synth inspect`。
+- 修复 PowerShell 5.1 将 grav1synth 正常 stderr `INFO` 输出视为 `NativeCommandError` 的问题，以及最终改名结果在 GUI 日志窗口中显示中文乱码的问题。
+- AV1 视频流处理、grav1synth 注入、转封装与最终 Film Grain 验证流程保持 v4.2.9 已验证逻辑不变，本次仅收口输出命名与日志显示。
+
+
+## v4.2.9 — 2026-09-06
+
+- 将 `AV1_Grav1synth_Add_Replace_FilmGrain_NoReencode.bat` 正式接入 Studio GUI：单个 AV1 输入时，“编码方式”新增 **`AV1 不重编码 · 添加/替换胶片颗粒`**，视频流不重新编码，仅添加或替换 AV1 Film Grain metadata。
+- 选择 AV1 不重编码模式后，自动禁用码率、速度、反交错、输出帧率、LUT、Cinematic、H.264 上传版等需要重编码的功能；AV1 胶片颗粒参数与 MP4 / MKV 容器选择继续可用。独立 BAT 的多文件能力保持不变。
+- 所选 AV1 视频增加 `grav1synth inspect` 异步检测，并在媒体信息独立一行显示 **`AV1 胶片颗粒：无 / 亮度 / 亮度 + 色度`**；媒体信息去除价值较低的容器字段，为颗粒状态留出固定显示空间。
+- 编码方式与 AV1 Grain 设置区统一中文界面文案：`AV1 · grav1synth 胶片颗粒（默认）`、`HEVC · 扫描胶片颗粒`、`AV1 · 胶片颗粒元数据`、`颗粒方式`、`胶片预设`、`胶片格式`、`胶片型号`、`感光度 ISO`、`亮度 + 色度` 等；AV1 / HEVC / grav1synth、预设名和胶片型号等专有名词继续保留英文。
+- GUI **配置 → Grain 根目录** 的刷新扩展为同时统计原始 MOV、原分辨率 Cache 与 1080p Cache；发现缺失时启用 **“生成高速缓存”**，直接调用现有 `FilmGrain_MOV_to_HEVC_Lossless_Cache.bat` 补齐缺失的两类 Cache，已有文件不覆盖。
+- Cache BAT 新增可选 `1 / 2 / 3` 模式参数，GUI 直接传入 `3` 进行非交互生成，避免日志窗口无法向 `set /p` 菜单传递键盘输入；单独双击 BAT 时仍保留原交互菜单。
+- GUI **配置 → LUT 根目录** 的刷新扩展为同时统计 `.cube` LUT 与 Gallery 预览图；存在缺失时启用 **“创建缩略图”**，使用默认参考图只生成缺失预览，不覆盖已有缩略图；更换参考图并全部重建仍由 LUT Gallery 的“更换参考图”完成。
+- LUT 预览生成脚本新增显式 FFmpeg 路径入口，以便 GUI 使用当前统一配置中的 FFmpeg；AV1 无重编码工具新增 Studio 非交互入口，GUI 与独立 Utils 继续共用同一套已验证处理核心。
+- 保持 v4.2.1 的统一路径配置、硬件能力探测以及 HEVC / AV1 主编码核心不变；本次发布重点是将常用零散 Utils 能力收进 GUI，并统一相关状态显示与交互。
+
+
+## v4.2.1 — 2026-09-06
+
+- 新增根目录统一路径配置 `FilmGrain_Config.ini`；GUI、CLI、StudioBridge 与相关 Utils 工具统一从同一配置读取外部依赖路径，结束各脚本分别维护硬编码路径的方式。
+- GUI 右上角新增 **“配置…”**，集中管理 FFmpeg、grav1synth、HEVC Grain 根目录与 LUT 根目录；项目内部脚本仍使用相对路径，保持工具包可整体移动。
+- FFmpeg 配置精简为单一 **FFmpeg 目录**，默认 `E:\EnCoder\FFMpeg\x64\bin`；程序自动使用该目录内的 `ffmpeg.exe` 与 `ffprobe.exe`，不再分别配置两个执行文件。
+- 配置窗口各路径统一提供“浏览…”与 `↻` 刷新。浏览选择后立即检测；手工输入后不自动扫描，由用户点击刷新明确触发检测。
+- FFmpeg 检测同时显示 `ffmpeg.exe` / `ffprobe.exe` 是否可用及各自版本；grav1synth 显示可执行文件检测与版本。
+- Grain 根目录刷新时递归统计原始 `.mov` Grain Plate 数量；LUT 根目录刷新时统计可用于 Gallery 的 `.cube` LUT 数量。
+- “保存”仅执行快速路径存在性检查并写入 INI，不再启动 FFmpeg / grav1synth 或递归扫描目录，避免保存配置时出现不必要停顿。
+- GUI 硬件信息区增加 FFmpeg 版本，与 NVIDIA 驱动版本及能力缓存状态一并显示。
+- `FilmGrain_Config.ini` 使用 UTF-8 无 BOM；PS1 / BAT 分别通过统一配置读取层处理编码和 CMD 特殊字符，继续遵循 BAT/VBS 无 BOM、PS1 UTF-8 BOM 的项目规则。
+- 保持 v4.1.0 已验证的 HEVC / AV1 / 字幕 / H.264 上传 / 反交错 / Cinematic / LUT / Grain 编码逻辑不变，本次重点仅收口配置与状态显示。
+- 正式发布前重新执行脚本编码、BOM、CRLF、CMD `^` 续行尾空白、旧 FFmpeg `13.0\bin` 路径残留、文件结构与 ZIP CRC 审计。
+
+
 ## v4.1.0 — 2026-09-05
 
 - 字幕功能从 H.264 上传副本中解耦，改为**独立开关**；不再要求勾选“同时生成 H.264 上传版”才能烧写字幕。

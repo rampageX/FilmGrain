@@ -10,7 +10,10 @@
 --------
 FilmGrain_Universal_HEVC_AV1_CLI.bat
 FilmGrain_Universal_HEVC_AV1_GUI.bat
+FilmGrain_Config.ini
 Utils\
+    FilmGrain_Config.ps1
+    FilmGrain_Config_Load.bat
     FilmGrain_Studio.ps1
     FilmGrain_Studio_Launcher.vbs
     FilmGrain_Universal_HEVC_AV1_StudioBridge.bat
@@ -24,14 +27,15 @@ _LUT_Tools\
     LUT_Gallery_Selector.ps1
     LUT_Preview_Batch_Gallery.ps1
     LUT_Reference_Default.jpg
+    LUT_Reference_Current.jpg  （用户更换参考图后自动生成；发布包默认不存在）
 
-根目录只保留 CLI 与 GUI 两个 BAT 入口。请保持 Utils、README 和
+根目录保留 CLI / GUI 两个 BAT 入口以及 FilmGrain_Config.ini。请保持 Utils、README 和
 _LUT_Tools 文件夹的相对位置不变。
 
-固定依赖与默认路径
+统一依赖与默认路径
 ------------------
-FFmpeg：E:\EnCoder\FFMpeg\13.0\bin\ffmpeg.exe
-FFprobe：E:\EnCoder\FFMpeg\13.0\bin\ffprobe.exe
+以下路径统一保存在根目录 FilmGrain_Config.ini，并可通过 GUI“配置…”修改：
+FFmpeg 目录：E:\EnCoder\FFMpeg\x64\bin（目录内同时使用 ffmpeg.exe 与 ffprobe.exe）
 grav1synth：E:\EnCoder\FFMpeg\grav1synth\grav1synth.exe
 HEVC Grain 库：D:\Film_Grain
 LUT 根目录：E:\Adobe Portable\LUTs
@@ -95,13 +99,20 @@ Utils\AV1_Grav1synth_Add_Replace_FilmGrain_NoReencode.bat
 脚本不重新编码视频，只将 AV1 视频流复制到 IVF，使用 grav1synth 添加或
 替换 Film Grain metadata，再封装为 MKV 或 MP4，并检查最终 Film Grain。
 默认输出 MKV；MP4 模式会将音频转换为 AAC 320k。
+Studio GUI 在单个 AV1 输入时也会提供“AV1 不重编码 · 添加/替换胶片颗粒”，
+并自动禁用需要重新编码的视频处理功能；所选 AV1 会显示胶片颗粒为无、亮度或亮度 + 色度。
 
 4. LUT 缩略图生成器
 -------------------
 运行 Utils\LUT_Preview_Batch_Gallery.bat。
 LUT 根目录和参考图片/视频均有默认值，直接回车采用默认值，也可临时输入
 其他路径。保留 Resolve CUBE 兼容、Junction/Symlink、防循环、1920 预览
-及 Gallery index 功能。
+及 Gallery index 功能。GUI“配置…”中的 LUT 根目录刷新还会统计 Gallery
+预览完整度；存在缺失时可直接点击“创建缩略图”，只补缺失文件。
+Gallery“更换参考图”后会将所选图片统一保存为 _LUT_Tools\LUT_Reference_Current.jpg。
+之后 Gallery 全量重建、GUI 补建缺失预览以及独立预览生成器均优先使用 Current；
+若 Current 尚不存在，则使用出厂 LUT_Reference_Default.jpg。这样删除部分预览后再次
+补建，也会继续沿用最近一次选择的参考图。
 
 5. 其他 Utils 工具
 ------------------
@@ -112,7 +123,9 @@ FilmGrain_MOV_to_HEVC_Lossless_Cache.bat：统一 Cache 生成器。递归扫描
 D:\Film_Grain，可选择生成原始分辨率、Vulkan bilinear 1920×1080，
 或同时生成两种 HEVC Main10 Lossless Cache。校验统一比较实际 10-bit
 YUV 样本；参考哈希来自与 NVENC 相同的同一帧流，避免 P010 低 6 位
-填充差异造成假失败。已验证 RTX 4080 与 T600 Laptop。
+填充差异造成假失败。已验证 RTX 4080 与 T600 Laptop。GUI“配置…”中的
+Grain 根目录刷新会同时统计两类 Cache，缺失时可直接点击“生成高速缓存”；
+GUI 以非交互模式调用同一 BAT，单独双击 BAT 时仍保留 1 / 2 / 3 菜单。
 
 注意事项
 --------

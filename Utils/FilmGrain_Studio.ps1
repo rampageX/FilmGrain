@@ -29,14 +29,41 @@ public static class FilmGrainNativeWindow
 '@
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
+# Startup safety net: if an unexpected terminating error occurs before the
+# GUI becomes usable, show it instead of silently disappearing behind WScript.
+trap {
+    try {
+        $where = ''
+        if ($_.InvocationInfo -and $_.InvocationInfo.PositionMessage) { $where = "`r`n`r`n" + $_.InvocationInfo.PositionMessage }
+        [void][System.Windows.Forms.MessageBox]::Show(
+            ('Film Grain Studio 发生未处理错误：' + "`r`n`r`n" + $_.Exception.Message + $where),
+            'Film Grain Studio',
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Error
+        )
+    } catch {}
+    exit 1
+}
+
 $ScriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $PackageRoot = Split-Path -Parent $ScriptRoot
 $CoreBat = Join-Path $ScriptRoot 'FilmGrain_Universal_HEVC_AV1_StudioBridge.bat'
-$Ffmpeg = 'E:\EnCoder\FFMpeg\13.0\bin\ffmpeg.exe'
-$Ffprobe = 'E:\EnCoder\FFMpeg\13.0\bin\ffprobe.exe'
+$NoReencodeBat = Join-Path $ScriptRoot 'AV1_Grav1synth_Add_Replace_FilmGrain_NoReencode.bat'
+$GrainCacheBat = Join-Path $ScriptRoot 'FilmGrain_MOV_to_HEVC_Lossless_Cache.bat'
+$LutPreviewGenerator = Join-Path $PackageRoot '_LUT_Tools\LUT_Preview_Batch_Gallery.ps1'
+$LutPreviewDefaultReference = Join-Path $PackageRoot '_LUT_Tools\LUT_Reference_Default.jpg'
+$LutPreviewCurrentReference = Join-Path $PackageRoot '_LUT_Tools\LUT_Reference_Current.jpg'
+$ConfigScript = Join-Path $ScriptRoot 'FilmGrain_Config.ps1'
+if (-not (Test-Path -LiteralPath $ConfigScript -PathType Leaf)) { throw "Film Grain configuration helper not found: $ConfigScript" }
+. $ConfigScript
+$script:PathConfig = Get-FilmGrainConfig
+$Ffmpeg = [string]$script:PathConfig.FFMPEG
+$Ffprobe = [string]$script:PathConfig.FFPROBE
+$Grav1synth = [string]$script:PathConfig.GRAV1SYNTH
+$DefaultGrainRoot = [string]$script:PathConfig.GRAIN_ROOT
 $HardwareCapsScript = Join-Path $ScriptRoot 'FilmGrain_Hardware_Caps.ps1'
 $HardwareCapsCache = Join-Path $ScriptRoot '_HardwareCaps.json'
-$LutRoot = 'E:\Adobe Portable\LUTs'
+$LutRoot = [string]$script:PathConfig.LUT_ROOT
 $LutPreviewRoot = Join-Path $LutRoot '_LUT_PREVIEWS'
 $LutSelector = Join-Path $PackageRoot '_LUT_Tools\LUT_Gallery_Selector.ps1'
 $LutGalleryIndex = Join-Path $LutPreviewRoot '_LUT_GALLERY_INDEX.json'
@@ -68,6 +95,14 @@ $script:ProbeErrorTask = $null
 $script:ProbeTargetPath = ''
 $script:ProbeCache = @{}
 $script:ProbeVideoMeta = @{}
+$script:Av1GrainCache = @{}
+$script:Av1InspectProcess = $null
+$script:Av1InspectOutputTask = $null
+$script:Av1InspectErrorTask = $null
+$script:Av1InspectTargetPath = ''
+$script:Av1InspectTempTable = ''
+$script:NoReencodeItemText = 'AV1 不重编码 · 添加/替换胶片颗粒'
+$script:NoReencodeUiActive = $false
 $script:RecentLuts = @()
 $script:LoadingRecentLuts = $false
 $script:FavoriteLuts = @()
@@ -75,6 +110,7 @@ $script:LoadingFavoriteLuts = $false
 $script:CurrentLutPreviewImage = $null
 $script:HardwareCaps = $null
 $script:HardwareCapsReady = $false
+$script:FFmpegVersionOverride = ''
 $script:Av1Available = $true
 $script:Av1UhqAvailable = $false
 $script:HevcAvailable = $true
@@ -180,6 +216,12 @@ function Show-Info {
 }
 
 function Initialize-HardwareCaps {
+    $script:HardwareCaps = $null
+    $script:HardwareCapsReady = $false
+    $script:Av1Available = $true
+    $script:Av1UhqAvailable = $false
+    $script:HevcAvailable = $true
+
     if (-not (Test-Path -LiteralPath $HardwareCapsScript -PathType Leaf)) { return }
     if (-not (Test-Path -LiteralPath $Ffmpeg -PathType Leaf)) { return }
 
@@ -203,6 +245,43 @@ function Initialize-HardwareCaps {
         $script:Av1Available = $true
         $script:Av1UhqAvailable = $false
         $script:HevcAvailable = $true
+    }
+}
+
+function Get-FFmpegVersionLabel {
+    if ($script:HardwareCapsReady -and $script:HardwareCaps.ffmpeg -and $script:HardwareCaps.ffmpeg.version) {
+        $line = [string]$script:HardwareCaps.ffmpeg.version
+        if ($line -match '^ffmpeg version\s+([0-9]+(?:\.[0-9]+){1,3})') { return $matches[1] }
+        if ($line -match '^ffmpeg version\s+([^\s]+)') { return $matches[1] }
+    }
+    if ($script:FFmpegVersionOverride) { return [string]$script:FFmpegVersionOverride }
+    if (Test-Path -LiteralPath $Ffmpeg -PathType Leaf) {
+        try {
+            $line = (& $Ffmpeg -version 2>$null | Select-Object -First 1)
+            if ($line -match '^ffmpeg version\s+([0-9]+(?:\.[0-9]+){1,3})') { return $matches[1] }
+            if ($line -match '^ffmpeg version\s+([^\s]+)') { return $matches[1] }
+        } catch {}
+    }
+    return '未检测'
+}
+
+function Update-HardwareProfileUi {
+    if (-not $profileNote -or -not $cmbGpu) { return }
+    $ffmpegVersion = Get-FFmpegVersionLabel
+    if ($script:HardwareCapsReady) {
+        $yesNo = @('不可用', '可用')
+        $av1Text = $yesNo[[int]$script:Av1Available]
+        $av1UhqText = $yesNo[[int]$script:Av1UhqAvailable]
+        $hevcText = $yesNo[[int]$script:HevcAvailable]
+        $profileNote.Text = "驱动：$($script:HardwareCaps.gpu.driverVersion) · FFmpeg：$ffmpegVersion · 配置：$($script:HardwareCaps.cacheState)`r`nAV1 Main10：$av1Text · UHQ：$av1UhqText；HEVC/Vulkan：$hevcText；其余参数按实测启用。"
+        $cmbGpu.Items.Clear()
+        [void]$cmbGpu.Items.Add(([string]$script:HardwareCaps.gpu.name + '（自动检测）'))
+        $cmbGpu.SelectedIndex = 0
+    } else {
+        $profileNote.Text = "FFmpeg：$ffmpegVersion`r`n硬件检测尚未完成；请检查配置路径，编码启动时会自动重试。"
+        $cmbGpu.Items.Clear()
+        [void]$cmbGpu.Items.Add('自动检测（编码启动时再次校验）')
+        $cmbGpu.SelectedIndex = 0
     }
 }
 
@@ -243,20 +322,34 @@ $title.Location = New-Object System.Drawing.Point -ArgumentList 20, 10
 [void]$header.Controls.Add($title)
 
 $subtitle = New-Object System.Windows.Forms.Label
-$subtitle.Text = 'AV1 grav1synth  ·  HEVC Scanned Grain  ·  LUT Gallery'
+$subtitle.Text = 'AV1 grav1synth  ·  HEVC 扫描胶片颗粒  ·  LUT 图库'
 $subtitle.ForeColor = [System.Drawing.Color]::FromArgb(205, 214, 224)
 $subtitle.Font = New-UiFont 9
 $subtitle.AutoSize = $true
 $subtitle.Location = New-Object System.Drawing.Point -ArgumentList 22, 43
 [void]$header.Controls.Add($subtitle)
 
+$btnConfig = New-Object System.Windows.Forms.Button
+$btnConfig.Text = '配置…'
+$btnConfig.Size = New-Object System.Drawing.Size -ArgumentList 76, 30
+$btnConfig.Anchor = 'Top,Right'
+$btnConfig.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+$btnConfig.FlatAppearance.BorderColor = [System.Drawing.Color]::FromArgb(110, 126, 145)
+$btnConfig.ForeColor = [System.Drawing.Color]::White
+$btnConfig.BackColor = [System.Drawing.Color]::FromArgb(58, 72, 90)
+$btnConfig.Location = New-Object System.Drawing.Point -ArgumentList 1158, 19
+[void]$header.Controls.Add($btnConfig)
+
 $baseline = New-Object System.Windows.Forms.Label
 $baseline.Text = '核心：Universal HEVC / AV1'
 $baseline.ForeColor = [System.Drawing.Color]::FromArgb(205, 214, 224)
 $baseline.AutoSize = $true
 $baseline.Anchor = 'Top,Right'
-$baseline.Location = New-Object System.Drawing.Point -ArgumentList 1035, 25
-$header.Add_Resize({ $baseline.Left = $header.ClientSize.Width - $baseline.Width - 20 })
+$baseline.Location = New-Object System.Drawing.Point -ArgumentList 955, 27
+$header.Add_Resize({
+    $btnConfig.Left = $header.ClientSize.Width - $btnConfig.Width - 20
+    $baseline.Left = $btnConfig.Left - $baseline.Width - 18
+})
 [void]$header.Controls.Add($baseline)
 [void]$root.Controls.Add($header, 0, 0)
 
@@ -368,10 +461,10 @@ for ($i = 0; $i -lt 13; $i++) { Add-RowAbsolute $encodeTable 34 }
 Add-RowPercent $encodeTable 100
 [void]$grpEncode.Controls.Add($encodeTable)
 
-$codecItems = @('AV1 Main10 + grav1synth（默认）', 'HEVC Main10 + Scanned Grain')
+$codecItems = @('AV1 · grav1synth 胶片颗粒（默认）', 'HEVC · 扫描胶片颗粒')
 $initialCodecIndex = 0
 if ($script:HardwareCapsReady -and -not $script:Av1Available) {
-    $codecItems[0] = 'AV1 Main10 + grav1synth（当前硬件不可用）'
+    $codecItems[0] = 'AV1 · grav1synth 胶片颗粒（当前硬件不可用）'
     $initialCodecIndex = 1
 }
 $cmbCodec = New-ComboBox $codecItems $initialCodecIndex
@@ -512,17 +605,9 @@ $profileNote.Dock = 'Fill'
 $profileNote.ForeColor = $ColorMuted
 $profileNote.TextAlign = [System.Drawing.ContentAlignment]::TopLeft
 $profileNote.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 8, 3, 8, 0
-if ($script:HardwareCapsReady) {
-    $yesNo = @('不可用', '可用')
-    $av1Text = $yesNo[[int]$script:Av1Available]
-    $av1UhqText = $yesNo[[int]$script:Av1UhqAvailable]
-    $hevcText = $yesNo[[int]$script:HevcAvailable]
-    $profileNote.Text = "驱动：$($script:HardwareCaps.gpu.driverVersion) · 配置：$($script:HardwareCaps.cacheState)`r`nAV1 Main10：$av1Text · UHQ：$av1UhqText；HEVC/Vulkan：$hevcText；其余参数按实测启用。"
-} else {
-    $profileNote.Text = "固定依赖：FFmpeg 13.0 / NVENC API 13.0`r`n硬件检测尚未完成，编码启动时会自动重试。"
-}
 [void]$encodeTable.Controls.Add($profileNote, 0, 13)
 $encodeTable.SetColumnSpan($profileNote, 2)
+Update-HardwareProfileUi
 [void]$main.Controls.Add($grpEncode, 1, 0)
 
 # Right side: mode-specific Grain and LUT
@@ -536,7 +621,7 @@ Add-RowPercent $rightLayout 62
 [void]$main.Controls.Add($rightLayout, 2, 0)
 
 $grpGrain = New-Object System.Windows.Forms.GroupBox
-$grpGrain.Text = 'Film Grain · AV1 metadata'
+$grpGrain.Text = 'AV1 · 胶片颗粒元数据'
 $grpGrain.Dock = 'Fill'
 $grpGrain.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0, 0, 0, 5
 [void]$rightLayout.Controls.Add($grpGrain, 0, 0)
@@ -561,7 +646,7 @@ $av1ValueCol.Width = 100
 [void]$pnlAv1.ColumnStyles.Add($av1ValueCol)
 for ($i = 0; $i -lt 5; $i++) { Add-RowPercent $pnlAv1 (100 / 5) }
 
-$cmbAv1Method = New-ComboBox @('Film preset（推荐）', 'Photon ISO（高级）') 0
+$cmbAv1Method = New-ComboBox @('胶片预设（推荐）', '感光度 ISO（高级）') 0
 $cmbAv1Format = New-ComboBox @('Classic35 · Super 35', 'Modern35 · Full-frame', '16mm · Coarser', 'Super8 · Heavy', 'MaxMid · Synthetic') 0
 $cmbAv1Stock = New-ComboBox @('Fujifilm Eterna 250D', 'Fujifilm Eterna 500T', 'Kodak Vision3 250D', 'Kodak Vision3 200T') 0
 
@@ -574,14 +659,14 @@ $numIso.ThousandsSeparator = $true
 $numIso.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 4, 5, 6, 5
 
 $chkChroma = New-Object System.Windows.Forms.CheckBox
-$chkChroma.Text = 'Luma + Chroma（默认仅 Luma）'
+$chkChroma.Text = '亮度 + 色度（默认仅亮度）'
 $chkChroma.Dock = 'Fill'
 $chkChroma.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 7, 4, 3, 3
 
-Add-LabeledRow $pnlAv1 0 'Grain 方式' $cmbAv1Method
-Add-LabeledRow $pnlAv1 1 'Film 格式' $cmbAv1Format
-Add-LabeledRow $pnlAv1 2 'Film stock' $cmbAv1Stock
-Add-LabeledRow $pnlAv1 3 'Photon ISO' $numIso
+Add-LabeledRow $pnlAv1 0 '颗粒方式' $cmbAv1Method
+Add-LabeledRow $pnlAv1 1 '胶片格式' $cmbAv1Format
+Add-LabeledRow $pnlAv1 2 '胶片型号' $cmbAv1Stock
+Add-LabeledRow $pnlAv1 3 '感光度 ISO' $numIso
 [void]$pnlAv1.Controls.Add($chkChroma, 0, 4)
 $pnlAv1.SetColumnSpan($chkChroma, 2)
 [void]$grainHost.Controls.Add($pnlAv1)
@@ -621,7 +706,7 @@ $grainRootRefreshCol.Width = 42
 [void]$grainRootPanel.ColumnStyles.Add($grainRootRefreshCol)
 
 $txtGrainRoot = New-Object System.Windows.Forms.TextBox
-$txtGrainRoot.Text = 'D:\Film_Grain'
+$txtGrainRoot.Text = $DefaultGrainRoot
 $txtGrainRoot.Dock = 'Fill'
 $txtGrainRoot.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0, 5, 3, 5
 $btnGrainRoot = New-Object System.Windows.Forms.Button
@@ -636,7 +721,7 @@ $btnRefreshGrain.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 
 [void]$grainRootPanel.Controls.Add($btnGrainRoot, 1, 0)
 [void]$grainRootPanel.Controls.Add($btnRefreshGrain, 2, 0)
 
-$cmbHevcPlate = New-ComboBox @('正在扫描 Grain 根目录…') 0
+$cmbHevcPlate = New-ComboBox @('正在扫描颗粒根目录…') 0
 $cmbHevcPlate.Enabled = $false
 $cmbHevcPlate.DropDownWidth = 420
 
@@ -668,13 +753,13 @@ $lblHevcStrength.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
 [void]$hevcStrengthPanel.Controls.Add($lblHevcStrength, 1, 0)
 
 $cacheNote = New-Object System.Windows.Forms.Label
-$cacheNote.Text = '将递归扫描根目录中的原始 MOV；Cache 自动匹配，缺失时回退 MOV。'
+$cacheNote.Text = '将递归扫描根目录中的原始 MOV；缓存自动匹配，缺失时回退 MOV。'
 $cacheNote.ForeColor = $ColorMuted
 $cacheNote.Dock = 'Fill'
 $cacheNote.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
 $cacheNote.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 8, 0, 2, 0
 
-Add-LabeledRow $pnlHevc 0 'Grain 根目录' $grainRootPanel
+Add-LabeledRow $pnlHevc 0 '颗粒根目录' $grainRootPanel
 Add-LabeledRow $pnlHevc 1 '扫描颗粒片' $cmbHevcPlate
 Add-LabeledRow $pnlHevc 2 '颗粒强度' $hevcStrengthPanel
 [void]$pnlHevc.Controls.Add($cacheNote, 0, 3)
@@ -813,7 +898,7 @@ $lblLutStrength.Enabled = $false
 [void]$lutTable.Controls.Add($lblLutStrength, 2, 4)
 
 $toolTip = New-Object System.Windows.Forms.ToolTip
-$toolTip.SetToolTip($btnGrainRoot, '选择 Grain 根目录')
+$toolTip.SetToolTip($btnGrainRoot, '选择颗粒根目录')
 $toolTip.SetToolTip($btnRefreshGrain, '重新扫描根目录中的 .mov 颗粒片')
 $toolTip.SetToolTip($btnUploadSubtitle, '硬字幕独立于 H.264 上传版；启用后烧写到主输出，若同时生成 H.264 上传版则副本也包含同一字幕。默认距最终输出画面下沿 5px、水平居中。')
 $toolTip.SetToolTip($cmbUploadBitrate, 'NVENC：固定 6M / 8M / 15M。x264 Grain：按实际输出 FPS 与分辨率自动换算；分辨率按相对 1080p 像素面积平方根缩放。默认普通动态再乘 0.5，高动态视频勾选后使用完整码率。x264 使用 Slow + tune grain + 2-pass，VBV Max=3×、Buf=6×。')
@@ -949,14 +1034,12 @@ $openDialog.Multiselect = $true
 $openDialog.Filter = '视频文件|*.mp4;*.mkv;*.mov;*.mxf;*.avi;*.webm;*.ts;*.m2ts;*.mts|所有文件|*.*'
 
 $folderDialog = New-Object System.Windows.Forms.FolderBrowserDialog
-$folderDialog.Description = '选择 HEVC Scanned Grain 根目录'
+$folderDialog.Description = '选择 HEVC 扫描胶片颗粒根目录'
 $folderDialog.ShowNewFolderButton = $false
 
 function Get-SubtitleProbeExe {
     $probeExe = $Ffprobe
     if (Test-Path -LiteralPath $probeExe -PathType Leaf) { return $probeExe }
-    $probeCommand = Get-Command 'ffprobe.exe' -ErrorAction SilentlyContinue
-    if ($probeCommand) { return $probeCommand.Source }
     return $null
 }
 
@@ -1285,9 +1368,8 @@ function Format-ProbeResult {
 
     $format = $Data.format
     $duration = Format-MediaDuration $format.duration
-    $container = if ($format.format_name) { ([string]$format.format_name).Replace(',', ' / ') } else { '—' }
     $totalRate = Format-MediaBitrate $format.bit_rate
-    $formatLine = "时长  $duration · 容器 $container · 总码率 $totalRate"
+    $formatLine = "时长  $duration · 总码率 $totalRate"
     return $videoLine + "`r`n" + $audioLine + "`r`n" + $formatLine
 }
 
@@ -1318,16 +1400,19 @@ function Start-VideoProbe {
 
     $cacheKey = $Path.ToLowerInvariant()
     if ($script:ProbeCache.ContainsKey($cacheKey)) {
-        Set-MediaInfoText ([string]$script:ProbeCache[$cacheKey])
+        $summary = [string]$script:ProbeCache[$cacheKey]
+        Set-MediaInfoText $summary
         Update-DeinterlaceUi
+        Update-NoReencodeAvailability
+        if ($script:ProbeVideoMeta.ContainsKey($cacheKey) -and ([string]$script:ProbeVideoMeta[$cacheKey].codec_name).ToLowerInvariant() -eq 'av1') {
+            Start-Av1GrainInspect $Path $summary
+        } else {
+            Stop-Av1GrainInspect
+        }
         return
     }
 
     $probeExe = $Ffprobe
-    if (-not (Test-Path -LiteralPath $probeExe -PathType Leaf)) {
-        $probeCommand = Get-Command 'ffprobe.exe' -ErrorAction SilentlyContinue
-        if ($probeCommand) { $probeExe = $probeCommand.Source }
-    }
     if (-not $probeExe -or (-not (Test-Path -LiteralPath $probeExe -PathType Leaf))) {
         Set-MediaInfoText "找不到 FFprobe：$Ffprobe" $true
         return
@@ -1358,13 +1443,128 @@ function Start-VideoProbe {
     }
 }
 
+function Stop-Av1GrainInspect {
+    if ($av1InspectTimer) { $av1InspectTimer.Stop() }
+    if ($script:Av1InspectProcess) {
+        try {
+            if (-not $script:Av1InspectProcess.HasExited) {
+                $script:Av1InspectProcess.Kill()
+                [void]$script:Av1InspectProcess.WaitForExit(500)
+            }
+        } catch {}
+        try { $script:Av1InspectProcess.Dispose() } catch {}
+    }
+    if ($script:Av1InspectTempTable) {
+        Remove-Item -LiteralPath $script:Av1InspectTempTable -Force -ErrorAction SilentlyContinue
+    }
+    $script:Av1InspectProcess = $null
+    $script:Av1InspectOutputTask = $null
+    $script:Av1InspectErrorTask = $null
+    $script:Av1InspectTargetPath = ''
+    $script:Av1InspectTempTable = ''
+}
+
+function Get-Av1GrainTableSummary {
+    param([string]$TablePath)
+    if (-not $TablePath -or -not (Test-Path -LiteralPath $TablePath -PathType Leaf)) {
+        return 'AV1 胶片颗粒：无'
+    }
+    try {
+        $lines = @(Get-Content -LiteralPath $TablePath -Encoding UTF8 -ErrorAction Stop)
+        if ($lines.Count -eq 0 -or ([string]$lines[0]).Trim() -ne 'filmgrn1') {
+            return 'AV1 胶片颗粒：无法识别参数表'
+        }
+        $hasChroma = $false
+        foreach ($line in $lines) {
+            $t = ([string]$line).Trim()
+            if ($t -match '^sCb\s+([1-9][0-9]*)\b' -or $t -match '^sCr\s+([1-9][0-9]*)\b') {
+                $hasChroma = $true
+                break
+            }
+        }
+        $plane = if ($hasChroma) { '亮度 + 色度' } else { '亮度' }
+        return "AV1 胶片颗粒：$plane"
+    } catch {
+        return 'AV1 胶片颗粒：参数表读取失败'
+    }
+}
+
+function Update-NoReencodeAvailability {
+    $eligible = $false
+    if ($listFiles.Items.Count -eq 1) {
+        $path = [string]$listFiles.Items[0].Tag
+        if ($path) {
+            $key = $path.ToLowerInvariant()
+            if ($script:ProbeVideoMeta.ContainsKey($key)) {
+                $meta = $script:ProbeVideoMeta[$key]
+                $eligible = (([string]$meta.codec_name).ToLowerInvariant() -eq 'av1')
+            }
+        }
+    }
+
+    $hasItem = ($cmbCodec.Items.Count -ge 3 -and [string]$cmbCodec.Items[2] -eq $script:NoReencodeItemText)
+    if ($eligible -and -not $hasItem) {
+        [void]$cmbCodec.Items.Add($script:NoReencodeItemText)
+    } elseif (-not $eligible -and $hasItem) {
+        if ($cmbCodec.SelectedIndex -eq 2) {
+            $fallback = if ($script:HardwareCapsReady -and -not $script:Av1Available) { 1 } else { 0 }
+            $cmbCodec.SelectedIndex = $fallback
+        }
+        $cmbCodec.Items.RemoveAt(2)
+    }
+}
+
+function Start-Av1GrainInspect {
+    param([string]$Path,[string]$BaseSummary)
+    Stop-Av1GrainInspect
+    if (-not $Path -or -not [System.IO.File]::Exists($Path)) { return }
+
+    $key = $Path.ToLowerInvariant()
+    if ($script:Av1GrainCache.ContainsKey($key)) {
+        Set-MediaInfoText ($BaseSummary + "`r`n" + [string]$script:Av1GrainCache[$key])
+        return
+    }
+    if (-not $Grav1synth -or -not (Test-Path -LiteralPath $Grav1synth -PathType Leaf)) {
+        Set-MediaInfoText ($BaseSummary + "`r`nAV1 胶片颗粒：grav1synth 未找到")
+        return
+    }
+
+    $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ('FilmGrainStudio_Inspect_' + [guid]::NewGuid().ToString('N') + '.txt')
+    Set-MediaInfoText ($BaseSummary + "`r`nAV1 胶片颗粒：正在检测…")
+    try {
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = $Grav1synth
+        $psi.Arguments = 'inspect "' + $Path + '" -o "' + $tmp + '" -y'
+        $psi.UseShellExecute = $false
+        $psi.CreateNoWindow = $true
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError = $true
+        $proc = New-Object System.Diagnostics.Process
+        $proc.StartInfo = $psi
+        if (-not $proc.Start()) { throw '无法启动 grav1synth inspect。' }
+        $script:Av1InspectProcess = $proc
+        $script:Av1InspectOutputTask = $proc.StandardOutput.ReadToEndAsync()
+        $script:Av1InspectErrorTask = $proc.StandardError.ReadToEndAsync()
+        $script:Av1InspectTargetPath = $Path
+        $script:Av1InspectTempTable = $tmp
+        $av1InspectTimer.Start()
+    } catch {
+        if ($proc) { try { $proc.Dispose() } catch {} }
+        Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+        $script:Av1InspectProcess = $null
+        Set-MediaInfoText ($BaseSummary + "`r`nAV1 胶片颗粒：检测失败")
+    }
+}
+
 function Update-SelectedMediaInfo {
     $selected = @($listFiles.SelectedItems)
     if ($selected.Count -eq 0) {
         Stop-VideoProbe
-        Set-MediaInfoText '选择一个视频，可查看编码、码率、分辨率与时长。' $true
+        Stop-Av1GrainInspect
+        Set-MediaInfoText '选择一个视频，可查看编码、码率、分辨率、时长与 AV1 胶片颗粒状态。' $true
     } elseif ($selected.Count -gt 1) {
         Stop-VideoProbe
+        Stop-Av1GrainInspect
         Set-MediaInfoText "已选择 $($selected.Count) 个视频；请选择单个视频查看信息。" $true
     } else {
         Start-VideoProbe ([string]$selected[0].Tag)
@@ -1404,9 +1604,57 @@ $probeTimer.Add_Tick({
         if ($videoMeta.Count -gt 0) { $script:ProbeVideoMeta[$cacheKey] = $videoMeta[0] }
         Set-MediaInfoText $summary
         Update-DeinterlaceUi
+        Update-NoReencodeAvailability
+        if ($videoMeta.Count -gt 0 -and ([string]$videoMeta[0].codec_name).ToLowerInvariant() -eq 'av1') {
+            Start-Av1GrainInspect $targetPath $summary
+        } else {
+            Stop-Av1GrainInspect
+        }
     } catch {
         Stop-VideoProbe
         Set-MediaInfoText ('读取失败：' + $_.Exception.Message) $true
+    }
+})
+
+$av1InspectTimer = New-Object System.Windows.Forms.Timer
+$av1InspectTimer.Interval = 140
+$av1InspectTimer.Add_Tick({
+    if (-not $script:Av1InspectProcess) {
+        $av1InspectTimer.Stop()
+        return
+    }
+    try {
+        if (-not $script:Av1InspectProcess.HasExited -or -not $script:Av1InspectOutputTask.IsCompleted -or -not $script:Av1InspectErrorTask.IsCompleted) { return }
+        $av1InspectTimer.Stop()
+        $targetPath = $script:Av1InspectTargetPath
+        $tmp = $script:Av1InspectTempTable
+        $exitCode = $script:Av1InspectProcess.ExitCode
+        $errorText = [string]$script:Av1InspectErrorTask.Result
+        try { $script:Av1InspectProcess.Dispose() } catch {}
+        $script:Av1InspectProcess = $null
+        $script:Av1InspectOutputTask = $null
+        $script:Av1InspectErrorTask = $null
+        $script:Av1InspectTargetPath = ''
+        $script:Av1InspectTempTable = ''
+
+        if ($exitCode -eq 0) {
+            $grainSummary = Get-Av1GrainTableSummary $tmp
+        } else {
+            $detail = ([System.Text.RegularExpressions.Regex]::Split($errorText.Trim(), '\r?\n') | Where-Object { $_ } | Select-Object -First 1)
+            if (-not $detail) { $detail = "返回代码 $exitCode" }
+            $grainSummary = "AV1 胶片颗粒：检测失败 · $detail"
+        }
+        Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+        $key = $targetPath.ToLowerInvariant()
+        $script:Av1GrainCache[$key] = $grainSummary
+
+        $selected = @($listFiles.SelectedItems)
+        if ($selected.Count -eq 1 -and [string]::Equals([string]$selected[0].Tag,$targetPath,[System.StringComparison]::OrdinalIgnoreCase)) {
+            $base = if ($script:ProbeCache.ContainsKey($key)) { [string]$script:ProbeCache[$key] } else { '' }
+            if ($base) { Set-MediaInfoText ($base + "`r`n" + $grainSummary) }
+        }
+    } catch {
+        Stop-Av1GrainInspect
     }
 })
 
@@ -1457,6 +1705,11 @@ function Add-InputFiles {
         $listFiles.EndUpdate()
     }
     Update-FileCount
+    Update-NoReencodeAvailability
+    if ($listFiles.Items.Count -eq 1 -and $listFiles.SelectedItems.Count -eq 0) {
+        $listFiles.Items[0].Selected = $true
+        $listFiles.Items[0].Focused = $true
+    }
 }
 
 function Get-InputPaths {
@@ -1480,9 +1733,9 @@ function Refresh-HevcGrainPlates {
         $cmbHevcPlate.Enabled = $false
 
         if (-not $rootText -or -not (Test-Path -LiteralPath $rootText -PathType Container)) {
-            [void]$cmbHevcPlate.Items.Add('Grain 根目录不存在')
+            [void]$cmbHevcPlate.Items.Add('颗粒根目录不存在')
             $cmbHevcPlate.SelectedIndex = 0
-            $cacheNote.Text = '请选择有效的 Grain 根目录，然后点击 ↻ 刷新。'
+            $cacheNote.Text = '请选择有效的颗粒根目录，然后点击 ↻ 刷新。'
             return
         }
 
@@ -1521,11 +1774,11 @@ function Refresh-HevcGrainPlates {
         }
         $cmbHevcPlate.Enabled = $true
         $cmbHevcPlate.SelectedIndex = $selectedIndex
-        $cacheNote.Text = '已扫描到 ' + $script:HevcGrainFiles.Count + ' 个原始 MOV；Cache 自动匹配，缺失时回退 MOV。'
+        $cacheNote.Text = '已扫描到 ' + $script:HevcGrainFiles.Count + ' 个原始 MOV；缓存自动匹配，缺失时回退 MOV。'
     } catch {
         $script:HevcGrainFiles = @()
         $cmbHevcPlate.Items.Clear()
-        [void]$cmbHevcPlate.Items.Add('扫描 Grain 根目录失败')
+        [void]$cmbHevcPlate.Items.Add('扫描颗粒根目录失败')
         $cmbHevcPlate.SelectedIndex = 0
         $cacheNote.Text = '扫描失败：' + $_.Exception.Message
     } finally {
@@ -1591,6 +1844,12 @@ function Get-DoubleFpsDisplay {
 }
 
 function Update-DeinterlaceUi {
+    if ($cmbCodec.SelectedIndex -eq 2) {
+        $cmbDeintMethod.Enabled = $false
+        $cmbFps.Enabled = $false
+        return
+    }
+
     $auto = ($cmbDeint.SelectedIndex -eq 0)
     $cmbDeintMethod.Enabled = $auto
 
@@ -1621,6 +1880,12 @@ function Update-DeinterlaceUi {
 }
 
 function Update-FramingUi {
+    if ($cmbCodec.SelectedIndex -eq 2) {
+        $cmbFrameMode.Enabled = $false
+        $frameHelp.Text = 'AV1 视频流不重编码，仅添加/替换胶片颗粒元数据；画幅处理已禁用。'
+        return
+    }
+
     $enabled = $chkCinematic.Checked
     $cmbFrameMode.Enabled = $enabled
     if (-not $enabled) {
@@ -1637,6 +1902,60 @@ function Update-FramingUi {
 function Update-CodecUi {
     $newIndex = $cmbCodec.SelectedIndex
     if ($newIndex -lt 0) { return }
+
+    if ($newIndex -eq 2) {
+        $script:NoReencodeUiActive = $true
+        if ($cmbContainer.Items.Count -ge 2) {
+            $cmbContainer.Items[0] = 'MP4 · AAC 320k（兼容模式）'
+            $cmbContainer.Items[1] = 'MKV · 保留原始流（推荐）'
+        }
+        $pnlHevc.Visible = $false
+        $pnlAv1.Visible = $true
+        $pnlAv1.BringToFront()
+        $grpGrain.Text = 'AV1 · 胶片颗粒元数据 · 不重编码'
+        Update-Av1Controls
+
+        $cmbContainer.Enabled = $true
+        $cmbSpeed.Enabled = $false
+        $cmbBitrate.Enabled = $false
+        $cmbFps.Enabled = $false
+        $cmbDeint.Enabled = $false
+        $cmbDeintMethod.Enabled = $false
+        $chkCinematic.Enabled = $false
+        $cmbFrameMode.Enabled = $false
+        $chkUpload.Enabled = $false
+        $cmbUploadBitrate.Enabled = $false
+        $chkUploadHighMotion.Enabled = $false
+        $btnUploadSubtitle.Enabled = $false
+        $grpLut.Enabled = $false
+        $frameHelp.Text = 'AV1 视频流不重编码，仅添加/替换胶片颗粒元数据；反交错、码率、LUT、画幅处理和上传版等重编码功能已禁用。'
+        $btnStart.Text = '开始处理'
+        return
+    }
+
+    # Keep the normal AV1 / HEVC startup path identical to the v4.2.1 stable baseline.
+    # Only restore controls when we are actually leaving the no-reencode mode.
+    if ($script:NoReencodeUiActive) {
+        $script:NoReencodeUiActive = $false
+        if ($cmbContainer.Items.Count -ge 2) {
+            $cmbContainer.Items[0] = 'MP4 · AAC 256k（默认）'
+            $cmbContainer.Items[1] = 'MKV · 保留原始流'
+        }
+        $cmbContainer.Enabled = $true
+        $cmbSpeed.Enabled = $true
+        $cmbBitrate.Enabled = $true
+        $cmbDeint.Enabled = $true
+        $chkCinematic.Enabled = $true
+        $chkUpload.Enabled = $true
+        $cmbUploadBitrate.Enabled = $chkUpload.Checked
+        $btnUploadSubtitle.Enabled = $true
+        $grpLut.Enabled = $true
+        $btnStart.Text = '开始编码'
+        Update-DeinterlaceUi
+        Update-FramingUi
+        Update-UploadHighMotionUi
+        Set-LutUi
+    }
 
     if (-not $script:ChangingCodec -and $newIndex -eq 0 -and $script:HardwareCapsReady -and -not $script:Av1Available) {
         $script:ChangingCodec = $true
@@ -1665,12 +1984,12 @@ function Update-CodecUi {
         $pnlHevc.Visible = $false
         $pnlAv1.Visible = $true
         $pnlAv1.BringToFront()
-        $grpGrain.Text = 'Film Grain · AV1 metadata'
+        $grpGrain.Text = 'AV1 · 胶片颗粒元数据'
     } else {
         $pnlAv1.Visible = $false
         $pnlHevc.Visible = $true
         $pnlHevc.BringToFront()
-        $grpGrain.Text = 'Film Grain · HEVC Scanned Grain'
+        $grpGrain.Text = 'HEVC · 扫描胶片颗粒'
         if ($script:LastScannedGrainRoot -ne $txtGrainRoot.Text.Trim() -or $script:HevcGrainFiles.Count -eq 0) {
             Refresh-HevcGrainPlates
         }
@@ -2361,6 +2680,7 @@ function Set-RunningState {
     $btnStart.Enabled = -not $Running
     $btnCancel.Enabled = $Running
     $btnClearLog.Enabled = -not $Running
+    $btnConfig.Enabled = -not $Running
     if ($Running) {
         $progress.Style = [System.Windows.Forms.ProgressBarStyle]::Marquee
         $progress.MarqueeAnimationSpeed = 25
@@ -2409,10 +2729,115 @@ function Quote-CmdArgument {
     return '"' + $Value.Replace('"', '""') + '"'
 }
 
+function Start-NoReencodeProcessing {
+    $paths = @(Get-InputPaths)
+    if ($paths.Count -ne 1) {
+        Show-Error '“AV1 不重编码 · 添加/替换胶片颗粒”当前仅支持单个 AV1 输入文件。'
+        return
+    }
+    $path = [string]$paths[0]
+    $key = $path.ToLowerInvariant()
+    if (-not $script:ProbeVideoMeta.ContainsKey($key) -or ([string]$script:ProbeVideoMeta[$key].codec_name).ToLowerInvariant() -ne 'av1') {
+        Show-Error '当前文件未确认是 AV1，请重新选择文件并等待媒体信息读取完成。'
+        return
+    }
+    if (-not (Test-Path -LiteralPath $NoReencodeBat -PathType Leaf)) {
+        Show-Error "找不到 AV1 无重编码工具：`r`n$NoReencodeBat"
+        return
+    }
+    if (-not (Test-Path -LiteralPath $Grav1synth -PathType Leaf)) {
+        Show-Error "找不到 grav1synth：`r`n$Grav1synth"
+        return
+    }
+
+    $script:RunWasCancelled = $false
+    $script:RunCompletionHandled = $false
+    $script:OutputReadTask = $null
+    $script:ErrorReadTask = $null
+    $script:OutputStreamClosed = $true
+    $script:ErrorStreamClosed = $true
+    $script:LogParseTail = ''
+    $script:CurrentInputPath = ''
+    $script:CurrentDurationSeconds = 0.0
+    $rtbLog.Clear()
+    $lblStatus.ForeColor = [System.Drawing.SystemColors]::ControlText
+    $lblRunStage.Text = '正在启动 AV1 胶片颗粒无重编码处理…'
+    $lblRunMetric.Text = '视频编码：NONE · stream copy'
+    Append-LogText ("Film Grain Studio`r`n" + ('=' * 68) + "`r`n")
+    Append-LogText ("任务文件数：1  ·  模式：AV1 胶片颗粒添加/替换 · 视频不重编码`r`n`r`n")
+
+    $cmdPath = $env:ComSpec
+    if (-not $cmdPath) { $cmdPath = Join-Path $env:SystemRoot 'System32\cmd.exe' }
+    $inner = 'call ' + (Quote-CmdArgument $NoReencodeBat) + ' ' + (Quote-CmdArgument $path) + ' 2>&1'
+
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $cmdPath
+    $psi.Arguments = '/d /s /c "' + $inner + '"'
+    $psi.WorkingDirectory = $ScriptRoot
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+
+    $envs = $psi.EnvironmentVariables
+    $envs['FG_STUDIO_MODE'] = '1'
+    $envs['FG_TOOL_NO_PAUSE'] = '1'
+    $envs['FG_CONTAINER'] = if ($cmbContainer.SelectedIndex -eq 0) { 'MP4' } else { 'MKV' }
+    $envs['FG_AV1_GRAIN_MODE'] = if ($cmbAv1Method.SelectedIndex -eq 0) { 'PRESET' } else { 'ISO' }
+    $envs['FG_AV1_FORMAT'] = [string]($cmbAv1Format.SelectedIndex + 1)
+    $envs['FG_AV1_STOCK'] = [string]($cmbAv1Stock.SelectedIndex + 1)
+    $envs['FG_AV1_ISO'] = [string][int]$numIso.Value
+    $envs['FG_AV1_CHROMA'] = if ($chkChroma.Checked) { '1' } else { '0' }
+
+    if ($script:Av1GrainCache.ContainsKey($key)) {
+        $grainState = [string]$script:Av1GrainCache[$key]
+        if ($grainState -eq 'AV1 胶片颗粒：无') {
+            $envs['FG_AV1_SOURCE_GRAIN_ACTION'] = 'ADDED'
+        } elseif ($grainState -eq 'AV1 胶片颗粒：亮度' -or $grainState -eq 'AV1 胶片颗粒：亮度 + 色度') {
+            $envs['FG_AV1_SOURCE_GRAIN_ACTION'] = 'REPLACED'
+        }
+    }
+
+    try {
+        $proc = New-Object System.Diagnostics.Process
+        $proc.StartInfo = $psi
+        if (-not $proc.Start()) { throw '无法启动 AV1 无重编码处理。' }
+        $script:RunningProcess = $proc
+        $script:OutputStreamClosed = $false
+        $script:ErrorStreamClosed = $false
+        $script:OutputReadTask = $proc.StandardOutput.ReadLineAsync()
+        $script:ErrorReadTask = $proc.StandardError.ReadLineAsync()
+        Set-RunningState $true
+        $lblStatus.Text = 'AV1 胶片颗粒无重编码任务正在运行'
+        $pollTimer.Start()
+    } catch {
+        Set-RunningState $false
+        if ($proc) { try { $proc.Dispose() } catch {} }
+        $script:RunningProcess = $null
+        $script:OutputReadTask = $null
+        $script:ErrorReadTask = $null
+        $script:OutputStreamClosed = $true
+        $script:ErrorStreamClosed = $true
+        Show-Error ("启动 AV1 无重编码任务失败：`r`n" + $_.Exception.Message)
+    }
+}
+
 function Start-Encoding {
+    if ($cmbCodec.SelectedIndex -eq 2) {
+        Start-NoReencodeProcessing
+        return
+    }
+
     if (-not (Test-Path -LiteralPath $CoreBat)) {
         Show-Error "找不到 Studio 桥接核心：`r`n$CoreBat"
         return
+    }
+
+    if (-not $script:HardwareCapsReady) {
+        Initialize-HardwareCaps
+        $script:FFmpegVersionOverride = ''
+        Update-HardwareProfileUi
+        Update-CodecUi
     }
 
     $paths = @(Get-InputPaths)
@@ -2457,7 +2882,7 @@ function Start-Encoding {
     if ($mode -eq 'HEVC') {
         $grainRoot = $txtGrainRoot.Text.Trim()
         if (-not (Test-Path -LiteralPath $grainRoot -PathType Container)) {
-            Show-Error "HEVC Grain 根目录不存在：`r`n$grainRoot"
+            Show-Error "HEVC 颗粒根目录不存在：`r`n$grainRoot"
             return
         }
         if ($script:LastScannedGrainRoot -ne $grainRoot -or $script:HevcGrainFiles.Count -eq 0) {
@@ -2626,7 +3051,7 @@ function Stop-Encoding {
     $answer = [System.Windows.Forms.MessageBox]::Show(
         $form,
         "确定取消当前任务？`r`n`r`n强制停止后，可能保留未完成输出或 AV1 临时目录。",
-        '取消 Film Grain 任务',
+        '取消胶片颗粒任务',
         [System.Windows.Forms.MessageBoxButtons]::YesNo,
         [System.Windows.Forms.MessageBoxIcon]::Warning
     )
@@ -2669,7 +3094,635 @@ $pollTimer.Add_Tick({
     }
 })
 
+function Show-UtilityProcessDialog {
+    param(
+        [System.Windows.Forms.IWin32Window]$Owner,
+        [string]$Title,
+        [string]$FileName,
+        [string]$Arguments,
+        [hashtable]$Environment,
+        [string]$WorkingDirectory
+    )
+
+    $runDlg = New-Object System.Windows.Forms.Form
+    $runDlg.Text = $Title
+    $runDlg.StartPosition = 'CenterParent'
+    $runDlg.Size = New-Object System.Drawing.Size -ArgumentList 820, 520
+    $runDlg.MinimumSize = New-Object System.Drawing.Size -ArgumentList 700, 420
+    $runDlg.Font = New-UiFont 9
+    $runDlg.ShowInTaskbar = $false
+
+    $runTable = New-Object System.Windows.Forms.TableLayoutPanel
+    $runTable.Dock = 'Fill'; $runTable.RowCount = 2; $runTable.ColumnCount = 1
+    Add-RowPercent $runTable 100
+    Add-RowAbsolute $runTable 48
+    [void]$runDlg.Controls.Add($runTable)
+
+    $runLog = New-Object System.Windows.Forms.RichTextBox
+    $runLog.Dock = 'Fill'; $runLog.ReadOnly = $true; $runLog.WordWrap = $false
+    $runLog.Font = New-Object System.Drawing.Font -ArgumentList 'Consolas', 9
+    [void]$runTable.Controls.Add($runLog,0,0)
+
+    $runButtons = New-Object System.Windows.Forms.FlowLayoutPanel
+    $runButtons.Dock = 'Fill'; $runButtons.FlowDirection='RightToLeft'; $runButtons.WrapContents=$false
+    $runButton = New-Object System.Windows.Forms.Button
+    $runButton.Text = '取消'; $runButton.Width = 88; $runButton.Height = 30; $runButton.Margin=New-Object System.Windows.Forms.Padding -ArgumentList 6,7,10,5
+    [void]$runButtons.Controls.Add($runButton)
+    [void]$runTable.Controls.Add($runButtons,0,1)
+
+    $state = @{ Process=$null; OutTask=$null; ErrTask=$null; OutClosed=$true; ErrClosed=$true; ExitCode=$null; Cancelled=$false; Finished=$false }
+    $timer = New-Object System.Windows.Forms.Timer
+    $timer.Interval = 120
+
+    $append = {
+        param([string]$Text)
+        if (-not $Text) { return }
+        $runLog.AppendText($Text)
+        $runLog.SelectionStart = $runLog.TextLength
+        $runLog.ScrollToCaret()
+    }
+    $drain = {
+        if (-not $state.Process) { return }
+        $loops=0
+        while ($state.OutTask -and $state.OutTask.IsCompleted -and $loops -lt 300) {
+            try { $line=$state.OutTask.Result } catch { $line=$null }
+            if ($null -eq $line) { $state.OutTask=$null; $state.OutClosed=$true; break }
+            & $append ($line + "`r`n")
+            $loops++
+            try { $state.OutTask=$state.Process.StandardOutput.ReadLineAsync() } catch { $state.OutTask=$null; $state.OutClosed=$true }
+        }
+        $loops=0
+        while ($state.ErrTask -and $state.ErrTask.IsCompleted -and $loops -lt 300) {
+            try { $line=$state.ErrTask.Result } catch { $line=$null }
+            if ($null -eq $line) { $state.ErrTask=$null; $state.ErrClosed=$true; break }
+            & $append ($line + "`r`n")
+            $loops++
+            try { $state.ErrTask=$state.Process.StandardError.ReadLineAsync() } catch { $state.ErrTask=$null; $state.ErrClosed=$true }
+        }
+    }
+
+    $timer.Add_Tick({
+        & $drain
+        if ($state.Process -and -not $state.Finished) {
+            try {
+                if ($state.Process.HasExited) {
+                    $state.ExitCode=$state.Process.ExitCode
+                    & $drain
+                    if ($state.OutClosed -and $state.ErrClosed) {
+                        $state.Finished=$true
+                        $timer.Stop()
+                        & $append ("`r`n=== " + $(if ($state.Cancelled) { '已取消' } elseif ($state.ExitCode -eq 0) { '完成' } else { "结束，代码 $($state.ExitCode)" }) + " ===`r`n")
+                        $runButton.Enabled=$true
+                        $runButton.Text='关闭'
+                    }
+                }
+            } catch {}
+        }
+    })
+
+    $runButton.Add_Click({
+        if ($state.Process -and -not $state.Finished) {
+            $answer=[System.Windows.Forms.MessageBox]::Show($runDlg,'确定取消当前工具任务？','取消任务',[System.Windows.Forms.MessageBoxButtons]::YesNo,[System.Windows.Forms.MessageBoxIcon]::Warning)
+            if ($answer -ne [System.Windows.Forms.DialogResult]::Yes) { return }
+            $state.Cancelled=$true
+            try {
+                $taskkill=Join-Path $env:SystemRoot 'System32\taskkill.exe'
+                $kpsi=New-Object System.Diagnostics.ProcessStartInfo
+                $kpsi.FileName=$taskkill; $kpsi.Arguments='/PID ' + $state.Process.Id + ' /T /F'; $kpsi.UseShellExecute=$false; $kpsi.CreateNoWindow=$true
+                $kp=[System.Diagnostics.Process]::Start($kpsi); [void]$kp.WaitForExit(5000); $kp.Dispose()
+            } catch { try { $state.Process.Kill() } catch {} }
+            $runButton.Enabled=$false
+        } else {
+            $runDlg.Close()
+        }
+    })
+
+    $runDlg.Add_FormClosing({
+        param($sender,$e)
+        if ($state.Process -and -not $state.Finished) {
+            $e.Cancel=$true
+            $runButton.PerformClick()
+        }
+    })
+
+    $runDlg.Add_Shown({
+        try {
+            $psi=New-Object System.Diagnostics.ProcessStartInfo
+            $psi.FileName=$FileName; $psi.Arguments=$Arguments
+            $psi.UseShellExecute=$false; $psi.CreateNoWindow=$true
+            $psi.RedirectStandardOutput=$true; $psi.RedirectStandardError=$true
+            if ($WorkingDirectory) { $psi.WorkingDirectory=$WorkingDirectory }
+            if ($Environment) { foreach ($k in $Environment.Keys) { $psi.EnvironmentVariables[[string]$k]=[string]$Environment[$k] } }
+            $proc=New-Object System.Diagnostics.Process; $proc.StartInfo=$psi
+            if (-not $proc.Start()) { throw '无法启动工具进程。' }
+            $state.Process=$proc; $state.OutClosed=$false; $state.ErrClosed=$false
+            $state.OutTask=$proc.StandardOutput.ReadLineAsync(); $state.ErrTask=$proc.StandardError.ReadLineAsync()
+            & $append ("$Title`r`n" + ('=' * 68) + "`r`n")
+            $timer.Start()
+        } catch {
+            $state.ExitCode=-1; $state.Finished=$true
+            & $append ("启动失败：" + $_.Exception.Message + "`r`n")
+            $runButton.Text='关闭'
+        }
+    })
+
+    [void]$runDlg.ShowDialog($Owner)
+    $timer.Stop(); $timer.Dispose()
+    if ($state.Process) { try { $state.Process.Dispose() } catch {} }
+    $runDlg.Dispose()
+    return [pscustomobject]@{ ExitCode=$state.ExitCode; Cancelled=$state.Cancelled }
+}
+
+function Show-PathConfigurationDialog {
+    $cfg = Get-FilmGrainConfig
+    $oldFfmpegDir = [string]$cfg.FFMPEG_DIR
+    $oldGrainRoot = [string]$cfg.GRAIN_ROOT
+    $oldLutRoot = [string]$cfg.LUT_ROOT
+
+    $dlg = New-Object System.Windows.Forms.Form
+    $dlg.Text = 'Film Grain Studio · 路径配置'
+    $dlg.StartPosition = 'CenterParent'
+    $dlg.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedDialog
+    $dlg.MaximizeBox = $false
+    $dlg.MinimizeBox = $false
+    $dlg.ShowInTaskbar = $false
+    $dlg.ClientSize = New-Object System.Drawing.Size -ArgumentList 850, 486
+    $dlg.Font = New-UiFont 9
+
+    $table = New-Object System.Windows.Forms.TableLayoutPanel
+    $table.Dock = 'Fill'
+    $table.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 12, 12, 12, 10
+    $table.ColumnCount = 4
+    $table.RowCount = 10
+    $c0 = New-Object System.Windows.Forms.ColumnStyle; $c0.SizeType='Absolute'; $c0.Width=108; [void]$table.ColumnStyles.Add($c0)
+    $c1 = New-Object System.Windows.Forms.ColumnStyle; $c1.SizeType='Percent'; $c1.Width=100; [void]$table.ColumnStyles.Add($c1)
+    $c2 = New-Object System.Windows.Forms.ColumnStyle; $c2.SizeType='Absolute'; $c2.Width=94; [void]$table.ColumnStyles.Add($c2)
+    $c3 = New-Object System.Windows.Forms.ColumnStyle; $c3.SizeType='Absolute'; $c3.Width=38; [void]$table.ColumnStyles.Add($c3)
+    Add-RowAbsolute $table 42
+    Add-RowAbsolute $table 50
+    Add-RowAbsolute $table 42
+    Add-RowAbsolute $table 36
+    Add-RowAbsolute $table 42
+    Add-RowAbsolute $table 36
+    Add-RowAbsolute $table 42
+    Add-RowAbsolute $table 36
+    Add-RowPercent $table 100
+    Add-RowAbsolute $table 42
+    [void]$dlg.Controls.Add($table)
+
+    function Add-ConfigLabel([int]$Row,[string]$Text) {
+        $l=New-Object System.Windows.Forms.Label
+        $l.Text=$Text; $l.Dock='Fill'; $l.TextAlign='MiddleLeft'; $l.Margin=New-Object System.Windows.Forms.Padding -ArgumentList 4,4,4,4
+        [void]$table.Controls.Add($l,0,$Row)
+    }
+    function New-ConfigTextBox([string]$Value) {
+        $t=New-Object System.Windows.Forms.TextBox
+        $t.Text=$Value; $t.Dock='Fill'; $t.Margin=New-Object System.Windows.Forms.Padding -ArgumentList 4,8,4,6
+        return $t
+    }
+    function New-ConfigBrowseButton {
+        $b=New-Object System.Windows.Forms.Button
+        $b.Text='浏览…'; $b.Dock='Fill'; $b.Margin=New-Object System.Windows.Forms.Padding -ArgumentList 4,5,4,5
+        return $b
+    }
+    function New-ConfigRefreshButton {
+        $b=New-Object System.Windows.Forms.Button
+        $b.Text=[string][char]8635; $b.Dock='Fill'; $b.Margin=New-Object System.Windows.Forms.Padding -ArgumentList 2,5,2,5
+        return $b
+    }
+    function New-ConfigStatusLabel([string]$Text) {
+        $l=New-Object System.Windows.Forms.Label
+        $l.Dock='Fill'; $l.TextAlign='MiddleLeft'; $l.ForeColor=$ColorMuted
+        $l.Margin=New-Object System.Windows.Forms.Padding -ArgumentList 4,0,4,2
+        $l.Text=$Text
+        return $l
+    }
+
+    $txtCfgFfmpegDir = New-ConfigTextBox ([string]$cfg.FFMPEG_DIR)
+    $txtCfgGrav = New-ConfigTextBox ([string]$cfg.GRAV1SYNTH)
+    $txtCfgGrain = New-ConfigTextBox ([string]$cfg.GRAIN_ROOT)
+    $txtCfgLut = New-ConfigTextBox ([string]$cfg.LUT_ROOT)
+    $btnCfgFfmpegDir = New-ConfigBrowseButton
+    $btnCfgGrav = New-ConfigBrowseButton
+    $btnCfgGrain = New-ConfigBrowseButton
+    $btnCfgLut = New-ConfigBrowseButton
+    $btnRefreshFfmpeg = New-ConfigRefreshButton
+    $btnRefreshGrav = New-ConfigRefreshButton
+    $btnRefreshGrain = New-ConfigRefreshButton
+    $btnRefreshLut = New-ConfigRefreshButton
+    $btnBuildGrainCache = New-Object System.Windows.Forms.Button
+    $btnBuildGrainCache.Text='生成高速缓存'; $btnBuildGrainCache.Dock='Fill'; $btnBuildGrainCache.Enabled=$false
+    $btnBuildGrainCache.Margin=New-Object System.Windows.Forms.Padding -ArgumentList 4,3,2,3
+    $btnBuildLutPreviews = New-Object System.Windows.Forms.Button
+    $btnBuildLutPreviews.Text='创建缩略图'; $btnBuildLutPreviews.Dock='Fill'; $btnBuildLutPreviews.Enabled=$false
+    $btnBuildLutPreviews.Margin=New-Object System.Windows.Forms.Padding -ArgumentList 4,3,2,3
+
+    Add-ConfigLabel 0 'FFmpeg 目录'
+    [void]$table.Controls.Add($txtCfgFfmpegDir,1,0)
+    [void]$table.Controls.Add($btnCfgFfmpegDir,2,0)
+    [void]$table.Controls.Add($btnRefreshFfmpeg,3,0)
+    $lblFfmpegDetect = New-ConfigStatusLabel '尚未检测，点击 ↻。'
+    [void]$table.Controls.Add($lblFfmpegDetect,1,1); $table.SetColumnSpan($lblFfmpegDetect,3)
+
+    Add-ConfigLabel 2 'grav1synth'
+    [void]$table.Controls.Add($txtCfgGrav,1,2)
+    [void]$table.Controls.Add($btnCfgGrav,2,2)
+    [void]$table.Controls.Add($btnRefreshGrav,3,2)
+    $lblGravDetect = New-ConfigStatusLabel '尚未检测，点击 ↻。'
+    [void]$table.Controls.Add($lblGravDetect,1,3); $table.SetColumnSpan($lblGravDetect,3)
+
+    Add-ConfigLabel 4 '颗粒根目录'
+    [void]$table.Controls.Add($txtCfgGrain,1,4)
+    [void]$table.Controls.Add($btnCfgGrain,2,4)
+    [void]$table.Controls.Add($btnRefreshGrain,3,4)
+    $lblGrainDetect = New-ConfigStatusLabel '尚未检测，点击 ↻。'
+    [void]$table.Controls.Add($lblGrainDetect,1,5)
+    [void]$table.Controls.Add($btnBuildGrainCache,2,5); $table.SetColumnSpan($btnBuildGrainCache,2)
+
+    Add-ConfigLabel 6 'LUT 根目录'
+    [void]$table.Controls.Add($txtCfgLut,1,6)
+    [void]$table.Controls.Add($btnCfgLut,2,6)
+    [void]$table.Controls.Add($btnRefreshLut,3,6)
+    $lblLutDetect = New-ConfigStatusLabel '尚未检测，点击 ↻。'
+    [void]$table.Controls.Add($lblLutDetect,1,7)
+    [void]$table.Controls.Add($btnBuildLutPreviews,2,7); $table.SetColumnSpan($btnBuildLutPreviews,2)
+
+    $note=New-Object System.Windows.Forms.Label
+    $note.Dock='Fill'; $note.ForeColor=$ColorMuted; $note.TextAlign='TopLeft'; $note.Padding=New-Object System.Windows.Forms.Padding -ArgumentList 4,8,4,0
+    $note.Text="保存到：$($cfg.ConfigPath)`r`n浏览选择后会立即检测；手工修改路径后请点击右侧 ↻。Grain / LUT 检测会同时检查 Cache / Gallery 预览图，缺失时可直接在此生成。保存本身不会重新执行扫描。"
+    [void]$table.Controls.Add($note,0,8); $table.SetColumnSpan($note,4)
+
+    $buttonPanel=New-Object System.Windows.Forms.FlowLayoutPanel
+    $buttonPanel.Dock='Fill'; $buttonPanel.FlowDirection='RightToLeft'; $buttonPanel.WrapContents=$false
+    $btnOk=New-Object System.Windows.Forms.Button; $btnOk.Text='保存'; $btnOk.Width=82
+    $btnCancelCfg=New-Object System.Windows.Forms.Button; $btnCancelCfg.Text='取消'; $btnCancelCfg.Width=82; $btnCancelCfg.DialogResult=[System.Windows.Forms.DialogResult]::Cancel
+    $btnDefaults=New-Object System.Windows.Forms.Button; $btnDefaults.Text='恢复默认'; $btnDefaults.Width=92
+    [void]$buttonPanel.Controls.Add($btnOk); [void]$buttonPanel.Controls.Add($btnCancelCfg); [void]$buttonPanel.Controls.Add($btnDefaults)
+    [void]$table.Controls.Add($buttonPanel,0,9); $table.SetColumnSpan($buttonPanel,4)
+    $dlg.CancelButton=$btnCancelCfg
+
+    $cfgTip=New-Object System.Windows.Forms.ToolTip
+    $cfgTip.SetToolTip($btnRefreshFfmpeg,'检测 ffmpeg.exe / ffprobe.exe 及版本')
+    $cfgTip.SetToolTip($btnRefreshGrav,'检测 grav1synth.exe 及版本')
+    $cfgTip.SetToolTip($btnRefreshGrain,'递归统计原始 .mov Grain 文件')
+    $cfgTip.SetToolTip($btnRefreshLut,'递归统计可用于 LUT Gallery 的 .cube 文件及预览图')
+    $cfgTip.SetToolTip($btnBuildGrainCache,'为缺失的 Grain MOV 创建原分辨率 + 1080p HEVC Main10 Lossless Cache；已有文件不会覆盖')
+    $cfgTip.SetToolTip($btnBuildLutPreviews,'使用当前参考图为缺失的 LUT 创建 Gallery 预览图；尚未更换参考图时使用项目默认图')
+
+    $ffmpegState = @{
+        LastDir = ''
+        Valid = $false
+        FfmpegVersion = ''
+        FfprobeVersion = ''
+    }
+    $grainCacheState = @{ MovCount=0; FullCount=0; Cache1080Count=0; Missing=0 }
+    $lutPreviewState = @{ LutCount=0; PreviewCount=0; Missing=0 }
+
+    function Get-ConfigToolVersion([string]$ExePath,[string]$ToolName,[string]$Arguments) {
+        if (-not (Test-Path -LiteralPath $ExePath -PathType Leaf)) {
+            return [pscustomobject]@{ Ok=$false; Version='未找到' }
+        }
+        try {
+            $psi=New-Object System.Diagnostics.ProcessStartInfo
+            $psi.FileName=$ExePath
+            $psi.Arguments=$Arguments
+            $psi.UseShellExecute=$false
+            $psi.CreateNoWindow=$true
+            $psi.RedirectStandardOutput=$true
+            $psi.RedirectStandardError=$true
+            $p=New-Object System.Diagnostics.Process
+            $p.StartInfo=$psi
+            if (-not $p.Start()) { return [pscustomobject]@{ Ok=$false; Version='无法运行' } }
+            $stdout=$p.StandardOutput.ReadToEnd()
+            $stderr=$p.StandardError.ReadToEnd()
+            $p.WaitForExit()
+            $exitCode=$p.ExitCode
+            $p.Dispose()
+            if ($exitCode -ne 0) { return [pscustomobject]@{ Ok=$false; Version='无法运行' } }
+            $allText=($stdout + "`n" + $stderr)
+            $lines=@($allText -split "`r?`n" | Where-Object { $_.Trim() } | Select-Object -First 8)
+            foreach ($line in $lines) {
+                $text=[string]$line
+                if ($ToolName -eq 'ffmpeg' -or $ToolName -eq 'ffprobe') {
+                    if ($text -match ('^' + [regex]::Escape($ToolName) + '\s+version\s+([0-9]+(?:\.[0-9]+){1,3})')) {
+                        return [pscustomobject]@{ Ok=$true; Version=$matches[1] }
+                    }
+                    if ($text -match ('^' + [regex]::Escape($ToolName) + '\s+version\s+([^\s]+)')) {
+                        return [pscustomobject]@{ Ok=$true; Version=$matches[1] }
+                    }
+                } elseif ($text -match '(?i)\b(?:version\s*)?v?([0-9]+(?:\.[0-9]+){1,3}(?:[-+][^\s]+)?)') {
+                    return [pscustomobject]@{ Ok=$true; Version=$matches[1] }
+                }
+            }
+            return [pscustomobject]@{ Ok=$true; Version='版本未知' }
+        } catch {
+            return [pscustomobject]@{ Ok=$false; Version='无法运行' }
+        }
+    }
+
+    function Update-FfmpegDirectoryStatus {
+        $dir=$txtCfgFfmpegDir.Text.Trim().TrimEnd('\')
+        $ffmpegState.LastDir=$dir
+        $ffmpegState.Valid=$false
+        $lblFfmpegDetect.Text='正在检测 ffmpeg.exe / ffprobe.exe…'
+        [System.Windows.Forms.Application]::DoEvents()
+
+        if (-not $dir -or -not (Test-Path -LiteralPath $dir -PathType Container)) {
+            $lblFfmpegDetect.Text="ffmpeg.exe   ✘ 未找到`r`nffprobe.exe  ✘ 未找到"
+            return
+        }
+
+        $ffmpegResult=Get-ConfigToolVersion (Join-Path $dir 'ffmpeg.exe') 'ffmpeg' '-version'
+        $ffprobeResult=Get-ConfigToolVersion (Join-Path $dir 'ffprobe.exe') 'ffprobe' '-version'
+        $ffmpegState.FfmpegVersion=[string]$ffmpegResult.Version
+        $ffmpegState.FfprobeVersion=[string]$ffprobeResult.Version
+        $ffmpegMark=if ($ffmpegResult.Ok) { '✔' } else { '✘' }
+        $ffprobeMark=if ($ffprobeResult.Ok) { '✔' } else { '✘' }
+        $lblFfmpegDetect.Text="ffmpeg.exe   $ffmpegMark $($ffmpegResult.Version)`r`nffprobe.exe  $ffprobeMark $($ffprobeResult.Version)"
+        $ffmpegState.Valid=([bool]$ffmpegResult.Ok -and [bool]$ffprobeResult.Ok)
+    }
+
+    function Update-GravStatus {
+        $path=$txtCfgGrav.Text.Trim()
+        $lblGravDetect.Text='正在检测 grav1synth.exe…'
+        [System.Windows.Forms.Application]::DoEvents()
+        $result=Get-ConfigToolVersion $path 'grav1synth' '--version'
+        $mark=if ($result.Ok) { '✔' } else { '✘' }
+        $lblGravDetect.Text="grav1synth.exe  $mark $($result.Version)"
+    }
+
+    function Update-GrainStatus {
+        $root=$txtCfgGrain.Text.Trim()
+        $btnBuildGrainCache.Enabled=$false
+        $grainCacheState.MovCount=0; $grainCacheState.FullCount=0; $grainCacheState.Cache1080Count=0; $grainCacheState.Missing=0
+        if (-not $root -or -not (Test-Path -LiteralPath $root -PathType Container)) {
+            $lblGrainDetect.Text='✘ 颗粒根目录不存在'
+            return
+        }
+        $lblGrainDetect.Text='正在扫描 MOV / Cache…'
+        [System.Windows.Forms.Application]::DoEvents()
+        try {
+            $movs=@(Get-ChildItem -LiteralPath $root -Filter '*.mov' -File -Recurse -ErrorAction SilentlyContinue)
+            $full=0; $small=0
+            foreach ($mov in $movs) {
+                $base=Join-Path $mov.DirectoryName $mov.BaseName
+                if (Test-Path -LiteralPath ($base + '_HEVC_Lossless.mkv') -PathType Leaf) { $full++ }
+                if (Test-Path -LiteralPath ($base + '_1080p_HEVC_Lossless.mkv') -PathType Leaf) { $small++ }
+            }
+            $count=$movs.Count
+            $grainCacheState.MovCount=$count; $grainCacheState.FullCount=$full; $grainCacheState.Cache1080Count=$small
+            $grainCacheState.Missing=($count-$full)+($count-$small)
+            if ($count -eq 0) {
+                $lblGrainDetect.Text='✔ 原始 MOV 0 · 无可生成 Cache'
+            } else {
+                $lblGrainDetect.Text="✔ MOV $count · Cache 原尺寸 $full/$count · 1080p $small/$count"
+                $btnBuildGrainCache.Enabled=($grainCacheState.Missing -gt 0)
+            }
+        } catch {
+            $lblGrainDetect.Text='✘ 扫描失败：' + $_.Exception.Message
+        }
+    }
+
+    function Update-LutStatus {
+        $root=$txtCfgLut.Text.Trim()
+        $btnBuildLutPreviews.Enabled=$false
+        $lutPreviewState.LutCount=0; $lutPreviewState.PreviewCount=0; $lutPreviewState.Missing=0
+        if (-not $root -or -not (Test-Path -LiteralPath $root -PathType Container)) {
+            $lblLutDetect.Text='✘ LUT 根目录不存在'
+            return
+        }
+        $lblLutDetect.Text='正在扫描 LUT / 预览图…'
+        [System.Windows.Forms.Application]::DoEvents()
+        try {
+            $rootFull=[System.IO.Path]::GetFullPath($root).TrimEnd('\')
+            $previewRoot=Join-Path $rootFull '_LUT_PREVIEWS'
+            $prefix=$rootFull+'\'
+            $luts=@(Get-ChildItem -LiteralPath $rootFull -Filter '*.cube' -File -Recurse -ErrorAction SilentlyContinue |
+                Where-Object { -not $_.FullName.StartsWith($previewRoot.TrimEnd('\')+'\', [System.StringComparison]::OrdinalIgnoreCase) })
+            $previewCount=0
+            foreach ($lut in $luts) {
+                $relative=$lut.Name
+                if ($lut.FullName.StartsWith($prefix,[System.StringComparison]::OrdinalIgnoreCase)) { $relative=$lut.FullName.Substring($prefix.Length) }
+                $relDir=Split-Path $relative -Parent
+                $dst=if (-not $relDir -or $relDir -eq '.') { $previewRoot } else { Join-Path $previewRoot $relDir }
+                $jpg=Join-Path $dst ($lut.BaseName + '_preview.jpg')
+                if (Test-Path -LiteralPath $jpg -PathType Leaf) { $previewCount++ }
+            }
+            $count=$luts.Count
+            $lutPreviewState.LutCount=$count; $lutPreviewState.PreviewCount=$previewCount; $lutPreviewState.Missing=$count-$previewCount
+            if ($count -eq 0) {
+                $lblLutDetect.Text='✔ .cube LUT 0 · 无可创建预览图'
+            } else {
+                $lblLutDetect.Text="✔ LUT $count · Gallery 预览图 $previewCount/$count"
+                $btnBuildLutPreviews.Enabled=($lutPreviewState.Missing -gt 0)
+            }
+        } catch {
+            $lblLutDetect.Text='✘ 扫描失败：' + $_.Exception.Message
+        }
+    }
+
+    $pickExe = {
+        param($target,$title,$fileName)
+        $ofd=New-Object System.Windows.Forms.OpenFileDialog
+        $ofd.Title=$title; $ofd.Filter='可执行文件 (*.exe)|*.exe|所有文件|*.*'; $ofd.FileName=$fileName
+        try { if (Test-Path -LiteralPath $target.Text -PathType Leaf) { $ofd.InitialDirectory=Split-Path -Parent $target.Text } } catch {}
+        $changed=$false
+        if ($ofd.ShowDialog($dlg) -eq [System.Windows.Forms.DialogResult]::OK) { $target.Text=$ofd.FileName; $changed=$true }
+        $ofd.Dispose()
+        return $changed
+    }
+    $pickFolder = {
+        param($target,$description)
+        $fbd=New-Object System.Windows.Forms.FolderBrowserDialog
+        $fbd.Description=$description; $fbd.ShowNewFolderButton=$false
+        try { if (Test-Path -LiteralPath $target.Text -PathType Container) { $fbd.SelectedPath=$target.Text } } catch {}
+        $changed=$false
+        if ($fbd.ShowDialog($dlg) -eq [System.Windows.Forms.DialogResult]::OK) { $target.Text=$fbd.SelectedPath; $changed=$true }
+        $fbd.Dispose()
+        return $changed
+    }
+
+    $txtCfgFfmpegDir.Add_TextChanged({
+        $ffmpegState.LastDir=''; $ffmpegState.Valid=$false; $ffmpegState.FfmpegVersion=''; $ffmpegState.FfprobeVersion=''
+        $lblFfmpegDetect.Text='路径已修改，点击 ↻ 检测。'
+    })
+    $txtCfgGrav.Add_TextChanged({ $lblGravDetect.Text='路径已修改，点击 ↻ 检测。' })
+    $txtCfgGrain.Add_TextChanged({ $lblGrainDetect.Text='路径已修改，点击 ↻ 检测。'; $btnBuildGrainCache.Enabled=$false })
+    $txtCfgLut.Add_TextChanged({ $lblLutDetect.Text='路径已修改，点击 ↻ 检测。'; $btnBuildLutPreviews.Enabled=$false })
+
+    $btnRefreshFfmpeg.Add_Click({ Update-FfmpegDirectoryStatus })
+    $btnRefreshGrav.Add_Click({ Update-GravStatus })
+    $btnRefreshGrain.Add_Click({ Update-GrainStatus })
+    $btnRefreshLut.Add_Click({ Update-LutStatus })
+
+    $btnCfgFfmpegDir.Add_Click({
+        $fbd=New-Object System.Windows.Forms.FolderBrowserDialog
+        $fbd.Description='选择同时包含 ffmpeg.exe 与 ffprobe.exe 的目录'
+        $fbd.ShowNewFolderButton=$false
+        try { if (Test-Path -LiteralPath $txtCfgFfmpegDir.Text -PathType Container) { $fbd.SelectedPath=$txtCfgFfmpegDir.Text } } catch {}
+        if ($fbd.ShowDialog($dlg) -eq [System.Windows.Forms.DialogResult]::OK) {
+            $txtCfgFfmpegDir.Text=$fbd.SelectedPath
+            Update-FfmpegDirectoryStatus
+        }
+        $fbd.Dispose()
+    })
+    $btnCfgGrav.Add_Click({ if (& $pickExe $txtCfgGrav '选择 grav1synth.exe' 'grav1synth.exe') { Update-GravStatus } })
+    $btnCfgGrain.Add_Click({ if (& $pickFolder $txtCfgGrain '选择胶片颗粒根目录') { Update-GrainStatus } })
+    $btnCfgLut.Add_Click({ if (& $pickFolder $txtCfgLut '选择 LUT 根目录') { Update-LutStatus } })
+
+    $btnBuildGrainCache.Add_Click({
+        Update-GrainStatus
+        if ($grainCacheState.MovCount -le 0 -or $grainCacheState.Missing -le 0) { return }
+        if (-not (Test-Path -LiteralPath $GrainCacheBat -PathType Leaf)) {
+            [void][System.Windows.Forms.MessageBox]::Show($dlg,"找不到 Cache 工具：`r`n$GrainCacheBat",'Grain Cache',[System.Windows.Forms.MessageBoxButtons]::OK,[System.Windows.Forms.MessageBoxIcon]::Error)
+            return
+        }
+        $missingFull=$grainCacheState.MovCount-$grainCacheState.FullCount
+        $missing1080=$grainCacheState.MovCount-$grainCacheState.Cache1080Count
+        $answer=[System.Windows.Forms.MessageBox]::Show($dlg,"将为缺失项创建 HEVC Main10 Lossless Cache：`r`n`r`n原分辨率：缺 $missingFull`r`n1080p：缺 $missing1080`r`n`r`n已有 Cache 不会覆盖。继续？",'生成高速缓存',[System.Windows.Forms.MessageBoxButtons]::YesNo,[System.Windows.Forms.MessageBoxIcon]::Question)
+        if ($answer -ne [System.Windows.Forms.DialogResult]::Yes) { return }
+        $cmdPath=$env:ComSpec; if (-not $cmdPath) { $cmdPath=Join-Path $env:SystemRoot 'System32\cmd.exe' }
+        $inner='call ' + (Quote-CmdArgument $GrainCacheBat) + ' 3 2>&1'
+        $ffdir=$txtCfgFfmpegDir.Text.Trim().TrimEnd('\')
+        $envMap=@{
+            FG_CACHE_NO_PAUSE='1'; FG_GRAIN_ROOT_OVERRIDE=$txtCfgGrain.Text.Trim();
+            FG_FFMPEG_OVERRIDE=(Join-Path $ffdir 'ffmpeg.exe'); FG_FFPROBE_OVERRIDE=(Join-Path $ffdir 'ffprobe.exe')
+        }
+        [void](Show-UtilityProcessDialog $dlg '生成 Grain 高速缓存' $cmdPath ('/d /s /c "'+$inner+'"') $envMap $ScriptRoot)
+        Update-GrainStatus
+    })
+
+    $btnBuildLutPreviews.Add_Click({
+        Update-LutStatus
+        if ($lutPreviewState.LutCount -le 0 -or $lutPreviewState.Missing -le 0) { return }
+        $lutReference = if (Test-Path -LiteralPath $LutPreviewCurrentReference -PathType Leaf) { $LutPreviewCurrentReference } else { $LutPreviewDefaultReference }
+        $lutReferenceLabel = if ([string]::Equals($lutReference,$LutPreviewCurrentReference,[System.StringComparison]::OrdinalIgnoreCase)) { '当前参考图' } else { '项目默认参考图' }
+        if (-not (Test-Path -LiteralPath $LutPreviewGenerator -PathType Leaf) -or -not (Test-Path -LiteralPath $lutReference -PathType Leaf)) {
+            [void][System.Windows.Forms.MessageBox]::Show($dlg,'找不到 LUT 预览生成脚本或可用参考图。','LUT 缩略图',[System.Windows.Forms.MessageBoxButtons]::OK,[System.Windows.Forms.MessageBoxIcon]::Error)
+            return
+        }
+        $answer=[System.Windows.Forms.MessageBox]::Show($dlg,"将使用$lutReferenceLabel，为缺失的 $($lutPreviewState.Missing) 个 LUT 创建 Gallery 预览图。`r`n`r`n参考图：`r`n$lutReference`r`n`r`n已有预览不会覆盖；如需更换参考图并全部重建，仍请使用 LUT Gallery 的「更换参考图」。继续？",'创建 LUT 缩略图',[System.Windows.Forms.MessageBoxButtons]::YesNo,[System.Windows.Forms.MessageBoxIcon]::Question)
+        if ($answer -ne [System.Windows.Forms.DialogResult]::Yes) { return }
+        $ffmpegPath=Join-Path $txtCfgFfmpegDir.Text.Trim().TrimEnd('\') 'ffmpeg.exe'
+        $outRoot=Join-Path $txtCfgLut.Text.Trim() '_LUT_PREVIEWS'
+        $args='-NoLogo -NoProfile -ExecutionPolicy Bypass -File "'+$LutPreviewGenerator+'" -LutRoot "'+$txtCfgLut.Text.Trim()+'" -ReferencePath "'+$lutReference+'" -OutputRoot "'+$outRoot+'" -FFmpegPath "'+$ffmpegPath+'" -NonInteractive -NoPause'
+        [void](Show-UtilityProcessDialog $dlg '创建 LUT Gallery 缩略图' 'powershell.exe' $args @{} $PackageRoot)
+        Update-LutStatus
+    })
+
+    $btnDefaults.Add_Click({
+        $txtCfgFfmpegDir.Text=[string]$script:FilmGrainConfigDefaults.FFMPEG_DIR
+        $txtCfgGrav.Text=[string]$script:FilmGrainConfigDefaults.GRAV1SYNTH
+        $txtCfgGrain.Text=[string]$script:FilmGrainConfigDefaults.GRAIN_ROOT
+        $txtCfgLut.Text=[string]$script:FilmGrainConfigDefaults.LUT_ROOT
+    })
+
+    $btnOk.Add_Click({
+        $ffmpegDir=$txtCfgFfmpegDir.Text.Trim().TrimEnd('\')
+        if (-not (Test-Path -LiteralPath $ffmpegDir -PathType Container)) {
+            [void][System.Windows.Forms.MessageBox]::Show($dlg,"FFmpeg 目录不存在：`r`n$ffmpegDir",'路径配置',[System.Windows.Forms.MessageBoxButtons]::OK,[System.Windows.Forms.MessageBoxIcon]::Warning)
+            return
+        }
+        foreach ($exeName in @('ffmpeg.exe','ffprobe.exe')) {
+            $exePath=Join-Path $ffmpegDir $exeName
+            if (-not (Test-Path -LiteralPath $exePath -PathType Leaf)) {
+                [void][System.Windows.Forms.MessageBox]::Show($dlg,"FFmpeg 目录中缺少：$exeName`r`n`r`n$ffmpegDir",'路径配置',[System.Windows.Forms.MessageBoxButtons]::OK,[System.Windows.Forms.MessageBoxIcon]::Warning)
+                return
+            }
+        }
+        if (-not (Test-Path -LiteralPath $txtCfgGrav.Text.Trim() -PathType Leaf)) {
+            [void][System.Windows.Forms.MessageBox]::Show($dlg,"grav1synth 路径不存在：`r`n$($txtCfgGrav.Text.Trim())",'路径配置',[System.Windows.Forms.MessageBoxButtons]::OK,[System.Windows.Forms.MessageBoxIcon]::Warning)
+            return
+        }
+        foreach ($item in @(
+            @('颗粒根目录',$txtCfgGrain.Text.Trim()),
+            @('LUT 根目录',$txtCfgLut.Text.Trim())
+        )) {
+            if (-not (Test-Path -LiteralPath $item[1] -PathType Container)) {
+                [void][System.Windows.Forms.MessageBox]::Show($dlg,"$($item[0])不存在：`r`n$($item[1])",'路径配置',[System.Windows.Forms.MessageBoxButtons]::OK,[System.Windows.Forms.MessageBoxIcon]::Warning)
+                return
+            }
+        }
+
+        try {
+            Save-FilmGrainConfig -Values @{
+                FFMPEG_DIR=$ffmpegDir; GRAV1SYNTH=$txtCfgGrav.Text.Trim();
+                GRAIN_ROOT=$txtCfgGrain.Text.Trim(); LUT_ROOT=$txtCfgLut.Text.Trim()
+            }
+        } catch {
+            [void][System.Windows.Forms.MessageBox]::Show($dlg,"保存配置失败：`r`n$($_.Exception.Message)",'路径配置',[System.Windows.Forms.MessageBoxButtons]::OK,[System.Windows.Forms.MessageBoxIcon]::Error)
+            return
+        }
+        $dlg.DialogResult=[System.Windows.Forms.DialogResult]::OK
+        $dlg.Close()
+    })
+
+    $dialogResult=$dlg.ShowDialog($form)
+    $cfgTip.Dispose()
+    if ($dialogResult -ne [System.Windows.Forms.DialogResult]::OK) { $dlg.Dispose(); return }
+    $dlg.Dispose()
+
+    $script:PathConfig = Get-FilmGrainConfig
+    $script:Ffmpeg = [string]$script:PathConfig.FFMPEG
+    $script:Ffprobe = [string]$script:PathConfig.FFPROBE
+    $script:Grav1synth = [string]$script:PathConfig.GRAV1SYNTH
+    $script:DefaultGrainRoot = [string]$script:PathConfig.GRAIN_ROOT
+    $script:LutRoot = [string]$script:PathConfig.LUT_ROOT
+    $script:LutPreviewRoot = Join-Path $script:LutRoot '_LUT_PREVIEWS'
+    $script:LutGalleryIndex = Join-Path $script:LutPreviewRoot '_LUT_GALLERY_INDEX.json'
+    $script:LutGalleryRecent = Join-Path $script:LutPreviewRoot '_LUT_GALLERY_RECENT.json'
+    $script:LutGalleryFavorites = Join-Path $script:LutPreviewRoot '_LUT_GALLERY_FAVORITES.json'
+    $script:LutGalleryThumbRoot = Join-Path $script:LutPreviewRoot '_GALLERY_THUMBS_v3_240x135'
+
+    $grainRootChanged = -not [string]::Equals($oldGrainRoot, [string]$script:PathConfig.GRAIN_ROOT, [System.StringComparison]::OrdinalIgnoreCase)
+    $lutRootChanged = -not [string]::Equals($oldLutRoot, [string]$script:PathConfig.LUT_ROOT, [System.StringComparison]::OrdinalIgnoreCase)
+
+    $txtGrainRoot.Text = $script:DefaultGrainRoot
+    $script:SelectedLutPath = $null
+    $script:SelectedLutSource = 'None'
+    $chkLut.Checked = $false
+    if ($oldFfmpegDir -ne [string]$script:PathConfig.FFMPEG_DIR) {
+        $script:HardwareCaps = $null
+        $script:HardwareCapsReady = $false
+        $script:Av1Available = $true
+        $script:Av1UhqAvailable = $false
+        $script:HevcAvailable = $true
+        if ($ffmpegState.Valid -and $ffmpegState.LastDir -eq [string]$script:PathConfig.FFMPEG_DIR) {
+            $script:FFmpegVersionOverride = [string]$ffmpegState.FfmpegVersion
+        } else {
+            $script:FFmpegVersionOverride = '未检测'
+        }
+    }
+    Update-HardwareProfileUi
+    Update-NoReencodeAvailability
+    if ($cmbCodec.Items.Count -ge 2) {
+        $cmbCodec.Items[0] = if ($script:HardwareCapsReady -and -not $script:Av1Available) { 'AV1 · grav1synth 胶片颗粒（当前硬件不可用）' } else { 'AV1 · grav1synth 胶片颗粒（默认）' }
+    }
+    Update-CodecUi
+    if ($grainRootChanged) {
+        $script:HevcGrainFiles = @()
+        $script:LastScannedGrainRoot = ''
+        $cmbHevcPlate.BeginUpdate()
+        try {
+            $cmbHevcPlate.Items.Clear()
+            [void]$cmbHevcPlate.Items.Add('颗粒根目录已更新，请点击 ↻ 刷新')
+            $cmbHevcPlate.SelectedIndex = 0
+            $cmbHevcPlate.Enabled = $false
+            $cacheNote.Text = '配置已保存；点击 Grain 区域的 ↻ 后再扫描原始 MOV。'
+        } finally {
+            $cmbHevcPlate.EndUpdate()
+        }
+    }
+    if ($lutRootChanged) {
+        Refresh-RecentLuts
+        Refresh-FavoriteLuts
+    }
+    Set-LutUi
+    Show-Info '路径配置已保存并重新载入。' '路径配置'
+}
 # Events
+$btnConfig.Add_Click({ Show-PathConfigurationDialog })
+
 $btnAdd.Add_Click({
     if ($openDialog.ShowDialog($form) -eq [System.Windows.Forms.DialogResult]::OK) {
         Add-InputFiles $openDialog.FileNames
@@ -2680,11 +3733,16 @@ $btnRemove.Add_Click({
     $selected = @($listFiles.SelectedItems)
     foreach ($item in $selected) { $listFiles.Items.Remove($item) }
     Update-FileCount
+    Update-NoReencodeAvailability
+    Update-SelectedMediaInfo
 })
 
 $btnClear.Add_Click({
     $listFiles.Items.Clear()
+    Stop-Av1GrainInspect
     Update-FileCount
+    Update-NoReencodeAvailability
+    Update-SelectedMediaInfo
 })
 
 $dragEnterHandler = {
@@ -2704,14 +3762,14 @@ $form.Add_DragEnter($dragEnterHandler)
 $form.Add_DragDrop($dragDropHandler)
 $listFiles.Add_DragEnter($dragEnterHandler)
 $listFiles.Add_DragDrop($dragDropHandler)
-$listFiles.Add_SelectedIndexChanged({ Update-SelectedMediaInfo; Update-DeinterlaceUi })
+$listFiles.Add_SelectedIndexChanged({ Update-SelectedMediaInfo; Update-DeinterlaceUi; Update-NoReencodeAvailability })
 
 $cmbCodec.Add_SelectedIndexChanged({ Update-CodecUi; Update-FramingUi })
 $cmbDeint.Add_SelectedIndexChanged({ Update-DeinterlaceUi })
 $chkCinematic.Add_CheckedChanged({ Update-FramingUi })
 $cmbFrameMode.Add_SelectedIndexChanged({ Update-FramingUi })
 $cmbBitrate.Add_TextChanged({
-    if (-not $script:ChangingCodec -and $cmbCodec.SelectedIndex -ge 0) {
+    if (-not $script:ChangingCodec -and $cmbCodec.SelectedIndex -ge 0 -and $cmbCodec.SelectedIndex -le 1) {
         $script:ModeBitrate[$cmbCodec.SelectedIndex] = $cmbBitrate.Text.Trim()
     }
 })
@@ -2859,6 +3917,7 @@ $form.Add_FormClosing({
     }
     $pollTimer.Stop()
     Stop-VideoProbe
+    Stop-Av1GrainInspect
 })
 
 $form.Add_FormClosed({ Clear-StudioLutPreview })
