@@ -28,6 +28,15 @@ set "CUDA_DEVICE=0"
 set "AQ_STRENGTH=8"
 set "HARDWARE_CAPS_SCRIPT=%~dp0FilmGrain_Hardware_Caps.ps1"
 set "SUBTITLE_HELPER=%~dp0FilmGrain_Subtitle_Prepare.ps1"
+set "OPEN_SVP_ROOT=%~dp0..\_OpenSVPFlow"
+set "OPEN_SVP_VSPIPE=%OPEN_SVP_ROOT%\.venv\Scripts\vspipe.exe"
+set "OPEN_SVP_VPY=%OPEN_SVP_ROOT%\FilmGrain_OpenSVPFlow.vpy"
+set "OPEN_SVP_CHECK=%OPEN_SVP_ROOT%\Check_OpenSVPFlow.vpy"
+set "OPEN_SVP_PLUGIN_DIR=%OPEN_SVP_ROOT%\Plugins"
+set "OPEN_SVP_ALGO=13"
+set "OPEN_SVP_ANALYSE=ENCODEGUI"
+set "OPEN_SVP_SCENE_MODE=0"
+set "OPEN_SVP_MASK_AREA=100"
 
 rem HEVC scanned-Grain library and LUT root come from FilmGrain_Config.ini.
 rem All Grain subfolders are searched.
@@ -101,6 +110,8 @@ if errorlevel 1 goto FATAL_END
 call :SELECT_FRAMING
 call :SELECT_DEINTERLACE
 call :SELECT_FPS
+if /i "%FPS_MODE%"=="SVP60" call :CHECK_OPEN_SVP_TOOLS
+if errorlevel 1 goto FATAL_END
 call :SELECT_CONTAINER
 call :SELECT_FILM_LUT
 
@@ -252,6 +263,23 @@ if errorlevel 1 (
     echo.
     exit /b 1
 )
+exit /b 0
+
+
+:CHECK_OPEN_SVP_TOOLS
+if not "%FG_CAP_SVP_GPU%"=="1" (
+    echo.
+    echo ERROR: OpenSVPFlow GPU/OpenCL runtime is not ready.
+    echo Run once:
+    echo "%OPEN_SVP_ROOT%\00_Setup.bat"
+    echo Then restart Film Grain Studio / CLI so hardware capability cache can refresh.
+    echo.
+    exit /b 1
+)
+if not exist "%OPEN_SVP_VSPIPE%" exit /b 1
+if not exist "%OPEN_SVP_VPY%" exit /b 1
+if not exist "%OPEN_SVP_PLUGIN_DIR%\svpflow1_vs.dll" exit /b 1
+if not exist "%OPEN_SVP_PLUGIN_DIR%\svpflow2_vs.dll" exit /b 1
 exit /b 0
 
 
@@ -429,20 +457,45 @@ echo Output frame rate:
 echo.
 echo   [1] Keep source FPS for progressive input
 echo   [2] Auto cinematic FPS for progressive input   ^(default^)
+if "%FG_CAP_SVP_GPU%"=="1" echo   [3] OpenSVPFlow GPU interpolation - 60 fps
+if not "%FG_CAP_SVP_GPU%"=="1" echo   [3] OpenSVPFlow GPU interpolation - runtime unavailable
 echo.
-echo       With Auto deinterlace enabled, interlaced input always uses
-echo       field-rate output: 29.97i -^> 59.94p / 25i -^> 50p.
-echo       Progressive input keeps the normal FPS choice below.
+echo       Auto deinterlace and OpenSVPFlow are mutually exclusive in this
+echo       current release. OpenSVPFlow currently accepts progressive input.
 echo.
 echo       NTSC fractional family -^> 23.976
 echo       Integer / PAL family    -^> 24.000
 echo.
 set "FPS_SEL=2"
 if "%FG_STUDIO_MODE%"=="1" (
-    if /i "%FG_FPS_MODE%"=="SOURCE" set "FPS_SEL=1"
-    if /i "%FG_FPS_MODE%"=="AUTO"   set "FPS_SEL=2"
+    if "%FG_SVP_INTERPOLATE%"=="1" set "FPS_SEL=3"
+    if not "%FG_SVP_INTERPOLATE%"=="1" if /i "%FG_FPS_MODE%"=="SOURCE" set "FPS_SEL=1"
+    if not "%FG_SVP_INTERPOLATE%"=="1" if /i "%FG_FPS_MODE%"=="AUTO"   set "FPS_SEL=2"
 ) else (
-    set /p "FPS_SEL=Select [1-2, default 2]: "
+    set /p "FPS_SEL=Select [1-3, default 2]: "
+)
+if "%FPS_SEL%"=="3" (
+    set "FPS_MODE=SVP60"
+    set "OPEN_SVP_ALGO=13"
+    set "OPEN_SVP_ANALYSE=ENCODEGUI"
+    set "OPEN_SVP_SCENE_MODE=0"
+    set "OPEN_SVP_MASK_AREA=100"
+    if defined FG_SVP_ALGO set "OPEN_SVP_ALGO=%FG_SVP_ALGO%"
+    if defined FG_SVP_ANALYSE set "OPEN_SVP_ANALYSE=%FG_SVP_ANALYSE%"
+    if defined FG_SVP_SCENE_MODE set "OPEN_SVP_SCENE_MODE=%FG_SVP_SCENE_MODE%"
+    if defined FG_SVP_MASK_AREA set "OPEN_SVP_MASK_AREA=%FG_SVP_MASK_AREA%"
+    set "OPEN_SVP_SCENE_LABEL=Uniform"
+    if "%OPEN_SVP_SCENE_MODE%"=="3" set "OPEN_SVP_SCENE_LABEL=Adaptive"
+    set "OPEN_SVP_ANALYSE_LABEL=EncodeGUI Analyse"
+    if /i "%OPEN_SVP_ANALYSE%"=="BASE" set "OPEN_SVP_ANALYSE_LABEL=Baseline Analyse"
+    set "FPS_LABEL=OpenSVPFlow 60 fps / %OPEN_SVP_SCENE_LABEL% / Algo %OPEN_SVP_ALGO% / %OPEN_SVP_ANALYSE_LABEL%"
+    set "DEINT_MODE=OFF"
+    set "DEINT_METHOD=OFF"
+    set "DEINT_LABEL=Off / OpenSVPFlow progressive input"
+    set "DEINT_FILTER="
+    set "DEINT_HW_ARGS="
+    set "DEINT_SUFFIX="
+    exit /b 0
 )
 if "%FPS_SEL%"=="1" (
     set "FPS_MODE=SOURCE"
@@ -452,7 +505,6 @@ if "%FPS_SEL%"=="1" (
     set "FPS_LABEL=Auto cinematic FPS"
 )
 exit /b 0
-
 
 
 rem ============================================================
@@ -549,6 +601,7 @@ set "CONTAINER_MODE=MP4"
 set "CONTAINER_LABEL=MP4 compatibility / AAC 256k"
 if /i "%MODE%"=="HEVC" (
     set "HEVC_STREAM_MAP_ARGS=-map 0:a?"
+    set "SVP_HEVC_STREAM_MAP_ARGS=-map 1:a?"
     set "HEVC_AUDIO_MUX_ARGS=-c:a aac -b:a 256k"
     set "HEVC_CONTAINER_EXTRA_ARGS=-tag:v hvc1 -movflags +faststart"
 ) else (
@@ -564,6 +617,7 @@ set "CONTAINER_MODE=MKV"
 set "CONTAINER_LABEL=MKV / preserve original streams"
 if /i "%MODE%"=="HEVC" (
     set "HEVC_STREAM_MAP_ARGS=-map 0:a? -map 0:s? -map 0:t?"
+    set "SVP_HEVC_STREAM_MAP_ARGS=-map 1:a? -map 1:s? -map 1:t?"
     set "HEVC_AUDIO_MUX_ARGS=-c:a copy -c:s copy -c:t copy"
     set "HEVC_CONTAINER_EXTRA_ARGS="
 ) else (
@@ -1459,6 +1513,11 @@ set "UPLOAD_QP="
 set "UPLOAD_FILE_TAG=8000k"
 set "UPLOAD_CODEC_ARGS=-preset p7 -tune hq -rc vbr -b:v 8000k -maxrate:v 12000k -bufsize:v 16000k"
 if /i "%MODE%"=="AV1" set "TOTAL_STAGES=4"
+if /i "%FPS_MODE%"=="SVP60" (
+    echo.
+    echo H.264 upload copy: disabled while OpenSVPFlow interpolation is enabled.
+    exit /b 0
+)
 
 echo.
 echo Social / video-sharing H.264 upload copy:
@@ -1920,6 +1979,7 @@ echo Speed mode    : %SPEED_LABEL%
 echo Bitrate       : %BITRATE%
 echo Max bitrate   : %MAXRATE%
 echo Frame rate    : %FPS_LABEL%
+if /i "%FPS_MODE%"=="SVP60" echo Interpolation : OpenSVPFlow GPU / %OPEN_SVP_SCENE_LABEL% / Algo %OPEN_SVP_ALGO% / %OPEN_SVP_ANALYSE_LABEL% / Mask %OPEN_SVP_MASK_AREA%
 echo Deinterlace   : %DEINT_LABEL%
 echo Cinema frame  : %FRAME_LABEL%
 echo Container     : %CONTAINER_LABEL%
@@ -2030,6 +2090,18 @@ set "FPS_FILTER="
 set "FPS_DECISION=Source FPS"
 set "FPS_SUFFIX="
 if "%FPS_MODE%"=="AUTO" call :AUTO_CINEMA_FPS
+if /i "%FPS_MODE%"=="SVP60" (
+    call :VALIDATE_OPEN_SVP_INPUT
+    if errorlevel 1 (
+        set /a FAIL_COUNT+=1
+        shift
+        goto PROCESS_NEXT
+    )
+    set "OUT_FPS=60"
+    set "FPS_FILTER="
+    set "FPS_DECISION=OpenSVPFlow 60 fps / %OPEN_SVP_SCENE_LABEL% / Algo %OPEN_SVP_ALGO% / %OPEN_SVP_ANALYSE_LABEL% / Mask %OPEN_SVP_MASK_AREA%"
+    set "FPS_SUFFIX=_SVP60"
+)
 
 set "ACTIVE_DEINT_FILTER="
 set "ACTIVE_DEINT_HW_ARGS="
@@ -2229,6 +2301,9 @@ echo.
 set "GRAIN_FILTER=[1:v:0]fps=%OUT_FPS%,format=p010le,setpts=PTS-STARTPTS,hwupload"
 if "%GRAIN_SCALE_REQUIRED%"=="1" set "GRAIN_FILTER=%GRAIN_FILTER%,scale_vulkan=w=%WIDTH%:h=%HEIGHT%:scaler=bilinear"
 set "GRAIN_FILTER=%GRAIN_FILTER%[grainvk]"
+set "SVP_GRAIN_FILTER=[2:v:0]fps=%OUT_FPS%,format=p010le,setpts=PTS-STARTPTS,hwupload"
+if "%GRAIN_SCALE_REQUIRED%"=="1" set "SVP_GRAIN_FILTER=%SVP_GRAIN_FILTER%,scale_vulkan=w=%WIDTH%:h=%HEIGHT%:scaler=bilinear"
+set "SVP_GRAIN_FILTER=%SVP_GRAIN_FILTER%[grainvk]"
 
 rem No-LUT mode keeps the verified V20 branch.
 set "BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%format=p010le,setpts=PTS-STARTPTS,hwupload[basevk]"
@@ -2255,8 +2330,16 @@ rem variable makes CMD reparse special filename characters such as ampersand.
 call :PREPARE_UPLOAD_SUBTITLE "%INDIR%"
 if errorlevel 1 exit /b 1
 pushd "%INDIR%"
+if /i "%FPS_MODE%"=="SVP60" goto HEVC_MAIN_OPEN_SVP
 "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk %MAIN_HWACCEL_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%FRAME_POST_FILTER%%MAIN_SUB_FILTER%[vout]" -map "[vout]" %HEVC_STREAM_MAP_ARGS% -map_metadata 0 -map_chapters 0 -c:v hevc_nvenc -gpu %CUDA_DEVICE% -profile:v main10 -preset %PRESET% -tune hq -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %HEVC_AUDIO_MUX_ARGS% %HEVC_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
 set "MAIN_RUN_RC=%ERRORLEVEL%"
+goto HEVC_MAIN_DONE
+
+:HEVC_MAIN_OPEN_SVP
+"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=60" --arg "target_den=1" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -f yuv4mpegpipe -i pipe:0 -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%SVP_GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%FRAME_POST_FILTER%%MAIN_SUB_FILTER%[vout]" -map "[vout]" %SVP_HEVC_STREAM_MAP_ARGS% -map_metadata 1 -map_chapters 1 -c:v hevc_nvenc -gpu %CUDA_DEVICE% -profile:v main10 -preset %PRESET% -tune hq -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %HEVC_AUDIO_MUX_ARGS% %HEVC_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
+set "MAIN_RUN_RC=%ERRORLEVEL%"
+
+:HEVC_MAIN_DONE
 popd
 call :CLEAN_UPLOAD_SUBTITLE
 
@@ -2274,6 +2357,19 @@ if not exist "%OUTPUT%" (
     echo ERROR: HEVC output file was not created.
     set "LAST_ERROR_STAGE=HEVC output missing"
     exit /b 1
+)
+
+rem A CMD pipe can hide an FFmpeg-side failure behind VSPipe's exit status.
+rem Verify the OpenSVPFlow path; leave the stable non-SVP path unchanged.
+if /i "%FPS_MODE%"=="SVP60" (
+    "%FFPROBE%" -v error -select_streams v:0 -show_entries stream=codec_name -of csv=p=0 "%OUTPUT%" >nul 2>&1
+    if errorlevel 1 (
+        echo.
+        echo ERROR: OpenSVPFlow HEVC output verification failed.
+        if exist "%OUTPUT%" del /q "%OUTPUT%" >nul 2>&1
+        set "LAST_ERROR_STAGE=OpenSVPFlow HEVC output verify"
+        exit /b 1
+    )
 )
 
 echo.
@@ -2405,8 +2501,16 @@ if errorlevel 1 (
 
 if "%LUT_ENABLED%"=="1" goto AV1_STAGE1_LUT
 pushd "%INDIR%"
+if /i "%FPS_MODE%"=="SVP60" goto AV1_STAGE1_OPEN_SVP
 "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %ACTIVE_DEINT_HW_ARGS% %MAIN_HWACCEL_ARGS% -i "%INPUT%" -vf "%VIDEO_FILTER%%MAIN_SUB_FILTER%" -map 0:v:0 -an -sn -dn -c:v av1_nvenc -gpu %CUDA_DEVICE% -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune %ENCODER_TUNE% -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
 set "STAGE_RC=%ERRORLEVEL%"
+goto AV1_STAGE1_DONE_NO_LUT
+
+:AV1_STAGE1_OPEN_SVP
+"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=60" --arg "target_den=1" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -f yuv4mpegpipe -i pipe:0 -vf "%VIDEO_FILTER%%MAIN_SUB_FILTER%" -map 0:v:0 -an -sn -dn -c:v av1_nvenc -gpu %CUDA_DEVICE% -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune %ENCODER_TUNE% -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
+set "STAGE_RC=%ERRORLEVEL%"
+
+:AV1_STAGE1_DONE_NO_LUT
 popd
 goto AV1_STAGE1_DONE
 
@@ -2430,6 +2534,18 @@ if not exist "%TMP_BASE%" (
     set "LAST_ERROR_STAGE=Stage 1 - AV1 NVENC output missing"
     call :HANDLE_AV1_FAILED_JOB
     exit /b 1
+)
+
+rem As above, verify only the new VSPipe pipe path before grain injection.
+if /i "%FPS_MODE%"=="SVP60" (
+    "%FFPROBE%" -v error -select_streams v:0 -show_entries stream=codec_name -of csv=p=0 "%TMP_BASE%" >nul 2>&1
+    if errorlevel 1 (
+        echo.
+        echo ERROR: OpenSVPFlow AV1 intermediate verification failed.
+        set "LAST_ERROR_STAGE=OpenSVPFlow AV1 output verify"
+        call :HANDLE_AV1_FAILED_JOB
+        exit /b 1
+    )
 )
 
 rem ------------------------------------------------------------
@@ -2569,8 +2685,16 @@ exit /b 0
 
 :RUN_LUT_AV1_ENCODE
 pushd "%JOBDIR%"
+if /i "%FPS_MODE%"=="SVP60" goto RUN_LUT_AV1_OPEN_SVP
 "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %ACTIVE_DEINT_HW_ARGS% -i "%INPUT%" -filter_complex "[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%CROP_FILTER%format=gbrp16le,split=2[lutorig][lutsrc];[lutsrc]lut3d=file=filmlook.cube:interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=p010le%LETTERBOX_FILTER%%MAIN_SUB_FILTER%[vout]" -map "[vout]" -an -sn -dn -c:v av1_nvenc -gpu %CUDA_DEVICE% -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune %ENCODER_TUNE% -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
 set "RUN_LUT_RC=%ERRORLEVEL%"
+goto RUN_LUT_AV1_DONE
+
+:RUN_LUT_AV1_OPEN_SVP
+"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=60" --arg "target_den=1" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -f yuv4mpegpipe -i pipe:0 -filter_complex "[0:v:0]%CROP_FILTER%format=gbrp16le,split=2[lutorig][lutsrc];[lutsrc]lut3d=file=filmlook.cube:interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=p010le%LETTERBOX_FILTER%%MAIN_SUB_FILTER%[vout]" -map "[vout]" -an -sn -dn -c:v av1_nvenc -gpu %CUDA_DEVICE% -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune %ENCODER_TUNE% -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
+set "RUN_LUT_RC=%ERRORLEVEL%"
+
+:RUN_LUT_AV1_DONE
 popd
 exit /b %RUN_LUT_RC%
 
@@ -2844,6 +2968,22 @@ rem ============================================================
 rem ============================================================
 rem Per-file field-rate deinterlace helper
 rem ============================================================
+:VALIDATE_OPEN_SVP_INPUT
+if /i "%FIELD_ORDER%"=="tt" goto SVP_INTERLACED_REJECT
+if /i "%FIELD_ORDER%"=="bb" goto SVP_INTERLACED_REJECT
+if /i "%FIELD_ORDER%"=="tb" goto SVP_INTERLACED_REJECT
+if /i "%FIELD_ORDER%"=="bt" goto SVP_INTERLACED_REJECT
+exit /b 0
+
+:SVP_INTERLACED_REJECT
+echo.
+echo ERROR: OpenSVPFlow integration currently supports progressive input only.
+echo Detected field_order=%FIELD_ORDER%
+echo Use the normal Film Grain Studio deinterlace path first, or disable OpenSVPFlow.
+set "LAST_ERROR_STAGE=OpenSVPFlow interlaced input"
+exit /b 1
+
+
 :PREPARE_DEINTERLACE_FOR_INPUT
 set "INPUT_INTERLACED=0"
 if /i "%FIELD_ORDER%"=="tt" set "INPUT_INTERLACED=1"

@@ -7,15 +7,15 @@
 - **HEVC Main10 + 真实扫描 Grain Plate**：将真实胶片颗粒合成到视频像素中。
 - **AV1 Main10 + grav1synth Film Grain**：将颗粒模型写入 AV1 Film Grain metadata，由播放器在解码时合成；除内置 Film Preset / Photon ISO 外，还可直接加载现成 `.tbl / .txt` Grain Table。
 
-当前正式稳定版为 **v4.4.1**，发布包名称：
+当前正式稳定版为 **v4.4.2**，发布包名称：
 
 ```text
-FilmGrain_Studio_v4.4.1_Stable.zip
+FilmGrain_Studio_v4.4.2_Stable.zip
 ```
 
 所有独立脚本使用固定文件名，不再包含组件版本号；版本号只体现在整个项目的发布压缩包上。升级时建议完整替换工具包，避免新旧脚本混用。
 
-默认配置为 **AV1 Main10 + MP4 + AAC 256k**，并集成 LUT Gallery、自动 Field-rate 反交错、自动电影帧率、Cinematic Style、多文件处理、NVENC 硬件能力自动探测、AV1 UHQ 及 AV1 Film Grain 最终验证。
+默认配置为 **AV1 Main10 + MP4 + AAC 256k**，并集成 LUT Gallery、自动 Field-rate 反交错、自动电影帧率、可选 OpenSVPFlow GPU 60 fps 插帧、Cinematic Style、多文件处理、NVENC / OpenSVPFlow 硬件能力自动探测、AV1 UHQ 及 AV1 Film Grain 最终验证。
 
 历史版本变更请参阅 [`CHANGELOG.md`](CHANGELOG.md)。
 
@@ -98,9 +98,15 @@ _AV1_Grain_Tables\
     1080p\
     1440p\
     2160p\
+_OpenSVPFlow\
+    00_Setup.bat                 # 首次安装本地 OpenSVPFlow 运行环境
+    Setup_OpenSVPFlow.ps1
+    Check_OpenSVPFlow.vpy
+    FilmGrain_OpenSVPFlow.vpy
+    Plugins\
 ```
 
-请保持两个入口 BAT、`Utils`、`_LUT_Tools` 与 `_AV1_Grain_Tables` 的相对位置不变。
+请保持两个入口 BAT、`Utils`、`_LUT_Tools`、`_AV1_Grain_Tables` 与 `_OpenSVPFlow` 的相对位置不变。
 
 ---
 
@@ -118,7 +124,7 @@ HEVC Grain 库：D:\Film_Grain
 LUT 根目录：E:\Adobe Portable\LUTs
 ```
 
-`FilmGrain_Config.ini` 使用 UTF-8 无 BOM；PS1 显式按 UTF-8 读写，BAT 读取时临时切换 UTF-8 代码页并恢复原代码页。GUI 的硬件信息区同时显示 NVIDIA 驱动版本、FFmpeg 版本与能力缓存状态。
+`FilmGrain_Config.ini` 使用 UTF-8 无 BOM；PS1 显式按 UTF-8 读写，BAT 读取时临时切换 UTF-8 代码页并恢复原代码页。GUI 最底部状态栏集中显示 GPU、NVIDIA 驱动版本、FFmpeg 版本、能力缓存状态以及 AV1 / UHQ / HEVC-Vulkan / OpenSVPFlow 可用性；最右侧显示当前正式版本号或测试构建标识。
 
 ### 硬件能力自动探测
 
@@ -133,6 +139,7 @@ GUI 和 CLI 启动时会调用 `Utils\FilmGrain_Hardware_Caps.ps1`，对当前 G
 | Lookahead / Multipass | 按 fullres、qres 的实际支持情况选择 |
 | NVDEC CUDA / Vulkan | 只在通过实际路径测试后启用 |
 | AV1 UHQ | 只在 `-tune uhq` 微型编码成功时显示 |
+| OpenSVPFlow GPU/OpenCL | 仅在本地 VSPipe、SVPFlow 插件与 GPU/OpenCL smoke test 均通过后启用插帧 |
 
 能力结果会写入 `Utils\_HardwareCaps.json`。GPU、驱动、FFmpeg 文件或探测规则变化后会自动重新检测；环境未变时直接读取缓存。新包首次完成能力探测后显示 `配置：已适配`；环境未变化、后续直接读取缓存时显示 `配置：已缓存`。
 
@@ -199,7 +206,7 @@ GUI 与 CLI 的输出均保存在源视频所在目录。已有同名输出时�
 
 ## GUI 主要功能
 
-- 多视频添加、拖放、移除与清空；
+- 多视频添加、拖放、移除与清空；长文件名在文件列表中可通过鼠标悬停 ToolTip 查看完整名称；
 - 选中单个视频时异步显示视频/音频编码、码率、分辨率、帧率、声道、采样率、时长与总码率；AV1 输入会额外显示胶片颗粒状态（无 / 亮度 / 亮度 + 色度）；
 - 编码方式统一为 `AV1 · grav1synth 胶片颗粒（默认）`、`HEVC · 扫描胶片颗粒`；单个 AV1 输入还可选择 `AV1 不重编码 · 添加/替换胶片颗粒`；
 - MP4 与 MKV 输出；
@@ -208,7 +215,9 @@ GUI 与 CLI 的输出均保存在源视频所在目录。已有同名输出时�
 - 自动反交错：BWDIF Vulkan（默认）、BWDIF CUDA（备选）、W3FDIF Complex（高质量对照）；
 - 隔行素材自动使用 Field-rate 输出，例如 29.97i → 59.94p、25i → 50p；逐行素材自动旁路；
 - 逐行素材可使用自动电影帧率或保持源帧率；
-- NVIDIA GPU / 驱动 / FFmpeg 能力自动探测与缓存；
+- 可选 **OpenSVPFlow GPU 60 fps 插帧**：主界面提供“平滑 / 自动平衡”，启用后由 OpenSVPFlow 接管输出帧率；
+- 右上角新增 **“高级…”** 独立设置窗体，按“编码 / 插帧 / 其他”分类；当前插帧高级项包括 SmoothFps Algo、Analyse Profile 与 Artifact Mask Area；
+- NVIDIA GPU / 驱动 / FFmpeg / OpenSVPFlow 能力自动探测与缓存；
 - HEVC / AV1 统一 Cinematic Style：可烘焙上下黑边并保持原分辨率，或裁剪为约 2.39:1 有效画面；
 - AV1 Film Preset、Photon ISO、Film 格式、Film stock 与 Chroma Grain；另支持 `_AV1_Grain_Tables` 现成 `.tbl / .txt` Grain Table，按分辨率自动筛选并解析常见命名；
 - HEVC Grain 根目录递归扫描，只显示电脑上实际存在的 `.mov` Grain Plate；配置界面可检测原分辨率 / 1080p Cache 完整度，并直接生成缺失高速缓存；
@@ -217,7 +226,7 @@ GUI 与 CLI 的输出均保存在源视频所在目录。已有同名输出时�
 - 结构化实时进度、`fps`、`speed`、`ETA`、日志复制/清空与任务取消；
 - HEVC / AV1 均可额外生成 H.264 上传版：NVENC P7 固定码率档，或 x264 Slow + `tune grain` + 2-pass 的 FPS / 分辨率联动高质量档，并可用“高动态视频”开关切换普通 / 高动态码率预算；
 - 字幕功能独立于 H.264 上传版：可直接烧写进主 HEVC / AV1 输出；如同时生成 H.264 上传副本，副本也继承同一套字幕。支持内嵌文本字幕下拉选择、同名外部字幕自动匹配、浏览外部字幕文件，以及自定义字体、字号、颜色、描边、阴影与位置。
-- Studio 中“高动态视频”和“字幕…”位于“同时生成 H.264 上传版”正下方；纯信息状态文字下移，避免编码设置区换行拥挤。
+- Studio 主窗体采用约 1320×960 的三列布局；硬件与能力信息统一移到底部单行状态栏，编码区域保留给常用控制项；状态栏最右侧显示版本/构建标识。
 
 ---
 
@@ -232,6 +241,7 @@ GUI 与 CLI 的输出均保存在源视频所在目录。已有同名输出时�
 | Cinematic Style | 开启；默认“加黑边 · 保留原分辨率” |
 | 反交错 | 自动；BWDIF Vulkan（默认） |
 | 输出帧率 | 自动：隔行素材 Field-rate ×2；逐行素材自动电影帧率 |
+| OpenSVPFlow 插帧 | 关闭；启用后固定 60 fps，默认“平滑（Uniform）” / Algo 13 / EncodeGUI Analyse |
 | GPU | 自动检测 |
 | LUT | 关闭 |
 | AV1 Grain 方式 | Film Preset |
@@ -420,7 +430,7 @@ GUI 默认启用自动反交错，并由 FFprobe 的 `field_order` 判断输入�
 25i    → 50p
 ```
 
-此时 Field-rate 输出优先于普通电影帧率选择。输入被标记为 progressive / unknown 时自动旁路反交错，并继续使用正常的逐行帧率逻辑。
+此时 Field-rate 输出优先于普通电影帧率选择。只有当前选中素材被明确识别为隔行时，GUI 才锁定输出帧率；progressive / unknown 会保持输出帧率下拉可用，并继续使用正常的逐行帧率逻辑。
 
 ---
 
@@ -435,6 +445,45 @@ GUI 默认启用自动反交错，并由 FFprobe 的 `field_order` 判断输入�
 | 无法可靠归类的特殊帧率 | 保持源帧率 |
 
 转换使用 CFR 输出并保持正常视频时长。特殊 VFR 素材仍建议检查音画同步。
+
+---
+
+
+## OpenSVPFlow GPU 插帧
+
+v4.4.2 正式加入可选的 **OpenSVPFlow GPU 60 fps 插帧**。首次使用前运行：
+
+```text
+_OpenSVPFlow\00_Setup.bat
+```
+
+安装器会在 `_OpenSVPFlow` 内建立本地 `.venv`，并固定使用 VapourSynth R79、BestSource 21.0 与 `open-svpflow nightly-20260804-5ef4260`。安装后重新启动 Film Grain Studio，硬件能力检测会实际运行 CPU 与 GPU/OpenCL smoke test；只有检测通过时才允许启用插帧，不按 GPU 型号硬编码。
+
+主界面提供两种插帧模式：
+
+| 模式 | SmoothFps scene.mode | 定位 |
+|---|---:|---|
+| 平滑 | 0 | 默认；Uniform，保持当前已验证的连续平滑风格 |
+| 自动平衡 | 3 | Adaptive，在运动/场景变化时采用另一套自适应策略 |
+
+默认插帧基线为：
+
+```text
+60 fps
+SmoothFps Algo 13
+Super: pel=1 / gpu=1 / full=true
+Analyse: EncodeGUI-inspired profile
+Mask: cover=80 / area=100 / area_sharp=1.2
+GPU/OpenCL
+```
+
+右上角 **“高级…” → “插帧”** 可调整 SmoothFps Algo、Analyse Profile 与 Artifact Mask Area，并可一键恢复推荐值。`Super pel=1 / gpu=1 / full=true` 继续固定为已验证基线，不在当前版本开放。
+
+启用插帧后，`输出帧率` 显示为 **“由 OpenSVPFlow 接管 · 60 fps”**，普通自动电影帧率 / 保持源帧率不再同时生效。当前版本只接受逐行输入，因此 OpenSVPFlow 与自动反交错互斥；隔行素材应使用正常反交错路线。H.264 上传副本在插帧开启时暂时禁用。
+
+处理链使用 **VSPipe Y4M → FFmpeg 管道**，不生成巨大的中间视频文件。HEVC + OpenSVPFlow + LUT + Grain 路线已完成实际测试。AV1 插帧路线需要支持 AV1 NVENC 的 GPU，换到新硬件/驱动后建议先用短片验证。
+
+> 当前已验证的 OpenSVPFlow 路径会在插帧内部标准化为 **YUV420P8**，之后再返回 Film Grain Studio 的正常 Main10 编码链。因此 v4.4.2 的 OpenSVPFlow 功能定位为 **逐行 SDR 插帧**，不应作为 HDR 或端到端 10-bit 保真处理链使用。
 
 ---
 
@@ -720,6 +769,8 @@ ffmpeg -hide_banner -h decoder=libdav1d
 - MP4 兼容模式不会保留字幕、附件和数据流；
 - 启用 LUT 时，部分处理链会转为软件滤镜路径，速度可能下降；
 - 自动反交错依赖 FFprobe `field_order`；实际为隔行但被标记为 progressive / unknown 的异常素材需要人工确认；
+- OpenSVPFlow 当前只支持逐行输入，并固定接管为 60 fps；与自动反交错、普通电影帧率选择互斥；
+- OpenSVPFlow 当前验证链内部使用 YUV420P8，不适用于 HDR / 端到端 10-bit 保真；启用插帧时 H.264 上传副本暂时禁用；
 - 特殊 HDR、VFR、多视频流或非常规容器建议先使用短片测试；
 - 强制取消任务可能留下未完成输出或 `__AV1GS_TMP_*` 临时目录；
 - 重要素材应保留原文件，并在归档前检查画面、音频、时长、流信息及 Film Grain 验证结果。

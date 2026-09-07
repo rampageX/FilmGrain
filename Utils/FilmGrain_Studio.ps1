@@ -64,6 +64,8 @@ $DefaultGrainRoot = [string]$script:PathConfig.GRAIN_ROOT
 $DefaultAv1GrainTableRoot = Join-Path $PackageRoot '_AV1_Grain_Tables'
 $HardwareCapsScript = Join-Path $ScriptRoot 'FilmGrain_Hardware_Caps.ps1'
 $HardwareCapsCache = Join-Path $ScriptRoot '_HardwareCaps.json'
+$OpenSvpRoot = Join-Path $PackageRoot '_OpenSVPFlow'
+$OpenSvpSetupBat = Join-Path $OpenSvpRoot '00_Setup.bat'
 $LutRoot = [string]$script:PathConfig.LUT_ROOT
 $LutPreviewRoot = Join-Path $LutRoot '_LUT_PREVIEWS'
 $LutSelector = Join-Path $PackageRoot '_LUT_Tools\LUT_Gallery_Selector.ps1'
@@ -117,6 +119,10 @@ $script:FFmpegVersionOverride = ''
 $script:Av1Available = $true
 $script:Av1UhqAvailable = $false
 $script:HevcAvailable = $true
+$script:OpenSvpAvailable = $false
+$script:SvpAlgo = 13
+$script:SvpAnalyse = 'ENCODEGUI'
+$script:SvpMaskArea = 100
 $script:UploadSubtitle = [ordered]@{
     Enabled = $false
     Mode = 'OFF'
@@ -218,12 +224,158 @@ function Show-Info {
     )
 }
 
+function Show-AdvancedSettingsDialog {
+    $dlg = New-Object System.Windows.Forms.Form
+    $dlg.Text = 'Film Grain Studio - 高级设置'
+    $dlg.StartPosition = 'CenterParent'
+    $dlg.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedDialog
+    $dlg.MaximizeBox = $false
+    $dlg.MinimizeBox = $false
+    $dlg.ShowInTaskbar = $false
+    $dlg.ClientSize = New-Object System.Drawing.Size -ArgumentList 720, 460
+    $dlg.Font = New-UiFont 9
+
+    $tabs = New-Object System.Windows.Forms.TabControl
+    $tabs.Dock = 'Fill'
+    $tabs.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 10
+    [void]$dlg.Controls.Add($tabs)
+
+    $tabEncode = New-Object System.Windows.Forms.TabPage
+    $tabEncode.Text = '编码'
+    [void]$tabs.TabPages.Add($tabEncode)
+
+    $tabInterp = New-Object System.Windows.Forms.TabPage
+    $tabInterp.Text = '插帧'
+    [void]$tabs.TabPages.Add($tabInterp)
+
+    $tabOther = New-Object System.Windows.Forms.TabPage
+    $tabOther.Text = '其他'
+    [void]$tabs.TabPages.Add($tabOther)
+
+    $lblEncodeInfo = New-Object System.Windows.Forms.Label
+    $lblEncodeInfo.AutoSize = $false
+    $lblEncodeInfo.Location = New-Object System.Drawing.Point -ArgumentList 24, 26
+    $lblEncodeInfo.Size = New-Object System.Drawing.Size -ArgumentList 630, 100
+    $lblEncodeInfo.ForeColor = $ColorMuted
+    $lblEncodeInfo.Text = "以后需要开放的 NVENC、码控、AQ、B 帧等高级压缩参数统一放在这里。`r`n主界面继续保留常用选项。"
+    [void]$tabEncode.Controls.Add($lblEncodeInfo)
+
+    $lblAlgo = New-Object System.Windows.Forms.Label
+    $lblAlgo.Text = 'SmoothFps Algo'
+    $lblAlgo.Location = New-Object System.Drawing.Point -ArgumentList 28, 34
+    $lblAlgo.Size = New-Object System.Drawing.Size -ArgumentList 150, 24
+    [void]$tabInterp.Controls.Add($lblAlgo)
+
+    $cmbAdvAlgo = New-Object System.Windows.Forms.ComboBox
+    $cmbAdvAlgo.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
+    $cmbAdvAlgo.Location = New-Object System.Drawing.Point -ArgumentList 190, 30
+    $cmbAdvAlgo.Size = New-Object System.Drawing.Size -ArgumentList 220, 26
+    foreach ($item in @('1','2','11','13','21','22','23')) { [void]$cmbAdvAlgo.Items.Add($item) }
+    $algoIndex = $cmbAdvAlgo.Items.IndexOf([string]$script:SvpAlgo)
+    if ($algoIndex -lt 0) { $algoIndex = 3 }
+    $cmbAdvAlgo.SelectedIndex = $algoIndex
+    [void]$tabInterp.Controls.Add($cmbAdvAlgo)
+
+    $lblAnalyse = New-Object System.Windows.Forms.Label
+    $lblAnalyse.Text = 'Analyse Profile'
+    $lblAnalyse.Location = New-Object System.Drawing.Point -ArgumentList 28, 82
+    $lblAnalyse.Size = New-Object System.Drawing.Size -ArgumentList 150, 24
+    [void]$tabInterp.Controls.Add($lblAnalyse)
+
+    $cmbAdvAnalyse = New-Object System.Windows.Forms.ComboBox
+    $cmbAdvAnalyse.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
+    $cmbAdvAnalyse.Location = New-Object System.Drawing.Point -ArgumentList 190, 78
+    $cmbAdvAnalyse.Size = New-Object System.Drawing.Size -ArgumentList 360, 26
+    [void]$cmbAdvAnalyse.Items.Add('EncodeGUI Analyse（推荐）')
+    [void]$cmbAdvAnalyse.Items.Add('Baseline Analyse {}（对照）')
+    if ($script:SvpAnalyse -eq 'BASE') {
+        $cmbAdvAnalyse.SelectedIndex = 1
+    } else {
+        $cmbAdvAnalyse.SelectedIndex = 0
+    }
+    [void]$tabInterp.Controls.Add($cmbAdvAnalyse)
+
+    $lblMask = New-Object System.Windows.Forms.Label
+    $lblMask.Text = 'Artifact Mask Area'
+    $lblMask.Location = New-Object System.Drawing.Point -ArgumentList 28, 130
+    $lblMask.Size = New-Object System.Drawing.Size -ArgumentList 150, 24
+    [void]$tabInterp.Controls.Add($lblMask)
+
+    $numAdvMask = New-Object System.Windows.Forms.NumericUpDown
+    $numAdvMask.Location = New-Object System.Drawing.Point -ArgumentList 190, 126
+    $numAdvMask.Size = New-Object System.Drawing.Size -ArgumentList 120, 26
+    $numAdvMask.Minimum = 0
+    $numAdvMask.Maximum = 100
+    $numAdvMask.Increment = 5
+    $numAdvMask.Value = [decimal]$script:SvpMaskArea
+    [void]$tabInterp.Controls.Add($numAdvMask)
+
+    $lblInterpInfo = New-Object System.Windows.Forms.Label
+    $lblInterpInfo.AutoSize = $false
+    $lblInterpInfo.Location = New-Object System.Drawing.Point -ArgumentList 28, 182
+    $lblInterpInfo.Size = New-Object System.Drawing.Size -ArgumentList 610, 92
+    $lblInterpInfo.ForeColor = $ColorMuted
+    $lblInterpInfo.Text = "主界面的「平滑 / 自动平衡」控制 Uniform / Adaptive。`r`nSuper 固定保留已验证基线：pel=1 / GPU / full=true。"
+    [void]$tabInterp.Controls.Add($lblInterpInfo)
+
+    $btnRecommended = New-Object System.Windows.Forms.Button
+    $btnRecommended.Text = '恢复推荐值'
+    $btnRecommended.Location = New-Object System.Drawing.Point -ArgumentList 190, 292
+    $btnRecommended.Size = New-Object System.Drawing.Size -ArgumentList 112, 30
+    [void]$tabInterp.Controls.Add($btnRecommended)
+
+    $lblOtherInfo = New-Object System.Windows.Forms.Label
+    $lblOtherInfo.AutoSize = $false
+    $lblOtherInfo.Location = New-Object System.Drawing.Point -ArgumentList 24, 26
+    $lblOtherInfo.Size = New-Object System.Drawing.Size -ArgumentList 630, 100
+    $lblOtherInfo.ForeColor = $ColorMuted
+    $lblOtherInfo.Text = "以后需要高级设置的画面处理、实验功能或其他模块统一分类放在这里。"
+    [void]$tabOther.Controls.Add($lblOtherInfo)
+
+    $btnOk = New-Object System.Windows.Forms.Button
+    $btnOk.Text = '确定'
+    $btnOk.Location = New-Object System.Drawing.Point -ArgumentList 514, 406
+    $btnOk.Size = New-Object System.Drawing.Size -ArgumentList 88, 30
+    $btnOk.DialogResult = [System.Windows.Forms.DialogResult]::OK
+    [void]$dlg.Controls.Add($btnOk)
+
+    $btnCancelAdv = New-Object System.Windows.Forms.Button
+    $btnCancelAdv.Text = '取消'
+    $btnCancelAdv.Location = New-Object System.Drawing.Point -ArgumentList 610, 406
+    $btnCancelAdv.Size = New-Object System.Drawing.Size -ArgumentList 88, 30
+    $btnCancelAdv.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
+    [void]$dlg.Controls.Add($btnCancelAdv)
+
+    $dlg.AcceptButton = $btnOk
+    $dlg.CancelButton = $btnCancelAdv
+
+    $btnRecommended.Add_Click({
+        $cmbAdvAlgo.SelectedItem = '13'
+        $cmbAdvAnalyse.SelectedIndex = 0
+        $numAdvMask.Value = 100
+    })
+
+    $result = $dlg.ShowDialog($form)
+    if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
+        $script:SvpAlgo = [int]([string]$cmbAdvAlgo.SelectedItem)
+        if ($cmbAdvAnalyse.SelectedIndex -eq 1) {
+            $script:SvpAnalyse = 'BASE'
+        } else {
+            $script:SvpAnalyse = 'ENCODEGUI'
+        }
+        $script:SvpMaskArea = [int]$numAdvMask.Value
+    }
+
+    $dlg.Dispose()
+}
+
 function Initialize-HardwareCaps {
     $script:HardwareCaps = $null
     $script:HardwareCapsReady = $false
     $script:Av1Available = $true
     $script:Av1UhqAvailable = $false
     $script:HevcAvailable = $true
+    $script:OpenSvpAvailable = $false
 
     if (-not (Test-Path -LiteralPath $HardwareCapsScript -PathType Leaf)) { return }
     if (-not (Test-Path -LiteralPath $Ffmpeg -PathType Leaf)) { return }
@@ -242,12 +394,14 @@ function Initialize-HardwareCaps {
         $script:Av1Available = [bool]$caps.caps.av1.available
         $script:Av1UhqAvailable = [bool]$caps.caps.av1.uhq
         $script:HevcAvailable = [bool]$caps.caps.hevcPipeline
+        if ($caps.caps.openSvp) { $script:OpenSvpAvailable = [bool]$caps.caps.openSvp.gpu }
     } catch {
         $script:HardwareCaps = $null
         $script:HardwareCapsReady = $false
         $script:Av1Available = $true
         $script:Av1UhqAvailable = $false
         $script:HevcAvailable = $true
+        $script:OpenSvpAvailable = $false
     }
 }
 
@@ -269,24 +423,25 @@ function Get-FFmpegVersionLabel {
 }
 
 function Update-HardwareProfileUi {
-    if (-not $profileNote -or -not $cmbGpu) { return }
+    if (-not $statusHardware -or -not $cmbGpu) { return }
     $ffmpegVersion = Get-FFmpegVersionLabel
     if ($script:HardwareCapsReady) {
         $yesNo = @('不可用', '可用')
         $av1Text = $yesNo[[int]$script:Av1Available]
         $av1UhqText = $yesNo[[int]$script:Av1UhqAvailable]
         $hevcText = $yesNo[[int]$script:HevcAvailable]
+        $svpText = $yesNo[[int]$script:OpenSvpAvailable]
         $cacheStateText = switch ([string]$script:HardwareCaps.cacheState) {
             'Detected' { '已适配' }
             'Cached'   { '已缓存' }
             default    { [string]$script:HardwareCaps.cacheState }
         }
-        $profileNote.Text = "驱动：$($script:HardwareCaps.gpu.driverVersion) · FFmpeg：$ffmpegVersion · 配置：$cacheStateText`r`nAV1 Main10：$av1Text · UHQ：$av1UhqText；HEVC/Vulkan：$hevcText；其余参数按实测启用。"
+        $statusHardware.Text = "GPU $($script:HardwareCaps.gpu.name) · 驱动 $($script:HardwareCaps.gpu.driverVersion) · FFmpeg $ffmpegVersion · 配置 $cacheStateText · AV1 $av1Text · UHQ $av1UhqText · HEVC/Vulkan $hevcText · SVPFlow $svpText"
         $cmbGpu.Items.Clear()
         [void]$cmbGpu.Items.Add(([string]$script:HardwareCaps.gpu.name + '（自动检测）'))
         $cmbGpu.SelectedIndex = 0
     } else {
-        $profileNote.Text = "FFmpeg：$ffmpegVersion`r`n硬件检测尚未完成；请检查配置路径，编码启动时会自动重试。"
+        $statusHardware.Text = "FFmpeg $ffmpegVersion · 硬件检测尚未完成 · 编码启动时会自动重试"
         $cmbGpu.Items.Clear()
         [void]$cmbGpu.Items.Add('自动检测（编码启动时再次校验）')
         $cmbGpu.SelectedIndex = 0
@@ -298,8 +453,8 @@ Initialize-HardwareCaps
 $form = New-Object System.Windows.Forms.Form
 $form.Text = 'Film Grain Studio'
 $form.StartPosition = 'CenterScreen'
-$form.Size = New-Object System.Drawing.Size -ArgumentList 1260, 950
-$form.MinimumSize = New-Object System.Drawing.Size -ArgumentList 1120, 950
+$form.ClientSize = New-Object System.Drawing.Size -ArgumentList 1320, 960
+$form.MinimumSize = New-Object System.Drawing.Size -ArgumentList 1280, 950
 $form.AutoScaleMode = [System.Windows.Forms.AutoScaleMode]::Dpi
 $form.Font = New-UiFont 9
 $form.AllowDrop = $true
@@ -308,13 +463,37 @@ $root = New-Object System.Windows.Forms.TableLayoutPanel
 $root.Dock = 'Fill'
 $root.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0
 $root.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 0
-$root.RowCount = 4
+$root.RowCount = 5
 $root.ColumnCount = 1
 Add-RowAbsolute $root 68
 Add-RowPercent $root 100
 Add-RowAbsolute $root 225
 Add-RowAbsolute $root 58
+Add-RowAbsolute $root 24
 [void]$form.Controls.Add($root)
+
+# Bottom application status bar
+$statusStrip = New-Object System.Windows.Forms.StatusStrip
+$statusStrip.Dock = 'Fill'
+$statusStrip.SizingGrip = $false
+$statusStrip.BackColor = $ColorSubtle
+$statusStrip.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 8, 1, 8, 1
+$statusHardware = New-Object System.Windows.Forms.ToolStripStatusLabel
+$statusHardware.Spring = $true
+$statusHardware.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+$statusHardware.ForeColor = $ColorMuted
+$statusHardware.Text = '硬件能力检测中…'
+[void]$statusStrip.Items.Add($statusHardware)
+
+$statusVersion = New-Object System.Windows.Forms.ToolStripStatusLabel
+$statusVersion.Spring = $false
+$statusVersion.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
+$statusVersion.ForeColor = $ColorMuted
+$statusVersion.Text = 'v4.4.2'
+$statusVersion.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 12, 0, 0, 0
+[void]$statusStrip.Items.Add($statusVersion)
+
+[void]$root.Controls.Add($statusStrip, 0, 4)
 
 # Header
 $header = New-Object System.Windows.Forms.Panel
@@ -348,6 +527,17 @@ $btnConfig.BackColor = [System.Drawing.Color]::FromArgb(58, 72, 90)
 $btnConfig.Location = New-Object System.Drawing.Point -ArgumentList 1158, 19
 [void]$header.Controls.Add($btnConfig)
 
+$btnAdvanced = New-Object System.Windows.Forms.Button
+$btnAdvanced.Text = '高级…'
+$btnAdvanced.Size = New-Object System.Drawing.Size -ArgumentList 76, 30
+$btnAdvanced.Anchor = 'Top,Right'
+$btnAdvanced.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+$btnAdvanced.FlatAppearance.BorderColor = [System.Drawing.Color]::FromArgb(110, 126, 145)
+$btnAdvanced.ForeColor = [System.Drawing.Color]::White
+$btnAdvanced.BackColor = [System.Drawing.Color]::FromArgb(58, 72, 90)
+$btnAdvanced.Location = New-Object System.Drawing.Point -ArgumentList 1074, 19
+[void]$header.Controls.Add($btnAdvanced)
+
 $baseline = New-Object System.Windows.Forms.Label
 $baseline.Text = '核心：Universal HEVC / AV1'
 $baseline.ForeColor = [System.Drawing.Color]::FromArgb(205, 214, 224)
@@ -356,7 +546,8 @@ $baseline.Anchor = 'Top,Right'
 $baseline.Location = New-Object System.Drawing.Point -ArgumentList 955, 27
 $header.Add_Resize({
     $btnConfig.Left = $header.ClientSize.Width - $btnConfig.Width - 20
-    $baseline.Left = $btnConfig.Left - $baseline.Width - 18
+    $btnAdvanced.Left = $btnConfig.Left - $btnAdvanced.Width - 8
+    $baseline.Left = $btnAdvanced.Left - $baseline.Width - 18
 })
 [void]$header.Controls.Add($baseline)
 [void]$root.Controls.Add($header, 0, 0)
@@ -368,9 +559,9 @@ $main.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 10, 10, 10
 $main.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0
 $main.ColumnCount = 3
 $main.RowCount = 1
-Add-ColumnPercent $main 34
-Add-ColumnPercent $main 31
+Add-ColumnPercent $main 32
 Add-ColumnPercent $main 35
+Add-ColumnPercent $main 33
 [void]$root.Controls.Add($main, 0, 1)
 
 # Input group
@@ -416,6 +607,7 @@ $listFiles.FullRowSelect = $true
 $listFiles.GridLines = $true
 $listFiles.HideSelection = $false
 $listFiles.AllowDrop = $true
+$listFiles.ShowItemToolTips = $true
 [void]$listFiles.Columns.Add('文件名', 178)
 [void]$listFiles.Columns.Add('大小', 72)
 [void]$listFiles.Columns.Add('目录', 260)
@@ -455,7 +647,7 @@ $encodeTable = New-Object System.Windows.Forms.TableLayoutPanel
 $encodeTable.Dock = 'Fill'
 $encodeTable.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 5, 7, 5, 5
 $encodeTable.ColumnCount = 2
-$encodeTable.RowCount = 14
+$encodeTable.RowCount = 15
 $encodeTable.ColumnStyles.Clear()
 $labelColumn = New-Object System.Windows.Forms.ColumnStyle
 $labelColumn.SizeType = [System.Windows.Forms.SizeType]::Absolute
@@ -465,7 +657,7 @@ $valueColumn = New-Object System.Windows.Forms.ColumnStyle
 $valueColumn.SizeType = [System.Windows.Forms.SizeType]::Percent
 $valueColumn.Width = 100
 [void]$encodeTable.ColumnStyles.Add($valueColumn)
-for ($i = 0; $i -lt 13; $i++) { Add-RowAbsolute $encodeTable 34 }
+for ($i = 0; $i -lt 14; $i++) { Add-RowAbsolute $encodeTable 34 }
 Add-RowPercent $encodeTable 100
 [void]$grpEncode.Controls.Add($encodeTable)
 
@@ -486,6 +678,31 @@ $cmbBitrate.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDown
 $cmbBitrate.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 4, 5, 6, 5
 
 $cmbFps = New-ComboBox @('自动（隔行→双帧率，如 29.97i → 59.94p）', '保持源帧率') 0
+
+$chkInterpolation = New-Object System.Windows.Forms.CheckBox
+$chkInterpolation.Text = '启用'
+$chkInterpolation.Checked = $false
+$chkInterpolation.AutoSize = $true
+$chkInterpolation.Dock = 'None'
+$chkInterpolation.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 4, 6, 8, 3
+
+$cmbInterpolationMode = New-Object System.Windows.Forms.ComboBox
+$cmbInterpolationMode.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
+$cmbInterpolationMode.Items.Add('平滑') | Out-Null
+$cmbInterpolationMode.Items.Add('自动平衡') | Out-Null
+$cmbInterpolationMode.SelectedIndex = 0
+$cmbInterpolationMode.Width = 150
+$cmbInterpolationMode.Enabled = $false
+$cmbInterpolationMode.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 4, 3, 3, 3
+
+$interpolationPanel = New-Object System.Windows.Forms.FlowLayoutPanel
+$interpolationPanel.Dock = 'Fill'
+$interpolationPanel.FlowDirection = 'LeftToRight'
+$interpolationPanel.WrapContents = $false
+$interpolationPanel.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0
+$interpolationPanel.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 0
+[void]$interpolationPanel.Controls.Add($chkInterpolation)
+[void]$interpolationPanel.Controls.Add($cmbInterpolationMode)
 
 $cmbDeint = New-ComboBox @('自动（仅对隔行素材启用）', '关闭') 0
 $cmbDeintMethod = New-ComboBox @('BWDIF Vulkan（默认）', 'BWDIF CUDA（备选）', 'W3FDIF Complex（高质量对照）') 0
@@ -593,28 +810,22 @@ $frameHelp.Text = 'HEVC / AV1 均可选择烘焙黑边或裁剪有效画面。'
 Add-LabeledRow $encodeTable 0 '编码方式' $cmbCodec
 Add-LabeledRow $encodeTable 1 '输出容器' $cmbContainer
 Add-LabeledRow $encodeTable 2 '速度 / 质量' $cmbSpeed
-Add-LabeledRow $encodeTable 3 '视频码率 (kbps)' $cmbBitrate
+Add-LabeledRow $encodeTable 3 '视频码率' $cmbBitrate
 Add-LabeledRow $encodeTable 4 '输出帧率' $cmbFps
-Add-LabeledRow $encodeTable 5 '反交错' $cmbDeint
-Add-LabeledRow $encodeTable 6 '自动方式' $cmbDeintMethod
-Add-LabeledRow $encodeTable 7 'GPU 配置' $cmbGpu
-[void]$encodeTable.Controls.Add($cinematicPanel, 0, 8)
+Add-LabeledRow $encodeTable 5 '插帧' $interpolationPanel
+Add-LabeledRow $encodeTable 6 '反交错' $cmbDeint
+Add-LabeledRow $encodeTable 7 '反交错算法' $cmbDeintMethod
+Add-LabeledRow $encodeTable 8 'GPU 配置' $cmbGpu
+[void]$encodeTable.Controls.Add($cinematicPanel, 0, 9)
 $encodeTable.SetColumnSpan($cinematicPanel, 2)
-Add-LabeledRow $encodeTable 9 '画幅处理' $cmbFrameMode
-[void]$encodeTable.Controls.Add($uploadPanel, 0, 10)
+Add-LabeledRow $encodeTable 10 '画幅处理' $cmbFrameMode
+[void]$encodeTable.Controls.Add($uploadPanel, 0, 11)
 $encodeTable.SetColumnSpan($uploadPanel, 2)
-[void]$encodeTable.Controls.Add($uploadExtraPanel, 0, 11)
+[void]$encodeTable.Controls.Add($uploadExtraPanel, 0, 12)
 $encodeTable.SetColumnSpan($uploadExtraPanel, 2)
-[void]$encodeTable.Controls.Add($frameHelp, 0, 12)
+[void]$encodeTable.Controls.Add($frameHelp, 0, 13)
 $encodeTable.SetColumnSpan($frameHelp, 2)
 
-$profileNote = New-Object System.Windows.Forms.Label
-$profileNote.Dock = 'Fill'
-$profileNote.ForeColor = $ColorMuted
-$profileNote.TextAlign = [System.Drawing.ContentAlignment]::TopLeft
-$profileNote.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 8, 3, 8, 0
-[void]$encodeTable.Controls.Add($profileNote, 0, 13)
-$encodeTable.SetColumnSpan($profileNote, 2)
 Update-HardwareProfileUi
 [void]$main.Controls.Add($grpEncode, 1, 0)
 
@@ -947,6 +1158,7 @@ $toolTip.SetToolTip($cmbAv1GrainTable, '默认仅显示与源视频分辨率最�
 $toolTip.SetToolTip($btnRefreshAv1Table, '重新扫描 _AV1_Grain_Tables。')
 $toolTip.SetToolTip($chkShowAllAv1Tables, '显示全部分辨率 Grain Table；默认仅显示与源视频最接近的分辨率档位。')
 $toolTip.SetToolTip($btnUploadSubtitle, '硬字幕独立于 H.264 上传版；启用后烧写到主输出，若同时生成 H.264 上传版则副本也包含同一字幕。默认距最终输出画面下沿 5px、水平居中。')
+$toolTip.SetToolTip($chkInterpolation, '实验集成：逐行 SDR 输入插值到 60 fps；使用 Algo 13 + EncodeGUI Analyse。与自动电影帧率互斥，并暂时禁用同时生成 H.264 上传版。')
 $toolTip.SetToolTip($cmbUploadBitrate, 'NVENC：固定 6M / 8M / 15M。x264 Grain：按实际输出 FPS 与分辨率自动换算；分辨率按相对 1080p 像素面积平方根缩放。默认普通动态再乘 0.5，高动态视频勾选后使用完整码率。x264 使用 Slow + tune grain + 2-pass，VBV Max=3×、Buf=6×。')
 $toolTip.SetToolTip($chkUploadHighMotion, '仅影响 x264 Grain FPS联动模式。默认不勾选：自动计算码率减半；勾选：使用完整高动态码率。NVENC 不受影响。')
 
@@ -1746,6 +1958,7 @@ function Add-InputFiles {
             [void]$row.SubItems.Add($size)
             [void]$row.SubItems.Add($fi.DirectoryName)
             $row.Tag = $fi.FullName
+            $row.ToolTipText = $fi.Name
             [void]$listFiles.Items.Add($row)
             $known[$key] = $true
         }
@@ -2143,6 +2356,12 @@ function Get-DoubleFpsDisplay {
 }
 
 function Update-DeinterlaceUi {
+    if ($chkInterpolation -and $chkInterpolation.Checked) {
+        $cmbDeintMethod.Enabled = $false
+        $cmbFps.Enabled = $false
+        return
+    }
+
     if ($cmbCodec.SelectedIndex -eq 2) {
         $cmbDeintMethod.Enabled = $false
         $cmbFps.Enabled = $false
@@ -2154,6 +2373,7 @@ function Update-DeinterlaceUi {
 
     $autoText = '自动（隔行→双帧率，如 29.97i → 59.94p）'
     if ($auto) {
+        $isConfirmedInterlaced = $false
         $selected = @($listFiles.SelectedItems)
         if ($selected.Count -eq 1) {
             $key = ([string]$selected[0].Tag).ToLowerInvariant()
@@ -2161,6 +2381,7 @@ function Update-DeinterlaceUi {
                 $meta = $script:ProbeVideoMeta[$key]
                 $fieldOrder = ([string]$meta.field_order).ToLowerInvariant()
                 if ($fieldOrder -in @('tt', 'bb', 'tb', 'bt')) {
+                    $isConfirmedInterlaced = $true
                     $srcFps = Format-MediaFps $meta.avg_frame_rate
                     $dstFps = Get-DoubleFpsDisplay ([string]$meta.avg_frame_rate)
                     if ($srcFps -and $srcFps -ne '—' -and $dstFps) {
@@ -2169,13 +2390,53 @@ function Update-DeinterlaceUi {
                 }
             }
         }
-        if ($cmbFps.Items.Count -gt 0) { $cmbFps.Items[0] = $autoText }
-        $cmbFps.SelectedIndex = 0
-        $cmbFps.Enabled = $false
+
+        if ($isConfirmedInterlaced) {
+            if ($cmbFps.Items.Count -gt 0) { $cmbFps.Items[0] = $autoText }
+            $cmbFps.SelectedIndex = 0
+            $cmbFps.Enabled = $false
+        } else {
+            if ($cmbFps.Items.Count -gt 0) { $cmbFps.Items[0] = '自动电影帧率 · VFR 兼容（默认）' }
+            $cmbFps.Enabled = $true
+        }
     } else {
         if ($cmbFps.Items.Count -gt 0) { $cmbFps.Items[0] = '自动电影帧率 · VFR 兼容（默认）' }
         $cmbFps.Enabled = $true
     }
+}
+
+function Update-InterpolationUi {
+    if (-not $chkInterpolation) { return }
+
+    if ($cmbCodec.SelectedIndex -eq 2) {
+        $chkInterpolation.Checked = $false
+        $chkInterpolation.Enabled = $false
+        $cmbInterpolationMode.Enabled = $false
+        return
+    }
+
+    $chkInterpolation.Enabled = $true
+    if ($chkInterpolation.Checked) {
+        $cmbInterpolationMode.Enabled = $true
+        if ($cmbDeint.SelectedIndex -ne 1) { $cmbDeint.SelectedIndex = 1 }
+        $cmbDeint.Enabled = $false
+        $cmbDeintMethod.Enabled = $false
+        if ($cmbFps.Items.Count -gt 0) { $cmbFps.Items[0] = '由 OpenSVPFlow 接管 · 60 fps' }
+        $cmbFps.SelectedIndex = 0
+        $cmbFps.Enabled = $false
+
+        if ($chkUpload.Checked) { $chkUpload.Checked = $false }
+        $chkUpload.Enabled = $false
+        $cmbUploadBitrate.Enabled = $false
+        $chkUploadHighMotion.Enabled = $false
+        return
+    }
+
+    $cmbInterpolationMode.Enabled = $false
+    $cmbDeint.Enabled = $true
+    $chkUpload.Enabled = $true
+    Update-DeinterlaceUi
+    Update-UploadHighMotionUi
 }
 
 function Update-FramingUi {
@@ -2192,9 +2453,9 @@ function Update-FramingUi {
         return
     }
     if ($cmbFrameMode.SelectedIndex -eq 0) {
-        $frameHelp.Text = 'HEVC / AV1：保留原分辨率，将约 2.39:1 纯黑上下黑边烘焙进画面，适合后期字幕。'
+        $frameHelp.Text = 'HEVC / AV1：保留原分辨率，烘焙约 2.39:1 黑边，适合后期字幕。'
     } else {
-        $frameHelp.Text = 'HEVC / AV1：裁剪为约 2.39:1 有效画面；例如 1920×1080 → 1920×804。'
+        $frameHelp.Text = 'HEVC / AV1：裁剪至约 2.39:1，例如 1920×1080 → 1920×804。'
     }
 }
 
@@ -2218,6 +2479,9 @@ function Update-CodecUi {
         $cmbSpeed.Enabled = $false
         $cmbBitrate.Enabled = $false
         $cmbFps.Enabled = $false
+        $chkInterpolation.Checked = $false
+        $chkInterpolation.Enabled = $false
+        $cmbInterpolationMode.Enabled = $false
         $cmbDeint.Enabled = $false
         $cmbDeintMethod.Enabled = $false
         $chkCinematic.Enabled = $false
@@ -2243,6 +2507,7 @@ function Update-CodecUi {
         $cmbContainer.Enabled = $true
         $cmbSpeed.Enabled = $true
         $cmbBitrate.Enabled = $true
+        $chkInterpolation.Enabled = $true
         $cmbDeint.Enabled = $true
         $chkCinematic.Enabled = $true
         $chkUpload.Enabled = $true
@@ -2254,6 +2519,7 @@ function Update-CodecUi {
         Update-FramingUi
         Update-UploadHighMotionUi
         Set-LutUi
+        Update-InterpolationUi
     }
 
     if (-not $script:ChangingCodec -and $newIndex -eq 0 -and $script:HardwareCapsReady -and -not $script:Av1Available) {
@@ -3031,7 +3297,7 @@ function Quote-CmdArgument {
 function Start-NoReencodeProcessing {
     $paths = @(Get-InputPaths)
     if ($paths.Count -ne 1) {
-        Show-Error '“AV1 不重编码 · 添加/替换胶片颗粒”当前仅支持单个 AV1 输入文件。'
+        Show-Error '「AV1 不重编码 · 添加/替换胶片颗粒」当前仅支持单个 AV1 输入文件。'
         return
     }
     $path = [string]$paths[0]
@@ -3162,6 +3428,15 @@ function Start-Encoding {
         Update-CodecUi
     }
 
+    if ($chkInterpolation.Checked -and -not $script:OpenSvpAvailable) {
+        Initialize-HardwareCaps
+        Update-HardwareProfileUi
+        if (-not $script:OpenSvpAvailable) {
+            Show-Error "OpenSVPFlow GPU 运行库尚未通过能力检测。`r`n`r`n请先运行：`r`n$OpenSvpSetupBat`r`n`r`n安装完成后重新启动 Film Grain Studio。"
+            return
+        }
+    }
+
     $paths = @(Get-InputPaths)
     if ($paths.Count -eq 0) {
         Show-Info '请先添加至少一个视频文件。'
@@ -3251,6 +3526,13 @@ function Start-Encoding {
     $lblRunMetric.Text = 'fps: —   speed: —'
     Append-LogText ("Film Grain Studio`r`n" + ('=' * 68) + "`r`n")
     Append-LogText ("任务文件数：$($paths.Count)  ·  模式：$mode  ·  码率：$bitrate kbps`r`n")
+    if ($chkInterpolation.Checked) {
+        $sceneLabel = 'Uniform'
+        if ($cmbInterpolationMode.SelectedIndex -eq 1) { $sceneLabel = 'Adaptive' }
+        $analyseLabel = 'EncodeGUI Analyse'
+        if ($script:SvpAnalyse -eq 'BASE') { $analyseLabel = 'Baseline Analyse' }
+        Append-LogText "OpenSVPFlow：60 fps · $sceneLabel · Algo $($script:SvpAlgo) · $analyseLabel · Mask $($script:SvpMaskArea) · GPU/OpenCL`r`n"
+    }
     Append-LogText ("GUI 码率请求：b:v ${bitrate}k  ·  maxrate ${maxrate}k  ·  bufsize ${bufsize}k`r`n`r`n")
 
     # Studio normally treats Recent and Favorites as read-only. Only a LUT
@@ -3301,6 +3583,15 @@ function Start-Encoding {
     $envs['FG_MAXRATE'] = [string]$maxrate
     $envs['FG_BUFSIZE'] = [string]$bufsize
     $envs['FG_FPS_MODE'] = if ($cmbFps.SelectedIndex -eq 0) { 'AUTO' } else { 'SOURCE' }
+    $envs['FG_SVP_INTERPOLATE'] = if ($chkInterpolation.Checked) { '1' } else { '0' }
+    $envs['FG_SVP_ALGO'] = [string]$script:SvpAlgo
+    $envs['FG_SVP_ANALYSE'] = [string]$script:SvpAnalyse
+    if ($cmbInterpolationMode.SelectedIndex -eq 1) {
+        $envs['FG_SVP_SCENE_MODE'] = '3'
+    } else {
+        $envs['FG_SVP_SCENE_MODE'] = '0'
+    }
+    $envs['FG_SVP_MASK_AREA'] = [string]$script:SvpMaskArea
     $envs['FG_DEINTERLACE'] = if ($cmbDeint.SelectedIndex -eq 0) { 'AUTO' } else { 'OFF' }
     $deintMethods = @('BWDIF_VULKAN', 'BWDIF_CUDA', 'W3FDIF')
     $envs['FG_DEINT_METHOD'] = $deintMethods[$cmbDeintMethod.SelectedIndex]
@@ -4067,6 +4358,7 @@ function Show-PathConfigurationDialog {
 }
 # Events
 $btnConfig.Add_Click({ Show-PathConfigurationDialog })
+$btnAdvanced.Add_Click({ Show-AdvancedSettingsDialog })
 
 $btnAdd.Add_Click({
     if ($openDialog.ShowDialog($form) -eq [System.Windows.Forms.DialogResult]::OK) {
@@ -4111,6 +4403,7 @@ $listFiles.Add_SelectedIndexChanged({ Update-SelectedMediaInfo; Update-Deinterla
 
 $cmbCodec.Add_SelectedIndexChanged({ Update-CodecUi; Update-FramingUi })
 $cmbDeint.Add_SelectedIndexChanged({ Update-DeinterlaceUi })
+$chkInterpolation.Add_CheckedChanged({ Update-InterpolationUi })
 $chkCinematic.Add_CheckedChanged({ Update-FramingUi })
 $cmbFrameMode.Add_SelectedIndexChanged({ Update-FramingUi })
 $cmbBitrate.Add_TextChanged({

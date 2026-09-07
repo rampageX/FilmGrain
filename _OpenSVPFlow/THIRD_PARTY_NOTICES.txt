@@ -1,0 +1,16 @@
+THIRD-PARTY COMPONENTS
+
+open-svpflow
+- Project: https://github.com/Z1xus/open-svpflow
+- Test build: nightly-20260804-5ef4260
+- License: Apache-2.0
+
+VapourSynth
+- Project: https://github.com/vapoursynth/vapoursynth
+- Pinned version: 79
+- License: LGPL-2.1-or-later
+
+BestSource
+- Project: https://github.com/vapoursynth/bestsource
+- Pinned version: 21.0
+- License: MIT

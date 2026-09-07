@@ -2,6 +2,19 @@
 
 本文件记录正式发布版本的主要变化。`README.md` 只维护当前版本功能与使用说明，不再重复版本更新摘要。
 
+## v4.4.2 — 2026-09-07
+
+- 正式加入 **OpenSVPFlow GPU 60 fps 插帧**：本地 `_OpenSVPFlow` 运行环境由 `00_Setup.bat` 一次性安装，固定 VapourSynth R79、BestSource 21.0 与 `open-svpflow nightly-20260804-5ef4260`；能力检测通过实际 CPU / GPU/OpenCL smoke test 决定是否启用，不按 GPU 型号硬编码。
+- 主界面新增 **“平滑 / 自动平衡”** 两种插帧模式：默认平滑对应 `scene.mode=0`，自动平衡对应 `scene.mode=3`；默认继续使用已验证的 Algo 13、`Super pel=1 / gpu=1 / full=true` 与 EncodeGUI-inspired Analyse profile。
+- 右上角新增独立 **“高级…”** 设置窗体，按“编码 / 插帧 / 其他”分类；当前插帧高级项支持 SmoothFps Algo、Analyse Profile、Artifact Mask Area，并提供恢复推荐值。常用项继续留在主界面，后续高级参数统一收口到该窗体。
+- OpenSVPFlow 处理使用 **VSPipe Y4M → FFmpeg 管道**，HEVC 与 AV1 主链均避免生成巨大中间视频；新增 SVP 路线输出 / AV1 中间文件 FFprobe 验证，避免 Windows CMD 管道错误码掩盖 FFmpeg 失败。HEVC + OpenSVPFlow + LUT + Grain 已完成实际测试。
+- OpenSVPFlow 与自动反交错 / 普通电影帧率选择互斥；启用后输出帧率由 OpenSVPFlow 接管为 60 fps。当前版本仅接受逐行输入，H.264 上传副本在插帧启用时暂时关闭；已验证插帧路径内部为 YUV420P8，因此定位为逐行 SDR 插帧，不作为 HDR / 端到端 10-bit 保真链。
+- Studio UI 以约 **1320×960** 客户区与 32 / 35 / 33 三列布局作为新基线；GPU、驱动、FFmpeg、配置缓存及 AV1 / UHQ / HEVC-Vulkan / OpenSVPFlow 能力统一移入最底部单行 StatusStrip，最右侧显示版本/构建标识。
+- 修复启动后在未勾选插帧时“输出帧率”仍被错误灰化的问题：现在只有当前选中素材被明确检测为隔行时才锁定 Field-rate；逐行 / unknown 素材保持帧率下拉可用。
+- 文件列表启用原生 ToolTip；长文件名即使在列宽中被截断，鼠标悬停仍可查看完整文件名。
+- 测试 / RC / 临时 Bugfix 构建的右下角版本栏使用完整构建标识和随机防缓存后缀；正式发布恢复干净版本号 **`v4.4.2`**。
+- 正式包移除测试期 `FilmGrain_Studio_DEBUG.bat` 与 `README_OpenSVPFlow_TEST.txt`，README / CHANGELOG 分离维护；PS1 继续使用 UTF-8 BOM，并在发布前确认不存在 `“ ” ‘ ’` 四种可能导致 Windows PowerShell 5.1 误解析的中文弯引号。
+
 ## v4.4.1 — 2026-09-06
 
 - 将 **现成 AV1 Grain Table（影视 / Photon）** 从测试支线正式纳入 Studio：支持递归加载 `.tbl / .txt`，普通 AV1 重编码与“AV1 不重编码 · 添加/替换胶片颗粒”统一复用同一 Grain Table。
