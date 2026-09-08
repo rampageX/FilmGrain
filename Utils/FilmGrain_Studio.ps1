@@ -123,6 +123,8 @@ $script:OpenSvpAvailable = $false
 $script:SvpAlgo = 13
 $script:SvpAnalyse = 'ENCODEGUI'
 $script:SvpMaskArea = 100
+$script:CinematicCropPerSide = 0
+$script:UpdatingFramingUi = $false
 $script:UploadSubtitle = [ordered]@{
     Enabled = $false
     Mode = 'OFF'
@@ -236,8 +238,9 @@ function Show-AdvancedSettingsDialog {
     $dlg.Font = New-UiFont 9
 
     $tabs = New-Object System.Windows.Forms.TabControl
-    $tabs.Dock = 'Fill'
-    $tabs.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 10
+    $tabs.Dock = 'None'
+    $tabs.Location = New-Object System.Drawing.Point -ArgumentList 10, 10
+    $tabs.Size = New-Object System.Drawing.Size -ArgumentList 700, 382
     [void]$dlg.Controls.Add($tabs)
 
     $tabEncode = New-Object System.Windows.Forms.TabPage
@@ -324,13 +327,35 @@ function Show-AdvancedSettingsDialog {
     $btnRecommended.Size = New-Object System.Drawing.Size -ArgumentList 112, 30
     [void]$tabInterp.Controls.Add($btnRecommended)
 
-    $lblOtherInfo = New-Object System.Windows.Forms.Label
-    $lblOtherInfo.AutoSize = $false
-    $lblOtherInfo.Location = New-Object System.Drawing.Point -ArgumentList 24, 26
-    $lblOtherInfo.Size = New-Object System.Drawing.Size -ArgumentList 630, 100
-    $lblOtherInfo.ForeColor = $ColorMuted
-    $lblOtherInfo.Text = "以后需要高级设置的画面处理、实验功能或其他模块统一分类放在这里。"
-    [void]$tabOther.Controls.Add($lblOtherInfo)
+    $lblCropTitle = New-Object System.Windows.Forms.Label
+    $lblCropTitle.Text = 'Cinematic Style 自定义画幅'
+    $lblCropTitle.Location = New-Object System.Drawing.Point -ArgumentList 28, 30
+    $lblCropTitle.Size = New-Object System.Drawing.Size -ArgumentList 260, 26
+    $lblCropTitle.Font = New-UiFont 9 ([System.Drawing.FontStyle]::Bold)
+    [void]$tabOther.Controls.Add($lblCropTitle)
+
+    $lblCropValue = New-Object System.Windows.Forms.Label
+    $lblCropValue.Text = '上下各 (px)'
+    $lblCropValue.Location = New-Object System.Drawing.Point -ArgumentList 28, 82
+    $lblCropValue.Size = New-Object System.Drawing.Size -ArgumentList 150, 24
+    [void]$tabOther.Controls.Add($lblCropValue)
+
+    $numAdvCrop = New-Object System.Windows.Forms.NumericUpDown
+    $numAdvCrop.Location = New-Object System.Drawing.Point -ArgumentList 190, 78
+    $numAdvCrop.Size = New-Object System.Drawing.Size -ArgumentList 120, 26
+    $numAdvCrop.Minimum = 0
+    $numAdvCrop.Maximum = 2000
+    $numAdvCrop.Increment = 1
+    $numAdvCrop.Value = [decimal]$script:CinematicCropPerSide
+    [void]$tabOther.Controls.Add($numAdvCrop)
+
+    $lblCropInfo = New-Object System.Windows.Forms.Label
+    $lblCropInfo.AutoSize = $false
+    $lblCropInfo.Location = New-Object System.Drawing.Point -ArgumentList 28, 128
+    $lblCropInfo.Size = New-Object System.Drawing.Size -ArgumentList 620, 118
+    $lblCropInfo.ForeColor = $ColorMuted
+    $lblCropInfo.Text = "0 = 保持原来的自动约 2.39:1 计算。`r`n大于 0 时同时作为「加黑边」和「裁剪」的上下单边尺寸。`r`n例如 50：加黑边时上下各覆盖 50 px；裁剪时上下各裁掉 50 px。"
+    [void]$tabOther.Controls.Add($lblCropInfo)
 
     $btnOk = New-Object System.Windows.Forms.Button
     $btnOk.Text = '确定'
@@ -346,6 +371,8 @@ function Show-AdvancedSettingsDialog {
     $btnCancelAdv.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
     [void]$dlg.Controls.Add($btnCancelAdv)
 
+    $btnOk.BringToFront()
+    $btnCancelAdv.BringToFront()
     $dlg.AcceptButton = $btnOk
     $dlg.CancelButton = $btnCancelAdv
 
@@ -364,6 +391,8 @@ function Show-AdvancedSettingsDialog {
             $script:SvpAnalyse = 'ENCODEGUI'
         }
         $script:SvpMaskArea = [int]$numAdvMask.Value
+        $script:CinematicCropPerSide = [int]$numAdvCrop.Value
+        Update-FramingUi
     }
 
     $dlg.Dispose()
@@ -489,7 +518,7 @@ $statusVersion = New-Object System.Windows.Forms.ToolStripStatusLabel
 $statusVersion.Spring = $false
 $statusVersion.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
 $statusVersion.ForeColor = $ColorMuted
-$statusVersion.Text = 'v4.4.2'
+$statusVersion.Text = 'v4.4.3'
 $statusVersion.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 12, 0, 0, 0
 [void]$statusStrip.Items.Add($statusVersion)
 
@@ -1183,12 +1212,12 @@ $logToolbar.RowCount = 1
 $logToolbar.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 3, 0, 0, 0
 
 $logStageColumn = New-Object System.Windows.Forms.ColumnStyle
-$logStageColumn.SizeType = [System.Windows.Forms.SizeType]::Absolute
-$logStageColumn.Width = 360
+$logStageColumn.SizeType = [System.Windows.Forms.SizeType]::Percent
+$logStageColumn.Width = 100
 [void]$logToolbar.ColumnStyles.Add($logStageColumn)
 $logMetricColumn = New-Object System.Windows.Forms.ColumnStyle
-$logMetricColumn.SizeType = [System.Windows.Forms.SizeType]::Percent
-$logMetricColumn.Width = 100
+$logMetricColumn.SizeType = [System.Windows.Forms.SizeType]::Absolute
+$logMetricColumn.Width = 320
 [void]$logToolbar.ColumnStyles.Add($logMetricColumn)
 $logCopyColumn = New-Object System.Windows.Forms.ColumnStyle
 $logCopyColumn.SizeType = [System.Windows.Forms.SizeType]::Absolute
@@ -1205,6 +1234,7 @@ $lblRunStage.AutoSize = $false
 $lblRunStage.Dock = 'Fill'
 $lblRunStage.Height = 23
 $lblRunStage.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+$lblRunStage.AutoEllipsis = $true
 $lblRunMetric = New-Object System.Windows.Forms.Label
 $lblRunMetric.Text = 'fps: —   speed: —'
 $lblRunMetric.AutoSize = $false
@@ -2440,22 +2470,61 @@ function Update-InterpolationUi {
 }
 
 function Update-FramingUi {
-    if ($cmbCodec.SelectedIndex -eq 2) {
-        $cmbFrameMode.Enabled = $false
-        $frameHelp.Text = 'AV1 视频流不重编码，仅添加/替换胶片颗粒元数据；画幅处理已禁用。'
-        return
-    }
+    if ($script:UpdatingFramingUi) { return }
+    $script:UpdatingFramingUi = $true
+    try {
+        $customCrop = [int]$script:CinematicCropPerSide
+        $selectedFrameIndex = $cmbFrameMode.SelectedIndex
 
-    $enabled = $chkCinematic.Checked
-    $cmbFrameMode.Enabled = $enabled
-    if (-not $enabled) {
-        $frameHelp.Text = 'Cinematic Style 已关闭：HEVC / AV1 均保持原始画幅。'
-        return
-    }
-    if ($cmbFrameMode.SelectedIndex -eq 0) {
-        $frameHelp.Text = 'HEVC / AV1：保留原分辨率，烘焙约 2.39:1 黑边，适合后期字幕。'
-    } else {
-        $frameHelp.Text = 'HEVC / AV1：裁剪至约 2.39:1，例如 1920×1080 → 1920×804。'
+        if ($customCrop -gt 0) {
+            $chkCinematic.Text = "启用 Cinematic Style（自定义：上下各 ${customCrop} px）"
+            $letterboxText = "加黑边 · 上下各 ${customCrop} px · 保留原分辨率"
+            $cropText = "裁剪 · 上下各 ${customCrop} px"
+        } else {
+            $chkCinematic.Text = '启用 Cinematic Style（约 2.39:1）'
+            $letterboxText = '加黑边 · 保留原分辨率（推荐后期字幕）'
+            $cropText = '裁剪 · 输出有效 2.39:1 画面'
+        }
+
+        if ($cmbFrameMode.Items.Count -gt 0 -and [string]$cmbFrameMode.Items[0] -ne $letterboxText) {
+            $cmbFrameMode.Items[0] = $letterboxText
+        }
+        if ($cmbFrameMode.Items.Count -gt 1 -and [string]$cmbFrameMode.Items[1] -ne $cropText) {
+            $cmbFrameMode.Items[1] = $cropText
+        }
+        if ($selectedFrameIndex -ge 0 -and $cmbFrameMode.SelectedIndex -ne $selectedFrameIndex) {
+            $cmbFrameMode.SelectedIndex = $selectedFrameIndex
+        }
+
+        if ($cmbCodec.SelectedIndex -eq 2) {
+            $cmbFrameMode.Enabled = $false
+            $frameHelp.Text = 'AV1 视频流不重编码，仅添加/替换胶片颗粒元数据；画幅处理已禁用。'
+            return
+        }
+
+        $enabled = $chkCinematic.Checked
+        $cmbFrameMode.Enabled = $enabled
+        if (-not $enabled) {
+            $frameHelp.Text = 'Cinematic Style 已关闭：HEVC / AV1 均保持原始画幅。'
+            return
+        }
+
+        if ($cmbFrameMode.SelectedIndex -eq 0) {
+            if ($customCrop -gt 0) {
+                $frameHelp.Text = "HEVC / AV1：自定义黑边，上下各 ${customCrop} px；保持原分辨率。"
+            } else {
+                $frameHelp.Text = 'HEVC / AV1：保留原分辨率，烘焙约 2.39:1 黑边，适合后期字幕。'
+            }
+        } else {
+            if ($customCrop -gt 0) {
+                $totalCrop = $customCrop * 2
+                $frameHelp.Text = "HEVC / AV1：自定义裁剪，上下各 ${customCrop} px；输出高度总计减少 ${totalCrop} px。"
+            } else {
+                $frameHelp.Text = 'HEVC / AV1：裁剪至约 2.39:1，例如 1920×1080 → 1920×804。'
+            }
+        }
+    } finally {
+        $script:UpdatingFramingUi = $false
     }
 }
 
@@ -3597,6 +3666,7 @@ function Start-Encoding {
     $envs['FG_DEINT_METHOD'] = $deintMethods[$cmbDeintMethod.SelectedIndex]
     $envs['FG_CINEMATIC_FRAME'] = if ($chkCinematic.Checked) { '1' } else { '0' }
     $envs['FG_FRAME_MODE'] = if ($cmbFrameMode.SelectedIndex -eq 0) { 'LETTERBOX' } else { 'CROP' }
+    $envs['FG_CROP_PER_SIDE'] = [string]$script:CinematicCropPerSide
     $envs['FG_KEEP_FAILED'] = '1'
     $uploadBitrates = @(6000, 8000, 15000)
     $envs['FG_UPLOAD'] = if ($chkUpload.Checked) { '1' } else { '0' }

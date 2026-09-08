@@ -406,6 +406,9 @@ exit /b 0
 :SELECT_FRAMING
 set "ENABLE_CROP=0"
 set "ENABLE_LETTERBOX=0"
+set "CUSTOM_CROP_PER_SIDE=0"
+if defined FG_CROP_PER_SIDE set /a CUSTOM_CROP_PER_SIDE=%FG_CROP_PER_SIDE% 2>nul
+if %CUSTOM_CROP_PER_SIDE% LSS 0 set "CUSTOM_CROP_PER_SIDE=0"
 set "FRAME_MODE=LETTERBOX"
 set "FRAME_LABEL=2.39:1 baked black bars / keep source resolution"
 set "FRAME_SUFFIX=_239LB"
@@ -439,15 +442,25 @@ if /i "%FRAME_MODE%"=="OFF" (
 
 if /i "%FRAME_MODE%"=="CROP" (
     set "ENABLE_CROP=1"
-    set "FRAME_LABEL=2.39:1 active-picture crop"
-    set "FRAME_SUFFIX=_239"
+    if %CUSTOM_CROP_PER_SIDE% GTR 0 (
+        set "FRAME_LABEL=Custom crop - %CUSTOM_CROP_PER_SIDE% px per side"
+        set "FRAME_SUFFIX=_CROP%CUSTOM_CROP_PER_SIDE%"
+    ) else (
+        set "FRAME_LABEL=2.39:1 active-picture crop"
+        set "FRAME_SUFFIX=_239"
+    )
     exit /b 0
 )
 
 set "FRAME_MODE=LETTERBOX"
 set "ENABLE_LETTERBOX=1"
-set "FRAME_LABEL=2.39:1 baked black bars / keep source resolution"
-set "FRAME_SUFFIX=_239LB"
+if %CUSTOM_CROP_PER_SIDE% GTR 0 (
+    set "FRAME_LABEL=Custom black bars - %CUSTOM_CROP_PER_SIDE% px per side"
+    set "FRAME_SUFFIX=_BARS%CUSTOM_CROP_PER_SIDE%"
+) else (
+    set "FRAME_LABEL=2.39:1 baked black bars / keep source resolution"
+    set "FRAME_SUFFIX=_239LB"
+)
 exit /b 0
 
 
@@ -2068,8 +2081,14 @@ if "%~1"=="" goto FINISHED
 set "INPUT=%~f1"
 set "INDIR=%~dp1"
 set "NAME=%~n1"
+set "SOURCE_EXT=%~x1"
 set "LAST_ERROR_STAGE="
 set "LAST_ERROR_LOG="
+set "SVP_SYNC_GLOBAL_ARGS="
+set "SVP_SYNC_SOURCE_ARGS="
+set "SVP_SYNC_ACTIVE=0"
+set "M2TS_VIDEO_START="
+set "M2TS_AUDIO_START="
 
 echo.
 echo ============================================================
@@ -2092,6 +2111,12 @@ set "FPS_SUFFIX="
 if "%FPS_MODE%"=="AUTO" call :AUTO_CINEMA_FPS
 if /i "%FPS_MODE%"=="SVP60" (
     call :VALIDATE_OPEN_SVP_INPUT
+    if errorlevel 1 (
+        set /a FAIL_COUNT+=1
+        shift
+        goto PROCESS_NEXT
+    )
+    call :PREPARE_MPEGTS_SVP_SYNC
     if errorlevel 1 (
         set /a FAIL_COUNT+=1
         shift
@@ -2227,7 +2252,9 @@ set "LETTERBOX_FILTER="
 set "ACTIVE_WIDTH=%WIDTH%"
 set "ACTIVE_HEIGHT=%HEIGHT%"
 if "%ENABLE_CROP%"=="1" call :PREPARE_CROP
+if "%ENABLE_CROP%"=="1" if errorlevel 1 exit /b 1
 if "%ENABLE_LETTERBOX%"=="1" call :PREPARE_LETTERBOX
+if "%ENABLE_LETTERBOX%"=="1" if errorlevel 1 exit /b 1
 if /i "%UPLOAD_MODE%"=="X264" call :RESOLVE_X264_UPLOAD_RATE
 if errorlevel 1 exit /b 1
 
@@ -2336,7 +2363,7 @@ set "MAIN_RUN_RC=%ERRORLEVEL%"
 goto HEVC_MAIN_DONE
 
 :HEVC_MAIN_OPEN_SVP
-"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=60" --arg "target_den=1" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -f yuv4mpegpipe -i pipe:0 -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%SVP_GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%FRAME_POST_FILTER%%MAIN_SUB_FILTER%[vout]" -map "[vout]" %SVP_HEVC_STREAM_MAP_ARGS% -map_metadata 1 -map_chapters 1 -c:v hevc_nvenc -gpu %CUDA_DEVICE% -profile:v main10 -preset %PRESET% -tune hq -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %HEVC_AUDIO_MUX_ARGS% %HEVC_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
+"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=60" --arg "target_den=1" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %SVP_SYNC_GLOBAL_ARGS% -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%SVP_GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%FRAME_POST_FILTER%%MAIN_SUB_FILTER%[vout]" -map "[vout]" %SVP_HEVC_STREAM_MAP_ARGS% -map_metadata 1 -map_chapters 1 -c:v hevc_nvenc -gpu %CUDA_DEVICE% -profile:v main10 -preset %PRESET% -tune hq -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %HEVC_AUDIO_MUX_ARGS% %HEVC_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
 set "MAIN_RUN_RC=%ERRORLEVEL%"
 
 :HEVC_MAIN_DONE
@@ -2395,7 +2422,9 @@ set "LETTERBOX_FILTER="
 set "ACTIVE_WIDTH=%WIDTH%"
 set "ACTIVE_HEIGHT=%HEIGHT%"
 if "%ENABLE_CROP%"=="1" call :PREPARE_CROP
+if "%ENABLE_CROP%"=="1" if errorlevel 1 exit /b 1
 if "%ENABLE_LETTERBOX%"=="1" call :PREPARE_LETTERBOX
+if "%ENABLE_LETTERBOX%"=="1" if errorlevel 1 exit /b 1
 if /i "%UPLOAD_MODE%"=="X264" call :RESOLVE_X264_UPLOAD_RATE
 if errorlevel 1 exit /b 1
 
@@ -2593,7 +2622,7 @@ rem ------------------------------------------------------------
 echo.
 echo [3/%TOTAL_STAGES%] Building final %CONTAINER_MODE% container...
 
-"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -i "%TMP_GRAIN%" -i "%INPUT%" -map 0:v:0 %AV1_FINAL_REMUX_MAP% -map_metadata 1 -map_chapters 1 %AV1_FINAL_REMUX_CODEC% %AV1_FINAL_REMUX_EXTRA% "%OUTPUT%"
+"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %SVP_SYNC_GLOBAL_ARGS% -i "%TMP_GRAIN%" %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -map 0:v:0 %AV1_FINAL_REMUX_MAP% -map_metadata 1 -map_chapters 1 %AV1_FINAL_REMUX_CODEC% %AV1_FINAL_REMUX_EXTRA% "%OUTPUT%"
 
 if errorlevel 1 (
     echo.
@@ -2966,6 +2995,63 @@ rem ============================================================
 
 
 rem ============================================================
+rem OpenSVPFlow MPEG-TS A/V timestamp helper
+rem ============================================================
+:PREPARE_MPEGTS_SVP_SYNC
+rem VSPipe rebuilds video from t=0. MPEG-TS family files can carry a real
+rem relative start offset between video and audio. Only these extensions
+rem use the timestamp-preserving path; every other container stays unchanged.
+if /i "%SOURCE_EXT%"==".m2ts" goto MPEGTS_SVP_SYNC_APPLY
+if /i "%SOURCE_EXT%"==".mts" goto MPEGTS_SVP_SYNC_APPLY
+if /i "%SOURCE_EXT%"==".ts" goto MPEGTS_SVP_SYNC_APPLY
+exit /b 0
+
+:MPEGTS_SVP_SYNC_APPLY
+set "SYNC_TAG=%RANDOM%_%RANDOM%"
+set "SYNC_VFILE=%INDIR%.__FGS_TS_VSTART_%SYNC_TAG%.tmp"
+set "SYNC_AFILE=%INDIR%.__FGS_TS_ASTART_%SYNC_TAG%.tmp"
+
+"%FFPROBE%" -v error -select_streams v:0 -show_entries stream=start_time -of default=nokey=1:noprint_wrappers=1 "%INPUT%" > "%SYNC_VFILE%" 2>nul
+if exist "%SYNC_VFILE%" set /p "M2TS_VIDEO_START="<"%SYNC_VFILE%"
+
+"%FFPROBE%" -v error -select_streams a:0 -show_entries stream=start_time -of default=nokey=1:noprint_wrappers=1 "%INPUT%" > "%SYNC_AFILE%" 2>nul
+if exist "%SYNC_AFILE%" set /p "M2TS_AUDIO_START="<"%SYNC_AFILE%"
+
+del /q "%SYNC_VFILE%" "%SYNC_AFILE%" >nul 2>&1
+
+if not defined M2TS_VIDEO_START (
+    echo.
+    echo ERROR: Could not read MPEG-TS video start timestamp for OpenSVPFlow sync.
+    echo Input:
+    echo "%INPUT%"
+    set "LAST_ERROR_STAGE=MPEG-TS OpenSVPFlow timing probe"
+    exit /b 1
+)
+
+if /i "%M2TS_VIDEO_START%"=="N/A" (
+    echo.
+    echo ERROR: MPEG-TS video start timestamp is unavailable for OpenSVPFlow sync.
+    echo Input:
+    echo "%INPUT%"
+    set "LAST_ERROR_STAGE=MPEG-TS OpenSVPFlow timing probe"
+    exit /b 1
+)
+
+set "SVP_SYNC_GLOBAL_ARGS=-copyts"
+set "SVP_SYNC_SOURCE_ARGS=-itsoffset -%M2TS_VIDEO_START%"
+if "%M2TS_VIDEO_START:~0,1%"=="-" set "SVP_SYNC_SOURCE_ARGS=-itsoffset %M2TS_VIDEO_START:~1%"
+set "SVP_SYNC_ACTIVE=1"
+
+echo.
+echo MPEG-TS OpenSVPFlow timing:
+echo   Video start : %M2TS_VIDEO_START% s
+if defined M2TS_AUDIO_START echo   Audio start : %M2TS_AUDIO_START% s
+echo   Action      : preserve source timestamps and rebase original streams to video t=0
+echo.
+exit /b 0
+
+
+rem ============================================================
 rem Per-file field-rate deinterlace helper
 rem ============================================================
 :VALIDATE_OPEN_SVP_INPUT
@@ -3112,6 +3198,8 @@ set "BAR_H=0"
 set "LETTERBOX_FILTER="
 if not "%ENABLE_LETTERBOX%"=="1" exit /b 0
 
+if %CUSTOM_CROP_PER_SIDE% GTR 0 goto PREPARE_CUSTOM_LETTERBOX
+
 rem If source is already 2.39:1 or wider, leave it untouched.
 set /a ASPECT_LEFT=%WIDTH%*100
 set /a ASPECT_RIGHT=%HEIGHT%*239
@@ -3134,6 +3222,17 @@ set "LETTERBOX_FILTER=,drawbox=x=0:y=0:w=iw:h=%BAR_H%:color=black:t=fill,drawbox
 echo Letterbox : 2.39:1 - top %BAR_H% px / bottom %BAR_H% px
 exit /b 0
 
+:PREPARE_CUSTOM_LETTERBOX
+set "BAR_H=%CUSTOM_CROP_PER_SIDE%"
+set /a CONTENT_H=%HEIGHT%-(%BAR_H%*2)
+if %CONTENT_H% LEQ 1 (
+    echo ERROR: Custom black bars %BAR_H% px per side are too large for input height %HEIGHT%.
+    exit /b 1
+)
+set "LETTERBOX_FILTER=,drawbox=x=0:y=0:w=iw:h=%BAR_H%:color=black:t=fill,drawbox=x=0:y=ih-%BAR_H%:w=iw:h=%BAR_H%:color=black:t=fill"
+echo Letterbox : custom - top %BAR_H% px / bottom %BAR_H% px
+exit /b 0
+
 
 :PREPARE_CROP
 set "CROP_FILTER="
@@ -3141,6 +3240,8 @@ set "CROP_POST_FILTER="
 set "CROP_DECISION=No crop needed"
 set "ACTIVE_WIDTH=%WIDTH%"
 set "ACTIVE_HEIGHT=%HEIGHT%"
+
+if %CUSTOM_CROP_PER_SIDE% GTR 0 goto PREPARE_CUSTOM_CROP
 
 set /a ASPECT_LEFT=%WIDTH%*100
 set /a ASPECT_RIGHT=%HEIGHT%*239
@@ -3158,6 +3259,20 @@ set "ACTIVE_HEIGHT=%TARGET_H%"
 set "CROP_FILTER=crop=w=iw:h=%TARGET_H%:x=0:y=%CROP_Y%,"
 set "CROP_POST_FILTER=,crop=w=iw:h=%TARGET_H%:x=0:y=%CROP_Y%"
 set "CROP_DECISION=%WIDTH%x%HEIGHT% to %WIDTH%x%TARGET_H% centered"
+exit /b 0
+
+:PREPARE_CUSTOM_CROP
+set /a TARGET_H=%HEIGHT%-(%CUSTOM_CROP_PER_SIDE%*2)
+if %TARGET_H% LEQ 1 (
+    echo ERROR: Custom crop %CUSTOM_CROP_PER_SIDE% px per side is too large for input height %HEIGHT%.
+    exit /b 1
+)
+set "CROP_Y=%CUSTOM_CROP_PER_SIDE%"
+set "ACTIVE_HEIGHT=%TARGET_H%"
+set "CROP_FILTER=crop=w=iw:h=%TARGET_H%:x=0:y=%CROP_Y%:exact=1,"
+set "CROP_POST_FILTER=,crop=w=iw:h=%TARGET_H%:x=0:y=%CROP_Y%:exact=1"
+set "CROP_DECISION=%WIDTH%x%HEIGHT% to %WIDTH%x%TARGET_H% - custom %CUSTOM_CROP_PER_SIDE% px top and bottom"
+echo Custom crop: top %CUSTOM_CROP_PER_SIDE% px / bottom %CUSTOM_CROP_PER_SIDE% px
 exit /b 0
 
 
@@ -3254,7 +3369,7 @@ if /i "%GRAIN_MODE%"=="TABLE" (
 ) else (
     echo [Grain] "%GRAV1SYNTH%" apply "%TMP_BASE%" -o "%TMP_GRAIN%" %GRAIN_APPLY_ARGS% --replace -y
 )
-echo [Remux] "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -i "%TMP_GRAIN%" -i "%INPUT%" -map 0:v:0 %AV1_FINAL_REMUX_MAP% -map_metadata 1 -map_chapters 1 %AV1_FINAL_REMUX_CODEC% %AV1_FINAL_REMUX_EXTRA% "%OUTPUT%"
+echo [Remux] "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %SVP_SYNC_GLOBAL_ARGS% -i "%TMP_GRAIN%" %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -map 0:v:0 %AV1_FINAL_REMUX_MAP% -map_metadata 1 -map_chapters 1 %AV1_FINAL_REMUX_CODEC% %AV1_FINAL_REMUX_EXTRA% "%OUTPUT%"
 if "%ENABLE_UPLOAD_BAKE%"=="1" if /i not "%UPLOAD_MODE%"=="X264" echo [Upload] "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -c:v libdav1d -i "%OUTPUT%" -map 0:v:0 -map 0:a:0? -map_metadata 0 -c:v h264_nvenc -gpu %CUDA_DEVICE% -profile:v high -pix_fmt yuv420p %UPLOAD_CODEC_ARGS% %UPLOAD_CAP_ARGS% -c:a aac -b:a 256k -ac 2 -ar 48000 -movflags +faststart "%UPLOAD_OUTPUT%"
 if "%ENABLE_UPLOAD_BAKE%"=="1" if /i "%UPLOAD_MODE%"=="X264" echo [Upload x264] 2-pass / preset slow / tune grain / %UPLOAD_BITRATE%
 exit /b 0

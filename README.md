@@ -7,10 +7,10 @@
 - **HEVC Main10 + 真实扫描 Grain Plate**：将真实胶片颗粒合成到视频像素中。
 - **AV1 Main10 + grav1synth Film Grain**：将颗粒模型写入 AV1 Film Grain metadata，由播放器在解码时合成；除内置 Film Preset / Photon ISO 外，还可直接加载现成 `.tbl / .txt` Grain Table。
 
-当前正式稳定版为 **v4.4.2**，发布包名称：
+当前正式稳定版为 **v4.4.3**，发布包名称：
 
 ```text
-FilmGrain_Studio_v4.4.2_Stable.zip
+FilmGrain_Studio_v4.4.3_Stable.zip
 ```
 
 所有独立脚本使用固定文件名，不再包含组件版本号；版本号只体现在整个项目的发布压缩包上。升级时建议完整替换工具包，避免新旧脚本混用。

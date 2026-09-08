@@ -1,5 +1,13 @@
 # Film Grain Studio — CHANGELOG
 
+## v4.4.3 — 2026-09-08
+
+- 修复 **OpenSVPFlow + MPEG-TS 系列输入** 的音画同步问题。
+- 支持 `.ts` / `.mts` / `.m2ts` 在启用 OpenSVPFlow 插帧时自动检测源视频与音频起始时间戳，并保留原始 A/V 相对时间关系。
+- HEVC + OpenSVPFlow 与 AV1 + OpenSVPFlow 均完成实际测试验证。
+- 该时间轴修正仅作用于 MPEG-TS 系列输入且仅在 OpenSVPFlow 启用时生效，MP4 / MKV 等普通容器以及非插帧流程保持原稳定路径。
+- 修复源于 VSPipe 重建视频时间轴从 0 开始时，丢失 MPEG-TS 原始 PTS 偏移的问题。
+
 本文件记录正式发布版本的主要变化。`README.md` 只维护当前版本功能与使用说明，不再重复版本更新摘要。
 
 ## v4.4.2 — 2026-09-07

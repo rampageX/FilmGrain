@@ -1,0 +1,26 @@
+Film Grain Studio development stable baseline
+
+Baseline:
+v4.4.3
+
+Supersedes:
+v4.4.2_CustomFrame_STABLE
+
+Validated fix source:
+v4.4.2_M2TSSync_TEST2_XVR2
+
+Included change:
+OpenSVPFlow A/V sync preservation for MPEG-TS family inputs:
+.ts / .mts / .m2ts
+
+The dedicated timestamp probe/rebase path runs only when OpenSVPFlow is enabled
+and the input extension is .ts, .mts, or .m2ts. Other containers and non-SVP
+processing keep the previous verified path.
+
+HEVC + OpenSVPFlow was user-verified with an .m2ts source whose stream starts were:
+Video start 1.773867 s
+Audio start 1.400000 s
+A/V sync was restored.
+
+README.md and CHANGELOG.md remain on the last formal GitHub release text until
+the user explicitly requests a formal release.
