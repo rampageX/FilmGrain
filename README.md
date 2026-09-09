@@ -1,16 +1,17 @@
 # Film Grain Studio
 ![](images/Film_Grain_Studio.jpg)
-基于 **FFmpeg、NVIDIA NVENC 与 grav1synth** 的 Windows 视频胶片化工具包，同时提供图形界面和命令行入口。
+基于 **FFmpeg、NVIDIA NVENC、libx264 与 grav1synth** 的 Windows 视频胶片化工具包，同时提供图形界面和命令行入口。
 
-项目包含两条可切换的 Film Grain 处理路线：
+项目提供三条同级主编码路线：
 
-- **HEVC Main10 + 真实扫描 Grain Plate**：将真实胶片颗粒合成到视频像素中。
 - **AV1 Main10 + grav1synth Film Grain**：将颗粒模型写入 AV1 Film Grain metadata，由播放器在解码时合成；除内置 Film Preset / Photon ISO 外，还可直接加载现成 `.tbl / .txt` Grain Table。
+- **HEVC Main10 + 真实扫描 Grain Plate**：将真实胶片颗粒合成到视频像素中，由 NVENC Main10 编码。
+- **H.264 x264 Grain + 真实扫描 Grain Plate**：与 HEVC 共用扫描 Grain / LUT / 画幅 / 反交错 / OpenSVPFlow 前处理，使用 `libx264 + preset slow + tune grain + true 2-pass`；默认在编码边界高质量降为 8-bit High Profile，高级设置可启用实验性 High10。
 
-当前正式稳定版为 **v4.4.3**，发布包名称：
+当前正式稳定版为 **v4.5.0**，发布包名称：
 
 ```text
-FilmGrain_Studio_v4.4.3_Stable.zip
+FilmGrain_Studio_v4.5.0_Stable.zip
 ```
 
 所有独立脚本使用固定文件名，不再包含组件版本号；版本号只体现在整个项目的发布压缩包上。升级时建议完整替换工具包，避免新旧脚本混用。
@@ -43,24 +44,22 @@ GUI 与 CLI 共用 `Utils\FilmGrain_Universal_HEVC_AV1_StudioBridge.bat` 编码�
 
 ---
 
-## 两种 Film Grain 路线
+## 三条主编码路线
 
-真实胶片颗粒具有随机性、亮度相关性和持续变化的空间结构。将 Grain Plate 合成进像素，可以获得稳定、真实且不依赖播放器的效果，但也会增加编码压力和所需码率。
-
-AV1 Film Grain Synthesis 采用另一种方式：编码相对干净的画面，并在码流中保存颗粒模型参数，播放时由解码器生成颗粒，因此更适合低码率和高速批量处理。
+真实胶片颗粒具有随机性、亮度相关性和持续变化的空间结构。HEVC 与 H.264 x264 Grain 都把扫描 Grain Plate 合成进视频像素；AV1 Film Grain Synthesis 则编码相对干净的画面，并在码流中保存颗粒模型参数，由解码器播放时生成颗粒。
 
 参考：[AOMedia AV1 Tool Description](https://aomedia.org/docs/AV1_ToolDescription_v11-clean.pdf)
 
-| 项目 | HEVC + 扫描 Grain | AV1 + grav1synth |
-|---|---|---|
-| Grain 来源 | 真实胶片扫描素材 | Film Preset、Photon ISO 或现成 Grain Table |
-| 是否写进像素 | 是 | 否，由解码器合成 |
-| 低码率效率 | 较低 | 很高 |
-| 播放兼容性 | 较好 | 依赖播放器正确支持 AV1 Film Grain |
-| 画面一致性 | 不同播放器效果一致 | 可能受解码器实现影响 |
-| 典型用途 | 收藏、真实扫描颗粒 | 高效率压缩、批量转码 |
+| 项目 | AV1 + grav1synth | HEVC + 扫描 Grain | H.264 x264 Grain + 扫描 Grain |
+|---|---|---|---|
+| Grain 来源 | Film Preset、Photon ISO 或现成 Grain Table | 真实胶片扫描素材 | 真实胶片扫描素材 |
+| 是否写进像素 | 否，由解码器合成 | 是 | 是 |
+| 视频编码 | AV1 Main10 NVENC | HEVC Main10 NVENC | libx264 slow / tune grain / true 2-pass |
+| 默认位深 | 10-bit | 10-bit | 10-bit 前处理 → 最终 8-bit High；可选 High10 实验模式 |
+| 低码率效率 | 很高 | 高 | 相对较低，但平台兼容性最好 |
+| 典型用途 | 高效率压缩、AV1 Film Grain | 收藏、真实扫描颗粒、GPU 高速编码 | 高兼容上传/播放、强调真实像素颗粒保留 |
 
-两种方案各有用途，并不存在绝对替代关系。
+三条主线共用尽可能一致的画幅、字幕、LUT、反交错、OpenSVPFlow 与码率策略；差异主要集中在 Film Grain 机制和最终编码后端。
 
 ---
 
@@ -132,8 +131,8 @@ GUI 和 CLI 启动时会调用 `Utils\FilmGrain_Hardware_Caps.ps1`，对当前 G
 
 | 能力 | 自动处理 |
 |---|---|
-| AV1 / HEVC / H.264 NVENC | 仅使用实际可用的编码器；AV1 不可用时回退到 HEVC |
-| Main10 | 验证 AV1 / HEVC 10-bit 实际编码 |
+| AV1 / HEVC NVENC + x264 Grain | 逐项验证 AV1 / HEVC NVENC 与 Vulkan + libx264 + tune grain 的实际可用性；不可用的主线自动隐藏或回退 |
+| Main10 / High10 | 验证 AV1 / HEVC 10-bit 实际编码；同时探测 x264 High10 与最终 10→8bit dither 能力 |
 | B-frame / B-reference | 不支持时不传递相关参数 |
 | Spatial AQ / Temporal AQ | 分别探测并按能力启用 |
 | Lookahead / Multipass | 按 fullres、qres 的实际支持情况选择 |
@@ -162,7 +161,7 @@ FilmGrain_Universal_HEVC_AV1_GUI.bat
 基本流程：
 
 1. 添加或拖入一个或多个视频。
-2. 选择 AV1 或 HEVC、输出容器、码率、反交错方式和 GPU 配置。
+2. 选择 AV1、HEVC 或 H.264 x264 Grain、输出容器、码率、反交错方式和 GPU 配置。
 3. 按需选择 Cinematic Style 的“加黑边 / 裁剪”、Film Grain 与 LUT。
 4. 点击“开始编码”。
 5. 在任务区查看当前阶段、进度、`fps`、`speed`、`ETA` 与完整日志。
@@ -208,24 +207,24 @@ GUI 与 CLI 的输出均保存在源视频所在目录。已有同名输出时�
 
 - 多视频添加、拖放、移除与清空；长文件名在文件列表中可通过鼠标悬停 ToolTip 查看完整名称；
 - 选中单个视频时异步显示视频/音频编码、码率、分辨率、帧率、声道、采样率、时长与总码率；AV1 输入会额外显示胶片颗粒状态（无 / 亮度 / 亮度 + 色度）；
-- 编码方式统一为 `AV1 · grav1synth 胶片颗粒（默认）`、`HEVC · 扫描胶片颗粒`；单个 AV1 输入还可选择 `AV1 不重编码 · 添加/替换胶片颗粒`；
+- 编码方式统一为 `AV1 · grav1synth 胶片颗粒（默认）`、`HEVC · 扫描胶片颗粒`、`H.264 · x264 Grain（CPU / 2-pass）`；单个 AV1 输入还可选择 `AV1 不重编码 · 添加/替换胶片颗粒`；
 - MP4 与 MKV 输出；
 - FAST、Standard，以及能力探测通过后可选的 AV1 UHQ 编码模式；
-- 常用码率及自定义 kbps 码率；
+- 统一自动码率与自定义 kbps：自动模式按编码器、输出分辨率、最终 FPS 与高动态状态实时计算，并直接在主界面显示具体 kbps；手动修改后不再被自动覆盖；
 - 自动反交错：BWDIF Vulkan（默认）、BWDIF CUDA（备选）、W3FDIF Complex（高质量对照）；
 - 隔行素材自动使用 Field-rate 输出，例如 29.97i → 59.94p、25i → 50p；逐行素材自动旁路；
 - 逐行素材可使用自动电影帧率或保持源帧率；
 - 可选 **OpenSVPFlow GPU 60 fps 插帧**：主界面提供“平滑 / 自动平衡”，启用后由 OpenSVPFlow 接管输出帧率；
 - 右上角新增 **“高级…”** 独立设置窗体，按“编码 / 插帧 / 其他”分类；当前插帧高级项包括 SmoothFps Algo、Analyse Profile 与 Artifact Mask Area；
 - NVIDIA GPU / 驱动 / FFmpeg / OpenSVPFlow 能力自动探测与缓存；
-- HEVC / AV1 统一 Cinematic Style：可烘焙上下黑边并保持原分辨率，或裁剪为约 2.39:1 有效画面；
+- AV1 / HEVC / H.264 统一 Cinematic Style：可烘焙上下黑边并保持原分辨率，或裁剪为约 2.39:1 有效画面；
 - AV1 Film Preset、Photon ISO、Film 格式、Film stock 与 Chroma Grain；另支持 `_AV1_Grain_Tables` 现成 `.tbl / .txt` Grain Table，按分辨率自动筛选并解析常见命名；
 - HEVC Grain 根目录递归扫描，只显示电脑上实际存在的 `.mov` Grain Plate；配置界面可检测原分辨率 / 1080p Cache 完整度，并直接生成缺失高速缓存；
 - 编码时自动匹配 1080p 或原分辨率 HEVC Lossless Grain Cache；
 - LUT Gallery、最近使用、我的最爱、缩略图预览、参考图更换及 LUT 强度；更换参考图后会在 `_LUT_Tools` 保存 `LUT_Reference_Current.jpg`，后续从配置界面补建缺失缩略图或独立运行预览生成器时优先复用该当前参考图；不存在时才回退 `LUT_Reference_Default.jpg`；
 - 结构化实时进度、`fps`、`speed`、`ETA`、日志复制/清空与任务取消；
-- HEVC / AV1 均可额外生成 H.264 上传版：NVENC P7 固定码率档，或 x264 Slow + `tune grain` + 2-pass 的 FPS / 分辨率联动高质量档，并可用“高动态视频”开关切换普通 / 高动态码率预算；
-- 字幕功能独立于 H.264 上传版：可直接烧写进主 HEVC / AV1 输出；如同时生成 H.264 上传副本，副本也继承同一套字幕。支持内嵌文本字幕下拉选择、同名外部字幕自动匹配、浏览外部字幕文件，以及自定义字体、字号、颜色、描边、阴影与位置。
+- AV1 / HEVC 均可额外生成 H.264 上传版：上传副本固定使用 x264 Slow + `tune grain` + true 2-pass 8-bit High Profile，并拥有独立的自动/手动码率；自动模式与主线 x264 Grain 共用分辨率 / 最终 FPS / 高动态策略，OpenSVPFlow 60 fps 插帧开启时同样可用；
+- 字幕功能独立于 H.264 上传版：可直接烧写进主 AV1 / HEVC / H.264 输出；如同时生成 H.264 上传副本，副本也继承同一套字幕。支持内嵌文本字幕下拉选择、同名外部字幕自动匹配、浏览外部字幕文件，以及自定义字体、字号、颜色、描边、阴影与位置。
 - Studio 主窗体采用约 1320×960 的三列布局；硬件与能力信息统一移到底部单行状态栏，编码区域保留给常用控制项；状态栏最右侧显示版本/构建标识。
 
 ---
@@ -246,9 +245,10 @@ GUI 与 CLI 的输出均保存在源视频所在目录。已有同名输出时�
 | LUT | 关闭 |
 | AV1 Grain 方式 | Film Preset |
 | AV1 Film Preset | Classic35 / Fujifilm Eterna 250D |
-| AV1 平均码率 | 1500 kbps |
-| HEVC 平均码率 | 7500 kbps |
-| H.264 上传副本 | 关闭；启用后默认 8000 kbps NVENC P7 |
+| 视频码率 | 自动推荐；按编码器 + 输出分辨率 + 最终 FPS + 高动态状态实时计算并显示 |
+| 高动态 | 关闭；启用后切换到高动态码率表，并按能力启用编码器运动优化 |
+| H.264 High10 | 关闭；位于“高级… → 编码”，仅 H.264 x264 Grain 主输出使用 |
+| H.264 上传副本 | 关闭；启用后固定 x264 Grain 8-bit，并使用独立自动/手动码率 |
 
 ### 容器行为
 
@@ -257,6 +257,34 @@ GUI 与 CLI 的输出均保存在源视频所在目录。已有同名输出时�
 **MKV**：尽量复制并保留原始音频、字幕、附件、数据流、章节与 metadata，更适合完整归档。
 
 可选的 H.264 社交平台上传版使用独立的 AAC 256 kbps 设置。
+
+---
+
+## 统一自动码率与高动态
+
+v4.5.0 将原 x264 Grain 的码率联动提升为 AV1 / HEVC / H.264 三条主线共用的码率策略。自动模式不是黑盒：主界面的“视频码率”框直接显示当前推荐 kbps；编码开始后日志会再次列出分辨率档位、60 fps 基准、最终 FPS、FPS 系数、`b:v`、`3× maxrate` 与 `6× bufsize`。
+
+60 fps 基准表：
+
+| 输出档位 | AV1 普通 | HEVC 普通 | x264 普通 | AV1 高动态 | HEVC 高动态 | x264 高动态 |
+|---|---:|---:|---:|---:|---:|---:|
+| 720p | 3500k | 4000k | 5000k | 6000k | 7000k | 10000k |
+| 1080p | 5000k | 6000k | 7500k | 9000k | 11000k | 15000k |
+| 1440p | 7000k | 8000k | 10000k | 12000k | 15000k | 20000k |
+| 2160p | 10000k | 12000k | 15000k | 18000k | 22000k | 30000k |
+
+分辨率档位按最终输出画面的长边选择：≤1280→720p、≤1920→1080p、≤2560→1440p、其余→2160p。最终码率再按最终输出 FPS 乘以平滑系数：24 fps≈0.60、25 fps≈0.62、30 fps≈0.70、50 fps≈0.90、60 fps=1.00、120 fps≈1.65，中间帧率线性插值，结果按 500 kbps 步进取整。Field-rate 与 OpenSVPFlow 产生的最终 FPS 会直接参与计算；Cinematic 等画幅处理后的最终尺寸用于确认分辨率档位。
+
+统一 VBV：
+
+```text
+maxrate = 平均码率 × 3
+bufsize = 平均码率 × 6
+```
+
+“高动态”明确指高速运动 / 高复杂度画面，不代表 HDR。启用后除提高自动码率外：AV1 / HEVC NVENC 会在硬件能力探测允许时使用更深 Lookahead、Fullres Multipass、adaptive B 与 scene-cut；x264 保持 `slow + tune grain + true 2-pass`，并在能力探测通过时使用 `b_strategy 2`。AQ 强度仍沿用已验证设置，不因高动态开关盲目提高。
+
+取消“自动”后可直接输入自定义 kbps；此后切换高动态不会偷偷改写用户的平均码率，但仍会按该手动值计算 3× / 6× VBV，并应用相应的高动态编码策略。
 
 ---
 
@@ -282,7 +310,7 @@ GUI 与 CLI 的输出均保存在源视频所在目录。已有同名输出时�
 
 ### Cinematic Style
 
-HEVC 与 AV1 共用同一套约 **2.39:1** 画幅选项：
+AV1 / HEVC / H.264 共用同一套约 **2.39:1** 画幅选项：
 
 - **加黑边 · 保留原分辨率（默认）**：例如 1920×1080 仍输出 1920×1080，将上下纯黑区域直接烘焙进视频，适合后期把字幕放在黑边上；
 - **裁剪 · 输出有效 2.39:1 画面**：例如 1920×1080 输出约 1920×804，不编码上下无效区域。
@@ -335,6 +363,26 @@ D:\Film_Grain\
 ├─ TDCAT-Light\
 └─ TDCAT-Heavy\
 ```
+
+---
+
+## H.264：x264 Grain
+
+H.264 x264 Grain 在 v4.5.0 正式提升为与 HEVC / AV1 同级的主编码方式。它复用 HEVC 已验证的真实扫描 Grain Plate 前处理，因此 LUT、Cinematic Style、字幕、自动反交错、Field-rate、OpenSVPFlow 60 fps 与 Grain Cache 行为保持一致，只在最终编码器边界切换为 libx264。
+
+默认编码：
+
+```text
+libx264
+preset slow
+tune grain
+true 2-pass
+High Profile / yuv420p
+```
+
+普通 H.264 主线尽量维持 10-bit 前处理，直到最终编码边界才转换为兼容性更好的 8-bit High Profile；FFmpeg 能力探测通过时使用 error-diffusion dither，避免过早 8-bit 化。
+
+高级设置的 **“H.264 High10（实验）”** 默认关闭。启用并通过能力检测后，最终编码改为 `yuv420p10le / High 10 Profile`。High10 更适合本地测试与高位深链路验证，但硬件解码、电视、浏览器和部分平台兼容性明显低于普通 H.264 High，因此不会用于附加 H.264 上传副本。
 
 ---
 
@@ -479,7 +527,7 @@ GPU/OpenCL
 
 右上角 **“高级…” → “插帧”** 可调整 SmoothFps Algo、Analyse Profile 与 Artifact Mask Area，并可一键恢复推荐值。`Super pel=1 / gpu=1 / full=true` 继续固定为已验证基线，不在当前版本开放。
 
-启用插帧后，`输出帧率` 显示为 **“由 OpenSVPFlow 接管 · 60 fps”**，普通自动电影帧率 / 保持源帧率不再同时生效。当前版本只接受逐行输入，因此 OpenSVPFlow 与自动反交错互斥；隔行素材应使用正常反交错路线。H.264 上传副本在插帧开启时暂时禁用。
+启用插帧后，`输出帧率` 显示为 **“由 OpenSVPFlow 接管 · 60 fps”**，普通自动电影帧率 / 保持源帧率不再同时生效。当前版本只接受逐行输入，因此 OpenSVPFlow 与自动反交错互斥；隔行素材应使用正常反交错路线。从 v4.4.5 起，插帧开启时也可继续同时生成 H.264 上传副本；v4.5.0 起上传副本统一为 x264 Grain，并接入新的独立自动/手动码率策略。
 
 处理链使用 **VSPipe Y4M → FFmpeg 管道**，不生成巨大的中间视频文件。HEVC + OpenSVPFlow + LUT + Grain 路线已完成实际测试。AV1 插帧路线需要支持 AV1 NVENC 的 GPU，换到新硬件/驱动后建议先用短片验证。
 
@@ -530,80 +578,28 @@ Utils\LUT_Preview_Batch_Gallery.bat
 
 ### 在主流程中生成
 
-AV1 与 HEVC 两种主编码方式都可以启用 **“同时生成 H.264 上传版”**。主任务完成后会额外生成一份 H.264/AAC MP4；AV1 路线由 `libdav1d` 将 Film Grain metadata 合成为真实颗粒像素后再压制，HEVC 路线则从原始视频重新走同一套 Grain / LUT / 反交错 / Cinematic 处理链，避免从主 HEVC 成片再次转码。
+AV1 与 HEVC 两种主编码方式都可以启用 **“同时生成 H.264 上传版”**，包括开启 OpenSVPFlow 60 fps 插帧的任务。主任务完成后会额外生成一份 H.264/AAC MP4：AV1 路线始终从最终 AV1 主成片读取，并由 `libdav1d` 将 Film Grain metadata 合成为真实颗粒像素后再压制；HEVC 在未启用插帧时仍从原始视频重新走同一套 Grain / LUT / 反交错 / Cinematic 处理链，避免普通流程发生不必要的二次转码；HEVC 启用 OpenSVPFlow 时则直接复用已经完成插帧、Grain、LUT、画幅和字幕处理的最终 60 fps HEVC 主成片，不再重复运行 OpenSVPFlow。
 
-GUI 与 CLI 共用同一套上传质量选择，共 6 档：
-
-```text
-6000 kbps · NVENC
-8000 kbps · NVENC（默认）
-15000 kbps · NVENC
-
-x264 Grain 推荐 · FPS联动
-x264 Grain 高质量 · FPS联动
-x264 Grain 极高 · FPS联动
-```
-
-NVENC 三档统一使用 **H.264 NVENC P7 / HQ / VBR**，并继续按硬件能力自动启用 Multipass、Lookahead、AQ、B-frame 与 B-reference 等已通过探测的功能。
-
-x264 三档使用 **libx264 / preset slow / tune grain / 2-pass**。从 v4.0.0 起，平均码率不再只按 FPS 联动，而是同时考虑 **实际输出 FPS、实际输出分辨率和“高动态视频”开关**，最后四舍五入到最接近的 500 kbps：
+从 v4.5.0 起，附加上传版不再提供旧 NVENC 固定档或 x264 Tier 选择，统一固定为：
 
 ```text
-最终平均码率
-= 60p 档位基准
-× 实际输出 FPS / 60
-× sqrt(实际输出像素数 / 1920×1080)
-× 动态系数
+libx264 / High / yuv420p
+preset slow / tune grain / true 2-pass
+AAC 256 kbps / stereo / 48 kHz
 ```
 
-分辨率系数采用像素面积平方根，因此典型值约为：
+上传版拥有**独立的视频码率框与“自动”开关**，但自动模式与 H.264 x264 Grain 主线共用完全相同的分辨率 / 最终 FPS / 高动态推荐策略。推荐值直接显示具体 kbps；用户取消“自动”并手动输入后，程序不会再覆盖。全局“高动态”同时影响主输出和上传副本，但两者仍按各自编码器的码率表独立计算。
 
-```text
-1280×720   ≈ 0.67×
-1920×1080  = 1.00×
-2560×1440  ≈ 1.33×
-3840×2160  = 2.00×
-```
-
-动态系数：
-
-```text
-普通动态（默认，不勾“高动态视频”） = 0.5×
-高动态视频（勾选）                 = 1.0×
-```
-
-三档的 1080p60 高动态基准分别为：
-
-```text
-推荐      15 Mbps
-高质量    20 Mbps
-极高      25 Mbps
-```
-
-因此“推荐”档的典型自动结果为：
-
-| 实际输出 | 普通动态 | 高动态 |
-|---|---:|---:|
-| 1080p24 | 3 Mbps | 6 Mbps |
-| 1080p30 | 4 Mbps | 7.5 Mbps |
-| 1080p60 | 7.5 Mbps | 15 Mbps |
-| 1440p60 | 10 Mbps | 20 Mbps |
-| 4K24 | 6 Mbps | 12 Mbps |
-| 4K30 | 7.5 Mbps | 15 Mbps |
-| 4K60 | 15 Mbps | 30 Mbps |
-
-Cinematic 裁剪后会使用**实际有效输出尺寸**参与计算，因此 1920×804、3840×1608 等非 16:9 输出也会自然得到对应码率。
-
-x264 Grain 三档继续采用已经过实测的 VBV 比例：
+上传版始终保持标准 H.264 High 8-bit，以兼容性为优先；高级设置中的 High10 只作用于 H.264 x264 Grain 主输出。上传版同样使用：
 
 ```text
 maxrate = 平均码率 × 3
 bufsize = 平均码率 × 6
 ```
 
-例如 1080p60 推荐档普通动态为 **7.5M / 22.5M / 45M**；勾选高动态后为 **15M / 45M / 90M**。4K60 推荐档则自动提升为普通动态 **15M / 45M / 90M**，高动态 **30M / 90M / 180M**。
+例如 1080p60 自动模式下，x264 上传版普通动态为 **7500k / 22500k / 45000k**，高动态为 **15000k / 45000k / 90000k**。如果手动填写 10000k，则保持 **10000k / 30000k / 60000k**，切换高动态也不会改写这个手动平均码率。
 
-输出文件名会包含实际计算出的码率，方便确认和对比。
+输出文件名会包含实际使用的 x264 码率，任务日志也会打印自动/手动状态、分辨率档、FPS 系数与 VBV。
 
 ### 独立字幕烧写
 
@@ -611,6 +607,7 @@ bufsize = 平均码率 × 6
 
 - 主编码为 HEVC 时，字幕直接烧写进主 HEVC 输出；
 - 主编码为 AV1 时，字幕烧写进 Main10 基础画面后再注入 Film Grain metadata；
+- 主编码为 H.264 x264 Grain 时，字幕在 10-bit 前处理链中完成后再进入最终 x264 位深转换；
 - 如果同时生成 H.264 上传副本，H.264 版本也会包含同一套字幕，不会重复烧写；
 - 带字幕的主输出文件名增加 `_SUB`，避免与无字幕版本混淆。
 
@@ -646,32 +643,19 @@ H.264 上传版音频统一为 **AAC 256 kbps / stereo / 48 kHz**。
 
 ### 独立转换工具
 
-将一个或多个已带 AV1 Film Grain 的文件拖到：
+将一个或多个已经完成 Film Grain / 插帧等处理的 AV1 或 HEVC 成片拖到：
 
 ```text
 Utils\AV1_FilmGrain_Bake_for_Social_Upload.bat
 ```
 
-```text
-AV1 + Film Grain metadata
-    ↓ libdav1d 解码并合成颗粒像素
-H.264 NVENC
-    ↓
-AAC 256k / MP4 / faststart
-```
+脚本会先用 FFprobe 检测输入视频编码：AV1 输入使用 `libdav1d` 解码，将 AV1 Film Grain metadata 合成为真实颗粒像素；HEVC 等输入则由 FFmpeg 自动选择正常解码器。随后统一使用 **libx264 / preset slow / tune grain / 2-pass** 生成 H.264 上传母版。
 
-输出文件名带 `_UPLOAD_H264_GRAIN.mp4`，适合作为视频平台上传母版。
+独立工具提供与 Studio x264 Grain 路线一致的三档质量基准：推荐 / 高质量 / 极高，并可选择普通动态（0.5×）或高动态（1.0×）预算。平均码率按 **实际 FPS + 实际分辨率 + 动态系数** 联动，最终按 500 kbps 步进取整；VBV 继续使用 `maxrate = 平均码率 × 3`、`bufsize = 平均码率 × 6`。
 
-> 独立的 `AV1_FilmGrain_Bake_for_Social_Upload.bat` 仍按有效分辨率自动选择推荐码率；主流程内的 H.264 上传版则使用上面的手动下拉档位。
+音频统一为 **AAC 256 kbps / stereo / 48 kHz**，输出 MP4 并启用 `faststart`。输出文件名包含实际计算码率，例如 `_UPLOAD_H264_X264GRAIN_7500k.mp4`，便于确认和对比。
 
-独立转换工具的自动推荐规则：
-
-| 有效分辨率 | 平均码率 | Maxrate | Bufsize |
-|---|---:|---:|---:|
-| ≤ 720p | 6 Mbps | 9 Mbps | 12 Mbps |
-| ≤ 1080p | 8 Mbps | 12 Mbps | 16 Mbps |
-| ≤ 1440p | 10 Mbps | 15 Mbps | 20 Mbps |
-| > 1440p（含 4K） | 12 Mbps | 18 Mbps | 24 Mbps |
+> 该独立工具适合对已经完成 Film Grain / 插帧等处理的 AV1 或 HEVC 成片单独补做 H.264 上传母版，也兼容只支持 HEVC 输出的设备生成的颗粒效果成片。
 
 ---
 
@@ -763,14 +747,15 @@ ffmpeg -hide_banner -h decoder=libdav1d
 
 - 仅面向 Windows BAT、Windows PowerShell 5.1 与 WinForms 工作流；
 - 需要 NVIDIA GPU；AV1、UHQ、B-frame、AQ、NVDEC 和 Vulkan 的可用性由当前 GPU、驱动与 FFmpeg 组合决定；
-- HEVC 扫描 Grain 会增加编码压力和所需码率；
+- HEVC / H.264 扫描 Grain 会增加编码压力和所需码率；H.264 x264 Grain 采用 CPU `slow + 2-pass`，编码速度通常明显低于 NVENC；
 - AV1 Film Grain 的显示依赖播放器和解码器正确实现 Film Grain Synthesis；
 - 部分平台和转码软件会移除 AV1 Film Grain metadata；
 - MP4 兼容模式不会保留字幕、附件和数据流；
 - 启用 LUT 时，部分处理链会转为软件滤镜路径，速度可能下降；
 - 自动反交错依赖 FFprobe `field_order`；实际为隔行但被标记为 progressive / unknown 的异常素材需要人工确认；
 - OpenSVPFlow 当前只支持逐行输入，并固定接管为 60 fps；与自动反交错、普通电影帧率选择互斥；
-- OpenSVPFlow 当前验证链内部使用 YUV420P8，不适用于 HDR / 端到端 10-bit 保真；启用插帧时 H.264 上传副本暂时禁用；
+- OpenSVPFlow 当前验证链内部使用 YUV420P8，不适用于 HDR / 端到端 10-bit 保真；启用插帧时可继续生成 H.264 上传副本；v4.5.0 上传副本固定使用 x264 Grain 8-bit；
+- H.264 High10 为实验功能，播放器、浏览器、电视与硬件解码兼容性明显低于标准 H.264 High 8-bit；
 - 特殊 HDR、VFR、多视频流或非常规容器建议先使用短片测试；
 - 强制取消任务可能留下未完成输出或 `__AV1GS_TMP_*` 临时目录；
 - 重要素材应保留原文件，并在归档前检查画面、音频、时长、流信息及 Film Grain 验证结果。
@@ -779,7 +764,9 @@ ffmpeg -hide_banner -h decoder=libdav1d
 
 ## 如何选择
 
-选择 **HEVC + 真实扫描 Grain**，如果你更重视真实 Grain Plate 的具体质感、不依赖播放器生成颗粒，以及更广泛的播放兼容性。
+选择 **HEVC + 真实扫描 Grain**，如果你更重视真实 Grain Plate 的具体质感、10-bit 主输出和 NVENC 编码速度。
+
+选择 **H.264 x264 Grain**，如果你同样需要真实扫描 Grain，但更重视 H.264 的平台兼容性和 `tune grain` 对像素颗粒的保留；代价是 CPU `slow + true 2-pass` 编码更慢。
 
 选择 **AV1 + grav1synth**，如果你更重视较低码率、快速批量处理，以及低码率下仍能保留明显颗粒。
 

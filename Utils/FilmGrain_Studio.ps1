@@ -89,7 +89,12 @@ $script:RunCompletionHandled = $false
 $script:RunWasCancelled = $false
 $script:LastCodecIndex = 0
 $script:ChangingCodec = $false
-$script:ModeBitrate = @{ 0 = '1500'; 1 = '7500' }
+$script:ModeBitrate = @{ 0 = '5000'; 1 = '6000'; 2 = '7500' }
+$script:ModeBitrateAuto = @{ 0 = $true; 1 = $true; 2 = $true }
+$script:UpdatingBitrateUi = $false
+$script:UploadBitrate = '7500'
+$script:UploadBitrateAuto = $true
+$script:UpdatingUploadBitrateUi = $false
 $script:HevcGrainFiles = @()
 $script:LastScannedGrainRoot = ''
 $script:Av1GrainTableFiles = @()
@@ -119,11 +124,14 @@ $script:FFmpegVersionOverride = ''
 $script:Av1Available = $true
 $script:Av1UhqAvailable = $false
 $script:HevcAvailable = $true
+$script:X264Available = $true
+$script:H264High10Available = $true
 $script:OpenSvpAvailable = $false
 $script:SvpAlgo = 13
 $script:SvpAnalyse = 'ENCODEGUI'
 $script:SvpMaskArea = 100
 $script:CinematicCropPerSide = 0
+$script:H264High10 = $false
 $script:UpdatingFramingUi = $false
 $script:UploadSubtitle = [ordered]@{
     Enabled = $false
@@ -255,12 +263,20 @@ function Show-AdvancedSettingsDialog {
     $tabOther.Text = '其他'
     [void]$tabs.TabPages.Add($tabOther)
 
+    $chkAdvH264High10 = New-Object System.Windows.Forms.CheckBox
+    $chkAdvH264High10.Text = 'H.264 High10（实验）'
+    $chkAdvH264High10.Checked = ($script:H264High10 -and $script:H264High10Available)
+    $chkAdvH264High10.Enabled = (-not $script:HardwareCapsReady -or $script:H264High10Available)
+    $chkAdvH264High10.Location = New-Object System.Drawing.Point -ArgumentList 28, 32
+    $chkAdvH264High10.Size = New-Object System.Drawing.Size -ArgumentList 260, 28
+    [void]$tabEncode.Controls.Add($chkAdvH264High10)
+
     $lblEncodeInfo = New-Object System.Windows.Forms.Label
     $lblEncodeInfo.AutoSize = $false
-    $lblEncodeInfo.Location = New-Object System.Drawing.Point -ArgumentList 24, 26
-    $lblEncodeInfo.Size = New-Object System.Drawing.Size -ArgumentList 630, 100
+    $lblEncodeInfo.Location = New-Object System.Drawing.Point -ArgumentList 28, 76
+    $lblEncodeInfo.Size = New-Object System.Drawing.Size -ArgumentList 630, 142
     $lblEncodeInfo.ForeColor = $ColorMuted
-    $lblEncodeInfo.Text = "以后需要开放的 NVENC、码控、AQ、B 帧等高级压缩参数统一放在这里。`r`n主界面继续保留常用选项。"
+    $lblEncodeInfo.Text = "默认关闭：H.264 x264 Grain 的普通 LUT / Grain / 画幅链保持 10-bit，到编码边界才转换为兼容性更好的 8-bit High Profile；FFmpeg 支持时使用 error-diffusion dither。`r`n开启后改为 yuv420p10le / High 10 Profile，使普通主链保持 10-bit；OpenSVPFlow 仍沿用其已验证的 YUV420P8 插帧内部链。High10 的硬件解码、电视、浏览器和部分平台兼容性明显较差，仅建议测试。`r`n`r`n高动态、自动码率、VBV 与 NVENC 能力适配仍由主界面统一控制。"
     [void]$tabEncode.Controls.Add($lblEncodeInfo)
 
     $lblAlgo = New-Object System.Windows.Forms.Label
@@ -392,7 +408,9 @@ function Show-AdvancedSettingsDialog {
         }
         $script:SvpMaskArea = [int]$numAdvMask.Value
         $script:CinematicCropPerSide = [int]$numAdvCrop.Value
+        $script:H264High10 = ([bool]$chkAdvH264High10.Checked -and $script:H264High10Available)
         Update-FramingUi
+        Update-BitrateDisplays
     }
 
     $dlg.Dispose()
@@ -404,6 +422,8 @@ function Initialize-HardwareCaps {
     $script:Av1Available = $true
     $script:Av1UhqAvailable = $false
     $script:HevcAvailable = $true
+    $script:X264Available = $true
+    $script:H264High10Available = $true
     $script:OpenSvpAvailable = $false
 
     if (-not (Test-Path -LiteralPath $HardwareCapsScript -PathType Leaf)) { return }
@@ -423,6 +443,9 @@ function Initialize-HardwareCaps {
         $script:Av1Available = [bool]$caps.caps.av1.available
         $script:Av1UhqAvailable = [bool]$caps.caps.av1.uhq
         $script:HevcAvailable = [bool]$caps.caps.hevcPipeline
+        $script:X264Available = [bool]$caps.caps.x264Pipeline
+        $script:H264High10Available = [bool]$caps.caps.x264.high10
+        if (-not $script:H264High10Available) { $script:H264High10 = $false }
         if ($caps.caps.openSvp) { $script:OpenSvpAvailable = [bool]$caps.caps.openSvp.gpu }
     } catch {
         $script:HardwareCaps = $null
@@ -430,6 +453,8 @@ function Initialize-HardwareCaps {
         $script:Av1Available = $true
         $script:Av1UhqAvailable = $false
         $script:HevcAvailable = $true
+        $script:X264Available = $true
+        $script:H264High10Available = $true
         $script:OpenSvpAvailable = $false
     }
 }
@@ -459,13 +484,15 @@ function Update-HardwareProfileUi {
         $av1Text = $yesNo[[int]$script:Av1Available]
         $av1UhqText = $yesNo[[int]$script:Av1UhqAvailable]
         $hevcText = $yesNo[[int]$script:HevcAvailable]
+        $x264Text = $yesNo[[int]$script:X264Available]
+        $x264High10Text = $yesNo[[int]$script:H264High10Available]
         $svpText = $yesNo[[int]$script:OpenSvpAvailable]
         $cacheStateText = switch ([string]$script:HardwareCaps.cacheState) {
             'Detected' { '已适配' }
             'Cached'   { '已缓存' }
             default    { [string]$script:HardwareCaps.cacheState }
         }
-        $statusHardware.Text = "GPU $($script:HardwareCaps.gpu.name) · 驱动 $($script:HardwareCaps.gpu.driverVersion) · FFmpeg $ffmpegVersion · 配置 $cacheStateText · AV1 $av1Text · UHQ $av1UhqText · HEVC/Vulkan $hevcText · SVPFlow $svpText"
+        $statusHardware.Text = "GPU $($script:HardwareCaps.gpu.name) · 驱动 $($script:HardwareCaps.gpu.driverVersion) · FFmpeg $ffmpegVersion · 配置 $cacheStateText · AV1 $av1Text · UHQ $av1UhqText · HEVC/Vulkan $hevcText · x264 Grain $x264Text · High10 $x264High10Text · SVPFlow $svpText"
         $cmbGpu.Items.Clear()
         [void]$cmbGpu.Items.Add(([string]$script:HardwareCaps.gpu.name + '（自动检测）'))
         $cmbGpu.SelectedIndex = 0
@@ -518,7 +545,7 @@ $statusVersion = New-Object System.Windows.Forms.ToolStripStatusLabel
 $statusVersion.Spring = $false
 $statusVersion.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
 $statusVersion.ForeColor = $ColorMuted
-$statusVersion.Text = 'v4.4.3'
+$statusVersion.Text = 'v4.5.0'
 $statusVersion.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 12, 0, 0, 0
 [void]$statusStrip.Items.Add($statusVersion)
 
@@ -538,7 +565,7 @@ $title.Location = New-Object System.Drawing.Point -ArgumentList 20, 10
 [void]$header.Controls.Add($title)
 
 $subtitle = New-Object System.Windows.Forms.Label
-$subtitle.Text = 'AV1 grav1synth  ·  HEVC 扫描胶片颗粒  ·  LUT 图库'
+$subtitle.Text = 'AV1 grav1synth  ·  HEVC / H.264 扫描胶片颗粒  ·  LUT 图库'
 $subtitle.ForeColor = [System.Drawing.Color]::FromArgb(205, 214, 224)
 $subtitle.Font = New-UiFont 9
 $subtitle.AutoSize = $true
@@ -568,7 +595,7 @@ $btnAdvanced.Location = New-Object System.Drawing.Point -ArgumentList 1074, 19
 [void]$header.Controls.Add($btnAdvanced)
 
 $baseline = New-Object System.Windows.Forms.Label
-$baseline.Text = '核心：Universal HEVC / AV1'
+$baseline.Text = '核心：Universal AV1 / HEVC / x264 Grain'
 $baseline.ForeColor = [System.Drawing.Color]::FromArgb(205, 214, 224)
 $baseline.AutoSize = $true
 $baseline.Anchor = 'Top,Right'
@@ -690,11 +717,14 @@ for ($i = 0; $i -lt 14; $i++) { Add-RowAbsolute $encodeTable 34 }
 Add-RowPercent $encodeTable 100
 [void]$grpEncode.Controls.Add($encodeTable)
 
-$codecItems = @('AV1 · grav1synth 胶片颗粒（默认）', 'HEVC · 扫描胶片颗粒')
+$codecItems = @('AV1 · grav1synth 胶片颗粒（默认）', 'HEVC · 扫描胶片颗粒', 'H.264 · x264 Grain（CPU / 2-pass）')
 $initialCodecIndex = 0
 if ($script:HardwareCapsReady -and -not $script:Av1Available) {
     $codecItems[0] = 'AV1 · grav1synth 胶片颗粒（当前硬件不可用）'
-    $initialCodecIndex = 1
+    if ($script:HevcAvailable) { $initialCodecIndex = 1 } else { $initialCodecIndex = 2 }
+}
+if ($script:HardwareCapsReady -and -not $script:X264Available) {
+    $codecItems[2] = 'H.264 · x264 Grain（当前 x264 Grain 路径不可用）'
 }
 $cmbCodec = New-ComboBox $codecItems $initialCodecIndex
 $script:LastCodecIndex = $initialCodecIndex
@@ -704,7 +734,42 @@ $cmbSpeed = New-ComboBox @('FAST · p5 / qres（默认）', 'Standard · p6 / fu
 $cmbBitrate = New-Object System.Windows.Forms.ComboBox
 $cmbBitrate.Dock = 'Fill'
 $cmbBitrate.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDown
-$cmbBitrate.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 4, 5, 6, 5
+$cmbBitrate.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 4, 5, 3, 5
+
+$chkBitrateAuto = New-Object System.Windows.Forms.CheckBox
+$chkBitrateAuto.Text = '自动'
+$chkBitrateAuto.Checked = $true
+$chkBitrateAuto.AutoSize = $true
+$chkBitrateAuto.Dock = 'Fill'
+$chkBitrateAuto.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 3, 7, 3, 3
+
+$chkUploadHighMotion = New-Object System.Windows.Forms.CheckBox
+$chkUploadHighMotion.Text = '高动态'
+$chkUploadHighMotion.Checked = $false
+$chkUploadHighMotion.AutoSize = $true
+$chkUploadHighMotion.Dock = 'Fill'
+$chkUploadHighMotion.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 3, 7, 3, 3
+
+$bitratePanel = New-Object System.Windows.Forms.TableLayoutPanel
+$bitratePanel.Dock = 'Fill'
+$bitratePanel.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0
+$bitratePanel.ColumnCount = 3
+$bitratePanel.RowCount = 1
+$bitrateColValue = New-Object System.Windows.Forms.ColumnStyle
+$bitrateColValue.SizeType = [System.Windows.Forms.SizeType]::Percent
+$bitrateColValue.Width = 62
+[void]$bitratePanel.ColumnStyles.Add($bitrateColValue)
+$bitrateColAuto = New-Object System.Windows.Forms.ColumnStyle
+$bitrateColAuto.SizeType = [System.Windows.Forms.SizeType]::Absolute
+$bitrateColAuto.Width = 62
+[void]$bitratePanel.ColumnStyles.Add($bitrateColAuto)
+$bitrateColMotion = New-Object System.Windows.Forms.ColumnStyle
+$bitrateColMotion.SizeType = [System.Windows.Forms.SizeType]::Absolute
+$bitrateColMotion.Width = 82
+[void]$bitratePanel.ColumnStyles.Add($bitrateColMotion)
+[void]$bitratePanel.Controls.Add($cmbBitrate, 0, 0)
+[void]$bitratePanel.Controls.Add($chkBitrateAuto, 1, 0)
+[void]$bitratePanel.Controls.Add($chkUploadHighMotion, 2, 0)
 
 $cmbFps = New-ComboBox @('自动（隔行→双帧率，如 29.97i → 59.94p）', '保持源帧率') 0
 
@@ -763,13 +828,6 @@ $cinematicCheckCol.Width = 100
 [void]$cinematicPanel.ColumnStyles.Add($cinematicCheckCol)
 [void]$cinematicPanel.Controls.Add($chkCinematic, 0, 0)
 
-$chkUploadHighMotion = New-Object System.Windows.Forms.CheckBox
-$chkUploadHighMotion.Text = '高动态视频'
-$chkUploadHighMotion.Checked = $false
-$chkUploadHighMotion.Dock = 'Fill'
-$chkUploadHighMotion.Enabled = $false
-$chkUploadHighMotion.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 8, 7, 3, 3
-
 $btnUploadSubtitle = New-Object System.Windows.Forms.Button
 $btnUploadSubtitle.Text = '字幕…'
 $btnUploadSubtitle.Dock = 'Fill'
@@ -779,26 +837,18 @@ $btnUploadSubtitle.Margin = New-Object System.Windows.Forms.Padding -ArgumentLis
 $uploadExtraPanel = New-Object System.Windows.Forms.TableLayoutPanel
 $uploadExtraPanel.Dock = 'Fill'
 $uploadExtraPanel.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0, 0, 0, 0
-$uploadExtraPanel.ColumnCount = 2
+$uploadExtraPanel.ColumnCount = 1
 $uploadExtraPanel.RowCount = 1
-
-$uploadExtraMotionCol = New-Object System.Windows.Forms.ColumnStyle
-$uploadExtraMotionCol.SizeType = [System.Windows.Forms.SizeType]::Percent
-$uploadExtraMotionCol.Width = 68
-[void]$uploadExtraPanel.ColumnStyles.Add($uploadExtraMotionCol)
-
 $uploadExtraSubCol = New-Object System.Windows.Forms.ColumnStyle
 $uploadExtraSubCol.SizeType = [System.Windows.Forms.SizeType]::Percent
-$uploadExtraSubCol.Width = 32
+$uploadExtraSubCol.Width = 100
 [void]$uploadExtraPanel.ColumnStyles.Add($uploadExtraSubCol)
-
-[void]$uploadExtraPanel.Controls.Add($chkUploadHighMotion, 0, 0)
-[void]$uploadExtraPanel.Controls.Add($btnUploadSubtitle, 1, 0)
+[void]$uploadExtraPanel.Controls.Add($btnUploadSubtitle, 0, 0)
 
 $uploadPanel = New-Object System.Windows.Forms.TableLayoutPanel
 $uploadPanel.Dock = 'Fill'
 $uploadPanel.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0, 0, 0, 0
-$uploadPanel.ColumnCount = 2
+$uploadPanel.ColumnCount = 3
 $uploadPanel.RowCount = 1
 $uploadCheckCol = New-Object System.Windows.Forms.ColumnStyle
 $uploadCheckCol.SizeType = [System.Windows.Forms.SizeType]::Percent
@@ -808,25 +858,35 @@ $uploadRateCol = New-Object System.Windows.Forms.ColumnStyle
 $uploadRateCol.SizeType = [System.Windows.Forms.SizeType]::Percent
 $uploadRateCol.Width = 48
 [void]$uploadPanel.ColumnStyles.Add($uploadRateCol)
+$uploadAutoCol = New-Object System.Windows.Forms.ColumnStyle
+$uploadAutoCol.SizeType = [System.Windows.Forms.SizeType]::Absolute
+$uploadAutoCol.Width = 62
+[void]$uploadPanel.ColumnStyles.Add($uploadAutoCol)
 
 $chkUpload = New-Object System.Windows.Forms.CheckBox
 $chkUpload.Text = '同时生成 H.264 上传版'
 $chkUpload.Dock = 'Fill'
 $chkUpload.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 7, 4, 3, 3
 
-$cmbUploadBitrate = New-ComboBox @(
-    '6000 kbps · NVENC',
-    '8000 kbps · NVENC',
-    '15000 kbps · NVENC',
-    'x264 Grain 推荐 · FPS联动',
-    'x264 Grain 高质量 · FPS联动',
-    'x264 Grain 极高 · FPS联动'
-) 1
+$cmbUploadBitrate = New-Object System.Windows.Forms.ComboBox
+$cmbUploadBitrate.Dock = 'Fill'
+$cmbUploadBitrate.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDown
+$cmbUploadBitrate.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 3, 5, 3, 5
+foreach ($value in @('3000','3500','4000','5000','6000','7000','7500','8000','9000','10000','11000','12000','15000','18000','20000','22000','30000')) { [void]$cmbUploadBitrate.Items.Add($value) }
+$cmbUploadBitrate.Text = $script:UploadBitrate
 $cmbUploadBitrate.Enabled = $false
-$cmbUploadBitrate.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 3, 5, 6, 5
+
+$chkUploadBitrateAuto = New-Object System.Windows.Forms.CheckBox
+$chkUploadBitrateAuto.Text = '自动'
+$chkUploadBitrateAuto.Checked = $true
+$chkUploadBitrateAuto.AutoSize = $true
+$chkUploadBitrateAuto.Dock = 'Fill'
+$chkUploadBitrateAuto.Enabled = $false
+$chkUploadBitrateAuto.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 3, 7, 3, 3
 
 [void]$uploadPanel.Controls.Add($chkUpload, 0, 0)
 [void]$uploadPanel.Controls.Add($cmbUploadBitrate, 1, 0)
+[void]$uploadPanel.Controls.Add($chkUploadBitrateAuto, 2, 0)
 
 $frameHelp = New-Object System.Windows.Forms.Label
 $frameHelp.Dock = 'Fill'
@@ -834,12 +894,12 @@ $frameHelp.AutoEllipsis = $true
 $frameHelp.ForeColor = $ColorMuted
 $frameHelp.TextAlign = [System.Drawing.ContentAlignment]::TopLeft
 $frameHelp.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 8, 6, 8, 0
-$frameHelp.Text = 'HEVC / AV1 均可选择烘焙黑边或裁剪有效画面。'
+$frameHelp.Text = 'AV1 / HEVC / H.264 均可选择烘焙黑边或裁剪有效画面。'
 
 Add-LabeledRow $encodeTable 0 '编码方式' $cmbCodec
 Add-LabeledRow $encodeTable 1 '输出容器' $cmbContainer
 Add-LabeledRow $encodeTable 2 '速度 / 质量' $cmbSpeed
-Add-LabeledRow $encodeTable 3 '视频码率' $cmbBitrate
+Add-LabeledRow $encodeTable 3 '视频码率' $bitratePanel
 Add-LabeledRow $encodeTable 4 '输出帧率' $cmbFps
 Add-LabeledRow $encodeTable 5 '插帧' $interpolationPanel
 Add-LabeledRow $encodeTable 6 '反交错' $cmbDeint
@@ -1187,9 +1247,13 @@ $toolTip.SetToolTip($cmbAv1GrainTable, '默认仅显示与源视频分辨率最�
 $toolTip.SetToolTip($btnRefreshAv1Table, '重新扫描 _AV1_Grain_Tables。')
 $toolTip.SetToolTip($chkShowAllAv1Tables, '显示全部分辨率 Grain Table；默认仅显示与源视频最接近的分辨率档位。')
 $toolTip.SetToolTip($btnUploadSubtitle, '硬字幕独立于 H.264 上传版；启用后烧写到主输出，若同时生成 H.264 上传版则副本也包含同一字幕。默认距最终输出画面下沿 5px、水平居中。')
-$toolTip.SetToolTip($chkInterpolation, '实验集成：逐行 SDR 输入插值到 60 fps；使用 Algo 13 + EncodeGUI Analyse。与自动电影帧率互斥，并暂时禁用同时生成 H.264 上传版。')
-$toolTip.SetToolTip($cmbUploadBitrate, 'NVENC：固定 6M / 8M / 15M。x264 Grain：按实际输出 FPS 与分辨率自动换算；分辨率按相对 1080p 像素面积平方根缩放。默认普通动态再乘 0.5，高动态视频勾选后使用完整码率。x264 使用 Slow + tune grain + 2-pass，VBV Max=3×、Buf=6×。')
-$toolTip.SetToolTip($chkUploadHighMotion, '仅影响 x264 Grain FPS联动模式。默认不勾选：自动计算码率减半；勾选：使用完整高动态码率。NVENC 不受影响。')
+$toolTip.SetToolTip($chkInterpolation, '逐行 SDR 输入插值到 60 fps；使用 Algo 13 + EncodeGUI Analyse。与自动电影帧率互斥。')
+$toolTip.SetToolTip($chkUpload, '附加 H.264 上传版固定使用 x264 Grain 8-bit 兼容输出；与主输出共用最终分辨率 / FPS / 高动态状态，但拥有独立码率。')
+$toolTip.SetToolTip($cmbUploadBitrate, 'H.264 上传版固定使用 x264 slow + tune grain + true 2-pass。自动模式与主线 x264 Grain 共用分辨率 / 最终 FPS / 高动态推荐策略，并直接显示实际 kbps；也可手动输入。')
+$toolTip.SetToolTip($chkUploadBitrateAuto, '勾选：上传版按 x264 Grain 的分辨率 / 最终 FPS / 高动态策略自动推荐；取消后可在左侧直接输入自定义 kbps。')
+$toolTip.SetToolTip($chkUploadHighMotion, '统一高动态模式：自动码率提高到高速运动档；NVENC 在硬件支持时使用更深 Lookahead / Fullres Multipass / adaptive B / scene-cut；x264 保持 slow + tune grain + 2-pass，并使用高动态码率。')
+$toolTip.SetToolTip($chkBitrateAuto, '勾选：码率框实时显示当前视频的自动推荐 kbps；分辨率、最终 FPS、编码器或高动态状态改变时自动刷新。取消勾选后可手动输入，程序不会偷偷覆盖。')
+$toolTip.SetToolTip($cmbBitrate, '单位 kbps。自动模式下这里直接显示计算结果；启动后日志会再次列出分辨率档位、FPS 系数、b:v、3× maxrate 与 6× bufsize。')
 
 # Log area
 $grpLog = New-Object System.Windows.Forms.GroupBox
@@ -1571,8 +1635,7 @@ function Show-UploadSubtitleDialog {
 }
 
 function Update-UploadHighMotionUi {
-    $isX264 = ($cmbUploadBitrate.SelectedIndex -ge 3)
-    $chkUploadHighMotion.Enabled = ($chkUpload.Checked -and $isX264)
+    $chkUploadHighMotion.Enabled = ($cmbCodec.SelectedIndex -ge 0 -and $cmbCodec.SelectedIndex -le 2)
 }
 
 function Set-MediaInfoText {
@@ -1692,6 +1755,7 @@ function Start-VideoProbe {
         Set-MediaInfoText $summary
         Update-DeinterlaceUi
         Update-NoReencodeAvailability
+        Update-BitrateDisplays
         if ($script:ProbeVideoMeta.ContainsKey($cacheKey) -and ([string]$script:ProbeVideoMeta[$cacheKey].codec_name).ToLowerInvariant() -eq 'av1') {
             Start-Av1GrainInspect $Path $summary
         } else {
@@ -1791,15 +1855,15 @@ function Update-NoReencodeAvailability {
         }
     }
 
-    $hasItem = ($cmbCodec.Items.Count -ge 3 -and [string]$cmbCodec.Items[2] -eq $script:NoReencodeItemText)
+    $hasItem = ($cmbCodec.Items.Count -ge 4 -and [string]$cmbCodec.Items[3] -eq $script:NoReencodeItemText)
     if ($eligible -and -not $hasItem) {
         [void]$cmbCodec.Items.Add($script:NoReencodeItemText)
     } elseif (-not $eligible -and $hasItem) {
-        if ($cmbCodec.SelectedIndex -eq 2) {
-            $fallback = if ($script:HardwareCapsReady -and -not $script:Av1Available) { 1 } else { 0 }
+        if ($cmbCodec.SelectedIndex -eq 3) {
+            $fallback = if ($script:HardwareCapsReady -and -not $script:Av1Available) { if ($script:HevcAvailable) { 1 } else { 2 } } else { 0 }
             $cmbCodec.SelectedIndex = $fallback
         }
-        $cmbCodec.Items.RemoveAt(2)
+        $cmbCodec.Items.RemoveAt(3)
     }
 }
 
@@ -1894,6 +1958,7 @@ $probeTimer.Add_Tick({
         Set-MediaInfoText $summary
         Update-DeinterlaceUi
         Update-NoReencodeAvailability
+        Update-BitrateDisplays
         if ($cmbAv1Method.SelectedIndex -eq 2 -and -not $chkShowAllAv1Tables.Checked) { Refresh-Av1GrainTables }
         if ($videoMeta.Count -gt 0 -and ([string]$videoMeta[0].codec_name).ToLowerInvariant() -eq 'av1') {
             Start-Av1GrainInspect $targetPath $summary
@@ -2077,17 +2142,173 @@ function Refresh-HevcGrainPlates {
     }
 }
 
+function Get-FpsNumber {
+    param([string]$Value)
+    if (-not $Value) { return 0.0 }
+    try {
+        $parts = $Value.Split('/')
+        if ($parts.Count -eq 2) {
+            $den = [double]$parts[1]
+            if ($den -eq 0) { return 0.0 }
+            return ([double]$parts[0] / $den)
+        }
+        return [double]$Value
+    } catch { return 0.0 }
+}
+
+function Get-RecommendedOutputFps {
+    param($Meta)
+    if ($chkInterpolation.Checked) { return 60.0 }
+    if ($null -eq $Meta) { return 60.0 }
+    $sourceFps = Get-FpsNumber ([string]$Meta.avg_frame_rate)
+    if ($sourceFps -le 0) { return 60.0 }
+    $fieldOrder = ([string]$Meta.field_order).ToLowerInvariant()
+    $isInterlaced = ($fieldOrder -in @('tt','bb','tb','bt'))
+    if ($cmbDeint.SelectedIndex -eq 0 -and $isInterlaced) { return ($sourceFps * 2.0) }
+    if ($cmbFps.SelectedIndex -eq 1) { return $sourceFps }
+
+    $targets23976 = @(23.976023976,29.970029970,47.952047952,59.940059940,119.880119880)
+    $targets24 = @(24.0,25.0,30.0,48.0,50.0,60.0,100.0,120.0)
+    $best = [double]::MaxValue
+    $family = ''
+    foreach ($t in $targets23976) {
+        $d = [Math]::Abs($sourceFps - $t)
+        if ($d -lt $best) { $best = $d; $family = '23976' }
+    }
+    foreach ($t in $targets24) {
+        $d = [Math]::Abs($sourceFps - $t)
+        if ($d -lt $best) { $best = $d; $family = '24' }
+    }
+    if ($best -le 0.25) {
+        if ($family -eq '23976') { return (24000.0 / 1001.0) }
+        return 24.0
+    }
+    return $sourceFps
+}
+
+function Get-BitrateFpsFactor {
+    param([double]$Fps)
+    if ($Fps -le 0) { return 1.0 }
+    $points = @(
+        @(24.0, 0.60),
+        @(25.0, 0.62),
+        @(30.0, 0.70),
+        @(50.0, 0.90),
+        @(60.0, 1.00),
+        @(120.0, 1.65)
+    )
+    if ($Fps -le 24.0) { return [Math]::Max(0.40, 0.60 * ($Fps / 24.0)) }
+    for ($i = 1; $i -lt $points.Count; $i++) {
+        $x1 = [double]$points[$i - 1][0]
+        $y1 = [double]$points[$i - 1][1]
+        $x2 = [double]$points[$i][0]
+        $y2 = [double]$points[$i][1]
+        if ($Fps -le $x2) {
+            $t = ($Fps - $x1) / ($x2 - $x1)
+            return ($y1 + (($y2 - $y1) * $t))
+        }
+    }
+    return (1.65 * [Math]::Pow(($Fps / 120.0), 0.75))
+}
+
+function Get-BitrateRecommendation {
+    param([int]$CodecIndex, [int]$Width, [int]$Height, [double]$Fps, [bool]$HighMotion)
+    if ($Width -le 0) { $Width = 1920 }
+    if ($Height -le 0) { $Height = 1080 }
+    if ($Fps -le 0) { $Fps = 60.0 }
+
+    $longEdge = [Math]::Max($Width, $Height)
+    $tier = if ($longEdge -le 1280) { '720p' } elseif ($longEdge -le 1920) { '1080p' } elseif ($longEdge -le 2560) { '1440p' } else { '2160p' }
+    $normal = @{
+        0 = @{ '720p'=3500; '1080p'=5000; '1440p'=7000; '2160p'=10000 }
+        1 = @{ '720p'=4000; '1080p'=6000; '1440p'=8000; '2160p'=12000 }
+        2 = @{ '720p'=5000; '1080p'=7500; '1440p'=10000; '2160p'=15000 }
+    }
+    $motion = @{
+        0 = @{ '720p'=6000; '1080p'=9000; '1440p'=12000; '2160p'=18000 }
+        1 = @{ '720p'=7000; '1080p'=11000; '1440p'=15000; '2160p'=22000 }
+        2 = @{ '720p'=10000; '1080p'=15000; '1440p'=20000; '2160p'=30000 }
+    }
+    $table = if ($HighMotion) { $motion } else { $normal }
+    $base = [double]$table[$CodecIndex][$tier]
+    $factor = Get-BitrateFpsFactor $Fps
+    $raw = $base * $factor
+    $rate = [int]([Math]::Floor(($raw + 250.0) / 500.0) * 500.0)
+    if ($rate -lt 1000) { $rate = 1000 }
+    return [pscustomobject]@{ Bitrate=$rate; Tier=$tier; Base=[int]$base; Fps=$Fps; FpsFactor=$factor; Width=$Width; Height=$Height }
+}
+
+function Get-BitrateSourceContext {
+    $item = $null
+    $selected = @($listFiles.SelectedItems)
+    if ($selected.Count -eq 1) { $item = $selected[0] }
+    elseif ($listFiles.Items.Count -gt 0) { $item = $listFiles.Items[0] }
+    if ($null -eq $item -or -not $item.Tag) { return [pscustomobject]@{ Meta=$null; Path='' } }
+    $path = [string]$item.Tag
+    $key = $path.ToLowerInvariant()
+    $meta = if ($script:ProbeVideoMeta.ContainsKey($key)) { $script:ProbeVideoMeta[$key] } else { $null }
+    return [pscustomobject]@{ Meta=$meta; Path=$path }
+}
+
+function Update-AutoBitrateDisplay {
+    if (-not $cmbBitrate -or -not $chkBitrateAuto -or $cmbCodec.SelectedIndex -lt 0 -or $cmbCodec.SelectedIndex -gt 2) { return }
+    $codecIndex = $cmbCodec.SelectedIndex
+    if (-not [bool]$script:ModeBitrateAuto[$codecIndex]) { return }
+    $ctx = Get-BitrateSourceContext
+    $meta = $ctx.Meta
+    $width = if ($meta -and $meta.width) { [int]$meta.width } else { 1920 }
+    $height = if ($meta -and $meta.height) { [int]$meta.height } else { 1080 }
+    $fps = Get-RecommendedOutputFps $meta
+    $rec = Get-BitrateRecommendation $codecIndex $width $height $fps $chkUploadHighMotion.Checked
+    $script:UpdatingBitrateUi = $true
+    try {
+        $cmbBitrate.Text = [string]$rec.Bitrate
+        $script:ModeBitrate[$codecIndex] = [string]$rec.Bitrate
+        $chkBitrateAuto.Checked = $true
+    } finally { $script:UpdatingBitrateUi = $false }
+    if ($toolTip) {
+        $motionText = if ($chkUploadHighMotion.Checked) { '高动态' } else { '普通动态' }
+        $toolTip.SetToolTip($cmbBitrate, ('自动推荐：{0} kbps · {1} · 60fps基准 {2} kbps · 最终 {3:0.###} fps · FPS系数 {4:0.###} · {5}。启动任务后 Bridge 会按每个文件实际输出再次计算。' -f $rec.Bitrate,$rec.Tier,$rec.Base,$rec.Fps,$rec.FpsFactor,$motionText))
+    }
+}
+
+function Update-UploadAutoBitrateDisplay {
+    if (-not $cmbUploadBitrate -or -not $chkUploadBitrateAuto) { return }
+    if (-not [bool]$script:UploadBitrateAuto) { return }
+    $ctx = Get-BitrateSourceContext
+    $meta = $ctx.Meta
+    $width = if ($meta -and $meta.width) { [int]$meta.width } else { 1920 }
+    $height = if ($meta -and $meta.height) { [int]$meta.height } else { 1080 }
+    $fps = Get-RecommendedOutputFps $meta
+    $rec = Get-BitrateRecommendation 2 $width $height $fps $chkUploadHighMotion.Checked
+    $script:UpdatingUploadBitrateUi = $true
+    try {
+        $cmbUploadBitrate.Text = [string]$rec.Bitrate
+        $script:UploadBitrate = [string]$rec.Bitrate
+        $chkUploadBitrateAuto.Checked = $true
+    } finally { $script:UpdatingUploadBitrateUi = $false }
+    if ($toolTip) {
+        $motionText = if ($chkUploadHighMotion.Checked) { '高动态' } else { '普通动态' }
+        $toolTip.SetToolTip($cmbUploadBitrate, ('H.264 上传版自动推荐：{0} kbps · x264 Grain · {1} · 60fps基准 {2} kbps · 最终 {3:0.###} fps · FPS系数 {4:0.###} · {5}。Bridge 会按每个文件实际输出再次计算。' -f $rec.Bitrate,$rec.Tier,$rec.Base,$rec.Fps,$rec.FpsFactor,$motionText))
+    }
+}
+
+function Update-BitrateDisplays {
+    Update-AutoBitrateDisplay
+    Update-UploadAutoBitrateDisplay
+}
+
 function Load-BitrateChoices {
     param([int]$CodecIndex)
     $cmbBitrate.BeginUpdate()
     try {
         $cmbBitrate.Items.Clear()
-        $values = if ($CodecIndex -eq 0) { @('1000', '1500', '2500', '4000') } else { @('6000', '7500', '9000', '12000') }
-        foreach ($value in $values) { [void]$cmbBitrate.Items.Add($value) }
-        $cmbBitrate.Text = [string]$script:ModeBitrate[$CodecIndex]
-    } finally {
-        $cmbBitrate.EndUpdate()
-    }
+        foreach ($value in @('3000','3500','4000','5000','6000','7000','7500','8000','9000','10000','11000','12000','15000','18000','20000','22000','30000')) { [void]$cmbBitrate.Items.Add($value) }
+    } finally { $cmbBitrate.EndUpdate() }
+    $script:UpdatingBitrateUi = $true
+    try { $chkBitrateAuto.Checked = [bool]$script:ModeBitrateAuto[$CodecIndex] } finally { $script:UpdatingBitrateUi = $false }
+    if ([bool]$script:ModeBitrateAuto[$CodecIndex]) { Update-AutoBitrateDisplay }
+    else { $cmbBitrate.Text = [string]$script:ModeBitrate[$CodecIndex] }
 }
 
 function Get-Av1GrainTierFromDimensions {
@@ -2350,6 +2571,17 @@ function Update-Av1Controls {
 }
 
 function Update-SpeedChoices {
+    if ($cmbCodec.SelectedIndex -eq 2) {
+        $cmbSpeed.BeginUpdate()
+        try {
+            $cmbSpeed.Items.Clear()
+            [void]$cmbSpeed.Items.Add('x264 · slow / tune grain / 2-pass（固定）')
+            $cmbSpeed.SelectedIndex = 0
+        } finally { $cmbSpeed.EndUpdate() }
+        $cmbSpeed.Enabled = $false
+        return
+    }
+    $cmbSpeed.Enabled = $true
     $allowUhq = ($cmbCodec.SelectedIndex -eq 0 -and $script:HardwareCapsReady -and $script:Av1UhqAvailable)
     $currentText = [string]$cmbSpeed.SelectedItem
     $selectedIndex = if ($currentText -like 'Standard*') { 1 } else { 0 }
@@ -2392,7 +2624,7 @@ function Update-DeinterlaceUi {
         return
     }
 
-    if ($cmbCodec.SelectedIndex -eq 2) {
+    if ($cmbCodec.SelectedIndex -eq 3) {
         $cmbDeintMethod.Enabled = $false
         $cmbFps.Enabled = $false
         return
@@ -2438,7 +2670,7 @@ function Update-DeinterlaceUi {
 function Update-InterpolationUi {
     if (-not $chkInterpolation) { return }
 
-    if ($cmbCodec.SelectedIndex -eq 2) {
+    if ($cmbCodec.SelectedIndex -eq 3) {
         $chkInterpolation.Checked = $false
         $chkInterpolation.Enabled = $false
         $cmbInterpolationMode.Enabled = $false
@@ -2455,16 +2687,19 @@ function Update-InterpolationUi {
         $cmbFps.SelectedIndex = 0
         $cmbFps.Enabled = $false
 
-        if ($chkUpload.Checked) { $chkUpload.Checked = $false }
-        $chkUpload.Enabled = $false
-        $cmbUploadBitrate.Enabled = $false
-        $chkUploadHighMotion.Enabled = $false
+        $chkUpload.Enabled = ($cmbCodec.SelectedIndex -ne 2 -and (-not $script:HardwareCapsReady -or $script:X264Available))
+        $cmbUploadBitrate.Enabled = ($chkUpload.Enabled -and $chkUpload.Checked)
+        $chkUploadBitrateAuto.Enabled = ($chkUpload.Enabled -and $chkUpload.Checked)
+        $btnUploadSubtitle.Enabled = $true
+        Update-UploadHighMotionUi
         return
     }
 
     $cmbInterpolationMode.Enabled = $false
     $cmbDeint.Enabled = $true
-    $chkUpload.Enabled = $true
+    $chkUpload.Enabled = ($cmbCodec.SelectedIndex -ne 2 -and (-not $script:HardwareCapsReady -or $script:X264Available))
+    $cmbUploadBitrate.Enabled = ($chkUpload.Enabled -and $chkUpload.Checked)
+    $chkUploadBitrateAuto.Enabled = ($chkUpload.Enabled -and $chkUpload.Checked)
     Update-DeinterlaceUi
     Update-UploadHighMotionUi
 }
@@ -2496,7 +2731,7 @@ function Update-FramingUi {
             $cmbFrameMode.SelectedIndex = $selectedFrameIndex
         }
 
-        if ($cmbCodec.SelectedIndex -eq 2) {
+        if ($cmbCodec.SelectedIndex -eq 3) {
             $cmbFrameMode.Enabled = $false
             $frameHelp.Text = 'AV1 视频流不重编码，仅添加/替换胶片颗粒元数据；画幅处理已禁用。'
             return
@@ -2505,22 +2740,22 @@ function Update-FramingUi {
         $enabled = $chkCinematic.Checked
         $cmbFrameMode.Enabled = $enabled
         if (-not $enabled) {
-            $frameHelp.Text = 'Cinematic Style 已关闭：HEVC / AV1 均保持原始画幅。'
+            $frameHelp.Text = 'Cinematic Style 已关闭：AV1 / HEVC / H.264 均保持原始画幅。'
             return
         }
 
         if ($cmbFrameMode.SelectedIndex -eq 0) {
             if ($customCrop -gt 0) {
-                $frameHelp.Text = "HEVC / AV1：自定义黑边，上下各 ${customCrop} px；保持原分辨率。"
+                $frameHelp.Text = "AV1 / HEVC / H.264：自定义黑边，上下各 ${customCrop} px；保持原分辨率。"
             } else {
-                $frameHelp.Text = 'HEVC / AV1：保留原分辨率，烘焙约 2.39:1 黑边，适合后期字幕。'
+                $frameHelp.Text = 'AV1 / HEVC / H.264：保留原分辨率，烘焙约 2.39:1 黑边，适合后期字幕。'
             }
         } else {
             if ($customCrop -gt 0) {
                 $totalCrop = $customCrop * 2
-                $frameHelp.Text = "HEVC / AV1：自定义裁剪，上下各 ${customCrop} px；输出高度总计减少 ${totalCrop} px。"
+                $frameHelp.Text = "AV1 / HEVC / H.264：自定义裁剪，上下各 ${customCrop} px；输出高度总计减少 ${totalCrop} px。"
             } else {
-                $frameHelp.Text = 'HEVC / AV1：裁剪至约 2.39:1，例如 1920×1080 → 1920×804。'
+                $frameHelp.Text = 'AV1 / HEVC / H.264：裁剪至约 2.39:1，例如 1920×1080 → 1920×804。'
             }
         }
     } finally {
@@ -2532,7 +2767,7 @@ function Update-CodecUi {
     $newIndex = $cmbCodec.SelectedIndex
     if ($newIndex -lt 0) { return }
 
-    if ($newIndex -eq 2) {
+    if ($newIndex -eq 3) {
         $script:NoReencodeUiActive = $true
         if ($cmbContainer.Items.Count -ge 2) {
             $cmbContainer.Items[0] = 'MP4 · AAC 256k（兼容模式）'
@@ -2557,7 +2792,9 @@ function Update-CodecUi {
         $cmbFrameMode.Enabled = $false
         $chkUpload.Enabled = $false
         $cmbUploadBitrate.Enabled = $false
+        $chkUploadBitrateAuto.Enabled = $false
         $chkUploadHighMotion.Enabled = $false
+        $chkBitrateAuto.Enabled = $false
         $btnUploadSubtitle.Enabled = $false
         $grpLut.Enabled = $false
         $frameHelp.Text = 'AV1 视频流不重编码，仅添加/替换胶片颗粒元数据；反交错、码率、LUT、画幅处理和上传版等重编码功能已禁用。'
@@ -2576,11 +2813,13 @@ function Update-CodecUi {
         $cmbContainer.Enabled = $true
         $cmbSpeed.Enabled = $true
         $cmbBitrate.Enabled = $true
+        $chkBitrateAuto.Enabled = $true
         $chkInterpolation.Enabled = $true
         $cmbDeint.Enabled = $true
         $chkCinematic.Enabled = $true
         $chkUpload.Enabled = $true
         $cmbUploadBitrate.Enabled = $chkUpload.Checked
+        $chkUploadBitrateAuto.Enabled = $chkUpload.Checked
         $btnUploadSubtitle.Enabled = $true
         $grpLut.Enabled = $true
         $btnStart.Text = '开始编码'
@@ -2592,18 +2831,32 @@ function Update-CodecUi {
     }
 
     if (-not $script:ChangingCodec -and $newIndex -eq 0 -and $script:HardwareCapsReady -and -not $script:Av1Available) {
+        $fallback = if ($script:HevcAvailable) { 1 } else { 2 }
         $script:ChangingCodec = $true
-        try { $cmbCodec.SelectedIndex = 1 }
+        try { $cmbCodec.SelectedIndex = $fallback }
         finally { $script:ChangingCodec = $false }
-        Show-Info '当前 GPU / 驱动不支持 AV1 Main10 NVENC，已自动切换到 HEVC。'
+        $fallbackMessage = if ($fallback -eq 1) { '当前 GPU / 驱动不支持 AV1 Main10 NVENC，已自动切换到 HEVC。' } else { '当前 GPU / 驱动不支持 AV1 Main10 NVENC，已自动切换到 H.264 x264 Grain。' }
+        Show-Info $fallbackMessage
         return
+    }
+
+    if (-not $script:ChangingCodec -and $newIndex -eq 2 -and $script:HardwareCapsReady -and -not $script:X264Available) {
+        $fallback = if ($script:HevcAvailable) { 1 } elseif ($script:Av1Available) { 0 } else { -1 }
+        if ($fallback -ge 0) {
+            $script:ChangingCodec = $true
+            try { $cmbCodec.SelectedIndex = $fallback }
+            finally { $script:ChangingCodec = $false }
+            $fallbackMessage = if ($fallback -eq 1) { '当前环境不支持 H.264 x264 Grain 主线，已自动切换到 HEVC。' } else { '当前环境不支持 H.264 x264 Grain 主线，已自动切换到 AV1。' }
+            Show-Info $fallbackMessage
+            return
+        }
     }
 
     if (-not $script:ChangingCodec) {
         $script:ChangingCodec = $true
         try {
             if ($script:LastCodecIndex -ne $newIndex) {
-                if ($cmbBitrate.Text) { $script:ModeBitrate[$script:LastCodecIndex] = $cmbBitrate.Text.Trim() }
+                if ($cmbBitrate.Text -and $script:LastCodecIndex -ge 0 -and $script:LastCodecIndex -le 2) { $script:ModeBitrate[$script:LastCodecIndex] = $cmbBitrate.Text.Trim() }
                 Load-BitrateChoices $newIndex
                 $script:LastCodecIndex = $newIndex
             }
@@ -2619,15 +2872,26 @@ function Update-CodecUi {
         $pnlAv1.Visible = $true
         $pnlAv1.BringToFront()
         $grpGrain.Text = 'AV1 · 胶片颗粒元数据'
+        $chkUpload.Enabled = (-not $script:HardwareCapsReady -or $script:X264Available)
     } else {
         $pnlAv1.Visible = $false
         $pnlHevc.Visible = $true
         $pnlHevc.BringToFront()
-        $grpGrain.Text = 'HEVC · 扫描胶片颗粒'
+        if ($newIndex -eq 2) {
+            $grpGrain.Text = 'H.264 x264 · 扫描胶片颗粒'
+            $chkUpload.Enabled = $false
+        } else {
+            $grpGrain.Text = 'HEVC · 扫描胶片颗粒'
+            $chkUpload.Enabled = (-not $script:HardwareCapsReady -or $script:X264Available)
+        }
         if ($script:LastScannedGrainRoot -ne $txtGrainRoot.Text.Trim() -or $script:HevcGrainFiles.Count -eq 0) {
             Refresh-HevcGrainPlates
         }
     }
+    $cmbUploadBitrate.Enabled = ($chkUpload.Enabled -and $chkUpload.Checked)
+    $chkUploadBitrateAuto.Enabled = ($chkUpload.Enabled -and $chkUpload.Checked)
+    Update-UploadHighMotionUi
+    Update-BitrateDisplays
 }
 
 function Get-LutPathKey {
@@ -3480,7 +3744,7 @@ function Start-NoReencodeProcessing {
 }
 
 function Start-Encoding {
-    if ($cmbCodec.SelectedIndex -eq 2) {
+    if ($cmbCodec.SelectedIndex -eq 3) {
         Start-NoReencodeProcessing
         return
     }
@@ -3517,8 +3781,18 @@ function Start-Encoding {
         Show-Error '视频码率必须是大于 10 且不超过 500000000 的整数（单位 kbps）。'
         return
     }
-    $maxrate = [long]($bitrate * 2)
-    $bufsize = [long]($bitrate * 4)
+    $bitrateAuto = [bool]$script:ModeBitrateAuto[$cmbCodec.SelectedIndex]
+    $maxrate = [long]($bitrate * 3)
+    $bufsize = [long]($bitrate * 6)
+
+    $uploadBitrate = 0L
+    $uploadBitrateAuto = [bool]$script:UploadBitrateAuto
+    if ($cmbCodec.SelectedIndex -ne 2 -and $chkUpload.Checked) {
+        if (-not [long]::TryParse($cmbUploadBitrate.Text.Trim(), [ref]$uploadBitrate) -or $uploadBitrate -le 10 -or $uploadBitrate -gt 500000000) {
+            Show-Error 'H.264 上传版码率必须是大于 10 且不超过 500000000 的整数（单位 kbps）。'
+            return
+        }
+    }
 
     if ($chkLut.Checked) {
         if (-not $script:SelectedLutPath) {
@@ -3531,16 +3805,20 @@ function Start-Encoding {
         }
     }
 
-    $mode = if ($cmbCodec.SelectedIndex -eq 0) { 'AV1' } else { 'HEVC' }
+    $mode = if ($cmbCodec.SelectedIndex -eq 0) { 'AV1' } elseif ($cmbCodec.SelectedIndex -eq 1) { 'HEVC' } else { 'X264' }
     if ($script:HardwareCapsReady -and $mode -eq 'AV1' -and -not $script:Av1Available) {
-        Show-Error '当前 GPU / 驱动不支持 AV1 Main10 NVENC。请使用自动选择的 HEVC 模式。'
+        Show-Error '当前 GPU / 驱动不支持 AV1 Main10 NVENC。请改用可用的 HEVC 或 H.264 x264 Grain。'
         return
     }
     if ($script:HardwareCapsReady -and $mode -eq 'HEVC' -and -not $script:HevcAvailable) {
         Show-Error '当前 GPU / 驱动不支持本项目所需的 HEVC Main10 NVENC + Vulkan 路径。'
         return
     }
-    if ($cmbSpeed.SelectedIndex -eq 2 -and ($mode -ne 'AV1' -or -not $script:Av1UhqAvailable)) {
+    if ($script:HardwareCapsReady -and $mode -eq 'X264' -and -not $script:X264Available) {
+        Show-Error '当前环境没有通过 x264 Grain 主线能力检测（Vulkan + libx264 + tune grain），无法启动 H.264 x264 Grain。'
+        return
+    }
+    if ($mode -ne 'X264' -and $cmbSpeed.SelectedIndex -eq 2 -and ($mode -ne 'AV1' -or -not $script:Av1UhqAvailable)) {
         Show-Error '当前 GPU / 驱动 / FFmpeg 不支持 AV1 UHQ，请选择 FAST 或 Standard。'
         return
     }
@@ -3559,7 +3837,7 @@ function Start-Encoding {
     }
 
     $selectedGrainPath = $null
-    if ($mode -eq 'HEVC') {
+    if ($mode -eq 'HEVC' -or $mode -eq 'X264') {
         $grainRoot = $txtGrainRoot.Text.Trim()
         if (-not (Test-Path -LiteralPath $grainRoot -PathType Container)) {
             Show-Error "HEVC 颗粒根目录不存在：`r`n$grainRoot"
@@ -3594,7 +3872,9 @@ function Start-Encoding {
     $lblRunStage.Text = '正在启动 Studio Bridge…'
     $lblRunMetric.Text = 'fps: —   speed: —'
     Append-LogText ("Film Grain Studio`r`n" + ('=' * 68) + "`r`n")
-    Append-LogText ("任务文件数：$($paths.Count)  ·  模式：$mode  ·  码率：$bitrate kbps`r`n")
+    $rateModeLabel = if ($bitrateAuto) { '自动推荐' } else { '手动' }
+    $motionLabel = if ($chkUploadHighMotion.Checked) { '高动态' } else { '普通动态' }
+    Append-LogText ("任务文件数：$($paths.Count)  ·  模式：$mode  ·  码率：$rateModeLabel / 当前显示 $bitrate kbps  ·  $motionLabel`r`n")
     if ($chkInterpolation.Checked) {
         $sceneLabel = 'Uniform'
         if ($cmbInterpolationMode.SelectedIndex -eq 1) { $sceneLabel = 'Adaptive' }
@@ -3602,7 +3882,16 @@ function Start-Encoding {
         if ($script:SvpAnalyse -eq 'BASE') { $analyseLabel = 'Baseline Analyse' }
         Append-LogText "OpenSVPFlow：60 fps · $sceneLabel · Algo $($script:SvpAlgo) · $analyseLabel · Mask $($script:SvpMaskArea) · GPU/OpenCL`r`n"
     }
-    Append-LogText ("GUI 码率请求：b:v ${bitrate}k  ·  maxrate ${maxrate}k  ·  bufsize ${bufsize}k`r`n`r`n")
+    if ($bitrateAuto) {
+        Append-LogText ("GUI 自动推荐当前显示：b:v ${bitrate}k  ·  maxrate ${maxrate}k  ·  bufsize ${bufsize}k；Bridge 将按每个文件实际输出重新计算。`r`n")
+    } else {
+        Append-LogText ("GUI 手动码率：b:v ${bitrate}k  ·  maxrate ${maxrate}k  ·  bufsize ${bufsize}k`r`n")
+    }
+    if ($mode -ne 'X264' -and $chkUpload.Checked) {
+        $uploadRateModeLabel = if ($uploadBitrateAuto) { '自动推荐' } else { '手动' }
+        Append-LogText ("H.264 上传版：x264 slow + tune grain + true 2-pass · $uploadRateModeLabel / 当前显示 ${uploadBitrate} kbps · 与全局 $motionLabel 同步；Bridge 将按每个文件实际输出确认。`r`n")
+    }
+    Append-LogText "`r`n"
 
     # Studio normally treats Recent and Favorites as read-only. Only a LUT
     # selected from Favorites is registered once, through Gallery itself,
@@ -3647,10 +3936,13 @@ function Start-Encoding {
     $envs['FG_MODE'] = $mode
     $envs['FG_CONTAINER'] = if ($cmbContainer.SelectedIndex -eq 0) { 'MP4' } else { 'MKV' }
     $speedModes = @('FAST', 'STANDARD', 'UHQ')
-    $envs['FG_SPEED'] = $speedModes[$cmbSpeed.SelectedIndex]
+    $envs['FG_SPEED'] = if ($mode -eq 'X264') { 'X264' } else { $speedModes[$cmbSpeed.SelectedIndex] }
+    $envs['FG_BITRATE_MODE'] = if ($bitrateAuto) { 'AUTO' } else { 'MANUAL' }
     $envs['FG_BITRATE'] = [string]$bitrate
     $envs['FG_MAXRATE'] = [string]$maxrate
     $envs['FG_BUFSIZE'] = [string]$bufsize
+    $envs['FG_HIGH_MOTION'] = if ($chkUploadHighMotion.Checked) { '1' } else { '0' }
+    $envs['FG_H264_HIGH10'] = if ($script:H264High10) { '1' } else { '0' }
     $envs['FG_FPS_MODE'] = if ($cmbFps.SelectedIndex -eq 0) { 'AUTO' } else { 'SOURCE' }
     $envs['FG_SVP_INTERPOLATE'] = if ($chkInterpolation.Checked) { '1' } else { '0' }
     $envs['FG_SVP_ALGO'] = [string]$script:SvpAlgo
@@ -3668,20 +3960,13 @@ function Start-Encoding {
     $envs['FG_FRAME_MODE'] = if ($cmbFrameMode.SelectedIndex -eq 0) { 'LETTERBOX' } else { 'CROP' }
     $envs['FG_CROP_PER_SIDE'] = [string]$script:CinematicCropPerSide
     $envs['FG_KEEP_FAILED'] = '1'
-    $uploadBitrates = @(6000, 8000, 15000)
-    $envs['FG_UPLOAD'] = if ($chkUpload.Checked) { '1' } else { '0' }
-    $envs['FG_UPLOAD_HIGH_MOTION'] = if ($chkUpload.Checked -and $cmbUploadBitrate.SelectedIndex -ge 3 -and $chkUploadHighMotion.Checked) { '1' } else { '0' }
-    if ($cmbUploadBitrate.SelectedIndex -le 2) {
-        $envs['FG_UPLOAD_MODE'] = 'VBR'
-        $envs['FG_UPLOAD_BITRATE'] = [string]$uploadBitrates[$cmbUploadBitrate.SelectedIndex]
-        $envs['FG_UPLOAD_X264_TIER'] = ''
-        $envs['FG_UPLOAD_QP'] = ''
-    } else {
-        $envs['FG_UPLOAD_MODE'] = 'X264'
-        $envs['FG_UPLOAD_BITRATE'] = ''
-        $envs['FG_UPLOAD_X264_TIER'] = [string]($cmbUploadBitrate.SelectedIndex - 2)
-        $envs['FG_UPLOAD_QP'] = ''
-    }
+    $envs['FG_UPLOAD'] = if ($mode -ne 'X264' -and $chkUpload.Checked) { '1' } else { '0' }
+    $envs['FG_UPLOAD_MODE'] = 'X264'
+    $envs['FG_UPLOAD_BITRATE_MODE'] = if ($uploadBitrateAuto) { 'AUTO' } else { 'MANUAL' }
+    $envs['FG_UPLOAD_BITRATE'] = [string]$uploadBitrate
+    $envs['FG_UPLOAD_MAXRATE'] = [string]([long]($uploadBitrate * 3))
+    $envs['FG_UPLOAD_BUFSIZE'] = [string]([long]($uploadBitrate * 6))
+    $envs['FG_UPLOAD_HIGH_MOTION'] = if ($chkUploadHighMotion.Checked) { '1' } else { '0' }
     $envs['FG_SUBTITLE'] = if ($script:UploadSubtitle.Enabled) { '1' } else { '0' }
     $envs['FG_UPLOAD_SUBTITLE'] = $envs['FG_SUBTITLE']
     $envs['FG_SUB_MODE'] = [string]$script:UploadSubtitle.Mode
@@ -4401,8 +4686,9 @@ function Show-PathConfigurationDialog {
     }
     Update-HardwareProfileUi
     Update-NoReencodeAvailability
-    if ($cmbCodec.Items.Count -ge 2) {
+    if ($cmbCodec.Items.Count -ge 3) {
         $cmbCodec.Items[0] = if ($script:HardwareCapsReady -and -not $script:Av1Available) { 'AV1 · grav1synth 胶片颗粒（当前硬件不可用）' } else { 'AV1 · grav1synth 胶片颗粒（默认）' }
+        $cmbCodec.Items[2] = if ($script:HardwareCapsReady -and -not $script:X264Available) { 'H.264 · x264 Grain（当前 x264 Grain 路径不可用）' } else { 'H.264 · x264 Grain（CPU / 2-pass）' }
     }
     Update-CodecUi
     if ($grainRootChanged) {
@@ -4469,18 +4755,28 @@ $form.Add_DragEnter($dragEnterHandler)
 $form.Add_DragDrop($dragDropHandler)
 $listFiles.Add_DragEnter($dragEnterHandler)
 $listFiles.Add_DragDrop($dragDropHandler)
-$listFiles.Add_SelectedIndexChanged({ Update-SelectedMediaInfo; Update-DeinterlaceUi; Update-NoReencodeAvailability })
+$listFiles.Add_SelectedIndexChanged({ Update-SelectedMediaInfo; Update-DeinterlaceUi; Update-NoReencodeAvailability; Update-BitrateDisplays })
 
-$cmbCodec.Add_SelectedIndexChanged({ Update-CodecUi; Update-FramingUi })
-$cmbDeint.Add_SelectedIndexChanged({ Update-DeinterlaceUi })
-$chkInterpolation.Add_CheckedChanged({ Update-InterpolationUi })
-$chkCinematic.Add_CheckedChanged({ Update-FramingUi })
-$cmbFrameMode.Add_SelectedIndexChanged({ Update-FramingUi })
+$cmbCodec.Add_SelectedIndexChanged({ Update-CodecUi; Update-FramingUi; Update-BitrateDisplays })
+$cmbDeint.Add_SelectedIndexChanged({ Update-DeinterlaceUi; Update-BitrateDisplays })
+$chkInterpolation.Add_CheckedChanged({ Update-InterpolationUi; Update-BitrateDisplays })
+$chkCinematic.Add_CheckedChanged({ Update-FramingUi; Update-BitrateDisplays })
+$cmbFrameMode.Add_SelectedIndexChanged({ Update-FramingUi; Update-BitrateDisplays })
 $cmbBitrate.Add_TextChanged({
-    if (-not $script:ChangingCodec -and $cmbCodec.SelectedIndex -ge 0 -and $cmbCodec.SelectedIndex -le 1) {
+    if (-not $script:ChangingCodec -and -not $script:UpdatingBitrateUi -and $cmbCodec.SelectedIndex -ge 0 -and $cmbCodec.SelectedIndex -le 2) {
+        $script:ModeBitrateAuto[$cmbCodec.SelectedIndex] = $false
         $script:ModeBitrate[$cmbCodec.SelectedIndex] = $cmbBitrate.Text.Trim()
+        $script:UpdatingBitrateUi = $true
+        try { $chkBitrateAuto.Checked = $false } finally { $script:UpdatingBitrateUi = $false }
     }
 })
+$chkBitrateAuto.Add_CheckedChanged({
+    if ($script:UpdatingBitrateUi -or $cmbCodec.SelectedIndex -lt 0 -or $cmbCodec.SelectedIndex -gt 2) { return }
+    $script:ModeBitrateAuto[$cmbCodec.SelectedIndex] = [bool]$chkBitrateAuto.Checked
+    if ($chkBitrateAuto.Checked) { Update-AutoBitrateDisplay }
+})
+$chkUploadHighMotion.Add_CheckedChanged({ Update-BitrateDisplays })
+$cmbFps.Add_SelectedIndexChanged({ Update-BitrateDisplays })
 $cmbAv1Method.Add_SelectedIndexChanged({
     Update-Av1Controls
     if ($cmbAv1Method.SelectedIndex -eq 2) { Refresh-Av1GrainTables }
@@ -4500,10 +4796,25 @@ $trackLutStrength.Add_ValueChanged({
 })
 
 $chkUpload.Add_CheckedChanged({
-    $cmbUploadBitrate.Enabled = $chkUpload.Checked
+    $enabled = ($chkUpload.Enabled -and $chkUpload.Checked)
+    $cmbUploadBitrate.Enabled = $enabled
+    $chkUploadBitrateAuto.Enabled = $enabled
+    if ($enabled -and $script:UploadBitrateAuto) { Update-UploadAutoBitrateDisplay }
     Update-UploadHighMotionUi
 })
-$cmbUploadBitrate.Add_SelectedIndexChanged({ Update-UploadHighMotionUi })
+$cmbUploadBitrate.Add_TextChanged({
+    if (-not $script:UpdatingUploadBitrateUi) {
+        $script:UploadBitrateAuto = $false
+        $script:UploadBitrate = $cmbUploadBitrate.Text.Trim()
+        $script:UpdatingUploadBitrateUi = $true
+        try { $chkUploadBitrateAuto.Checked = $false } finally { $script:UpdatingUploadBitrateUi = $false }
+    }
+})
+$chkUploadBitrateAuto.Add_CheckedChanged({
+    if ($script:UpdatingUploadBitrateUi) { return }
+    $script:UploadBitrateAuto = [bool]$chkUploadBitrateAuto.Checked
+    if ($chkUploadBitrateAuto.Checked) { Update-UploadAutoBitrateDisplay }
+})
 $btnUploadSubtitle.Add_Click({ Show-UploadSubtitleDialog })
 
 $chkLut.Add_CheckedChanged({ Set-LutUi })
@@ -4636,6 +4947,7 @@ $form.Add_FormClosing({
 $form.Add_FormClosed({ Clear-StudioLutPreview })
 
 Load-BitrateChoices $cmbCodec.SelectedIndex
+Update-BitrateDisplays
 Update-CodecUi
 Update-Av1Controls
 Refresh-Av1GrainTables

@@ -55,16 +55,17 @@ FilmGrain_Universal_HEVC_AV1_CLI.bat
 - AV1 Main10：NVENC 编码后由 grav1synth 写入 Film Grain metadata。
 - AV1 Grain 可使用内置 Film Preset / Photon ISO，也可加载 _AV1_Grain_Tables 中现成 .tbl / .txt；GUI 默认按源视频分辨率档位过滤。
 - HEVC Main10：使用扫描 Grain plate、Vulkan overlay 和 NVENC 编码。
+- H.264 x264 Grain：与 HEVC 共用扫描 Grain / LUT / 画幅 / 反交错 / OpenSVPFlow 前处理，使用 libx264 slow + tune grain + true 2-pass；默认最终输出 High 8-bit，高级设置可启用 High10 实验模式。
 - 共享速度、画幅、反交错、帧率、容器、LUT Gallery、码率和批量处理菜单。
 - 默认编码方式：AV1。
 - 默认输出容器：MP4（音频转 AAC 256k，不兼容的字幕、附件和数据流不写入）。
 - MKV 模式仍可保留原始音频、字幕、附件和数据流。
-- Cinematic Style 约 2.39:1；HEVC / AV1 均可选择“加黑边保留原分辨率”或“裁剪有效画面”。
+- Cinematic Style 约 2.39:1；AV1 / HEVC / H.264 均可选择“加黑边保留原分辨率”或“裁剪有效画面”。
 - 自动反交错默认使用 BWDIF Vulkan；隔行 29.97i → 59.94p、25i → 50p。
-- AV1 / HEVC 均可同时生成 H.264 上传版；NVENC P7 提供 6000 / 8000 / 15000 kbps。
-- x264 Slow + tune grain + 2-pass 提供推荐 / 高质量 / 极高三档，并按实际输出 FPS + 分辨率
-  自动联动码率；普通动态默认 0.5×，勾选“高动态视频”后为 1.0×。
-- 字幕功能独立开关，可烧写进主 HEVC / AV1；同时生成 H.264 上传副本时也会继承字幕。
+- AV1 / HEVC 均可同时生成 H.264 上传版；上传副本固定为 x264 Slow + tune grain + true 2-pass / High 8-bit，并使用独立自动/手动码率。
+- OpenSVPFlow 60 fps 插帧开启时也可继续生成 H.264 上传版；AV1 复用最终 AV1，HEVC 复用最终插帧 HEVC，不重复运行插帧。
+- AV1 / HEVC / H.264 三条主线共用分辨率 + 最终 FPS + 高动态自动码率，主界面直接显示实际 kbps；手动输入后不覆盖。统一 VBV 为 maxrate=平均×3、bufsize=平均×6。
+- 字幕功能独立开关，可烧写进主 AV1 / HEVC / H.264；同时生成 H.264 上传副本时也会继承字幕。
 - 支持内嵌 / 同名外部 / 浏览外部文本字幕；默认 huiwen-mincho、69 号 1080p 基准，
   统一以最终输出底边定位，MarginV=5 px，并按输出宽度等比缩放。
 
@@ -91,11 +92,13 @@ Gallery 已统一为中文界面。页码使用只读下拉菜单，可显示当
 
 2. 社交网站转码工具
 -------------------
-将一个或多个带 AV1 Film Grain metadata 的视频拖到：
+将一个或多个已完成颗粒效果/插帧处理的 AV1 或 HEVC 视频拖到：
 Utils\AV1_FilmGrain_Bake_for_Social_Upload.bat
 
-脚本通过 libdav1d 将 Film Grain 烘焙为实际像素，再编码为兼容性较高的
-H.264/AAC MP4。输出文件名带 _UPLOAD_H264_GRAIN。
+脚本先检测输入编码：AV1 使用 libdav1d 将 Film Grain metadata 烘焙为
+实际像素，HEVC 等输入使用 FFmpeg 正常解码；之后统一采用 libx264
+slow + tune grain + 2-pass，并按 FPS + 分辨率 + 动态系数联动码率。
+音频统一 AAC 256k，输出文件名包含实际 x264 码率。
 
 3. AV1 免重编码胶片颗粒工具
 ---------------------------
