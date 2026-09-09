@@ -11,7 +11,7 @@ rem  AV1 backend baseline:
 rem    AV1 - NVENC Main10 -> IVF -> grav1synth -> remux
 rem
 rem  H.264 backend:
-rem    x264 slow + tune grain + true 2-pass
+rem    x264 Faster + tune grain + VBR single-pass by default; optional 2-pass
 rem    shared 10-bit pre-processing; 8-bit High by default / High10 experimental
 rem
 rem  Shared core:
@@ -374,7 +374,7 @@ if "%FG_CAP_AV1%"=="1" (
     echo   [2] AV1 Main10  - unavailable on %FG_CAP_GPU_NAME%
 )
 if "%FG_CAP_X264_PIPELINE%"=="1" (
-    echo   [3] H.264 x264  - scanned Grain / slow / tune grain / true 2-pass
+    echo   [3] H.264 x264  - scanned Grain / Faster / tune grain / VBR single-pass
 ) else (
     echo   [3] H.264 x264  - x264 Grain pipeline unavailable
 )
@@ -404,7 +404,7 @@ if "%MODE_SEL%"=="3" (
         exit /b 1
     )
     set "MODE=X264"
-    set "MODE_LABEL=H.264 x264 Grain / scanned Grain / 2-pass"
+    set "MODE_LABEL=H.264 x264 Grain / scanned Grain"
     exit /b 0
 )
 
@@ -431,7 +431,7 @@ if "%FG_CAP_HEVC_PIPELINE%"=="1" (
 if "%FG_CAP_X264_PIPELINE%"=="1" (
     echo HEVC is unavailable; automatically using H.264 x264 Grain.
     set "MODE=X264"
-    set "MODE_LABEL=H.264 x264 Grain / scanned Grain / 2-pass"
+    set "MODE_LABEL=H.264 x264 Grain / scanned Grain"
     exit /b 0
 )
 
@@ -442,17 +442,9 @@ exit /b 1
 
 
 :SELECT_SPEED
-if /i "%MODE%"=="X264" (
-    set "PRESET=slow"
-    set "LOOKAHEAD=50"
-    set "MULTIPASS=2pass"
-    set "ENCODER_TUNE=grain"
-    set "UHQ_MODE=0"
-    set "SPEED_LABEL=x264 Slow / tune grain / true 2-pass"
-    set "SPEED_SUFFIX=X264SLOW"
-    set "SPEED_SEL=0"
-    exit /b 0
-)
+call :INIT_X264_SETTINGS
+if errorlevel 1 exit /b 1
+if /i "%MODE%"=="X264" goto SELECT_X264_SPEED
 echo.
 echo Speed / quality:
 echo.
@@ -514,6 +506,74 @@ if "%SPEED_SEL%"=="1" (
     set "SPEED_LABEL=FAST"
     set "SPEED_SUFFIX=FAST"
 )
+exit /b 0
+
+
+:INIT_X264_SETTINGS
+set "X264_PRESET=faster"
+set "X264_PASS_MODE=VBR1"
+if "%FG_STUDIO_MODE%"=="1" (
+    if /i "%FG_X264_PRESET%"=="medium" set "X264_PRESET=medium"
+    if /i "%FG_X264_PRESET%"=="slow" set "X264_PRESET=slow"
+    if /i "%FG_X264_PRESET%"=="faster" set "X264_PRESET=faster"
+    if /i "%FG_X264_PASS_MODE%"=="2PASS" set "X264_PASS_MODE=2PASS"
+    if /i "%FG_X264_PASS_MODE%"=="VBR1" set "X264_PASS_MODE=VBR1"
+)
+call :RESOLVE_X264_SETTINGS
+exit /b 0
+
+:SELECT_X264_SPEED
+if not "%FG_STUDIO_MODE%"=="1" call :PROMPT_X264_SETTINGS
+
+:APPLY_X264_MAIN_SPEED
+set "PRESET=%X264_PRESET%"
+set "LOOKAHEAD=0"
+set "MULTIPASS=%X264_PASS_MODE%"
+set "ENCODER_TUNE=grain"
+set "UHQ_MODE=0"
+set "SPEED_LABEL=x264 %X264_PRESET_LABEL% / tune grain / %X264_PASS_LABEL%"
+set "SPEED_SUFFIX=X264"
+exit /b 0
+
+:PROMPT_X264_SETTINGS
+echo.
+echo x264 preset:
+echo.
+echo   [1] Faster   ^(default / recommended^)
+echo   [2] Medium
+echo   [3] Slow
+echo.
+set "X264_PRESET_SEL=1"
+set /p "X264_PRESET_SEL=Select [1-3, default 1]: "
+set "X264_PRESET=faster"
+if "%X264_PRESET_SEL%"=="2" set "X264_PRESET=medium"
+if "%X264_PRESET_SEL%"=="3" set "X264_PRESET=slow"
+
+echo.
+echo x264 bitrate pass mode:
+echo.
+echo   [1] VBR single-pass   ^(default / recommended^)
+echo   [2] VBR 2-Pass
+echo.
+set "X264_PASS_SEL=1"
+set /p "X264_PASS_SEL=Select [1-2, default 1]: "
+set "X264_PASS_MODE=VBR1"
+if "%X264_PASS_SEL%"=="2" set "X264_PASS_MODE=2PASS"
+call :RESOLVE_X264_SETTINGS
+exit /b 0
+
+:RESOLVE_X264_SETTINGS
+set "X264_PRESET_LABEL=Faster"
+if /i "%X264_PRESET%"=="medium" set "X264_PRESET_LABEL=Medium"
+if /i "%X264_PRESET%"=="slow" set "X264_PRESET_LABEL=Slow"
+set "X264_PASS_LABEL=VBR single-pass"
+if /i "%X264_PASS_MODE%"=="2PASS" set "X264_PASS_LABEL=VBR 2-Pass"
+set "X264_FILE_SUFFIX="
+if /i "%X264_PRESET%"=="medium" set "X264_FILE_SUFFIX=_MEDIUM"
+if /i "%X264_PRESET%"=="slow" set "X264_FILE_SUFFIX=_SLOW"
+if /i "%X264_PASS_MODE%"=="2PASS" set "X264_FILE_SUFFIX=_2PASS"
+if /i "%X264_PRESET%"=="medium" if /i "%X264_PASS_MODE%"=="2PASS" set "X264_FILE_SUFFIX=_MEDIUM_2PASS"
+if /i "%X264_PRESET%"=="slow" if /i "%X264_PASS_MODE%"=="2PASS" set "X264_FILE_SUFFIX=_SLOW_2PASS"
 exit /b 0
 
 
@@ -1787,7 +1847,7 @@ echo.
 echo   [1] Off   ^(default^)
 echo   [2] Create H.264 MP4 upload copy
 echo.
-echo       Encoder: CPU libx264 / slow / tune grain / true 2-pass.
+echo       Encoder: CPU libx264 / current x264 preset / tune grain / current VBR mode.
 echo       Rate   : Same resolution / final FPS / High Motion policy as x264 Grain mainline.
 echo       AV1    : Film Grain is synthesized and baked to pixels.
 echo       HEVC   : Same Grain / LUT pipeline is rendered directly to H.264.
@@ -1835,6 +1895,7 @@ if /i "%MODE%"=="AV1" (
 
 if "%FG_STUDIO_MODE%"=="1" goto SELECT_UPLOAD_STUDIO
 
+call :PROMPT_X264_SETTINGS
 set "UPLOAD_HIGH_MOTION=%HIGH_MOTION%"
 echo.
 echo H.264 x264 Grain upload bitrate:
@@ -1858,14 +1919,14 @@ set "UPLOAD_BUFSIZE=%CUSTOM_BITRATE_BUF%k"
 set "UPLOAD_FILE_TAG=X264_%CUSTOM_BITRATE_NUM%k"
 
 :SELECT_UPLOAD_DONE
-set "UPLOAD_LABEL=H.264 MP4 / x264 slow grain / true 2-pass / %UPLOAD_BITRATE_MODE%"
+set "UPLOAD_LABEL=H.264 MP4 / x264 %X264_PRESET_LABEL% grain / %X264_PASS_LABEL% / %UPLOAD_BITRATE_MODE%"
 exit /b 0
 
 :SELECT_UPLOAD_STUDIO
 if "%FG_UPLOAD_HIGH_MOTION%"=="1" set "UPLOAD_HIGH_MOTION=1"
 if /i "%FG_UPLOAD_BITRATE_MODE%"=="MANUAL" goto SELECT_UPLOAD_STUDIO_MANUAL
 set "UPLOAD_BITRATE_MODE=AUTO"
-set "UPLOAD_LABEL=H.264 MP4 / x264 slow grain / true 2-pass / Auto"
+set "UPLOAD_LABEL=H.264 MP4 / x264 %X264_PRESET_LABEL% grain / %X264_PASS_LABEL% / Auto"
 exit /b 0
 
 :SELECT_UPLOAD_STUDIO_MANUAL
@@ -1879,7 +1940,7 @@ set "UPLOAD_BITRATE=%CUSTOM_BITRATE_NUM%k"
 set "UPLOAD_MAXRATE=%CUSTOM_BITRATE_MAX%k"
 set "UPLOAD_BUFSIZE=%CUSTOM_BITRATE_BUF%k"
 set "UPLOAD_FILE_TAG=X264_%CUSTOM_BITRATE_NUM%k"
-set "UPLOAD_LABEL=H.264 MP4 / x264 slow grain / true 2-pass / Manual / %UPLOAD_BITRATE%"
+set "UPLOAD_LABEL=H.264 MP4 / x264 %X264_PRESET_LABEL% grain / %X264_PASS_LABEL% / Manual / %UPLOAD_BITRATE%"
 exit /b 0
 
 :SELECT_UPLOAD_STUDIO_INVALID
@@ -1933,9 +1994,9 @@ set /a UPLOAD_BUFSIZE_NUM=UPLOAD_BITRATE_NUM*6
 set "UPLOAD_BITRATE=%UPLOAD_BITRATE_NUM%k"
 set "UPLOAD_MAXRATE=%UPLOAD_MAXRATE_NUM%k"
 set "UPLOAD_BUFSIZE=%UPLOAD_BUFSIZE_NUM%k"
-set "UPLOAD_FILE_TAG=X264AUTO_%UPLOAD_BITRATE_NUM%k"
-set "UPLOAD_CODEC_ARGS=-preset slow -tune grain %UPLOAD_X264_MOTION_ARGS% -b:v %UPLOAD_BITRATE% -maxrate %UPLOAD_MAXRATE% -bufsize %UPLOAD_BUFSIZE%"
-set "UPLOAD_LABEL=H.264 MP4 / x264 slow grain / true 2-pass / Auto / %UPLOAD_RATE_TIER% / %UPLOAD_RATE_FPS_DISPLAY% fps / %UPLOAD_X264_MOTION_LABEL% / %UPLOAD_BITRATE%"
+set "UPLOAD_FILE_TAG=X264AUTO_%UPLOAD_BITRATE_NUM%k%X264_FILE_SUFFIX%"
+set "UPLOAD_CODEC_ARGS=-preset %X264_PRESET% -tune grain %UPLOAD_X264_MOTION_ARGS% -b:v %UPLOAD_BITRATE% -maxrate %UPLOAD_MAXRATE% -bufsize %UPLOAD_BUFSIZE%"
+set "UPLOAD_LABEL=H.264 MP4 / x264 %X264_PRESET_LABEL% grain / %X264_PASS_LABEL% / Auto / %UPLOAD_RATE_TIER% / %UPLOAD_RATE_FPS_DISPLAY% fps / %UPLOAD_X264_MOTION_LABEL% / %UPLOAD_BITRATE%"
 echo.
 echo Upload rate  : Auto / %UPLOAD_RATE_TIER% / %UPLOAD_RATE_FPS_DISPLAY% fps
 echo   Base 60fps : %UPLOAD_RATE_BASE60%k
@@ -1947,8 +2008,9 @@ echo   bufsize    : %UPLOAD_BUFSIZE% ^(6x^)
 exit /b 0
 
 :RESOLVE_X264_UPLOAD_MANUAL
-set "UPLOAD_CODEC_ARGS=-preset slow -tune grain %UPLOAD_X264_MOTION_ARGS% -b:v %UPLOAD_BITRATE% -maxrate %UPLOAD_MAXRATE% -bufsize %UPLOAD_BUFSIZE%"
-set "UPLOAD_LABEL=H.264 MP4 / x264 slow grain / true 2-pass / Manual / %UPLOAD_X264_MOTION_LABEL% / %UPLOAD_BITRATE%"
+set "UPLOAD_FILE_TAG=X264_%UPLOAD_BITRATE_NUM%k%X264_FILE_SUFFIX%"
+set "UPLOAD_CODEC_ARGS=-preset %X264_PRESET% -tune grain %UPLOAD_X264_MOTION_ARGS% -b:v %UPLOAD_BITRATE% -maxrate %UPLOAD_MAXRATE% -bufsize %UPLOAD_BUFSIZE%"
+set "UPLOAD_LABEL=H.264 MP4 / x264 %X264_PRESET_LABEL% grain / %X264_PASS_LABEL% / Manual / %UPLOAD_X264_MOTION_LABEL% / %UPLOAD_BITRATE%"
 echo.
 echo Upload rate  : Manual
 echo   Motion     : %UPLOAD_X264_MOTION_LABEL% ^(manual b:v preserved^)
@@ -2078,13 +2140,13 @@ rem ============================================================
 :BUILD_ENCODER_ARGS
 if /i "%MODE%"=="X264" (
     set "X264_MOTION_ARGS="
-    set "X264_MOTION_LABEL=Bitrate table only / preset slow already adaptive"
+    set "X264_MOTION_LABEL=Bitrate table only / current x264 preset"
     if "%HIGH_MOTION%"=="1" if "%FG_CAP_X264_BSTRATEGY2%"=="1" (
         set "X264_MOTION_ARGS=-b_strategy 2"
         set "X264_MOTION_LABEL=High bitrate table + b_strategy 2"
     )
-    set "ACTIVE_LOOKAHEAD=x264 preset slow"
-    set "ACTIVE_MULTIPASS=True 2-pass"
+    set "ACTIVE_LOOKAHEAD=x264 preset %X264_PRESET_LABEL%"
+    set "ACTIVE_MULTIPASS=%X264_PASS_LABEL%"
     exit /b 0
 )
 set "ENABLE_BF=0"
@@ -2272,9 +2334,9 @@ if /i "%MODE%"=="HEVC" goto SHOW_HEVC_SESSION
 goto SHOW_AV1_SESSION
 
 :SHOW_X264_SESSION
-echo x264 preset   : slow
+echo x264 preset   : %X264_PRESET_LABEL%
 echo x264 tuning   : grain
-echo x264 passes   : 2
+echo x264 rate mode: %X264_PASS_LABEL%
 echo H.264 depth   : %X264_DEPTH_LABEL%
 if "%HIGH_MOTION%"=="1" (
     echo High motion   : Enabled / %X264_MOTION_LABEL%
@@ -2675,7 +2737,7 @@ exit /b 0
 
 
 rem ============================================================
-rem H.264 x264 backend - scanned Grain + Vulkan overlay + true 2-pass
+rem H.264 x264 backend - scanned Grain + Vulkan overlay + selectable VBR pass mode
 rem ============================================================
 
 :PROCESS_X264_FILE
@@ -2698,7 +2760,7 @@ if "%ENABLE_LETTERBOX%"=="1" set "FRAME_POST_FILTER=%LETTERBOX_FILTER%"
 set "X264_GRAIN_SUFFIX=%HEVC_SUFFIX:_HEVC=_X264%"
 set "X264_DEPTH_SUFFIX="
 if "%X264_HIGH10%"=="1" set "X264_DEPTH_SUFFIX=_HIGH10"
-set "OUTPUT_BASE=%INDIR%%NAME%%X264_GRAIN_SUFFIX%_%BITRATE_NUM%k%X264_DEPTH_SUFFIX%%FRAME_SUFFIX%%LUT_FILE_SUFFIX%"
+set "OUTPUT_BASE=%INDIR%%NAME%%X264_GRAIN_SUFFIX%_%BITRATE_NUM%k%X264_FILE_SUFFIX%%X264_DEPTH_SUFFIX%%FRAME_SUFFIX%%LUT_FILE_SUFFIX%"
 set "OUTPUT=%OUTPUT_BASE%%FPS_SUFFIX%%DEINT_FILE_SUFFIX%%SUB_FILE_SUFFIX%.%EXT%"
 
 set "DURATION_ARGS="
@@ -2769,28 +2831,43 @@ if exist "%OUTPUT%" (
 
 call :PREPARE_UPLOAD_SUBTITLE "%INDIR%"
 if errorlevel 1 exit /b 1
-set "X264_PASSLOG=%INDIR%.__FGS_X264_%RANDOM%_%RANDOM%"
 pushd "%INDIR%"
 if /i "%FPS_MODE%"=="SVP60" goto X264_MAIN_OPEN_SVP
+if /i "%X264_PASS_MODE%"=="2PASS" goto X264_MAIN_2PASS
 
+echo x264 VBR single-pass: final encode...
+"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk %MAIN_HWACCEL_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%FRAME_POST_FILTER%%X264_SUB_FILTER%,%X264_DEPTH_FILTER%[vout]" -map "[vout]" %H264_STREAM_MAP_ARGS% -map_metadata 0 -map_chapters 0 -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %H264_AUDIO_MUX_ARGS% %H264_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
+set "X264_MAIN_RC=%ERRORLEVEL%"
+goto X264_MAIN_DONE
+
+:X264_MAIN_2PASS
+set "X264_PASSLOG=%INDIR%.__FGS_X264_%RANDOM%_%RANDOM%"
 echo x264 pass 1/2: analysis...
-"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk %MAIN_HWACCEL_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%FRAME_POST_FILTER%%X264_SUB_FILTER%,%X264_DEPTH_FILTER%[vout]" -map "[vout]" -an -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset slow -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -pass 1 -passlogfile "%X264_PASSLOG%" -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f null NUL
+"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk %MAIN_HWACCEL_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%FRAME_POST_FILTER%%X264_SUB_FILTER%,%X264_DEPTH_FILTER%[vout]" -map "[vout]" -an -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -pass 1 -passlogfile "%X264_PASSLOG%" -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f null NUL
 set "X264_PASS1_RC=%ERRORLEVEL%"
 if not "%X264_PASS1_RC%"=="0" goto X264_MAIN_FAIL_PASS1
 
 echo x264 pass 2/2: final encode...
-"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk %MAIN_HWACCEL_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%FRAME_POST_FILTER%%X264_SUB_FILTER%,%X264_DEPTH_FILTER%[vout]" -map "[vout]" %H264_STREAM_MAP_ARGS% -map_metadata 0 -map_chapters 0 -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset slow -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -pass 2 -passlogfile "%X264_PASSLOG%" -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %H264_AUDIO_MUX_ARGS% %H264_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
+"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk %MAIN_HWACCEL_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%FRAME_POST_FILTER%%X264_SUB_FILTER%,%X264_DEPTH_FILTER%[vout]" -map "[vout]" %H264_STREAM_MAP_ARGS% -map_metadata 0 -map_chapters 0 -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -pass 2 -passlogfile "%X264_PASSLOG%" -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %H264_AUDIO_MUX_ARGS% %H264_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
 set "X264_MAIN_RC=%ERRORLEVEL%"
 goto X264_MAIN_DONE
 
 :X264_MAIN_OPEN_SVP
+if /i "%X264_PASS_MODE%"=="2PASS" goto X264_MAIN_OPEN_SVP_2PASS
+echo x264 VBR single-pass: OpenSVPFlow final encode...
+"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=60" --arg "target_den=1" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %SVP_SYNC_GLOBAL_ARGS% -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%SVP_GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%FRAME_POST_FILTER%%X264_SUB_FILTER%,%X264_DEPTH_FILTER%[vout]" -map "[vout]" %SVP_H264_STREAM_MAP_ARGS% -map_metadata 1 -map_chapters 1 -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %H264_AUDIO_MUX_ARGS% %H264_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
+set "X264_MAIN_RC=%ERRORLEVEL%"
+goto X264_MAIN_DONE
+
+:X264_MAIN_OPEN_SVP_2PASS
+set "X264_PASSLOG=%INDIR%.__FGS_X264_%RANDOM%_%RANDOM%"
 echo x264 pass 1/2: OpenSVPFlow analysis...
-"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=60" --arg "target_den=1" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%SVP_GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%FRAME_POST_FILTER%%X264_SUB_FILTER%,%X264_DEPTH_FILTER%[vout]" -map "[vout]" -an -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset slow -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -pass 1 -passlogfile "%X264_PASSLOG%" -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f null NUL
+"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=60" --arg "target_den=1" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%SVP_GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%FRAME_POST_FILTER%%X264_SUB_FILTER%,%X264_DEPTH_FILTER%[vout]" -map "[vout]" -an -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -pass 1 -passlogfile "%X264_PASSLOG%" -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f null NUL
 set "X264_PASS1_RC=%ERRORLEVEL%"
 if not "%X264_PASS1_RC%"=="0" goto X264_MAIN_FAIL_PASS1
 
 echo x264 pass 2/2: OpenSVPFlow final encode...
-"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=60" --arg "target_den=1" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %SVP_SYNC_GLOBAL_ARGS% -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%SVP_GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%FRAME_POST_FILTER%%X264_SUB_FILTER%,%X264_DEPTH_FILTER%[vout]" -map "[vout]" %SVP_H264_STREAM_MAP_ARGS% -map_metadata 1 -map_chapters 1 -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset slow -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -pass 2 -passlogfile "%X264_PASSLOG%" -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %H264_AUDIO_MUX_ARGS% %H264_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
+"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=60" --arg "target_den=1" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %SVP_SYNC_GLOBAL_ARGS% -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%SVP_GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%FRAME_POST_FILTER%%X264_SUB_FILTER%,%X264_DEPTH_FILTER%[vout]" -map "[vout]" %SVP_H264_STREAM_MAP_ARGS% -map_metadata 1 -map_chapters 1 -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -pass 2 -passlogfile "%X264_PASSLOG%" -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %H264_AUDIO_MUX_ARGS% %H264_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
 set "X264_MAIN_RC=%ERRORLEVEL%"
 goto X264_MAIN_DONE
 
@@ -2800,7 +2877,7 @@ set "X264_MAIN_RC=%X264_PASS1_RC%"
 :X264_MAIN_DONE
 popd
 call :CLEAN_UPLOAD_SUBTITLE
-del /q "%X264_PASSLOG%-0.log" "%X264_PASSLOG%-0.log.mbtree" "%X264_PASSLOG%.log" "%X264_PASSLOG%.log.mbtree" >nul 2>&1
+if defined X264_PASSLOG del /q "%X264_PASSLOG%-0.log" "%X264_PASSLOG%-0.log.mbtree" "%X264_PASSLOG%.log" "%X264_PASSLOG%.log.mbtree" >nul 2>&1
 if not "%X264_MAIN_RC%"=="0" (
     echo.
     echo ERROR: H.264 x264 encoding failed:
@@ -3200,7 +3277,7 @@ echo.
 echo Rendering H.264 upload copy directly from the HEVC Grain / LUT pipeline...
 echo.
 echo Source       : Original video + selected scanned Grain
-if /i "%UPLOAD_MODE%"=="X264" echo Upload codec : libx264 / High / yuv420p / slow / tune grain / 2-pass
+if /i "%UPLOAD_MODE%"=="X264" echo Upload codec : libx264 / High / yuv420p / %X264_PRESET_LABEL% / tune grain / %X264_PASS_LABEL%
 if /i not "%UPLOAD_MODE%"=="X264" echo Upload codec : H.264 NVENC / High / yuv420p / preset p7
 echo Quality      : %UPLOAD_LABEL%
 if /i "%UPLOAD_MODE%"=="X264" echo VBV          : max %UPLOAD_MAXRATE% / buf %UPLOAD_BUFSIZE%
@@ -3283,7 +3360,25 @@ echo "%UPLOAD_OUTPUT%"
 exit /b 0
 
 :RUN_HEVC_UPLOAD_SVP_MAIN_X264
-set "UPLOAD_PASSLOG=%TEMP%\FilmGrain_x264_%RANDOM%_%RANDOM%"
+if /i "%X264_PASS_MODE%"=="2PASS" goto RUN_HEVC_UPLOAD_SVP_MAIN_X264_2PASS
+
+echo.
+echo x264 VBR single-pass: interpolated HEVC main output final encode...
+pushd "%INDIR%"
+"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -i "%OUTPUT%" -map 0:v:0 -map 0:a:0? -map_metadata 0 -vf "format=yuv420p" -c:v libx264 -profile:v high -pix_fmt yuv420p %UPLOAD_CODEC_ARGS% -r %OUT_FPS% -fps_mode:v cfr -c:a aac -b:a 256k -ac 2 -ar 48000 -movflags +faststart "%UPLOAD_OUTPUT%"
+set "UPLOAD_RUN_RC=%ERRORLEVEL%"
+popd
+if not "%UPLOAD_RUN_RC%"=="0" (
+    echo.
+    echo ERROR: OpenSVPFlow HEVC x264 upload single-pass failed.
+    if exist "%UPLOAD_OUTPUT%" del /q "%UPLOAD_OUTPUT%" >nul 2>&1
+    set "LAST_ERROR_STAGE=OpenSVPFlow HEVC x264 upload single-pass"
+    exit /b 1
+)
+goto RUN_HEVC_UPLOAD_SVP_MAIN_X264_VERIFY
+
+:RUN_HEVC_UPLOAD_SVP_MAIN_X264_2PASS
+set "UPLOAD_PASSLOG=%INDIR%.__FGS_UPLOAD_X264_%RANDOM%_%RANDOM%"
 call :CLEAN_X264_PASSLOG
 
 echo.
@@ -3314,6 +3409,8 @@ if not "%UPLOAD_RUN_RC%"=="0" (
     set "LAST_ERROR_STAGE=OpenSVPFlow HEVC x264 upload pass 2"
     exit /b 1
 )
+
+:RUN_HEVC_UPLOAD_SVP_MAIN_X264_VERIFY
 if not exist "%UPLOAD_OUTPUT%" (
     echo.
     echo ERROR: OpenSVPFlow HEVC x264 upload MP4 was not created.
@@ -3324,10 +3421,27 @@ echo.
 echo UPLOAD COPY DONE:
 echo "%UPLOAD_OUTPUT%"
 exit /b 0
-
-
 :RUN_HEVC_UPLOAD_X264
-set "UPLOAD_PASSLOG=%TEMP%\FilmGrain_x264_%RANDOM%_%RANDOM%"
+if /i "%X264_PASS_MODE%"=="2PASS" goto RUN_HEVC_UPLOAD_X264_2PASS
+
+echo.
+echo x264 VBR single-pass: final encode...
+pushd "%INDIR%"
+"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk %MAIN_HWACCEL_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%FRAME_POST_FILTER%,format=yuv420p%UPLOAD_SUB_FILTER%[vout]" -map "[vout]" -map 0:a:0? -map_metadata 0 -c:v libx264 -profile:v high -pix_fmt yuv420p %UPLOAD_CODEC_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -c:a aac -b:a 256k -ac 2 -ar 48000 -movflags +faststart "%UPLOAD_OUTPUT%"
+set "UPLOAD_RUN_RC=%ERRORLEVEL%"
+popd
+call :CLEAN_UPLOAD_SUBTITLE
+if not "%UPLOAD_RUN_RC%"=="0" (
+    echo.
+    echo ERROR: HEVC x264 upload single-pass failed.
+    if exist "%UPLOAD_OUTPUT%" del /q "%UPLOAD_OUTPUT%" >nul 2>&1
+    set "LAST_ERROR_STAGE=HEVC x264 upload single-pass"
+    exit /b 1
+)
+goto RUN_HEVC_UPLOAD_X264_VERIFY
+
+:RUN_HEVC_UPLOAD_X264_2PASS
+set "UPLOAD_PASSLOG=%INDIR%.__FGS_UPLOAD_X264_%RANDOM%_%RANDOM%"
 call :CLEAN_X264_PASSLOG
 
 echo.
@@ -3353,7 +3467,6 @@ set "UPLOAD_RUN_RC=%ERRORLEVEL%"
 popd
 call :CLEAN_X264_PASSLOG
 call :CLEAN_UPLOAD_SUBTITLE
-
 if not "%UPLOAD_RUN_RC%"=="0" (
     echo.
     echo ERROR: HEVC x264 upload pass 2 failed.
@@ -3362,24 +3475,23 @@ if not "%UPLOAD_RUN_RC%"=="0" (
     exit /b 1
 )
 
+:RUN_HEVC_UPLOAD_X264_VERIFY
 if not exist "%UPLOAD_OUTPUT%" (
     echo.
     echo ERROR: HEVC x264 upload MP4 was not created.
     set "LAST_ERROR_STAGE=HEVC x264 upload missing"
     exit /b 1
 )
-
 echo.
 echo UPLOAD COPY DONE:
 echo "%UPLOAD_OUTPUT%"
 exit /b 0
-
 :RUN_AV1_UPLOAD
 echo.
 echo [5/5] Baking AV1 Film Grain to pixels for H.264 upload...
 echo.
 echo Decoder      : libdav1d / Film Grain default ON
-if /i "%UPLOAD_MODE%"=="X264" echo Upload codec : libx264 / High / yuv420p / slow / tune grain / 2-pass
+if /i "%UPLOAD_MODE%"=="X264" echo Upload codec : libx264 / High / yuv420p / %X264_PRESET_LABEL% / tune grain / %X264_PASS_LABEL%
 if /i not "%UPLOAD_MODE%"=="X264" echo Upload codec : H.264 NVENC / High / yuv420p / preset p7
 echo Quality      : %UPLOAD_LABEL%
 if /i "%UPLOAD_MODE%"=="X264" echo VBV          : max %UPLOAD_MAXRATE% / buf %UPLOAD_BUFSIZE%
@@ -3425,7 +3537,26 @@ exit /b 0
 
 
 :RUN_AV1_UPLOAD_X264
-set "UPLOAD_PASSLOG=%TEMP%\FilmGrain_x264_%RANDOM%_%RANDOM%"
+if /i "%X264_PASS_MODE%"=="2PASS" goto RUN_AV1_UPLOAD_X264_2PASS
+
+echo.
+echo x264 VBR single-pass: final encode...
+pushd "%INDIR%"
+"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -c:v libdav1d -i "%OUTPUT%" -map 0:v:0 -map 0:a:0? -map_metadata 0 -vf "format=yuv420p%UPLOAD_SUB_FILTER%" -c:v libx264 -profile:v high -pix_fmt yuv420p %UPLOAD_CODEC_ARGS% -c:a aac -b:a 256k -ac 2 -ar 48000 -movflags +faststart "%UPLOAD_OUTPUT%"
+set "UPLOAD_RUN_RC=%ERRORLEVEL%"
+popd
+call :CLEAN_UPLOAD_SUBTITLE
+if not "%UPLOAD_RUN_RC%"=="0" (
+    echo.
+    echo ERROR: AV1 x264 upload single-pass failed.
+    if exist "%UPLOAD_OUTPUT%" del /q "%UPLOAD_OUTPUT%" >nul 2>&1
+    set "LAST_ERROR_STAGE=Stage 5 - x264 upload single-pass"
+    exit /b 1
+)
+goto RUN_AV1_UPLOAD_X264_VERIFY
+
+:RUN_AV1_UPLOAD_X264_2PASS
+set "UPLOAD_PASSLOG=%INDIR%.__FGS_UPLOAD_X264_%RANDOM%_%RANDOM%"
 call :CLEAN_X264_PASSLOG
 
 echo.
@@ -3451,7 +3582,6 @@ set "UPLOAD_RUN_RC=%ERRORLEVEL%"
 popd
 call :CLEAN_X264_PASSLOG
 call :CLEAN_UPLOAD_SUBTITLE
-
 if not "%UPLOAD_RUN_RC%"=="0" (
     echo.
     echo ERROR: AV1 x264 upload pass 2 failed.
@@ -3460,18 +3590,17 @@ if not "%UPLOAD_RUN_RC%"=="0" (
     exit /b 1
 )
 
+:RUN_AV1_UPLOAD_X264_VERIFY
 if not exist "%UPLOAD_OUTPUT%" (
     echo.
     echo ERROR: x264 upload MP4 was not created.
     set "LAST_ERROR_STAGE=Stage 5 - x264 upload MP4 missing"
     exit /b 1
 )
-
 echo.
 echo UPLOAD MASTER DONE:
 echo "%UPLOAD_OUTPUT%"
 exit /b 0
-
 :CLEAN_X264_PASSLOG
 if defined UPLOAD_PASSLOG (
     del /q "%UPLOAD_PASSLOG%-0.log" >nul 2>&1
@@ -3875,7 +4004,7 @@ if /i "%GRAIN_MODE%"=="TABLE" (
 )
 echo [Remux] "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %SVP_SYNC_GLOBAL_ARGS% -i "%TMP_GRAIN%" %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -map 0:v:0 %AV1_FINAL_REMUX_MAP% -map_metadata 1 -map_chapters 1 %AV1_FINAL_REMUX_CODEC% %AV1_FINAL_REMUX_EXTRA% "%OUTPUT%"
 if "%ENABLE_UPLOAD_BAKE%"=="1" if /i not "%UPLOAD_MODE%"=="X264" echo [Upload] "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -c:v libdav1d -i "%OUTPUT%" -map 0:v:0 -map 0:a:0? -map_metadata 0 -c:v h264_nvenc -gpu %CUDA_DEVICE% -profile:v high -pix_fmt yuv420p %UPLOAD_CODEC_ARGS% %UPLOAD_CAP_ARGS% -c:a aac -b:a 256k -ac 2 -ar 48000 -movflags +faststart "%UPLOAD_OUTPUT%"
-if "%ENABLE_UPLOAD_BAKE%"=="1" if /i "%UPLOAD_MODE%"=="X264" echo [Upload x264] 2-pass / preset slow / tune grain / %UPLOAD_BITRATE%
+if "%ENABLE_UPLOAD_BAKE%"=="1" if /i "%UPLOAD_MODE%"=="X264" echo [Upload x264] %X264_PASS_LABEL% / preset %X264_PRESET_LABEL% / tune grain / %UPLOAD_BITRATE%
 exit /b 0
 
 

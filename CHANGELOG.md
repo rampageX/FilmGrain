@@ -1,5 +1,15 @@
 # Film Grain Studio — CHANGELOG
 
+## v4.5.1 — 2026-09-09
+
+- H.264 x264 Grain 的默认编码策略由 `preset slow + tune grain + true 2-pass` 调整为 **`preset faster + tune grain + VBR 单次`**；该组合已完成用户侧实际测试，显著降低日常 x264 Grain 编码耗时。
+- 高级设置 → 编码新增 **x264 码率模式**：`VBR 单次（默认 / 推荐）` 与 `VBR 2-Pass`。2-Pass 完整保留，供需要更精确平均码率 / 文件大小分配的任务主动选择，不再作为 Film Grain 保留的强制条件。
+- 高级设置 → 编码新增 **x264 Preset**：`Faster（默认 / 推荐）`、`Medium`、`Slow`；三档均继续固定使用 `tune grain`，自动码率、高动态、`maxrate = 3×`、`bufsize = 6×`、10-bit 前处理 / 8-bit dither 与 High10 逻辑保持不变。
+- H.264 x264 Grain 主线与 AV1 / HEVC 的“同时生成 H.264 上传版”统一读取同一组 x264 Preset / Pass 设置；上传副本继续固定 High 8-bit，High10 仍只作用于 H.264 主输出。
+- GUI 与 CLI 同步支持新的 x264 Preset / Pass 选择；默认 Faster + VBR 单次输出保持干净正式文件名，仅在选择 Medium / Slow 或 2-Pass 时追加参数识别后缀，避免非默认参数成片与默认成片互相误判为已存在。
+- 独立 `Utils\AV1_FilmGrain_Bake_for_Social_Upload.bat` 不在本次改动范围内，继续保留其已验证的 `slow + tune grain + 2-pass` 独立工具策略。
+- 正式发布基于用户验证通过的 v4.5.1 测试版，移除测试构建标识与测试说明；AV1 / HEVC 编码参数和既有处理链未作修改。
+
 ## v4.5.0 — 2026-09-09
 
 - **H.264 x264 Grain 正式升级为第三条主编码线**，与 AV1 NVENC、HEVC NVENC 同级；复用扫描 Grain / LUT / Cinematic / 字幕 / 反交错 / OpenSVPFlow 前处理，最终使用 `libx264 / preset slow / tune grain / true 2-pass`。

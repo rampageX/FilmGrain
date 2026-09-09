@@ -132,6 +132,8 @@ $script:SvpAnalyse = 'ENCODEGUI'
 $script:SvpMaskArea = 100
 $script:CinematicCropPerSide = 0
 $script:H264High10 = $false
+$script:X264RateMode = 'VBR1'
+$script:X264Preset = 'faster'
 $script:UpdatingFramingUi = $false
 $script:UploadSubtitle = [ordered]@{
     Enabled = $false
@@ -271,12 +273,44 @@ function Show-AdvancedSettingsDialog {
     $chkAdvH264High10.Size = New-Object System.Drawing.Size -ArgumentList 260, 28
     [void]$tabEncode.Controls.Add($chkAdvH264High10)
 
+    $lblX264RateMode = New-Object System.Windows.Forms.Label
+    $lblX264RateMode.Text = 'x264 码率模式'
+    $lblX264RateMode.Location = New-Object System.Drawing.Point -ArgumentList 28, 78
+    $lblX264RateMode.Size = New-Object System.Drawing.Size -ArgumentList 150, 24
+    [void]$tabEncode.Controls.Add($lblX264RateMode)
+
+    $cmbAdvX264RateMode = New-Object System.Windows.Forms.ComboBox
+    $cmbAdvX264RateMode.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
+    $cmbAdvX264RateMode.Location = New-Object System.Drawing.Point -ArgumentList 190, 74
+    $cmbAdvX264RateMode.Size = New-Object System.Drawing.Size -ArgumentList 260, 26
+    [void]$cmbAdvX264RateMode.Items.Add('VBR 单次（默认 / 推荐）')
+    [void]$cmbAdvX264RateMode.Items.Add('VBR 2-Pass')
+    $cmbAdvX264RateMode.SelectedIndex = if ($script:X264RateMode -eq '2PASS') { 1 } else { 0 }
+    [void]$tabEncode.Controls.Add($cmbAdvX264RateMode)
+
+    $lblX264Preset = New-Object System.Windows.Forms.Label
+    $lblX264Preset.Text = 'x264 Preset'
+    $lblX264Preset.Location = New-Object System.Drawing.Point -ArgumentList 28, 122
+    $lblX264Preset.Size = New-Object System.Drawing.Size -ArgumentList 150, 24
+    [void]$tabEncode.Controls.Add($lblX264Preset)
+
+    $cmbAdvX264Preset = New-Object System.Windows.Forms.ComboBox
+    $cmbAdvX264Preset.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
+    $cmbAdvX264Preset.Location = New-Object System.Drawing.Point -ArgumentList 190, 118
+    $cmbAdvX264Preset.Size = New-Object System.Drawing.Size -ArgumentList 260, 26
+    [void]$cmbAdvX264Preset.Items.Add('Faster（默认 / 推荐）')
+    [void]$cmbAdvX264Preset.Items.Add('Medium')
+    [void]$cmbAdvX264Preset.Items.Add('Slow')
+    $presetIndex = switch ($script:X264Preset) { 'medium' { 1 } 'slow' { 2 } default { 0 } }
+    $cmbAdvX264Preset.SelectedIndex = $presetIndex
+    [void]$tabEncode.Controls.Add($cmbAdvX264Preset)
+
     $lblEncodeInfo = New-Object System.Windows.Forms.Label
     $lblEncodeInfo.AutoSize = $false
-    $lblEncodeInfo.Location = New-Object System.Drawing.Point -ArgumentList 28, 76
-    $lblEncodeInfo.Size = New-Object System.Drawing.Size -ArgumentList 630, 142
+    $lblEncodeInfo.Location = New-Object System.Drawing.Point -ArgumentList 28, 166
+    $lblEncodeInfo.Size = New-Object System.Drawing.Size -ArgumentList 630, 150
     $lblEncodeInfo.ForeColor = $ColorMuted
-    $lblEncodeInfo.Text = "默认关闭：H.264 x264 Grain 的普通 LUT / Grain / 画幅链保持 10-bit，到编码边界才转换为兼容性更好的 8-bit High Profile；FFmpeg 支持时使用 error-diffusion dither。`r`n开启后改为 yuv420p10le / High 10 Profile，使普通主链保持 10-bit；OpenSVPFlow 仍沿用其已验证的 YUV420P8 插帧内部链。High10 的硬件解码、电视、浏览器和部分平台兼容性明显较差，仅建议测试。`r`n`r`n高动态、自动码率、VBV 与 NVENC 能力适配仍由主界面统一控制。"
+    $lblEncodeInfo.Text = "x264 Grain 默认使用 Faster + VBR 单次；tune grain、可见自动码率与 3x/6x VBV 保持不变。需要精确平均码率分配时可选 2-Pass；Medium / Slow 仅作为高计算量对照。`r`n`r`nHigh10 默认关闭：普通 LUT / Grain / 画幅链保持 10-bit，到编码边界才转换为 8-bit High Profile；开启后输出 yuv420p10le / High 10 Profile。"
     [void]$tabEncode.Controls.Add($lblEncodeInfo)
 
     $lblAlgo = New-Object System.Windows.Forms.Label
@@ -409,6 +443,9 @@ function Show-AdvancedSettingsDialog {
         $script:SvpMaskArea = [int]$numAdvMask.Value
         $script:CinematicCropPerSide = [int]$numAdvCrop.Value
         $script:H264High10 = ([bool]$chkAdvH264High10.Checked -and $script:H264High10Available)
+        $script:X264RateMode = if ($cmbAdvX264RateMode.SelectedIndex -eq 1) { '2PASS' } else { 'VBR1' }
+        $script:X264Preset = switch ($cmbAdvX264Preset.SelectedIndex) { 1 { 'medium' } 2 { 'slow' } default { 'faster' } }
+        Update-SpeedChoices
         Update-FramingUi
         Update-BitrateDisplays
     }
@@ -545,7 +582,7 @@ $statusVersion = New-Object System.Windows.Forms.ToolStripStatusLabel
 $statusVersion.Spring = $false
 $statusVersion.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
 $statusVersion.ForeColor = $ColorMuted
-$statusVersion.Text = 'v4.5.0'
+$statusVersion.Text = 'v4.5.1'
 $statusVersion.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 12, 0, 0, 0
 [void]$statusStrip.Items.Add($statusVersion)
 
@@ -717,7 +754,7 @@ for ($i = 0; $i -lt 14; $i++) { Add-RowAbsolute $encodeTable 34 }
 Add-RowPercent $encodeTable 100
 [void]$grpEncode.Controls.Add($encodeTable)
 
-$codecItems = @('AV1 · grav1synth 胶片颗粒（默认）', 'HEVC · 扫描胶片颗粒', 'H.264 · x264 Grain（CPU / 2-pass）')
+$codecItems = @('AV1 · grav1synth 胶片颗粒（默认）', 'HEVC · 扫描胶片颗粒', 'H.264 · x264 Grain（CPU / VBR 单次）')
 $initialCodecIndex = 0
 if ($script:HardwareCapsReady -and -not $script:Av1Available) {
     $codecItems[0] = 'AV1 · grav1synth 胶片颗粒（当前硬件不可用）'
@@ -1249,9 +1286,9 @@ $toolTip.SetToolTip($chkShowAllAv1Tables, '显示全部分辨率 Grain Table；�
 $toolTip.SetToolTip($btnUploadSubtitle, '硬字幕独立于 H.264 上传版；启用后烧写到主输出，若同时生成 H.264 上传版则副本也包含同一字幕。默认距最终输出画面下沿 5px、水平居中。')
 $toolTip.SetToolTip($chkInterpolation, '逐行 SDR 输入插值到 60 fps；使用 Algo 13 + EncodeGUI Analyse。与自动电影帧率互斥。')
 $toolTip.SetToolTip($chkUpload, '附加 H.264 上传版固定使用 x264 Grain 8-bit 兼容输出；与主输出共用最终分辨率 / FPS / 高动态状态，但拥有独立码率。')
-$toolTip.SetToolTip($cmbUploadBitrate, 'H.264 上传版固定使用 x264 slow + tune grain + true 2-pass。自动模式与主线 x264 Grain 共用分辨率 / 最终 FPS / 高动态推荐策略，并直接显示实际 kbps；也可手动输入。')
+$toolTip.SetToolTip($cmbUploadBitrate, 'H.264 上传版使用与主线相同的 x264 设置：默认 Faster + tune grain + VBR 单次；高级设置可切换 Medium / Slow 与 2-Pass。自动模式共用分辨率 / 最终 FPS / 高动态推荐策略，并直接显示实际 kbps；也可手动输入。')
 $toolTip.SetToolTip($chkUploadBitrateAuto, '勾选：上传版按 x264 Grain 的分辨率 / 最终 FPS / 高动态策略自动推荐；取消后可在左侧直接输入自定义 kbps。')
-$toolTip.SetToolTip($chkUploadHighMotion, '统一高动态模式：自动码率提高到高速运动档；NVENC 在硬件支持时使用更深 Lookahead / Fullres Multipass / adaptive B / scene-cut；x264 保持 slow + tune grain + 2-pass，并使用高动态码率。')
+$toolTip.SetToolTip($chkUploadHighMotion, '统一高动态模式：自动码率提高到高速运动档；NVENC 在硬件支持时使用更深 Lookahead / Fullres Multipass / adaptive B / scene-cut；x264 保持当前 preset + tune grain + 当前 VBR 模式，并使用高动态码率。')
 $toolTip.SetToolTip($chkBitrateAuto, '勾选：码率框实时显示当前视频的自动推荐 kbps；分辨率、最终 FPS、编码器或高动态状态改变时自动刷新。取消勾选后可手动输入，程序不会偷偷覆盖。')
 $toolTip.SetToolTip($cmbBitrate, '单位 kbps。自动模式下这里直接显示计算结果；启动后日志会再次列出分辨率档位、FPS 系数、b:v、3× maxrate 与 6× bufsize。')
 
@@ -2572,10 +2609,12 @@ function Update-Av1Controls {
 
 function Update-SpeedChoices {
     if ($cmbCodec.SelectedIndex -eq 2) {
+        $presetLabel = switch ($script:X264Preset) { 'medium' { 'Medium' } 'slow' { 'Slow' } default { 'Faster' } }
+        $passLabel = if ($script:X264RateMode -eq '2PASS') { 'VBR 2-Pass' } else { 'VBR 单次' }
         $cmbSpeed.BeginUpdate()
         try {
             $cmbSpeed.Items.Clear()
-            [void]$cmbSpeed.Items.Add('x264 · slow / tune grain / 2-pass（固定）')
+            [void]$cmbSpeed.Items.Add("x264 · $presetLabel / tune grain / $passLabel")
             $cmbSpeed.SelectedIndex = 0
         } finally { $cmbSpeed.EndUpdate() }
         $cmbSpeed.Enabled = $false
@@ -3887,9 +3926,14 @@ function Start-Encoding {
     } else {
         Append-LogText ("GUI 手动码率：b:v ${bitrate}k  ·  maxrate ${maxrate}k  ·  bufsize ${bufsize}k`r`n")
     }
+    $x264PresetLabel = switch ($script:X264Preset) { 'medium' { 'Medium' } 'slow' { 'Slow' } default { 'Faster' } }
+    $x264PassLabel = if ($script:X264RateMode -eq '2PASS') { 'VBR 2-Pass' } else { 'VBR 单次' }
+    if ($mode -eq 'X264') {
+        Append-LogText ("x264 Grain：$x264PresetLabel + tune grain + $x264PassLabel`r`n")
+    }
     if ($mode -ne 'X264' -and $chkUpload.Checked) {
         $uploadRateModeLabel = if ($uploadBitrateAuto) { '自动推荐' } else { '手动' }
-        Append-LogText ("H.264 上传版：x264 slow + tune grain + true 2-pass · $uploadRateModeLabel / 当前显示 ${uploadBitrate} kbps · 与全局 $motionLabel 同步；Bridge 将按每个文件实际输出确认。`r`n")
+        Append-LogText ("H.264 上传版：x264 $x264PresetLabel + tune grain + $x264PassLabel · $uploadRateModeLabel / 当前显示 ${uploadBitrate} kbps · 与全局 $motionLabel 同步；Bridge 将按每个文件实际输出确认。`r`n")
     }
     Append-LogText "`r`n"
 
@@ -3943,6 +3987,8 @@ function Start-Encoding {
     $envs['FG_BUFSIZE'] = [string]$bufsize
     $envs['FG_HIGH_MOTION'] = if ($chkUploadHighMotion.Checked) { '1' } else { '0' }
     $envs['FG_H264_HIGH10'] = if ($script:H264High10) { '1' } else { '0' }
+    $envs['FG_X264_PRESET'] = [string]$script:X264Preset
+    $envs['FG_X264_PASS_MODE'] = [string]$script:X264RateMode
     $envs['FG_FPS_MODE'] = if ($cmbFps.SelectedIndex -eq 0) { 'AUTO' } else { 'SOURCE' }
     $envs['FG_SVP_INTERPOLATE'] = if ($chkInterpolation.Checked) { '1' } else { '0' }
     $envs['FG_SVP_ALGO'] = [string]$script:SvpAlgo
@@ -4688,7 +4734,7 @@ function Show-PathConfigurationDialog {
     Update-NoReencodeAvailability
     if ($cmbCodec.Items.Count -ge 3) {
         $cmbCodec.Items[0] = if ($script:HardwareCapsReady -and -not $script:Av1Available) { 'AV1 · grav1synth 胶片颗粒（当前硬件不可用）' } else { 'AV1 · grav1synth 胶片颗粒（默认）' }
-        $cmbCodec.Items[2] = if ($script:HardwareCapsReady -and -not $script:X264Available) { 'H.264 · x264 Grain（当前 x264 Grain 路径不可用）' } else { 'H.264 · x264 Grain（CPU / 2-pass）' }
+        $cmbCodec.Items[2] = if ($script:HardwareCapsReady -and -not $script:X264Available) { 'H.264 · x264 Grain（当前 x264 Grain 路径不可用）' } else { 'H.264 · x264 Grain（CPU / VBR 单次）' }
     }
     Update-CodecUi
     if ($grainRootChanged) {
