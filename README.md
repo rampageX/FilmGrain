@@ -7,10 +7,10 @@
 - **HEVC Main10 + 真实扫描 Grain Plate**：将真实胶片颗粒合成到视频像素中。
 - **AV1 Main10 + grav1synth Film Grain**：将颗粒模型写入 AV1 Film Grain metadata，由播放器在解码时合成；除内置 Film Preset / Photon ISO 外，还可直接加载现成 `.tbl / .txt` Grain Table。
 
-当前正式稳定版为 **v4.4.3**，发布包名称：
+当前正式稳定版为 **v4.4.5**，发布包名称：
 
 ```text
-FilmGrain_Studio_v4.4.3_Stable.zip
+FilmGrain_Studio_v4.4.5_Stable.zip
 ```
 
 所有独立脚本使用固定文件名，不再包含组件版本号；版本号只体现在整个项目的发布压缩包上。升级时建议完整替换工具包，避免新旧脚本混用。
@@ -224,7 +224,7 @@ GUI 与 CLI 的输出均保存在源视频所在目录。已有同名输出时�
 - 编码时自动匹配 1080p 或原分辨率 HEVC Lossless Grain Cache；
 - LUT Gallery、最近使用、我的最爱、缩略图预览、参考图更换及 LUT 强度；更换参考图后会在 `_LUT_Tools` 保存 `LUT_Reference_Current.jpg`，后续从配置界面补建缺失缩略图或独立运行预览生成器时优先复用该当前参考图；不存在时才回退 `LUT_Reference_Default.jpg`；
 - 结构化实时进度、`fps`、`speed`、`ETA`、日志复制/清空与任务取消；
-- HEVC / AV1 均可额外生成 H.264 上传版：NVENC P7 固定码率档，或 x264 Slow + `tune grain` + 2-pass 的 FPS / 分辨率联动高质量档，并可用“高动态视频”开关切换普通 / 高动态码率预算；
+- HEVC / AV1 均可额外生成 H.264 上传版：NVENC P7 固定码率档，或 x264 Slow + `tune grain` + 2-pass 的 FPS / 分辨率联动高质量档，并可用“高动态视频”开关切换普通 / 高动态码率预算；OpenSVPFlow 60 fps 插帧开启时同样可用；
 - 字幕功能独立于 H.264 上传版：可直接烧写进主 HEVC / AV1 输出；如同时生成 H.264 上传副本，副本也继承同一套字幕。支持内嵌文本字幕下拉选择、同名外部字幕自动匹配、浏览外部字幕文件，以及自定义字体、字号、颜色、描边、阴影与位置。
 - Studio 主窗体采用约 1320×960 的三列布局；硬件与能力信息统一移到底部单行状态栏，编码区域保留给常用控制项；状态栏最右侧显示版本/构建标识。
 
@@ -479,7 +479,7 @@ GPU/OpenCL
 
 右上角 **“高级…” → “插帧”** 可调整 SmoothFps Algo、Analyse Profile 与 Artifact Mask Area，并可一键恢复推荐值。`Super pel=1 / gpu=1 / full=true` 继续固定为已验证基线，不在当前版本开放。
 
-启用插帧后，`输出帧率` 显示为 **“由 OpenSVPFlow 接管 · 60 fps”**，普通自动电影帧率 / 保持源帧率不再同时生效。当前版本只接受逐行输入，因此 OpenSVPFlow 与自动反交错互斥；隔行素材应使用正常反交错路线。H.264 上传副本在插帧开启时暂时禁用。
+启用插帧后，`输出帧率` 显示为 **“由 OpenSVPFlow 接管 · 60 fps”**，普通自动电影帧率 / 保持源帧率不再同时生效。当前版本只接受逐行输入，因此 OpenSVPFlow 与自动反交错互斥；隔行素材应使用正常反交错路线。从 v4.4.5 起，插帧开启时也可继续同时生成 H.264 上传副本。
 
 处理链使用 **VSPipe Y4M → FFmpeg 管道**，不生成巨大的中间视频文件。HEVC + OpenSVPFlow + LUT + Grain 路线已完成实际测试。AV1 插帧路线需要支持 AV1 NVENC 的 GPU，换到新硬件/驱动后建议先用短片验证。
 
@@ -530,7 +530,7 @@ Utils\LUT_Preview_Batch_Gallery.bat
 
 ### 在主流程中生成
 
-AV1 与 HEVC 两种主编码方式都可以启用 **“同时生成 H.264 上传版”**。主任务完成后会额外生成一份 H.264/AAC MP4；AV1 路线由 `libdav1d` 将 Film Grain metadata 合成为真实颗粒像素后再压制，HEVC 路线则从原始视频重新走同一套 Grain / LUT / 反交错 / Cinematic 处理链，避免从主 HEVC 成片再次转码。
+AV1 与 HEVC 两种主编码方式都可以启用 **“同时生成 H.264 上传版”**，包括开启 OpenSVPFlow 60 fps 插帧的任务。主任务完成后会额外生成一份 H.264/AAC MP4：AV1 路线始终从最终 AV1 主成片读取，并由 `libdav1d` 将 Film Grain metadata 合成为真实颗粒像素后再压制；HEVC 在未启用插帧时仍从原始视频重新走同一套 Grain / LUT / 反交错 / Cinematic 处理链，避免普通流程发生不必要的二次转码；HEVC 启用 OpenSVPFlow 时则直接复用已经完成插帧、Grain、LUT、画幅和字幕处理的最终 60 fps HEVC 主成片，不再重复运行 OpenSVPFlow。
 
 GUI 与 CLI 共用同一套上传质量选择，共 6 档：
 
@@ -646,32 +646,19 @@ H.264 上传版音频统一为 **AAC 256 kbps / stereo / 48 kHz**。
 
 ### 独立转换工具
 
-将一个或多个已带 AV1 Film Grain 的文件拖到：
+将一个或多个已经完成 Film Grain / 插帧等处理的 AV1 或 HEVC 成片拖到：
 
 ```text
 Utils\AV1_FilmGrain_Bake_for_Social_Upload.bat
 ```
 
-```text
-AV1 + Film Grain metadata
-    ↓ libdav1d 解码并合成颗粒像素
-H.264 NVENC
-    ↓
-AAC 256k / MP4 / faststart
-```
+脚本会先用 FFprobe 检测输入视频编码：AV1 输入使用 `libdav1d` 解码，将 AV1 Film Grain metadata 合成为真实颗粒像素；HEVC 等输入则由 FFmpeg 自动选择正常解码器。随后统一使用 **libx264 / preset slow / tune grain / 2-pass** 生成 H.264 上传母版。
 
-输出文件名带 `_UPLOAD_H264_GRAIN.mp4`，适合作为视频平台上传母版。
+独立工具提供与 Studio x264 Grain 路线一致的三档质量基准：推荐 / 高质量 / 极高，并可选择普通动态（0.5×）或高动态（1.0×）预算。平均码率按 **实际 FPS + 实际分辨率 + 动态系数** 联动，最终按 500 kbps 步进取整；VBV 继续使用 `maxrate = 平均码率 × 3`、`bufsize = 平均码率 × 6`。
 
-> 独立的 `AV1_FilmGrain_Bake_for_Social_Upload.bat` 仍按有效分辨率自动选择推荐码率；主流程内的 H.264 上传版则使用上面的手动下拉档位。
+音频统一为 **AAC 256 kbps / stereo / 48 kHz**，输出 MP4 并启用 `faststart`。输出文件名包含实际计算码率，例如 `_UPLOAD_H264_X264GRAIN_7500k.mp4`，便于确认和对比。
 
-独立转换工具的自动推荐规则：
-
-| 有效分辨率 | 平均码率 | Maxrate | Bufsize |
-|---|---:|---:|---:|
-| ≤ 720p | 6 Mbps | 9 Mbps | 12 Mbps |
-| ≤ 1080p | 8 Mbps | 12 Mbps | 16 Mbps |
-| ≤ 1440p | 10 Mbps | 15 Mbps | 20 Mbps |
-| > 1440p（含 4K） | 12 Mbps | 18 Mbps | 24 Mbps |
+> 该独立工具适合对已经完成 Film Grain / 插帧等处理的 AV1 或 HEVC 成片单独补做 H.264 上传母版，也兼容只支持 HEVC 输出的设备生成的颗粒效果成片。
 
 ---
 
@@ -770,7 +757,7 @@ ffmpeg -hide_banner -h decoder=libdav1d
 - 启用 LUT 时，部分处理链会转为软件滤镜路径，速度可能下降；
 - 自动反交错依赖 FFprobe `field_order`；实际为隔行但被标记为 progressive / unknown 的异常素材需要人工确认；
 - OpenSVPFlow 当前只支持逐行输入，并固定接管为 60 fps；与自动反交错、普通电影帧率选择互斥；
-- OpenSVPFlow 当前验证链内部使用 YUV420P8，不适用于 HDR / 端到端 10-bit 保真；启用插帧时 H.264 上传副本暂时禁用；
+- OpenSVPFlow 当前验证链内部使用 YUV420P8，不适用于 HDR / 端到端 10-bit 保真；从 v4.4.5 起启用插帧时可继续生成 H.264 上传副本；
 - 特殊 HDR、VFR、多视频流或非常规容器建议先使用短片测试；
 - 强制取消任务可能留下未完成输出或 `__AV1GS_TMP_*` 临时目录；
 - 重要素材应保留原文件，并在归档前检查画面、音频、时长、流信息及 Film Grain 验证结果。

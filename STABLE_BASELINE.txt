@@ -1,26 +1,25 @@
 Film Grain Studio development stable baseline
 
 Baseline:
-v4.4.3
+v4.4.5
 
 Supersedes:
-v4.4.2_CustomFrame_STABLE
-
-Validated fix source:
-v4.4.2_M2TSSync_TEST2_XVR2
+v4.4.4
 
 Included change:
-OpenSVPFlow A/V sync preservation for MPEG-TS family inputs:
-.ts / .mts / .m2ts
+OpenSVPFlow 60 fps interpolation can now be used together with the H.264
+upload-copy feature in both GUI and CLI.
 
-The dedicated timestamp probe/rebase path runs only when OpenSVPFlow is enabled
-and the input extension is .ts, .mts, or .m2ts. Other containers and non-SVP
-processing keep the previous verified path.
+AV1 upload reuses the completed AV1 main output and uses libdav1d to bake
+Film Grain metadata to pixels. HEVC + OpenSVPFlow reuses the completed 60 fps
+HEVC main output, so interpolation / Grain / LUT / framing / subtitles are not
+rendered a second time. Non-interpolated HEVC keeps the existing direct-render
+upload path from the original source.
 
-HEVC + OpenSVPFlow was user-verified with an .m2ts source whose stream starts were:
-Video start 1.773867 s
-Audio start 1.400000 s
-A/V sync was restored.
+H.264 upload quality rules remain unchanged. x264 Grain continues to use
+libx264 / preset slow / tune grain / 2-pass with FPS + resolution + dynamic
+bitrate linkage, VBV maxrate = average x3 and bufsize = average x6. Audio is
+AAC 256k.
 
-README.md and CHANGELOG.md remain on the last formal GitHub release text until
-the user explicitly requests a formal release.
+The v4.4.3 OpenSVPFlow A/V sync preservation for .ts / .mts / .m2ts remains
+unchanged and is retained as part of this stable baseline.

@@ -1,5 +1,23 @@
 # Film Grain Studio — CHANGELOG
 
+## v4.4.5 — 2026-09-09
+
+- OpenSVPFlow 60 fps 插帧开启时，GUI / CLI 不再禁用 **“同时生成 H.264 上传版”**，插帧与上传母版可以在同一任务中完成。
+- AV1 + OpenSVPFlow 上传路线继续复用最终 AV1 主成片，由 `libdav1d` 将 AV1 Film Grain metadata 合成为真实颗粒像素后再生成 H.264，不重复运行插帧。
+- HEVC + OpenSVPFlow 新增专用上传分支：直接复用已经完成 60 fps 插帧、扫描 Grain、LUT、Cinematic 与字幕处理的最终 HEVC 主成片，再生成 H.264；不再次运行 OpenSVPFlow，也不重复渲染 Grain / LUT / 画幅 / 字幕。
+- 未启用 OpenSVPFlow 的 HEVC 上传路线保持 v4.4.4 既有逻辑，仍从原始视频直接重走 Grain / LUT / 反交错 / Cinematic 处理链，避免普通流程从主 HEVC 成片二次转码。
+- H.264 上传质量与码率规则保持不变：NVENC P7 三档，以及 `libx264 / preset slow / tune grain / 2-pass` 三档；x264 继续按 FPS + 分辨率 + 动态系数联动，VBV 为 `maxrate = 平均码率 × 3`、`bufsize = 平均码率 × 6`。
+- H.264 上传音频继续统一为 **AAC 256 kbps / stereo / 48 kHz**；v4.4.3 已验证的 `.ts / .mts / .m2ts + OpenSVPFlow` A/V 时间戳同步修复保持不变。
+
+## v4.4.4 — 2026-09-09
+
+- 更新独立 `Utils\AV1_FilmGrain_Bake_for_Social_Upload.bat`：H.264 上传编码由旧 `h264_nvenc` 路线同步为 **libx264 / preset slow / tune grain / 2-pass**，与 Studio 已验证的 x264 Grain 高质量策略保持一致。
+- 独立工具新增输入编码探测：AV1 使用 `libdav1d` 将 Film Grain metadata 合成为真实颗粒像素；HEVC 等输入使用 FFmpeg 自动解码，修复 HEVC 成片被强制交给 libdav1d 后持续出现 `Unknown OBU type` 并转换失败的问题。
+- x264 独立上传工具同步 Studio 的推荐 / 高质量 / 极高三档，以及普通动态 0.5× / 高动态 1.0× 预算；码率按实际 FPS + 分辨率 + 动态系数联动，VBV 保持 `maxrate = 平均码率 × 3`、`bufsize = 平均码率 × 6`。
+- 独立上传工具重新接回项目统一 `FilmGrain_Config.ini` / `FilmGrain_Config_Load.bat` 路径配置，不在正式版中保留测试阶段的 FFmpeg 硬编码路径。
+- H.264 独立上传音频恢复并统一为 **AAC 256 kbps / stereo / 48 kHz**。
+- 其余 v4.4.3 已验证的 OpenSVPFlow MPEG-TS 时间戳同步、GUI / CLI 编码核心及 Film Grain 功能保持不变。
+
 ## v4.4.3 — 2026-09-08
 
 - 修复 **OpenSVPFlow + MPEG-TS 系列输入** 的音画同步问题。

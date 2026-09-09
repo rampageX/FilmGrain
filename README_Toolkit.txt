@@ -62,6 +62,7 @@ FilmGrain_Universal_HEVC_AV1_CLI.bat
 - Cinematic Style 约 2.39:1；HEVC / AV1 均可选择“加黑边保留原分辨率”或“裁剪有效画面”。
 - 自动反交错默认使用 BWDIF Vulkan；隔行 29.97i → 59.94p、25i → 50p。
 - AV1 / HEVC 均可同时生成 H.264 上传版；NVENC P7 提供 6000 / 8000 / 15000 kbps。
+- OpenSVPFlow 60 fps 插帧开启时也可继续生成 H.264 上传版；AV1 复用最终 AV1，HEVC 复用最终插帧 HEVC，不重复运行插帧。
 - x264 Slow + tune grain + 2-pass 提供推荐 / 高质量 / 极高三档，并按实际输出 FPS + 分辨率
   自动联动码率；普通动态默认 0.5×，勾选“高动态视频”后为 1.0×。
 - 字幕功能独立开关，可烧写进主 HEVC / AV1；同时生成 H.264 上传副本时也会继承字幕。
@@ -91,11 +92,13 @@ Gallery 已统一为中文界面。页码使用只读下拉菜单，可显示当
 
 2. 社交网站转码工具
 -------------------
-将一个或多个带 AV1 Film Grain metadata 的视频拖到：
+将一个或多个已完成颗粒效果/插帧处理的 AV1 或 HEVC 视频拖到：
 Utils\AV1_FilmGrain_Bake_for_Social_Upload.bat
 
-脚本通过 libdav1d 将 Film Grain 烘焙为实际像素，再编码为兼容性较高的
-H.264/AAC MP4。输出文件名带 _UPLOAD_H264_GRAIN。
+脚本先检测输入编码：AV1 使用 libdav1d 将 Film Grain metadata 烘焙为
+实际像素，HEVC 等输入使用 FFmpeg 正常解码；之后统一采用 libx264
+slow + tune grain + 2-pass，并按 FPS + 分辨率 + 动态系数联动码率。
+音频统一 AAC 256k，输出文件名包含实际 x264 码率。
 
 3. AV1 免重编码胶片颗粒工具
 ---------------------------

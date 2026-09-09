@@ -518,7 +518,7 @@ $statusVersion = New-Object System.Windows.Forms.ToolStripStatusLabel
 $statusVersion.Spring = $false
 $statusVersion.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
 $statusVersion.ForeColor = $ColorMuted
-$statusVersion.Text = 'v4.4.3'
+$statusVersion.Text = 'v4.4.5'
 $statusVersion.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 12, 0, 0, 0
 [void]$statusStrip.Items.Add($statusVersion)
 
@@ -2455,10 +2455,10 @@ function Update-InterpolationUi {
         $cmbFps.SelectedIndex = 0
         $cmbFps.Enabled = $false
 
-        if ($chkUpload.Checked) { $chkUpload.Checked = $false }
-        $chkUpload.Enabled = $false
-        $cmbUploadBitrate.Enabled = $false
-        $chkUploadHighMotion.Enabled = $false
+        $chkUpload.Enabled = $true
+        $cmbUploadBitrate.Enabled = $chkUpload.Checked
+        $btnUploadSubtitle.Enabled = $true
+        Update-UploadHighMotionUi
         return
     }
 

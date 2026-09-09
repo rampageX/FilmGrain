@@ -1528,8 +1528,7 @@ set "UPLOAD_CODEC_ARGS=-preset p7 -tune hq -rc vbr -b:v 8000k -maxrate:v 12000k 
 if /i "%MODE%"=="AV1" set "TOTAL_STAGES=4"
 if /i "%FPS_MODE%"=="SVP60" (
     echo.
-    echo H.264 upload copy: disabled while OpenSVPFlow interpolation is enabled.
-    exit /b 0
+    echo H.264 upload copy: OpenSVPFlow 60 fps main output will be reused.
 )
 
 echo.
@@ -2792,6 +2791,8 @@ if exist "%UPLOAD_OUTPUT%" (
     exit /b 0
 )
 
+if /i "%FPS_MODE%"=="SVP60" goto RUN_HEVC_UPLOAD_SVP_MAIN
+
 call :PREPARE_UPLOAD_SUBTITLE "%INDIR%"
 if errorlevel 1 exit /b 1
 pushd "%INDIR%"
@@ -2820,6 +2821,84 @@ echo UPLOAD COPY DONE:
 echo "%UPLOAD_OUTPUT%"
 exit /b 0
 
+
+
+:RUN_HEVC_UPLOAD_SVP_MAIN
+echo.
+echo OpenSVPFlow upload path: reuse the completed 60 fps HEVC main output.
+echo Interpolation, Grain, LUT, framing and hard subtitles are not rendered again.
+echo Source       : "%OUTPUT%"
+echo.
+if not exist "%OUTPUT%" (
+    echo ERROR: Interpolated HEVC main output is missing.
+    set "LAST_ERROR_STAGE=OpenSVPFlow HEVC upload source missing"
+    exit /b 1
+)
+if /i "%UPLOAD_MODE%"=="X264" goto RUN_HEVC_UPLOAD_SVP_MAIN_X264
+pushd "%INDIR%"
+"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -i "%OUTPUT%" -map 0:v:0 -map 0:a:0? -map_metadata 0 -vf "format=yuv420p" -c:v h264_nvenc -gpu %CUDA_DEVICE% -profile:v high -pix_fmt yuv420p %UPLOAD_CODEC_ARGS% %UPLOAD_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr -c:a aac -b:a 256k -ac 2 -ar 48000 -movflags +faststart "%UPLOAD_OUTPUT%"
+set "UPLOAD_RUN_RC=%ERRORLEVEL%"
+popd
+if not "%UPLOAD_RUN_RC%"=="0" (
+    echo.
+    echo ERROR: OpenSVPFlow HEVC H.264 upload encode failed.
+    if exist "%UPLOAD_OUTPUT%" del /q "%UPLOAD_OUTPUT%" >nul 2>&1
+    set "LAST_ERROR_STAGE=OpenSVPFlow HEVC H.264 upload encode"
+    exit /b 1
+)
+if not exist "%UPLOAD_OUTPUT%" (
+    echo.
+    echo ERROR: OpenSVPFlow HEVC H.264 upload MP4 was not created.
+    set "LAST_ERROR_STAGE=OpenSVPFlow HEVC H.264 upload missing"
+    exit /b 1
+)
+echo.
+echo UPLOAD COPY DONE:
+echo "%UPLOAD_OUTPUT%"
+exit /b 0
+
+:RUN_HEVC_UPLOAD_SVP_MAIN_X264
+set "UPLOAD_PASSLOG=%TEMP%\FilmGrain_x264_%RANDOM%_%RANDOM%"
+call :CLEAN_X264_PASSLOG
+
+echo.
+echo x264 pass 1/2: interpolated HEVC main output analysis...
+pushd "%INDIR%"
+"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -i "%OUTPUT%" -map 0:v:0 -vf "format=yuv420p" -c:v libx264 -profile:v high -pix_fmt yuv420p %UPLOAD_CODEC_ARGS% -pass 1 -passlogfile "%UPLOAD_PASSLOG%" -r %OUT_FPS% -fps_mode:v cfr -an -f null NUL
+set "UPLOAD_RUN_RC=%ERRORLEVEL%"
+popd
+if not "%UPLOAD_RUN_RC%"=="0" (
+    call :CLEAN_X264_PASSLOG
+    echo.
+    echo ERROR: OpenSVPFlow HEVC x264 upload pass 1 failed.
+    set "LAST_ERROR_STAGE=OpenSVPFlow HEVC x264 upload pass 1"
+    exit /b 1
+)
+
+echo.
+echo x264 pass 2/2: interpolated HEVC main output final encode...
+pushd "%INDIR%"
+"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -i "%OUTPUT%" -map 0:v:0 -map 0:a:0? -map_metadata 0 -vf "format=yuv420p" -c:v libx264 -profile:v high -pix_fmt yuv420p %UPLOAD_CODEC_ARGS% -pass 2 -passlogfile "%UPLOAD_PASSLOG%" -r %OUT_FPS% -fps_mode:v cfr -c:a aac -b:a 256k -ac 2 -ar 48000 -movflags +faststart "%UPLOAD_OUTPUT%"
+set "UPLOAD_RUN_RC=%ERRORLEVEL%"
+popd
+call :CLEAN_X264_PASSLOG
+if not "%UPLOAD_RUN_RC%"=="0" (
+    echo.
+    echo ERROR: OpenSVPFlow HEVC x264 upload pass 2 failed.
+    if exist "%UPLOAD_OUTPUT%" del /q "%UPLOAD_OUTPUT%" >nul 2>&1
+    set "LAST_ERROR_STAGE=OpenSVPFlow HEVC x264 upload pass 2"
+    exit /b 1
+)
+if not exist "%UPLOAD_OUTPUT%" (
+    echo.
+    echo ERROR: OpenSVPFlow HEVC x264 upload MP4 was not created.
+    set "LAST_ERROR_STAGE=OpenSVPFlow HEVC x264 upload missing"
+    exit /b 1
+)
+echo.
+echo UPLOAD COPY DONE:
+echo "%UPLOAD_OUTPUT%"
+exit /b 0
 
 
 :RUN_HEVC_UPLOAD_X264
