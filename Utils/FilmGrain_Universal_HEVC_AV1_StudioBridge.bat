@@ -79,6 +79,8 @@ set "SKIP_COUNT=0"
 set "LAST_ERROR_STAGE="
 set "LAST_ERROR_LOG="
 set "STUDIO_FFMPEG_PROGRESS_ARGS="
+set "SFE_ARGS="
+set "SFE_LABEL=Disabled"
 
 rem Film Grain Studio only supplies validated values through FG_* variables.
 rem With FG_STUDIO_MODE unset this BAT keeps the original interactive flow.
@@ -115,6 +117,7 @@ if errorlevel 1 goto FATAL_END
 call :SELECT_FRAMING
 call :SELECT_DEINTERLACE
 call :SELECT_FPS
+set "REQUESTED_FPS_MODE=%FPS_MODE%"
 if /i "%FPS_MODE%"=="SVP60" call :CHECK_OPEN_SVP_TOOLS
 if errorlevel 1 goto FATAL_END
 call :SELECT_CONTAINER
@@ -178,7 +181,7 @@ if not exist "%HARDWARE_CAPS_SCRIPT%" (
 set "HW_CAPS_ENV=%TEMP%\FilmGrain_HardwareCaps_%RANDOM%_%RANDOM%.cmd"
 echo.
 echo [Hardware Detection] Loading the GPU capability profile...
-"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%HARDWARE_CAPS_SCRIPT%" -FFmpeg "%FFMPEG%" -GpuIndex %CUDA_DEVICE% -CudaDevice %CUDA_DEVICE% -VulkanDevice %VULKAN_DEVICE% -OutputCmd "%HW_CAPS_ENV%"
+"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%HARDWARE_CAPS_SCRIPT%" -FFmpeg "%FFMPEG%" -GpuIndex %CUDA_DEVICE% -CudaDevice %CUDA_DEVICE% -VulkanDevice %VULKAN_DEVICE% -Grav1synth "%GRAV1SYNTH%" -OutputCmd "%HW_CAPS_ENV%"
 if errorlevel 1 (
     if exist "%HW_CAPS_ENV%" del /q "%HW_CAPS_ENV%" >nul 2>&1
     echo.
@@ -676,13 +679,7 @@ if "%FPS_SEL%"=="3" (
     if "%OPEN_SVP_SCENE_MODE%"=="3" set "OPEN_SVP_SCENE_LABEL=Adaptive"
     set "OPEN_SVP_ANALYSE_LABEL=EncodeGUI Analyse"
     if /i "%OPEN_SVP_ANALYSE%"=="BASE" set "OPEN_SVP_ANALYSE_LABEL=Baseline Analyse"
-    set "FPS_LABEL=OpenSVPFlow 60 fps / %OPEN_SVP_SCENE_LABEL% / Algo %OPEN_SVP_ALGO% / %OPEN_SVP_ANALYSE_LABEL%"
-    set "DEINT_MODE=OFF"
-    set "DEINT_METHOD=OFF"
-    set "DEINT_LABEL=Off / OpenSVPFlow progressive input"
-    set "DEINT_FILTER="
-    set "DEINT_HW_ARGS="
-    set "DEINT_SUFFIX="
+    set "FPS_LABEL=OpenSVPFlow 60 fps for progressive input / interlaced input uses field-rate deinterlace"
     exit /b 0
 )
 if "%FPS_SEL%"=="1" (
@@ -2234,14 +2231,19 @@ if "%HIGH_MOTION%"=="1" if not "%UHQ_MODE%"=="1" (
         set "MULTIPASS_ARGS=-multipass fullres"
     )
 )
-set "ENCODER_CAP_ARGS=%MULTIPASS_ARGS% %LOOKAHEAD_ARGS% %HIGH_MOTION_NVENC_ARGS% %SPATIAL_AQ_ARGS% %TAQ_ARGS% %BF_ARGS%"
+set "SFE_ARGS="
+set "SFE_LABEL=Disabled"
+if /i "%MODE%"=="AV1" if "%SPEED_SEL%"=="1" call :ENABLE_AV1_SFE_IF_REQUESTED
+if /i "%MODE%"=="AV1" if "%SPEED_SEL%"=="3" call :ENABLE_AV1_SFE_IF_REQUESTED
+
+set "ENCODER_CAP_ARGS=%MULTIPASS_ARGS% %LOOKAHEAD_ARGS% %HIGH_MOTION_NVENC_ARGS% %SPATIAL_AQ_ARGS% %TAQ_ARGS% %BF_ARGS% %SFE_ARGS%"
 if "%UHQ_MODE%"=="1" (
     set "ACTIVE_LOOKAHEAD=UHQ automatic"
     set "LOOKAHEAD_ARGS="
     set "HIGH_MOTION_NVENC_ARGS="
     set "TAQ_ARGS="
     set "BF_ARGS="
-    set "ENCODER_CAP_ARGS=%MULTIPASS_ARGS% %SPATIAL_AQ_ARGS%"
+    set "ENCODER_CAP_ARGS=%MULTIPASS_ARGS% %SPATIAL_AQ_ARGS% %SFE_ARGS%"
 )
 
 set "H264_BF_ARGS="
@@ -2263,6 +2265,24 @@ if /i "%UPLOAD_MODE%"=="X264" set "UPLOAD_CAP_ARGS="
 
 set "MAIN_HWACCEL_ARGS="
 set "ENABLE_MAIN_NVDEC=0"
+exit /b 0
+
+
+:ENABLE_AV1_SFE_IF_REQUESTED
+if not defined FG_SFE_ENGINES exit /b 0
+if not defined FG_CAP_AV1_SFE_MAX exit /b 0
+if not "%FG_CAP_GRAV1SYNTH_SFE%"=="1" exit /b 0
+echo(%FG_SFE_ENGINES%| findstr /r /x "[2-9][0-9]*" >nul
+if errorlevel 1 exit /b 0
+echo(%FG_CAP_AV1_SFE_MAX%| findstr /r /x "[1-9][0-9]*" >nul
+if errorlevel 1 exit /b 0
+set /a SFE_REQUESTED=%FG_SFE_ENGINES% >nul 2>&1
+if errorlevel 1 exit /b 0
+set /a SFE_MAX=%FG_CAP_AV1_SFE_MAX% >nul 2>&1
+if errorlevel 1 exit /b 0
+if %SFE_REQUESTED% GTR %SFE_MAX% exit /b 0
+set "SFE_ARGS=-split_encode_mode %SFE_REQUESTED%"
+set "SFE_LABEL=Enabled x%SFE_REQUESTED%"
 exit /b 0
 
 
@@ -2292,6 +2312,7 @@ echo HW profile    : %FG_CAP_CACHE_STATE%
 if /i "%MODE%"=="X264" goto SHOW_X264_SESSION
 echo NVENC preset  : %PRESET%
 echo NVENC tuning  : %ENCODER_TUNE%
+echo Multi-engine  : %SFE_LABEL%
 echo Multipass     : %ACTIVE_MULTIPASS%
 echo Lookahead     : %ACTIVE_LOOKAHEAD%
 if "%HIGH_MOTION%"=="1" (
@@ -2422,6 +2443,30 @@ if errorlevel 1 (
 )
 
 call :CONFIGURE_INPUT_DECODE
+
+set "FPS_MODE=%REQUESTED_FPS_MODE%"
+set "SVP_FILE_BYPASS=0"
+if /i "%FPS_MODE%"=="SVP60" (
+    call :IS_CURRENT_INPUT_INTERLACED
+    if not errorlevel 1 (
+        if /i not "%DEINT_MODE%"=="AUTO" (
+            echo.
+            echo ERROR: Interlaced input requires Auto deinterlace when interpolation is enabled.
+            echo Detected field_order=%FIELD_ORDER%
+            set "LAST_ERROR_STAGE=OpenSVPFlow interlaced fallback"
+            set /a FAIL_COUNT+=1
+            shift
+            goto PROCESS_NEXT
+        )
+        set "FPS_MODE=AUTO"
+        set "SVP_FILE_BYPASS=1"
+        echo.
+        echo INFO: Interlaced input detected ^(field_order=%FIELD_ORDER%^).
+        echo       OpenSVPFlow is bypassed for this file.
+        echo       Using the selected field-rate deinterlace path instead.
+        echo.
+    )
+)
 
 set "OUT_FPS=%FPS%"
 set "FPS_FILTER="
@@ -3688,6 +3733,14 @@ exit /b 0
 rem ============================================================
 rem Per-file field-rate deinterlace helper
 rem ============================================================
+:IS_CURRENT_INPUT_INTERLACED
+if /i "%FIELD_ORDER%"=="tt" exit /b 0
+if /i "%FIELD_ORDER%"=="bb" exit /b 0
+if /i "%FIELD_ORDER%"=="tb" exit /b 0
+if /i "%FIELD_ORDER%"=="bt" exit /b 0
+exit /b 1
+
+
 :VALIDATE_OPEN_SVP_INPUT
 if /i "%FIELD_ORDER%"=="tt" goto SVP_INTERLACED_REJECT
 if /i "%FIELD_ORDER%"=="bb" goto SVP_INTERLACED_REJECT
@@ -3697,9 +3750,9 @@ exit /b 0
 
 :SVP_INTERLACED_REJECT
 echo.
-echo ERROR: OpenSVPFlow integration currently supports progressive input only.
+echo ERROR: OpenSVPFlow received an interlaced input unexpectedly.
 echo Detected field_order=%FIELD_ORDER%
-echo Use the normal Film Grain Studio deinterlace path first, or disable OpenSVPFlow.
+echo The normal Studio path should auto-bypass OpenSVPFlow and use field-rate deinterlace.
 set "LAST_ERROR_STAGE=OpenSVPFlow interlaced input"
 exit /b 1
 

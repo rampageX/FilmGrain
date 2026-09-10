@@ -8,17 +8,19 @@
 - **HEVC Main10 + 真实扫描 Grain Plate**：将真实胶片颗粒合成到视频像素中，由 NVENC Main10 编码。
 - **H.264 x264 Grain + 真实扫描 Grain Plate**：与 HEVC 共用扫描 Grain / LUT / 画幅 / 反交错 / OpenSVPFlow 前处理，使用 `libx264 + preset faster + tune grain + VBR 单次` 作为默认日常路线；高级设置可选择 Medium / Slow 与 VBR 2-Pass。默认在编码边界高质量降为 8-bit High Profile，也可启用实验性 High10。
 
-当前正式稳定版为 **v4.5.2.2**，发布包名称：
+当前正式稳定版为 **v4.6.0**，发布包名称：
 
 ```text
-FilmGrain_Studio_v4.5.2.2_Stable.zip
+FilmGrain_Studio_v4.6.0_Stable.zip
 ```
 
 所有独立脚本使用固定文件名，不再包含组件版本号；版本号只体现在整个项目的发布压缩包上。升级时建议完整替换工具包，避免新旧脚本混用。
 
-v4.5.2 首次在 GUI / CLI 共用的 Batch Summary 中加入 **Started / Completed / Elapsed**。v4.5.2.2 在保持统计范围和编码流程不变的前提下，进一步加固跨机器兼容性：开始 / 完成时间分别独立获取，`Elapsed` 以整数秒计算后由 BAT 格式化，并增加 `%DATE% / %TIME%` 后备路径，修复部分 Windows / PowerShell 环境中三项时间同时显示 `Unavailable` 的问题。该修正版已在笔记本与台式机上完成实际测试。
+v4.6.0 在 v4.5.2.2 稳定基线之上正式加入 **AV1 NVENC 多引擎并行 / Split Frame Encoding (SFE)**。主界面“速度 / 质量”下方新增“多引擎并行 ×N”，由 NVIDIA NVENC 能力检测决定可用引擎数量；当前仅在 **AV1 Standard / UHQ** 模式允许启用。SFE 同时要求 **grav1synth 0.2.2 或更高版本**，旧版 grav1synth 会自动禁用该选项。实测 RTX 4080 的 AV1 Standard / UHQ 可获得明显的完整流程加速，而 AV1 FAST 与 HEVC 扫描 Grain 路线仍保持关闭 SFE。
 
-默认配置为 **AV1 Main10 + MP4 + AAC 256k**，并集成 LUT Gallery、自动 Field-rate 反交错、自动电影帧率、可选 OpenSVPFlow GPU 60 fps 插帧、Cinematic Style、多文件处理、NVENC / OpenSVPFlow 硬件能力自动探测、AV1 UHQ 及 AV1 Film Grain 最终验证。
+v4.6.0 同时修复隔行素材与 OpenSVPFlow 插帧的组合：OpenSVPFlow 仍只处理逐行输入；若任务中检测到隔行视频，则该文件自动旁路 OpenSVPFlow，改走既有 Field-rate 反交错，例如 29.97i → 59.94p、25i → 50p。逐行素材继续使用 OpenSVPFlow 60 fps；混合批量任务按文件分别判断。
+
+默认配置仍为 **AV1 Main10 + MP4 + AAC 256k**，并集成 LUT Gallery、自动 Field-rate 反交错、自动电影帧率、可选 OpenSVPFlow GPU 60 fps 插帧、Cinematic Style、多文件处理、NVENC / OpenSVPFlow 硬件能力自动探测、AV1 UHQ、AV1 SFE 及 AV1 Film Grain 最终验证。
 
 历史版本变更请参阅 [`CHANGELOG.md`](CHANGELOG.md)。
 
@@ -125,6 +127,12 @@ HEVC Grain 库：D:\Film_Grain
 LUT 根目录：E:\Adobe Portable\LUTs
 ```
 
+### grav1synth 0.2.2+
+
+AV1 Film Grain 与 v4.6.0 的 SFE 路线推荐使用 **grav1synth 0.2.2 或更高版本**。v0.2.2 修复了 NVENC Split Frame Encoding 输出中 standalone `OBU_FRAME_HEADER / OBU_TILE_GROUP` 的兼容问题；Film Grain Studio 会检测 grav1synth 版本，低于 0.2.2 时自动禁用“多引擎并行”。
+
+下载最新版：[rampageX / grav1synth Releases](https://github.com/rampageX/grav1synth/releases/latest)
+
 `FilmGrain_Config.ini` 使用 UTF-8 无 BOM；PS1 显式按 UTF-8 读写，BAT 读取时临时切换 UTF-8 代码页并恢复原代码页。GUI 最底部状态栏集中显示 GPU、NVIDIA 驱动版本、FFmpeg 版本、能力缓存状态以及 AV1 / UHQ / HEVC-Vulkan / OpenSVPFlow 可用性；最右侧显示当前正式版本号或测试构建标识。
 
 ### 硬件能力自动探测
@@ -140,6 +148,7 @@ GUI 和 CLI 启动时会调用 `Utils\FilmGrain_Hardware_Caps.ps1`，对当前 G
 | Lookahead / Multipass | 按 fullres、qres 的实际支持情况选择 |
 | NVDEC CUDA / Vulkan | 只在通过实际路径测试后启用 |
 | AV1 UHQ | 只在 `-tune uhq` 微型编码成功时显示 |
+| AV1 SFE / 多引擎并行 | 查询 NVIDIA NVENC 编码引擎数量并验证对应 `-split_encode_mode N`；仅 AV1 Standard / UHQ 可用，并要求 grav1synth 0.2.2+ |
 | OpenSVPFlow GPU/OpenCL | 仅在本地 VSPipe、SVPFlow 插件与 GPU/OpenCL smoke test 均通过后启用插帧 |
 
 能力结果会写入 `Utils\_HardwareCaps.json`。GPU、驱动、FFmpeg 文件或探测规则变化后会自动重新检测；环境未变时直接读取缓存。新包首次完成能力探测后显示 `配置：已适配`；环境未变化、后续直接读取缓存时显示 `配置：已缓存`。
@@ -212,11 +221,12 @@ GUI 与 CLI 的输出均保存在源视频所在目录。已有同名输出时�
 - 编码方式统一为 `AV1 · grav1synth 胶片颗粒（默认）`、`HEVC · 扫描胶片颗粒`、`H.264 · x264 Grain（CPU / VBR 单次）`；单个 AV1 输入还可选择 `AV1 不重编码 · 添加/替换胶片颗粒`；
 - MP4 与 MKV 输出；
 - FAST、Standard，以及能力探测通过后可选的 AV1 UHQ 编码模式；
+- AV1 Standard / UHQ 可选 **“多引擎并行 ×N”**：Tooltip 显示 `NVENC: Split Frame Encoding (SFE)`；`×N` 由硬件能力检测决定，并同时要求 grav1synth 0.2.2+；AV1 FAST、HEVC 与 x264 自动灰显并取消勾选；
 - 统一自动码率与自定义 kbps：自动模式按编码器、输出分辨率、最终 FPS 与高动态状态实时计算，并直接在主界面显示具体 kbps；手动修改后不再被自动覆盖；
 - 自动反交错：BWDIF Vulkan（默认）、BWDIF CUDA（备选）、W3FDIF Complex（高质量对照）；
 - 隔行素材自动使用 Field-rate 输出，例如 29.97i → 59.94p、25i → 50p；逐行素材自动旁路；
 - 逐行素材可使用自动电影帧率或保持源帧率；
-- 可选 **OpenSVPFlow GPU 60 fps 插帧**：主界面提供“平滑 / 自动平衡”，启用后由 OpenSVPFlow 接管输出帧率；
+- 可选 **OpenSVPFlow GPU 60 fps 插帧**：主界面提供“平滑 / 自动平衡”；逐行素材由 OpenSVPFlow 接管为 60 fps，隔行素材自动旁路 OpenSVPFlow 并使用既有 Field-rate 反交错输出；
 - 右上角新增 **“高级…”** 独立设置窗体，按“编码 / 插帧 / 其他”分类；当前插帧高级项包括 SmoothFps Algo、Analyse Profile 与 Artifact Mask Area；
 - NVIDIA GPU / 驱动 / FFmpeg / OpenSVPFlow 能力自动探测与缓存；
 - AV1 / HEVC / H.264 统一 Cinematic Style：可烘焙上下黑边并保持原分辨率，或裁剪为约 2.39:1 有效画面；

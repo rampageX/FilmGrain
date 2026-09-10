@@ -1,5 +1,17 @@
 # Film Grain Studio — CHANGELOG
 
+## v4.6.0 — 2026-09-11
+
+- 正式加入 **AV1 NVENC 多引擎并行 / Split Frame Encoding (SFE)**。主界面“速度 / 质量”下方新增 **“多引擎并行 ×N”**，Tooltip 显示 `NVENC: Split Frame Encoding (SFE)`。
+- `×N` 由 NVIDIA NVENC 能力检测决定，不按 GPU 型号硬编码；RTX 4080 实测为 ×2。StudioBridge 仅在能力满足时追加 `-split_encode_mode N`，GUI / CLI 继续共用同一编码核心。
+- SFE 仅在 **AV1 Standard / AV1 UHQ** 允许启用；AV1 FAST、HEVC、H.264 x264 Grain 与 AV1 不重编码模式自动灰显并取消勾选。RTX 4080 实测 Standard / UHQ 完整流程有实际加速，FAST 与 HEVC Grain 路线不纳入启用范围。
+- SFE 新增 **grav1synth 0.2.2+** 依赖检测。低于 0.2.2、版本无法识别或路径不可用时，“多引擎并行”自动禁用；Hardware Caps 缓存签名同时记录 grav1synth 路径、文件状态与版本。
+- 配合 grav1synth v0.2.2 修复 NVENC SFE 输出中的 standalone `OBU_FRAME_HEADER / OBU_TILE_GROUP` 兼容问题，AV1 FAST / Standard / UHQ 的 SFE 测试均可完成 Film Grain 注入、转封装与最终 Header 验证。
+- 修复 **隔行素材 + OpenSVPFlow 插帧** 的运行错误。OpenSVPFlow 仍保持 progressive-only；逐行输入继续使用 OpenSVPFlow 60 fps，隔行输入则按文件自动旁路 OpenSVPFlow，并使用现有 Field-rate 反交错路线，例如 29.97i → 59.94p、25i → 50p。
+- 混合批量任务支持逐文件判断 progressive / interlaced；不增加额外中间视频，也不增加第二次转码。反交错算法仍可使用 BWDIF Vulkan、BWDIF CUDA 或 W3FDIF Complex。
+- 保持 v4.5.2.2 的 Batch Summary `Started / Completed / Elapsed` 兼容性修复、AAC 256k 统一策略、LUT / Grain / 字幕 / Cinematic / H.264 上传版、MPEG-TS 时间戳同步与其它已验证编码参数不变。
+- 正式版恢复干净版本标识 `v4.6.0`，不包含 TEST 构建文件；README / CHANGELOG 继续分离维护。
+
 ## v4.5.2.2 — 2026-09-10
 
 - 修复 v4.5.2 在部分 Windows / PowerShell 环境中 Batch Summary 的 `Started`、`Completed`、`Elapsed` 同时显示 `Unavailable` 的兼容性问题。
@@ -232,4 +244,4 @@
 - 将 Film Grain 项目整理为正式稳定发布结构，统一 GUI / CLI 入口与 `Utils`、`_LUT_Tools` 目录。
 - 清理各脚本文件名中历史遗留的独立版本号；组件固定文件名，项目版本号只体现在完整发布压缩包上。
 - GUI Studio、CLI、HEVC 扫描 Grain、AV1 + grav1synth、LUT Gallery、Cinematic Style、自动电影帧率、MP4 / MKV、多文件处理等整合为统一工具包。
-- `README.md` 作为 GitHub 项目的当前功能与使用说明基准。
+- `README.md` 作为 GitHub 项目的当前功能与使用说明基准。

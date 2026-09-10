@@ -123,6 +123,10 @@ $script:HardwareCapsReady = $false
 $script:FFmpegVersionOverride = ''
 $script:Av1Available = $true
 $script:Av1UhqAvailable = $false
+$script:SfeMaxEngines = 1
+$script:Grav1synthVersion = '未检测'
+$script:Grav1synthSfeCompatible = $false
+$script:UpdatingSpeedChoices = $false
 $script:HevcAvailable = $true
 $script:X264Available = $true
 $script:H264High10Available = $true
@@ -458,6 +462,9 @@ function Initialize-HardwareCaps {
     $script:HardwareCapsReady = $false
     $script:Av1Available = $true
     $script:Av1UhqAvailable = $false
+    $script:SfeMaxEngines = 1
+    $script:Grav1synthVersion = '未检测'
+    $script:Grav1synthSfeCompatible = $false
     $script:HevcAvailable = $true
     $script:X264Available = $true
     $script:H264High10Available = $true
@@ -470,7 +477,7 @@ function Initialize-HardwareCaps {
         $powerShellExe = Join-Path $PSHOME 'powershell.exe'
         & $powerShellExe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $HardwareCapsScript `
             -FFmpeg $Ffmpeg -GpuIndex 0 -CudaDevice 0 -VulkanDevice 0 `
-            -CachePath $HardwareCapsCache -Quiet 2>$null | Out-Null
+            -Grav1synth $Grav1synth -CachePath $HardwareCapsCache -Quiet 2>$null | Out-Null
         if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $HardwareCapsCache -PathType Leaf)) { return }
 
         $caps = Get-Content -LiteralPath $HardwareCapsCache -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -479,6 +486,19 @@ function Initialize-HardwareCaps {
         $script:HardwareCapsReady = $true
         $script:Av1Available = [bool]$caps.caps.av1.available
         $script:Av1UhqAvailable = [bool]$caps.caps.av1.uhq
+        $script:SfeMaxEngines = 1
+        if ($caps.caps.av1.PSObject.Properties.Name -contains 'splitEncodeMaxEngines') {
+            $detectedSfeMax = 1
+            if ([int]::TryParse([string]$caps.caps.av1.splitEncodeMaxEngines, [ref]$detectedSfeMax) -and $detectedSfeMax -ge 1) {
+                $script:SfeMaxEngines = $detectedSfeMax
+            }
+        }
+        if ($caps.grav1synth) {
+            if ($caps.grav1synth.version) {
+                $script:Grav1synthVersion = [string]$caps.grav1synth.version
+            }
+            $script:Grav1synthSfeCompatible = [bool]$caps.grav1synth.sfeCompatible
+        }
         $script:HevcAvailable = [bool]$caps.caps.hevcPipeline
         $script:X264Available = [bool]$caps.caps.x264Pipeline
         $script:H264High10Available = [bool]$caps.caps.x264.high10
@@ -489,6 +509,9 @@ function Initialize-HardwareCaps {
         $script:HardwareCapsReady = $false
         $script:Av1Available = $true
         $script:Av1UhqAvailable = $false
+        $script:SfeMaxEngines = 1
+        $script:Grav1synthVersion = '未检测'
+        $script:Grav1synthSfeCompatible = $false
         $script:HevcAvailable = $true
         $script:X264Available = $true
         $script:H264High10Available = $true
@@ -582,7 +605,7 @@ $statusVersion = New-Object System.Windows.Forms.ToolStripStatusLabel
 $statusVersion.Spring = $false
 $statusVersion.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
 $statusVersion.ForeColor = $ColorMuted
-$statusVersion.Text = 'v4.5.2.2'
+$statusVersion.Text = 'v4.6.0'
 $statusVersion.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 12, 0, 0, 0
 [void]$statusStrip.Items.Add($statusVersion)
 
@@ -740,7 +763,7 @@ $encodeTable = New-Object System.Windows.Forms.TableLayoutPanel
 $encodeTable.Dock = 'Fill'
 $encodeTable.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 5, 7, 5, 5
 $encodeTable.ColumnCount = 2
-$encodeTable.RowCount = 15
+$encodeTable.RowCount = 16
 $encodeTable.ColumnStyles.Clear()
 $labelColumn = New-Object System.Windows.Forms.ColumnStyle
 $labelColumn.SizeType = [System.Windows.Forms.SizeType]::Absolute
@@ -750,7 +773,7 @@ $valueColumn = New-Object System.Windows.Forms.ColumnStyle
 $valueColumn.SizeType = [System.Windows.Forms.SizeType]::Percent
 $valueColumn.Width = 100
 [void]$encodeTable.ColumnStyles.Add($valueColumn)
-for ($i = 0; $i -lt 14; $i++) { Add-RowAbsolute $encodeTable 34 }
+for ($i = 0; $i -lt 15; $i++) { Add-RowAbsolute $encodeTable 34 }
 Add-RowPercent $encodeTable 100
 [void]$grpEncode.Controls.Add($encodeTable)
 
@@ -767,6 +790,17 @@ $cmbCodec = New-ComboBox $codecItems $initialCodecIndex
 $script:LastCodecIndex = $initialCodecIndex
 $cmbContainer = New-ComboBox @('MP4 · AAC 256k（默认）', 'MKV · 保留原始流') 0
 $cmbSpeed = New-ComboBox @('FAST · p5 / qres（默认）', 'Standard · p6 / fullres') 0
+
+$chkSfe = New-Object System.Windows.Forms.CheckBox
+$chkSfe.Text = '多引擎并行 ×1'
+$chkSfe.Checked = $false
+$chkSfe.Enabled = $false
+$chkSfe.AutoSize = $true
+$chkSfe.Dock = 'Fill'
+$chkSfe.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 4, 7, 3, 3
+
+$sfeToolTip = New-Object System.Windows.Forms.ToolTip
+$sfeToolTip.SetToolTip($chkSfe, 'NVENC: Split Frame Encoding (SFE)')
 
 $cmbBitrate = New-Object System.Windows.Forms.ComboBox
 $cmbBitrate.Dock = 'Fill'
@@ -936,20 +970,21 @@ $frameHelp.Text = 'AV1 / HEVC / H.264 均可选择烘焙黑边或裁剪有效画
 Add-LabeledRow $encodeTable 0 '编码方式' $cmbCodec
 Add-LabeledRow $encodeTable 1 '输出容器' $cmbContainer
 Add-LabeledRow $encodeTable 2 '速度 / 质量' $cmbSpeed
-Add-LabeledRow $encodeTable 3 '视频码率' $bitratePanel
-Add-LabeledRow $encodeTable 4 '输出帧率' $cmbFps
-Add-LabeledRow $encodeTable 5 '插帧' $interpolationPanel
-Add-LabeledRow $encodeTable 6 '反交错' $cmbDeint
-Add-LabeledRow $encodeTable 7 '反交错算法' $cmbDeintMethod
-Add-LabeledRow $encodeTable 8 'GPU 配置' $cmbGpu
-[void]$encodeTable.Controls.Add($cinematicPanel, 0, 9)
+[void]$encodeTable.Controls.Add($chkSfe, 1, 3)
+Add-LabeledRow $encodeTable 4 '视频码率' $bitratePanel
+Add-LabeledRow $encodeTable 5 '输出帧率' $cmbFps
+Add-LabeledRow $encodeTable 6 '插帧' $interpolationPanel
+Add-LabeledRow $encodeTable 7 '反交错' $cmbDeint
+Add-LabeledRow $encodeTable 8 '反交错算法' $cmbDeintMethod
+Add-LabeledRow $encodeTable 9 'GPU 配置' $cmbGpu
+[void]$encodeTable.Controls.Add($cinematicPanel, 0, 10)
 $encodeTable.SetColumnSpan($cinematicPanel, 2)
-Add-LabeledRow $encodeTable 10 '画幅处理' $cmbFrameMode
-[void]$encodeTable.Controls.Add($uploadPanel, 0, 11)
+Add-LabeledRow $encodeTable 11 '画幅处理' $cmbFrameMode
+[void]$encodeTable.Controls.Add($uploadPanel, 0, 12)
 $encodeTable.SetColumnSpan($uploadPanel, 2)
-[void]$encodeTable.Controls.Add($uploadExtraPanel, 0, 12)
+[void]$encodeTable.Controls.Add($uploadExtraPanel, 0, 13)
 $encodeTable.SetColumnSpan($uploadExtraPanel, 2)
-[void]$encodeTable.Controls.Add($frameHelp, 0, 13)
+[void]$encodeTable.Controls.Add($frameHelp, 0, 14)
 $encodeTable.SetColumnSpan($frameHelp, 2)
 
 Update-HardwareProfileUi
@@ -2607,34 +2642,67 @@ function Update-Av1Controls {
     $chkShowAllAv1Tables.Enabled = $tableMode
 }
 
+function Update-SfeUi {
+    if (-not $chkSfe) { return }
+
+    $maxEngines = [int]$script:SfeMaxEngines
+    if ($maxEngines -lt 1) { $maxEngines = 1 }
+    $chkSfe.Text = "多引擎并行 ×$maxEngines"
+
+    $isAv1 = ($cmbCodec.SelectedIndex -eq 0)
+    $isSupportedSpeed = ($cmbSpeed.SelectedIndex -eq 1 -or $cmbSpeed.SelectedIndex -eq 2)
+    $canUse = ($script:HardwareCapsReady -and $maxEngines -ge 2 -and $script:Grav1synthSfeCompatible -and $isAv1 -and $isSupportedSpeed)
+
+    if (-not $canUse) {
+        $chkSfe.Checked = $false
+        $chkSfe.Enabled = $false
+    } else {
+        $chkSfe.Enabled = $true
+    }
+
+    if ($maxEngines -lt 2) {
+        $sfeToolTip.SetToolTip($chkSfe, 'NVENC: Split Frame Encoding (SFE) - 当前 GPU 未检测到可用的多 NVENC 引擎。')
+    } elseif (-not $script:Grav1synthSfeCompatible) {
+        $sfeToolTip.SetToolTip($chkSfe, "NVENC: Split Frame Encoding (SFE)`r`n需要 grav1synth 0.2.2+；当前版本：$($script:Grav1synthVersion)")
+    } else {
+        $sfeToolTip.SetToolTip($chkSfe, "NVENC: Split Frame Encoding (SFE)`r`n硬件能力检测：最多 ×$maxEngines；grav1synth $($script:Grav1synthVersion)；仅 AV1 Standard / UHQ 可用。")
+    }
+}
+
 function Update-SpeedChoices {
-    if ($cmbCodec.SelectedIndex -eq 2) {
-        $presetLabel = switch ($script:X264Preset) { 'medium' { 'Medium' } 'slow' { 'Slow' } default { 'Faster' } }
-        $passLabel = if ($script:X264RateMode -eq '2PASS') { 'VBR 2-Pass' } else { 'VBR 单次' }
+    $script:UpdatingSpeedChoices = $true
+    try {
+        if ($cmbCodec.SelectedIndex -eq 2) {
+            $presetLabel = switch ($script:X264Preset) { 'medium' { 'Medium' } 'slow' { 'Slow' } default { 'Faster' } }
+            $passLabel = if ($script:X264RateMode -eq '2PASS') { 'VBR 2-Pass' } else { 'VBR 单次' }
+            $cmbSpeed.BeginUpdate()
+            try {
+                $cmbSpeed.Items.Clear()
+                [void]$cmbSpeed.Items.Add("x264 · $presetLabel / tune grain / $passLabel")
+                $cmbSpeed.SelectedIndex = 0
+            } finally { $cmbSpeed.EndUpdate() }
+            $cmbSpeed.Enabled = $false
+            return
+        }
+        $cmbSpeed.Enabled = $true
+        $allowUhq = ($cmbCodec.SelectedIndex -eq 0 -and $script:HardwareCapsReady -and $script:Av1UhqAvailable)
+        $currentText = [string]$cmbSpeed.SelectedItem
+        $selectedIndex = if ($currentText -like 'Standard*') { 1 } else { 0 }
+        if ($allowUhq -and $currentText -like 'UHQ*') { $selectedIndex = 2 }
+
         $cmbSpeed.BeginUpdate()
         try {
             $cmbSpeed.Items.Clear()
-            [void]$cmbSpeed.Items.Add("x264 · $presetLabel / tune grain / $passLabel")
-            $cmbSpeed.SelectedIndex = 0
-        } finally { $cmbSpeed.EndUpdate() }
-        $cmbSpeed.Enabled = $false
-        return
-    }
-    $cmbSpeed.Enabled = $true
-    $allowUhq = ($cmbCodec.SelectedIndex -eq 0 -and $script:HardwareCapsReady -and $script:Av1UhqAvailable)
-    $currentText = [string]$cmbSpeed.SelectedItem
-    $selectedIndex = if ($currentText -like 'Standard*') { 1 } else { 0 }
-    if ($allowUhq -and $currentText -like 'UHQ*') { $selectedIndex = 2 }
-
-    $cmbSpeed.BeginUpdate()
-    try {
-        $cmbSpeed.Items.Clear()
-        [void]$cmbSpeed.Items.Add('FAST · p5 / qres（默认）')
-        [void]$cmbSpeed.Items.Add('Standard · p6 / fullres')
-        if ($allowUhq) { [void]$cmbSpeed.Items.Add('UHQ · p4 / fullres（AV1 专用）') }
-        $cmbSpeed.SelectedIndex = $selectedIndex
+            [void]$cmbSpeed.Items.Add('FAST · p5 / qres（默认）')
+            [void]$cmbSpeed.Items.Add('Standard · p6 / fullres')
+            if ($allowUhq) { [void]$cmbSpeed.Items.Add('UHQ · p4 / fullres（AV1 专用）') }
+            $cmbSpeed.SelectedIndex = $selectedIndex
+        } finally {
+            $cmbSpeed.EndUpdate()
+        }
     } finally {
-        $cmbSpeed.EndUpdate()
+        $script:UpdatingSpeedChoices = $false
+        Update-SfeUi
     }
 }
 
@@ -2719,10 +2787,10 @@ function Update-InterpolationUi {
     $chkInterpolation.Enabled = $true
     if ($chkInterpolation.Checked) {
         $cmbInterpolationMode.Enabled = $true
-        if ($cmbDeint.SelectedIndex -ne 1) { $cmbDeint.SelectedIndex = 1 }
+        if ($cmbDeint.SelectedIndex -ne 0) { $cmbDeint.SelectedIndex = 0 }
         $cmbDeint.Enabled = $false
-        $cmbDeintMethod.Enabled = $false
-        if ($cmbFps.Items.Count -gt 0) { $cmbFps.Items[0] = '由 OpenSVPFlow 接管 · 60 fps' }
+        $cmbDeintMethod.Enabled = $true
+        if ($cmbFps.Items.Count -gt 0) { $cmbFps.Items[0] = 'OpenSVPFlow 60 fps · 隔行素材自动改走双帧率反交错' }
         $cmbFps.SelectedIndex = 0
         $cmbFps.Enabled = $false
 
@@ -2838,6 +2906,7 @@ function Update-CodecUi {
         $grpLut.Enabled = $false
         $frameHelp.Text = 'AV1 视频流不重编码，仅添加/替换胶片颗粒元数据；反交错、码率、LUT、画幅处理和上传版等重编码功能已禁用。'
         $btnStart.Text = '开始处理'
+        Update-SfeUi
         return
     }
 
@@ -3798,11 +3867,13 @@ function Start-Encoding {
         $script:FFmpegVersionOverride = ''
         Update-HardwareProfileUi
         Update-CodecUi
+        Update-SfeUi
     }
 
     if ($chkInterpolation.Checked -and -not $script:OpenSvpAvailable) {
         Initialize-HardwareCaps
         Update-HardwareProfileUi
+        Update-SfeUi
         if (-not $script:OpenSvpAvailable) {
             Show-Error "OpenSVPFlow GPU 运行库尚未通过能力检测。`r`n`r`n请先运行：`r`n$OpenSvpSetupBat`r`n`r`n安装完成后重新启动 Film Grain Studio。"
             return
@@ -3914,6 +3985,13 @@ function Start-Encoding {
     $rateModeLabel = if ($bitrateAuto) { '自动推荐' } else { '手动' }
     $motionLabel = if ($chkUploadHighMotion.Checked) { '高动态' } else { '普通动态' }
     Append-LogText ("任务文件数：$($paths.Count)  ·  模式：$mode  ·  码率：$rateModeLabel / 当前显示 $bitrate kbps  ·  $motionLabel`r`n")
+    if ($mode -eq 'AV1') {
+        if ($chkSfe.Checked -and $script:SfeMaxEngines -ge 2 -and ($cmbSpeed.SelectedIndex -eq 1 -or $cmbSpeed.SelectedIndex -eq 2)) {
+            Append-LogText ("多引擎并行：ON ×$($script:SfeMaxEngines) · NVENC Split Frame Encoding`r`n")
+        } else {
+            Append-LogText "多引擎并行：OFF`r`n"
+        }
+    }
     if ($chkInterpolation.Checked) {
         $sceneLabel = 'Uniform'
         if ($cmbInterpolationMode.SelectedIndex -eq 1) { $sceneLabel = 'Adaptive' }
@@ -3981,6 +4059,11 @@ function Start-Encoding {
     $envs['FG_CONTAINER'] = if ($cmbContainer.SelectedIndex -eq 0) { 'MP4' } else { 'MKV' }
     $speedModes = @('FAST', 'STANDARD', 'UHQ')
     $envs['FG_SPEED'] = if ($mode -eq 'X264') { 'X264' } else { $speedModes[$cmbSpeed.SelectedIndex] }
+    $sfeEngines = 0
+    if ($mode -eq 'AV1' -and $chkSfe.Checked -and $script:SfeMaxEngines -ge 2 -and $script:Grav1synthSfeCompatible -and ($cmbSpeed.SelectedIndex -eq 1 -or $cmbSpeed.SelectedIndex -eq 2)) {
+        $sfeEngines = [int]$script:SfeMaxEngines
+    }
+    $envs['FG_SFE_ENGINES'] = [string]$sfeEngines
     $envs['FG_BITRATE_MODE'] = if ($bitrateAuto) { 'AUTO' } else { 'MANUAL' }
     $envs['FG_BITRATE'] = [string]$bitrate
     $envs['FG_MAXRATE'] = [string]$maxrate
@@ -4273,6 +4356,7 @@ function Show-UtilityProcessDialog {
 function Show-PathConfigurationDialog {
     $cfg = Get-FilmGrainConfig
     $oldFfmpegDir = [string]$cfg.FFMPEG_DIR
+    $oldGravPath = [string]$cfg.GRAV1SYNTH
     $oldGrainRoot = [string]$cfg.GRAIN_ROOT
     $oldLutRoot = [string]$cfg.LUT_ROOT
 
@@ -4485,7 +4569,14 @@ function Show-PathConfigurationDialog {
         [System.Windows.Forms.Application]::DoEvents()
         $result=Get-ConfigToolVersion $path 'grav1synth' '--version'
         $mark=if ($result.Ok) { '✔' } else { '✘' }
-        $lblGravDetect.Text="grav1synth.exe  $mark $($result.Version)"
+        $sfeText=''
+        if ($result.Ok -and [string]$result.Version -match '(\d+)\.(\d+)\.(\d+)') {
+            try {
+                $v=[version]("$($matches[1]).$($matches[2]).$($matches[3])")
+                $sfeText=if ($v -ge [version]'0.2.2') { ' · SFE 兼容' } else { ' · SFE 需要 0.2.2+' }
+            } catch {}
+        }
+        $lblGravDetect.Text="grav1synth.exe  $mark $($result.Version)$sfeText"
     }
 
     function Update-GrainStatus {
@@ -4711,6 +4802,7 @@ function Show-PathConfigurationDialog {
     $script:LutGalleryFavorites = Join-Path $script:LutPreviewRoot '_LUT_GALLERY_FAVORITES.json'
     $script:LutGalleryThumbRoot = Join-Path $script:LutPreviewRoot '_GALLERY_THUMBS_v3_240x135'
 
+    $gravPathChanged = -not [string]::Equals($oldGravPath, [string]$script:PathConfig.GRAV1SYNTH, [System.StringComparison]::OrdinalIgnoreCase)
     $grainRootChanged = -not [string]::Equals($oldGrainRoot, [string]$script:PathConfig.GRAIN_ROOT, [System.StringComparison]::OrdinalIgnoreCase)
     $lutRootChanged = -not [string]::Equals($oldLutRoot, [string]$script:PathConfig.LUT_ROOT, [System.StringComparison]::OrdinalIgnoreCase)
 
@@ -4718,11 +4810,14 @@ function Show-PathConfigurationDialog {
     $script:SelectedLutPath = $null
     $script:SelectedLutSource = 'None'
     $chkLut.Checked = $false
-    if ($oldFfmpegDir -ne [string]$script:PathConfig.FFMPEG_DIR) {
+    if ($oldFfmpegDir -ne [string]$script:PathConfig.FFMPEG_DIR -or $gravPathChanged) {
         $script:HardwareCaps = $null
         $script:HardwareCapsReady = $false
         $script:Av1Available = $true
         $script:Av1UhqAvailable = $false
+        $script:SfeMaxEngines = 1
+        $script:Grav1synthVersion = '未检测'
+        $script:Grav1synthSfeCompatible = $false
         $script:HevcAvailable = $true
         if ($ffmpegState.Valid -and $ffmpegState.LastDir -eq [string]$script:PathConfig.FFMPEG_DIR) {
             $script:FFmpegVersionOverride = [string]$ffmpegState.FfmpegVersion
@@ -4730,7 +4825,11 @@ function Show-PathConfigurationDialog {
             $script:FFmpegVersionOverride = '未检测'
         }
     }
+    if ($gravPathChanged -and $oldFfmpegDir -eq [string]$script:PathConfig.FFMPEG_DIR) {
+        Initialize-HardwareCaps
+    }
     Update-HardwareProfileUi
+    Update-SfeUi
     Update-NoReencodeAvailability
     if ($cmbCodec.Items.Count -ge 3) {
         $cmbCodec.Items[0] = if ($script:HardwareCapsReady -and -not $script:Av1Available) { 'AV1 · grav1synth 胶片颗粒（当前硬件不可用）' } else { 'AV1 · grav1synth 胶片颗粒（默认）' }
@@ -4804,6 +4903,7 @@ $listFiles.Add_DragDrop($dragDropHandler)
 $listFiles.Add_SelectedIndexChanged({ Update-SelectedMediaInfo; Update-DeinterlaceUi; Update-NoReencodeAvailability; Update-BitrateDisplays })
 
 $cmbCodec.Add_SelectedIndexChanged({ Update-CodecUi; Update-FramingUi; Update-BitrateDisplays })
+$cmbSpeed.Add_SelectedIndexChanged({ if (-not $script:UpdatingSpeedChoices) { Update-SfeUi } })
 $cmbDeint.Add_SelectedIndexChanged({ Update-DeinterlaceUi; Update-BitrateDisplays })
 $chkInterpolation.Add_CheckedChanged({ Update-InterpolationUi; Update-BitrateDisplays })
 $chkCinematic.Add_CheckedChanged({ Update-FramingUi; Update-BitrateDisplays })
