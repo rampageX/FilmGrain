@@ -1,5 +1,15 @@
 # Film Grain Studio — CHANGELOG
 
+## v4.5.2.2 — 2026-09-10
+
+- 修复 v4.5.2 在部分 Windows / PowerShell 环境中 Batch Summary 的 `Started`、`Completed`、`Elapsed` 同时显示 `Unavailable` 的兼容性问题。
+- 计时实现改为分别获取开始 UTC ticks、开始本地时间、结束本地时间与总秒数，不再把多个返回值拼接到同一行后交给 `for /f` 二次拆分，降低 CMD / PowerShell 多层引号与分隔解析差异带来的失败概率。
+- `Elapsed` 只从 PowerShell 获取纯整数秒数，再由 BAT 统一格式化为累计 `HH:mm:ss`；开始 / 完成时间仍显示本机本地时间。
+- 新增 `%DATE% / %TIME%` 纯 BAT 后备计时路径：当 PowerShell 时间命令无法正常返回时，仍可给出开始时间、完成时间与批次耗时，避免直接回落为三项 `Unavailable`。
+- 修复继续位于 GUI / CLI 共用的 `FilmGrain_Universal_HEVC_AV1_StudioBridge.bat`，两种入口统计口径一致。该修正版已在用户的笔记本与台式机上完成实际测试。
+- 除 Batch Summary 计时兼容性外，不修改 AV1 / HEVC / x264 编码参数、Grain、LUT、字幕、反交错、OpenSVPFlow、H.264 上传副本、AAC 256k 或其他已验证处理逻辑。
+- 正式发布恢复干净版本标识 `v4.5.2.2`，不包含测试构建标识、测试更新器或临时备份文件；README 与 CHANGELOG 继续分离维护。
+
 ## v4.5.2 — 2026-09-10
 
 - GUI / CLI 共用的 **Batch Summary** 新增 `Started`、`Completed`、`Elapsed` 三项，批处理结束后可直接查看本批任务的开始时间、完成时间与实际总耗时。

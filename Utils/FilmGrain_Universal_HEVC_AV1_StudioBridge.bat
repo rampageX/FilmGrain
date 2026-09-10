@@ -3919,25 +3919,60 @@ set "BATCH_START_TICKS="
 set "BATCH_START_TIME="
 set "BATCH_END_TIME="
 set "BATCH_ELAPSED="
-for /f "tokens=1,* delims=," %%A in ('powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "$u=[DateTime]::UtcNow.Ticks; $n=[DateTime]::Now; [Console]::Out.Write($u.ToString() + '','' + $n.ToString(''yyyy-MM-dd HH:mm:ss''))"') do (
-    set "BATCH_START_TICKS=%%A"
-    set "BATCH_START_TIME=%%B"
-)
-if not defined BATCH_START_TIME set "BATCH_START_TIME=Unavailable"
+set "BATCH_ELAPSED_SECONDS="
+set "BATCH_FALLBACK_START_DATE=%DATE%"
+set "BATCH_FALLBACK_START_TIME=%TIME%"
+call :BATCH_CLOCK_TO_CS "%TIME%" BATCH_FALLBACK_START_CS
+for /f "delims=" %%A in ('powershell.exe -NoLogo -NoProfile -Command "[DateTime]::UtcNow.Ticks" 2^>nul') do set "BATCH_START_TICKS=%%A"
+for /f "delims=" %%A in ('powershell.exe -NoLogo -NoProfile -Command "Get-Date -Format s" 2^>nul') do set "BATCH_START_TIME=%%A"
+if defined BATCH_START_TIME set "BATCH_START_TIME=%BATCH_START_TIME:T= %"
+if not defined BATCH_START_TIME set "BATCH_START_TIME=%BATCH_FALLBACK_START_DATE% %BATCH_FALLBACK_START_TIME:~0,8%"
 exit /b 0
 
 :STOP_BATCH_TIMER
 set "BATCH_END_TIME="
 set "BATCH_ELAPSED="
-if not defined BATCH_START_TICKS goto STOP_BATCH_TIMER_FALLBACK
-for /f "tokens=1,* delims=," %%A in ('powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "$e=[DateTime]::UtcNow; $n=[DateTime]::Now; $s=[Int64]$env:BATCH_START_TICKS; $t=[TimeSpan]::FromTicks($e.Ticks-$s); $h=[Math]::Floor($t.TotalHours); [Console]::Out.Write($n.ToString(''yyyy-MM-dd HH:mm:ss'') + '','' + (''{0:00}:{1:00}:{2:00}'' -f $h,$t.Minutes,$t.Seconds))"') do (
-    set "BATCH_END_TIME=%%A"
-    set "BATCH_ELAPSED=%%B"
-)
-if defined BATCH_END_TIME if defined BATCH_ELAPSED exit /b 0
+set "BATCH_ELAPSED_SECONDS="
+set "BATCH_FALLBACK_END_DATE=%DATE%"
+set "BATCH_FALLBACK_END_TIME=%TIME%"
+call :BATCH_CLOCK_TO_CS "%TIME%" BATCH_FALLBACK_END_CS
+for /f "delims=" %%A in ('powershell.exe -NoLogo -NoProfile -Command "Get-Date -Format s" 2^>nul') do set "BATCH_END_TIME=%%A"
+if defined BATCH_END_TIME set "BATCH_END_TIME=%BATCH_END_TIME:T= %"
+if not defined BATCH_END_TIME set "BATCH_END_TIME=%BATCH_FALLBACK_END_DATE% %BATCH_FALLBACK_END_TIME:~0,8%"
+if defined BATCH_START_TICKS for /f "delims=" %%A in ('powershell.exe -NoLogo -NoProfile -Command "$s=[Int64]$env:BATCH_START_TICKS;$e=[DateTime]::UtcNow.Ticks;[Math]::Floor(($e-$s)/10000000)" 2^>nul') do set "BATCH_ELAPSED_SECONDS=%%A"
+if not defined BATCH_ELAPSED_SECONDS call :BATCH_FALLBACK_ELAPSED
+if not defined BATCH_ELAPSED_SECONDS goto STOP_BATCH_TIMER_FALLBACK
+set /a BATCH_ELAPSED_H=BATCH_ELAPSED_SECONDS/3600
+set /a BATCH_ELAPSED_M=(BATCH_ELAPSED_SECONDS/60)-(BATCH_ELAPSED_H*60)
+set /a BATCH_ELAPSED_S=BATCH_ELAPSED_SECONDS-(BATCH_ELAPSED_H*3600)-(BATCH_ELAPSED_M*60)
+set "BATCH_ELAPSED_HH=%BATCH_ELAPSED_H%"
+if %BATCH_ELAPSED_H% LSS 10 set "BATCH_ELAPSED_HH=0%BATCH_ELAPSED_H%"
+set "BATCH_ELAPSED_MM=0%BATCH_ELAPSED_M%"
+set "BATCH_ELAPSED_MM=%BATCH_ELAPSED_MM:~-2%"
+set "BATCH_ELAPSED_SS=0%BATCH_ELAPSED_S%"
+set "BATCH_ELAPSED_SS=%BATCH_ELAPSED_SS:~-2%"
+set "BATCH_ELAPSED=%BATCH_ELAPSED_HH%:%BATCH_ELAPSED_MM%:%BATCH_ELAPSED_SS%"
+exit /b 0
+
 :STOP_BATCH_TIMER_FALLBACK
 if not defined BATCH_END_TIME set "BATCH_END_TIME=Unavailable"
 if not defined BATCH_ELAPSED set "BATCH_ELAPSED=Unavailable"
+exit /b 0
+
+:BATCH_CLOCK_TO_CS
+set "BATCH_CLOCK_RAW=%~1"
+set "BATCH_CLOCK_H=%BATCH_CLOCK_RAW:~0,2%"
+set "BATCH_CLOCK_H=%BATCH_CLOCK_H: =0%"
+set /a BATCH_CLOCK_CS=(1%BATCH_CLOCK_H%-100)*360000+(1%BATCH_CLOCK_RAW:~3,2%-100)*6000+(1%BATCH_CLOCK_RAW:~6,2%-100)*100+(1%BATCH_CLOCK_RAW:~9,2%-100)
+set "%~2=%BATCH_CLOCK_CS%"
+exit /b 0
+
+:BATCH_FALLBACK_ELAPSED
+if not defined BATCH_FALLBACK_START_CS exit /b 0
+if not defined BATCH_FALLBACK_END_CS exit /b 0
+set /a BATCH_FALLBACK_DIFF_CS=BATCH_FALLBACK_END_CS-BATCH_FALLBACK_START_CS
+if %BATCH_FALLBACK_DIFF_CS% LSS 0 set /a BATCH_FALLBACK_DIFF_CS+=8640000
+set /a BATCH_ELAPSED_SECONDS=BATCH_FALLBACK_DIFF_CS/100
 exit /b 0
 
 :FINISHED
