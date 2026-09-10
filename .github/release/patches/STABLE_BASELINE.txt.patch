@@ -1,0 +1,40 @@
+diff --git a/STABLE_BASELINE.txt b/STABLE_BASELINE.txt
+index fe85f18..ae0dbda 100644
+--- a/STABLE_BASELINE.txt
++++ b/STABLE_BASELINE.txt
+@@ -1,21 +1,24 @@
+ Film Grain Studio formal stable baseline
+ 
+ Baseline:
+-v4.5.2.2
++v4.6.0
+ 
+ Supersedes:
+-v4.5.2
++v4.5.2.2
+ 
+ Major changes:
+-- Fixes the Batch Summary timer compatibility issue that could make Started, Completed, and Elapsed all show Unavailable on some Windows / PowerShell environments.
+-- Timer values are queried independently instead of returning multiple comma-separated values through one PowerShell command.
+-- Elapsed time is calculated as integer seconds and formatted by BAT as cumulative HH:mm:ss.
+-- Adds a DATE / TIME BAT fallback so Batch Summary timing remains available when the PowerShell timing query fails.
+-- GUI and CLI continue to use the same timer implementation in the shared StudioBridge core.
+-- No AV1 / HEVC / x264 encoding parameters or previously validated processing behavior were changed.
++- Adds AV1 NVENC multi-engine Split Frame Encoding (SFE) for Standard and UHQ.
++- Detects the usable NVENC engine count dynamically; no GPU model hardcoding.
++- Requires grav1synth 0.2.2+ before the SFE checkbox can be enabled.
++- Keeps AV1 FAST, HEVC, x264, and AV1 no-reencode SFE disabled by policy based on actual pipeline testing.
++- Fixes interlaced input with Interpolation enabled: progressive inputs continue through OpenSVPFlow 60 fps, while interlaced inputs automatically bypass OpenSVPFlow and use the existing field-rate deinterlace path.
++- Preserves GUI / CLI synchronization through the shared StudioBridge core.
++- Keeps v4.5.2.2 Batch Summary timing compatibility fixes and existing AAC 256k, Grain, LUT, subtitle, Cinematic, upload, and MPEG-TS sync behavior.
+ 
+ Validation:
+-The v4.5.2.2 timer compatibility fix was user-tested successfully on both the laptop and desktop systems before formal release.
++- RTX 4080: SFE engine count detected as x2.
++- AV1 Standard and AV1 UHQ SFE paths user-tested successfully with grav1synth 0.2.2-compatible build.
++- Interlaced .ts input with Interpolation enabled user-tested successfully using automatic field-rate deinterlace fallback.
+ 
+-Preserved baseline behavior:
+-All v4.5.2 AV1 / HEVC / x264 bitrate-policy behavior, Grain / LUT / subtitle / deinterlace / OpenSVPFlow paths, H.264 upload behavior, AAC 256k policy, standalone tool behavior, and Batch Summary timing scope remain intact.
++Formal release:
++FilmGrain_Studio_v4.6.0_Stable.zip
