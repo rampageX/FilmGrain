@@ -8,13 +8,15 @@
 - **HEVC Main10 + 真实扫描 Grain Plate**：将真实胶片颗粒合成到视频像素中，由 NVENC Main10 编码。
 - **H.264 x264 Grain + 真实扫描 Grain Plate**：与 HEVC 共用扫描 Grain / LUT / 画幅 / 反交错 / OpenSVPFlow 前处理，使用 `libx264 + preset faster + tune grain + VBR 单次` 作为默认日常路线；高级设置可选择 Medium / Slow 与 VBR 2-Pass。默认在编码边界高质量降为 8-bit High Profile，也可启用实验性 High10。
 
-当前正式稳定版为 **v4.5.1**，发布包名称：
+当前正式稳定版为 **v4.5.2**，发布包名称：
 
 ```text
-FilmGrain_Studio_v4.5.1_Stable.zip
+FilmGrain_Studio_v4.5.2_Stable.zip
 ```
 
 所有独立脚本使用固定文件名，不再包含组件版本号；版本号只体现在整个项目的发布压缩包上。升级时建议完整替换工具包，避免新旧脚本混用。
+
+v4.5.2 在 GUI / CLI 共用的 Batch Summary 中新增 **Started / Completed / Elapsed**：分别显示本批任务的开始时间、完成时间与实际总耗时。计时从参数确认完成、正式进入 Batch 处理前开始，到最后一个任务及其所选后续阶段全部结束时停止，因此主编码、OpenSVPFlow、x264 2-Pass、H.264 上传副本等实际执行阶段都会计入总耗时；既有编码参数与处理链不变。
 
 默认配置为 **AV1 Main10 + MP4 + AAC 256k**，并集成 LUT Gallery、自动 Field-rate 反交错、自动电影帧率、可选 OpenSVPFlow GPU 60 fps 插帧、Cinematic Style、多文件处理、NVENC / OpenSVPFlow 硬件能力自动探测、AV1 UHQ 及 AV1 Film Grain 最终验证。
 

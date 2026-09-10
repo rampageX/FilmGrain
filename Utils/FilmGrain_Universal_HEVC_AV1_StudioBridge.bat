@@ -136,6 +136,7 @@ call :SELECT_UPLOAD_SUBTITLE
 if errorlevel 1 goto FATAL_END
 
 call :BUILD_ENCODER_ARGS
+call :START_BATCH_TIMER
 call :SHOW_SESSION_SUMMARY
 goto PROCESS_NEXT
 
@@ -3913,7 +3914,34 @@ rem ============================================================
 rem Final summary and exits
 rem ============================================================
 
+:START_BATCH_TIMER
+set "BATCH_START_TICKS="
+set "BATCH_START_TIME="
+set "BATCH_END_TIME="
+set "BATCH_ELAPSED="
+for /f "tokens=1,* delims=," %%A in ('powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "$u=[DateTime]::UtcNow.Ticks; $n=[DateTime]::Now; [Console]::Out.Write($u.ToString() + '','' + $n.ToString(''yyyy-MM-dd HH:mm:ss''))"') do (
+    set "BATCH_START_TICKS=%%A"
+    set "BATCH_START_TIME=%%B"
+)
+if not defined BATCH_START_TIME set "BATCH_START_TIME=Unavailable"
+exit /b 0
+
+:STOP_BATCH_TIMER
+set "BATCH_END_TIME="
+set "BATCH_ELAPSED="
+if not defined BATCH_START_TICKS goto STOP_BATCH_TIMER_FALLBACK
+for /f "tokens=1,* delims=," %%A in ('powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "$e=[DateTime]::UtcNow; $n=[DateTime]::Now; $s=[Int64]$env:BATCH_START_TICKS; $t=[TimeSpan]::FromTicks($e.Ticks-$s); $h=[Math]::Floor($t.TotalHours); [Console]::Out.Write($n.ToString(''yyyy-MM-dd HH:mm:ss'') + '','' + (''{0:00}:{1:00}:{2:00}'' -f $h,$t.Minutes,$t.Seconds))"') do (
+    set "BATCH_END_TIME=%%A"
+    set "BATCH_ELAPSED=%%B"
+)
+if defined BATCH_END_TIME if defined BATCH_ELAPSED exit /b 0
+:STOP_BATCH_TIMER_FALLBACK
+if not defined BATCH_END_TIME set "BATCH_END_TIME=Unavailable"
+if not defined BATCH_ELAPSED set "BATCH_ELAPSED=Unavailable"
+exit /b 0
+
 :FINISHED
+call :STOP_BATCH_TIMER
 if defined LUT_COMPAT_FILE del /q "%LUT_COMPAT_FILE%" >nul 2>&1
 if "%FAIL_COUNT%"=="0" if not "%FG_STUDIO_MODE%"=="1" cls
 echo.
@@ -3935,6 +3963,9 @@ echo Total dragged : %FILE_COUNT%
 echo Successful    : %SUCCESS_COUNT%
 echo Failed        : %FAIL_COUNT%
 echo Skipped       : %SKIP_COUNT%
+echo Started       : %BATCH_START_TIME%
+echo Completed     : %BATCH_END_TIME%
+echo Elapsed       : %BATCH_ELAPSED%
 echo.
 if "%FAIL_COUNT%"=="0" (
     echo RESULT: ALL COMPLETED SUCCESSFULLY.

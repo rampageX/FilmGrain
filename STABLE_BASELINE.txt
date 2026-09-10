@@ -1,20 +1,20 @@
 Film Grain Studio formal stable baseline
 
 Baseline:
-v4.5.1
+v4.5.2
 
 Supersedes:
-v4.5.0
+v4.5.1
 
 Major changes:
-- H.264 x264 Grain now defaults to Faster + tune grain + VBR single-pass for substantially lower day-to-day CPU encoding time.
-- VBR 2-Pass remains available in Advanced > Encode for users who want more precise average-bitrate / file-size allocation.
-- x264 Preset is selectable in Advanced > Encode: Faster (default/recommended), Medium, Slow.
-- Main x264 Grain and AV1/HEVC H.264 upload copies share the same x264 Preset / Pass setting; upload copies remain High 8-bit.
-- Automatic bitrate, High Motion, maxrate = average x3, bufsize = average x6, 10-bit preprocessing / 8-bit dither, and experimental High10 behavior are unchanged.
+- Batch Summary now reports Started, Completed, and Elapsed for the complete batch run.
+- Timing begins immediately before batch processing starts and ends on entry to the final summary, so enabled interpolation, x264 2-pass work, H.264 upload copies, and other selected post-processing stages are included.
+- Started / Completed use local wall-clock time; Elapsed uses UTC ticks and cumulative hours for correct cross-midnight duration reporting.
+- GUI and CLI use the same timer implementation in the shared StudioBridge core.
+- No AV1 / HEVC / x264 encoding parameters or previously validated processing behavior were changed.
 
 Validation:
-The v4.5.1 pre-release build was user-tested successfully, including the new Faster + VBR single-pass path and related combinations, before this formal release.
+The Batch Summary timing change was user-tested successfully on the v4.5.1 stable baseline before this formal v4.5.2 release.
 
 Preserved baseline behavior:
-All v4.5.0 AV1 / HEVC / x264 bitrate-policy behavior remains intact except for the user-selectable x264 Preset / Pass strategy. The standalone AV1_FilmGrain_Bake_for_Social_Upload.bat keeps its existing slow + tune grain + 2-pass behavior.
+All v4.5.1 AV1 / HEVC / x264 bitrate-policy behavior, Grain / LUT / subtitle / deinterlace / OpenSVPFlow paths, H.264 upload behavior, AAC 256k policy, and standalone tool behavior remain intact.

@@ -1,5 +1,14 @@
 # Film Grain Studio — CHANGELOG
 
+## v4.5.2 — 2026-09-10
+
+- GUI / CLI 共用的 **Batch Summary** 新增 `Started`、`Completed`、`Elapsed` 三项，批处理结束后可直接查看本批任务的开始时间、完成时间与实际总耗时。
+- 计时起点位于全部编码参数确认完成、正式进入 Batch 处理之前；终点位于最终 `:FINISHED` 汇总入口，因此主编码以及任务实际启用的 OpenSVPFlow、x264 2-Pass、H.264 上传副本等后续阶段均计入同一总耗时。
+- `Started / Completed` 使用本机本地时间显示为 `yyyy-MM-dd HH:mm:ss`；`Elapsed` 使用 UTC ticks 计算时间差并显示为 `HH:mm:ss`，跨午夜不会导致耗时统计错误，超过 24 小时时小时数继续累计。
+- 计时逻辑只加入 GUI / CLI 共用的 `FilmGrain_Universal_HEVC_AV1_StudioBridge.bat`，两种入口保持同一统计口径，没有复制第二套编码核心。
+- 本功能已完成用户侧实际测试；v4.5.1 的 AV1 / HEVC / x264、码率策略、Grain、LUT、字幕、反交错、OpenSVPFlow、上传副本及音频处理逻辑均未修改。
+- 正式发布恢复干净版本标识 `v4.5.2`，不包含 BatchTime 测试更新器、测试构建名或临时备份文件；README 与 CHANGELOG 继续分离维护。
+
 ## v4.5.1 — 2026-09-09
 
 - H.264 x264 Grain 的默认编码策略由 `preset slow + tune grain + true 2-pass` 调整为 **`preset faster + tune grain + VBR 单次`**；该组合已完成用户侧实际测试，显著降低日常 x264 Grain 编码耗时。
