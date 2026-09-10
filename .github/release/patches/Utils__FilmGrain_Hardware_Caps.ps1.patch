@@ -1,0 +1,370 @@
+diff --git a/Utils/FilmGrain_Hardware_Caps.ps1 b/Utils/FilmGrain_Hardware_Caps.ps1
+index 30e8a36..d434a38 100644
+--- a/Utils/FilmGrain_Hardware_Caps.ps1
++++ b/Utils/FilmGrain_Hardware_Caps.ps1
+@@ -9,12 +9,13 @@ param(
+     [string]$CachePath = '',
+     [string]$OutputCmd,
+     [string]$OpenSvpRoot = '',
++    [string]$Grav1synth = '',
+     [switch]$Force,
+     [switch]$Quiet
+ )
+ 
+ $ErrorActionPreference = 'Stop'
+-$SchemaVersion = 5
++$SchemaVersion = 8
+ $ProbeTimeoutSeconds = 20
+ 
+ $scriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
+@@ -112,6 +113,277 @@ function Test-EncoderOption {
+     return (Test-FFmpeg -Arguments $args)
+ }
+ 
++function Test-Av1SplitEncodeMode {
++    param([int]$EngineCount)
++
++    $args = @(
++        '-hide_banner', '-loglevel', 'error',
++        '-f', 'lavfi', '-i', 'testsrc2=size=3840x2160:rate=30',
++        '-frames:v', '4', '-an',
++        '-c:v', 'av1_nvenc', '-gpu', [string]$GpuIndex,
++        '-pix_fmt', 'p010le', '-highbitdepth', '1',
++        '-preset', 'p6', '-tune', 'hq', '-rc', 'vbr',
++        '-b:v', '12M', '-maxrate:v', '36M', '-bufsize:v', '72M',
++        '-multipass', 'fullres',
++        '-split_encode_mode', [string]$EngineCount,
++        '-f', 'null', 'NUL'
++    )
++    return (Test-FFmpeg -Arguments $args)
++}
++
++function Get-Av1EncoderEngineCount {
++    if ([IntPtr]::Size -ne 8) { return 1 }
++
++    if (-not ('FilmGrainNvencCaps' -as [type])) {
++        $source = @'
++using System;
++using System.Runtime.InteropServices;
++
++public static class FilmGrainNvencCaps
++{
++    // NVENC API 13.0 is sufficient for Split Frame Encoding capability queries.
++    private const uint NvencApiVersion = 13u;
++    private const uint FunctionListVersion = 0x7002000Du;
++    private const uint OpenSessionVersion = 0x7001000Du;
++    private const uint CapsParamVersion = 0x7001000Du;
++
++    // NV_ENC_CAPS_NUM_ENCODER_ENGINES
++    private const int NumEncoderEnginesCap = 49;
++
++    private static readonly Guid Av1Guid =
++        new Guid("0a352289-0aa7-4759-862d-5d15cd16d254");
++
++    [DllImport("nvcuda.dll", EntryPoint = "cuInit",
++        CallingConvention = CallingConvention.Winapi)]
++    private static extern int CuInit(uint flags);
++
++    [DllImport("nvcuda.dll", EntryPoint = "cuDeviceGet",
++        CallingConvention = CallingConvention.Winapi)]
++    private static extern int CuDeviceGet(out int device, int ordinal);
++
++    [DllImport("nvcuda.dll", EntryPoint = "cuCtxCreate_v2",
++        CallingConvention = CallingConvention.Winapi)]
++    private static extern int CuCtxCreate(out IntPtr context, uint flags, int device);
++
++    [DllImport("nvcuda.dll", EntryPoint = "cuCtxDestroy_v2",
++        CallingConvention = CallingConvention.Winapi)]
++    private static extern int CuCtxDestroy(IntPtr context);
++
++    [DllImport("nvEncodeAPI64.dll", EntryPoint = "NvEncodeAPIGetMaxSupportedVersion",
++        CallingConvention = CallingConvention.StdCall)]
++    private static extern int NvEncodeAPIGetMaxSupportedVersion(out uint version);
++
++    [DllImport("nvEncodeAPI64.dll", EntryPoint = "NvEncodeAPICreateInstance",
++        CallingConvention = CallingConvention.StdCall)]
++    private static extern int NvEncodeAPICreateInstance(IntPtr functionList);
++
++    [UnmanagedFunctionPointer(CallingConvention.StdCall)]
++    private delegate int GetEncodeCapsDelegate(
++        IntPtr encoder, Guid encodeGuid, IntPtr capsParam, out int capsValue);
++
++    [UnmanagedFunctionPointer(CallingConvention.StdCall)]
++    private delegate int DestroyEncoderDelegate(IntPtr encoder);
++
++    [UnmanagedFunctionPointer(CallingConvention.StdCall)]
++    private delegate int OpenEncodeSessionExDelegate(
++        IntPtr openParams, out IntPtr encoder);
++
++    private static void ZeroMemory(IntPtr ptr, int size)
++    {
++        byte[] zero = new byte[size];
++        Marshal.Copy(zero, 0, ptr, size);
++    }
++
++    public static int GetAv1EncoderEngineCount(int gpuIndex)
++    {
++        IntPtr functionList = IntPtr.Zero;
++        IntPtr openParams = IntPtr.Zero;
++        IntPtr capsParam = IntPtr.Zero;
++        IntPtr cudaContext = IntPtr.Zero;
++        IntPtr encoder = IntPtr.Zero;
++        DestroyEncoderDelegate destroyEncoder = null;
++
++        try
++        {
++            uint maxSupported;
++            if (NvEncodeAPIGetMaxSupportedVersion(out maxSupported) != 0)
++                return 1;
++
++            // NvEncodeAPIGetMaxSupportedVersion encodes major in the upper
++            // bits and minor in the low 4 bits: 13.0 == 0xD0.
++            if (maxSupported < (13u << 4))
++                return 1;
++
++            if (CuInit(0) != 0)
++                return 1;
++
++            int cudaDevice;
++            if (CuDeviceGet(out cudaDevice, gpuIndex) != 0)
++                return 1;
++
++            if (CuCtxCreate(out cudaContext, 0, cudaDevice) != 0 ||
++                cudaContext == IntPtr.Zero)
++                return 1;
++
++            // NV_ENCODE_API_FUNCTION_LIST starts with two uint32 values,
++            // followed by function pointers. We only read three known ABI
++            // positions from the official API 13.x function list.
++            functionList = Marshal.AllocHGlobal(4096);
++            ZeroMemory(functionList, 4096);
++            Marshal.WriteInt32(functionList, 0, unchecked((int)FunctionListVersion));
++
++            if (NvEncodeAPICreateInstance(functionList) != 0)
++                return 1;
++
++            int pointerSize = IntPtr.Size;
++            IntPtr getCapsPtr = Marshal.ReadIntPtr(functionList, 8 + (7 * pointerSize));
++            IntPtr destroyPtr = Marshal.ReadIntPtr(functionList, 8 + (27 * pointerSize));
++            IntPtr openSessionPtr = Marshal.ReadIntPtr(functionList, 8 + (29 * pointerSize));
++
++            if (getCapsPtr == IntPtr.Zero ||
++                destroyPtr == IntPtr.Zero ||
++                openSessionPtr == IntPtr.Zero)
++                return 1;
++
++            GetEncodeCapsDelegate getCaps =
++                (GetEncodeCapsDelegate)Marshal.GetDelegateForFunctionPointer(
++                    getCapsPtr, typeof(GetEncodeCapsDelegate));
++            destroyEncoder =
++                (DestroyEncoderDelegate)Marshal.GetDelegateForFunctionPointer(
++                    destroyPtr, typeof(DestroyEncoderDelegate));
++            OpenEncodeSessionExDelegate openSession =
++                (OpenEncodeSessionExDelegate)Marshal.GetDelegateForFunctionPointer(
++                    openSessionPtr, typeof(OpenEncodeSessionExDelegate));
++
++            // NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS on Win64:
++            // version, deviceType, device, reserved, apiVersion,
++            // reserved1[253], reserved2[64] = 1552 bytes.
++            openParams = Marshal.AllocHGlobal(1552);
++            ZeroMemory(openParams, 1552);
++            Marshal.WriteInt32(openParams, 0, unchecked((int)OpenSessionVersion));
++            Marshal.WriteInt32(openParams, 4, 1); // NV_ENC_DEVICE_TYPE_CUDA
++            Marshal.WriteIntPtr(openParams, 8, cudaContext);
++            Marshal.WriteInt32(openParams, 24, unchecked((int)NvencApiVersion));
++
++            if (openSession(openParams, out encoder) != 0 ||
++                encoder == IntPtr.Zero)
++                return 1;
++
++            // NV_ENC_CAPS_PARAM = version + capsToQuery + reserved[62].
++            capsParam = Marshal.AllocHGlobal(256);
++            ZeroMemory(capsParam, 256);
++            Marshal.WriteInt32(capsParam, 0, unchecked((int)CapsParamVersion));
++            Marshal.WriteInt32(capsParam, 4, NumEncoderEnginesCap);
++
++            int engines;
++            if (getCaps(encoder, Av1Guid, capsParam, out engines) != 0)
++                return 1;
++
++            if (engines < 1)
++                return 1;
++
++            // Current FFmpeg exposes explicit split modes up to four engines.
++            if (engines > 4)
++                engines = 4;
++
++            return engines;
++        }
++        catch
++        {
++            return 1;
++        }
++        finally
++        {
++            if (encoder != IntPtr.Zero && destroyEncoder != null)
++            {
++                try { destroyEncoder(encoder); } catch {}
++            }
++
++            if (capsParam != IntPtr.Zero)
++                Marshal.FreeHGlobal(capsParam);
++            if (openParams != IntPtr.Zero)
++                Marshal.FreeHGlobal(openParams);
++            if (functionList != IntPtr.Zero)
++                Marshal.FreeHGlobal(functionList);
++
++            if (cudaContext != IntPtr.Zero)
++            {
++                try { CuCtxDestroy(cudaContext); } catch {}
++            }
++        }
++    }
++}
++'@
++
++        try {
++            Add-Type -TypeDefinition $source -Language CSharp -ErrorAction Stop
++        } catch {
++            return 1
++        }
++    }
++
++    try {
++        $count = [FilmGrainNvencCaps]::GetAv1EncoderEngineCount($GpuIndex)
++        if ($count -lt 1) { return 1 }
++        if ($count -gt 4) { return 4 }
++        return [int]$count
++    } catch {
++        return 1
++    }
++}
++
++function Get-Grav1synthCapabilities {
++    param([string]$Path)
++
++    $result = [ordered]@{
++        path = $Path
++        available = $false
++        version = '未检测'
++        sfeCompatible = $false
++    }
++
++    if ([string]::IsNullOrWhiteSpace($Path)) {
++        return [pscustomobject]$result
++    }
++    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
++        $result.version = '未找到'
++        return [pscustomobject]$result
++    }
++
++    try {
++        $probe = Invoke-ProcessCapture -FilePath $Path -Arguments @('--version') -TimeoutSeconds 15
++        if ($probe.ExitCode -ne 0) {
++            $result.version = '检测失败'
++            return [pscustomobject]$result
++        }
++
++        $result.available = $true
++        $text = ([string]$probe.StdOut + "`n" + [string]$probe.StdErr).Trim()
++        $match = [regex]::Match($text, '(?i)(\d+)\.(\d+)\.(\d+)')
++        if (-not $match.Success) {
++            $result.version = '未知'
++            return [pscustomobject]$result
++        }
++
++        $versionText = '{0}.{1}.{2}' -f `
++            $match.Groups[1].Value, `
++            $match.Groups[2].Value, `
++            $match.Groups[3].Value
++
++        $result.version = $versionText
++        try {
++            $version = [version]$versionText
++            $result.sfeCompatible = ($version -ge [version]'0.2.2')
++        } catch {
++            $result.sfeCompatible = $false
++        }
++    } catch {
++        $result.version = '检测失败'
++    }
++
++    return [pscustomobject]$result
++}
++
+ function Get-EncoderCapabilities {
+     param([ValidateSet('av1_nvenc', 'hevc_nvenc', 'h264_nvenc')][string]$Encoder)
+ 
+@@ -127,6 +399,7 @@ function Get-EncoderCapabilities {
+         sceneCut = $false
+         multipassQres = $false
+         multipassFullres = $false
++        splitEncodeMaxEngines = 1
+     }
+ 
+     $caps.available = Test-EncoderOption -Encoder $Encoder
+@@ -137,6 +410,12 @@ function Get-EncoderCapabilities {
+             '-preset', 'p4', '-multipass', 'fullres',
+             '-spatial-aq', '1', '-aq-strength', '8'
+         )
++        $engineCount = Get-Av1EncoderEngineCount
++        if ($engineCount -ge 2 -and (Test-Av1SplitEncodeMode -EngineCount $engineCount)) {
++            $caps.splitEncodeMaxEngines = $engineCount
++        } else {
++            $caps.splitEncodeMaxEngines = 1
++        }
+     }
+ 
+     $completeArgs = @(
+@@ -351,6 +630,9 @@ function Write-CmdEnvironment {
+         ('set "FG_CAP_DRIVER_VERSION={0}"' -f (ConvertTo-CmdValue $Profile.gpu.driverVersion)),
+         ('set "FG_CAP_AV1={0}"' -f (ConvertTo-CmdBool $av1.available)),
+         ('set "FG_CAP_AV1_UHQ={0}"' -f (ConvertTo-CmdBool $av1.uhq)),
++        ('set "FG_CAP_AV1_SFE_MAX={0}"' -f (ConvertTo-CmdValue $av1.splitEncodeMaxEngines)),
++        ('set "FG_CAP_GRAV1SYNTH_VERSION={0}"' -f (ConvertTo-CmdValue $Profile.grav1synth.version)),
++        ('set "FG_CAP_GRAV1SYNTH_SFE={0}"' -f (ConvertTo-CmdBool $Profile.grav1synth.sfeCompatible)),
+         ('set "FG_CAP_HEVC={0}"' -f (ConvertTo-CmdBool $hevc.available)),
+         ('set "FG_CAP_H264={0}"' -f (ConvertTo-CmdBool $h264.available)),
+         ('set "FG_CAP_X264={0}"' -f (ConvertTo-CmdBool $x264.available)),
+@@ -405,6 +687,15 @@ try {
+     if ($versionResult.ExitCode -ne 0) { throw 'FFmpeg could not be started.' }
+     $versionLine = (($versionResult.StdOut -split "`r?`n") | Select-Object -First 1)
+     $gpu = Get-GpuIdentity
++    $gravCaps = Get-Grav1synthCapabilities -Path $Grav1synth
++    $gravSignature = 'missing'
++    if (-not [string]::IsNullOrWhiteSpace($Grav1synth) -and (Test-Path -LiteralPath $Grav1synth -PathType Leaf)) {
++        try {
++            $gravFile = Get-Item -LiteralPath $Grav1synth
++            $gravSignature = $gravFile.FullName + '|' + $gravFile.Length + '|' + $gravFile.LastWriteTimeUtc.Ticks + '|' + [string]$gravCaps.version
++        } catch {}
++    }
++
+     $openSvpVspipe = Join-Path $OpenSvpRoot '.venv\Scripts\vspipe.exe'
+     $openSvpDll1 = Join-Path $OpenSvpRoot 'Plugins\svpflow1_vs.dll'
+     $openSvpDll2 = Join-Path $OpenSvpRoot 'Plugins\svpflow2_vs.dll'
+@@ -429,6 +720,7 @@ try {
+         "gpuIndex=$GpuIndex",
+         "cuda=$CudaDevice",
+         "vulkan=$VulkanDevice",
++        "grav1synth=$gravSignature",
+         "openSvpRoot=$OpenSvpRoot",
+         ('openSvp=' + ($openSvpSignature -join ';'))
+     ) -join "`n"
+@@ -512,6 +804,7 @@ try {
+                 lastWriteTimeUtc = $ffmpegFile.LastWriteTimeUtc.ToString('o')
+             }
+             gpu = $gpu
++            grav1synth = $gravCaps
+             caps = [pscustomobject][ordered]@{
+                 av1 = $av1Caps
+                 hevc = $hevcCaps
+@@ -538,6 +831,9 @@ try {
+         Write-Host ('Profile .......... {0}' -f $profile.cacheState)
+         Write-Host ('AV1 Main10 NVENC . {0}' -f $mark[[int][bool]$profile.caps.av1.available])
+         Write-Host ('AV1 UHQ ......... {0}' -f $mark[[int][bool]$profile.caps.av1.uhq])
++        Write-Host ('AV1 SFE engines . x{0}' -f [int]$profile.caps.av1.splitEncodeMaxEngines)
++        Write-Host ('grav1synth ....... {0}' -f [string]$profile.grav1synth.version)
++        Write-Host ('grav1synth SFE ... {0}' -f $mark[[int][bool]$profile.grav1synth.sfeCompatible])
+         Write-Host ('HEVC Main10 ...... {0}' -f $mark[[int][bool]$profile.caps.hevcPipeline])
+         Write-Host ('x264 Grain ....... {0}' -f $mark[[int][bool]$profile.caps.x264Pipeline])
+         Write-Host ('x264 High10 ...... {0}' -f $mark[[int][bool]$profile.caps.x264.high10])
