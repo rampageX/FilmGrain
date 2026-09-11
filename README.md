@@ -8,10 +8,10 @@
 - **HEVC Main10 + 真实扫描 Grain Plate**：将真实胶片颗粒合成到视频像素中，由 NVENC Main10 编码。
 - **H.264 x264 Grain + 真实扫描 Grain Plate**：与 HEVC 共用扫描 Grain / LUT / 画幅 / 反交错 / OpenSVPFlow 前处理，使用 `libx264 + preset faster + tune grain + VBR 单次` 作为默认日常路线；高级设置可选择 Medium / Slow 与 VBR 2-Pass。默认在编码边界高质量降为 8-bit High Profile，也可启用实验性 High10。
 
-当前正式稳定版为 **v4.6.0**，发布包名称：
+当前正式稳定版为 **v4.6.1**，发布包名称：
 
 ```text
-FilmGrain_Studio_v4.6.0_Stable.zip
+FilmGrain_Studio_v4.6.1_Stable.zip
 ```
 
 所有独立脚本使用固定文件名，不再包含组件版本号；版本号只体现在整个项目的发布压缩包上。升级时建议完整替换工具包，避免新旧脚本混用。
@@ -19,6 +19,8 @@ FilmGrain_Studio_v4.6.0_Stable.zip
 v4.6.0 在 v4.5.2.2 稳定基线之上正式加入 **AV1 NVENC 多引擎并行 / Split Frame Encoding (SFE)**。主界面“速度 / 质量”下方新增“多引擎并行 ×N”，由 NVIDIA NVENC 能力检测决定可用引擎数量；当前仅在 **AV1 Standard / UHQ** 模式允许启用。SFE 同时要求 **grav1synth 0.2.2 或更高版本**，旧版 grav1synth 会自动禁用该选项。实测 RTX 4080 的 AV1 Standard / UHQ 可获得明显的完整流程加速，而 AV1 FAST 与 HEVC 扫描 Grain 路线仍保持关闭 SFE。
 
 v4.6.0 同时修复隔行素材与 OpenSVPFlow 插帧的组合：OpenSVPFlow 仍只处理逐行输入；若任务中检测到隔行视频，则该文件自动旁路 OpenSVPFlow，改走既有 Field-rate 反交错，例如 29.97i → 59.94p、25i → 50p。逐行素材继续使用 OpenSVPFlow 60 fps；混合批量任务按文件分别判断。
+
+v4.6.1 不修改编码核心与既有参数，新增 **FGS 专用应用图标**，主窗口标题栏和 Windows 任务栏统一显示 FGS 图标；同时在 `_OpenSVPFlow` 中加入独立的最新版更新器，可在主动更新前后执行 CPU / GPU smoke test、自动备份现有插件并在失败时回滚。`00_Setup.bat` 继续负责首次安装已验证的固定运行环境。
 
 默认配置仍为 **AV1 Main10 + MP4 + AAC 256k**，并集成 LUT Gallery、自动 Field-rate 反交错、自动电影帧率、可选 OpenSVPFlow GPU 60 fps 插帧、Cinematic Style、多文件处理、NVENC / OpenSVPFlow 硬件能力自动探测、AV1 UHQ、AV1 SFE 及 AV1 Film Grain 最终验证。
 
@@ -82,6 +84,7 @@ Utils\
     FilmGrain_Config_Load.bat
     FilmGrain_Hardware_Caps.ps1
     FilmGrain_Studio.ps1
+    FGS.ico
     FilmGrain_Studio_Launcher.vbs
     FilmGrain_Universal_HEVC_AV1_StudioBridge.bat
     FilmGrain_Subtitle_Prepare.ps1
@@ -102,12 +105,16 @@ _AV1_Grain_Tables\
     1440p\
     2160p\
 _OpenSVPFlow\
-    00_Setup.bat                 # 首次安装本地 OpenSVPFlow 运行环境
+    00_Setup.bat                 # 首次安装已验证的固定 OpenSVPFlow 运行环境
     Setup_OpenSVPFlow.ps1
+    01_Update_OpenSVPFlow.bat    # 主动更新至上游最新版；自动备份并支持失败回滚
+    Update_OpenSVPFlow.ps1
     Check_OpenSVPFlow.vpy
     FilmGrain_OpenSVPFlow.vpy
     Plugins\
 ```
+
+OpenSVPFlow 首次安装仍运行 `00_Setup.bat`。需要主动跟随 `Z1xus/open-svpflow` 最新 Release 时，再运行 `01_Update_OpenSVPFlow.bat`；当前 DLL 会先备份到 `_OpenSVPFlow\_PluginBackup`，新版通过安装后 smoke test 才保留，失败则自动回滚。
 
 请保持两个入口 BAT、`Utils`、`_LUT_Tools`、`_AV1_Grain_Tables` 与 `_OpenSVPFlow` 的相对位置不变。
 
