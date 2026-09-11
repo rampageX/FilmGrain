@@ -1,24 +1,51 @@
-Film Grain Studio formal stable baseline
+﻿Film Grain Studio formal stable baseline
 
 Baseline:
-v4.6.1
+v4.6.2
 
 Supersedes:
-v4.6.0
-
-Major changes:
-- Adds the dedicated FGS application icon to the WinForms title bar and Windows taskbar.
-- Adds independent OpenSVPFlow latest-release maintenance through 01_Update_OpenSVPFlow.bat / Update_OpenSVPFlow.ps1.
-- The updater stages and smoke-tests new plugins, backs up the current DLLs, verifies the installed plugins, and rolls back automatically on failure.
-- Keeps 00_Setup.bat as the pinned verified first-install path.
-- Preserves the v4.6.0 AV1 SFE and interlaced/OpenSVPFlow routing behavior.
-- Preserves GUI / CLI synchronization through the shared StudioBridge core.
-- Keeps existing AV1 / HEVC / x264 encoding parameters, AAC 256k, Grain, LUT, subtitle, Cinematic, upload, Batch Summary, and MPEG-TS sync behavior unchanged.
-
-Validation:
-- Dedicated FGS title-bar and Windows taskbar icons user-tested successfully on Windows 11.
-- OpenSVPFlow updater / backup flow user-tested successfully.
-- v4.6.0 RTX 4080 SFE and interlaced fallback validation remains unchanged.
+v4.6.1
 
 Formal release:
-FilmGrain_Studio_v4.6.1_Stable.zip
+FilmGrain_Studio_v4.6.2_Stable.zip
+
+Core baseline:
+- User-validated v4.6.1 stable package.
+- v4.6.1 application icon and OpenSVPFlow updater / backup flow retained.
+- GUI / CLI continue to share Utils\FilmGrain_Universal_HEVC_AV1_StudioBridge.bat.
+
+Major changes:
+- Adds HDR Preserve for HEVC Main10 and AV1 Main10.
+- Detects BT.2020 + PQ/HLG and preserves 10-bit HDR processing.
+- HEVC NVENC explicitly forces p010le.
+- Preserves source HDR10 static metadata when present; does not fabricate missing Mastering Display / MaxCLL / MaxFALL.
+- Adds final output HDR signaling verification.
+- HDR safely bypasses current non-HDR-safe OpenSVPFlow YUV420P8, x264 main HDR, H.264 upload and existing LUT routes.
+- Adds LUT Gallery Smart Filter.
+- Smart Filter classifies Technical / Combined / Creative / Keep and hides only high-confidence pure Technical LUTs.
+- Adds cross-file creative-family recognition.
+- Smart Filter never modifies LUT files and writes a CSV report.
+- Refines LUT Gallery layout so hidden-count status remains visible.
+- Keeps curated AV1 Grain Tables organized by 720p / 1080p / 1440p / 2160p with source attribution.
+
+Validation:
+- HEVC HDR10/PQ user-tested successfully.
+- HEVC verified as actual 10-bit P010 output.
+- AV1 HDR user-tested successfully with equivalent BT.2020 / PQ / 10-bit preservation.
+- Source Mastering Display / MaxCLL / MaxFALL preserved on test clips where present.
+- LUT Smart Filter tested against company and home LUT libraries with hundreds of CUBE files.
+- V2 creative-family logic confirmed to retain Combined creative LUT sets that V1 over-filtered.
+
+Known scope limits:
+- No Dolby Vision RPU workflow.
+- No HDR10+ dynamic metadata workflow.
+- No HDR-to-SDR tone mapping.
+- No HDR OpenSVPFlow interpolation in the current YUV420P8 integration.
+- Current LUT HDR routing remains conservatively bypassed until HDR->HDR LUT classification is formalized.
+
+Release cleanup:
+- No temporary patch / hotfix / test files.
+- No Utils\_HardwareCaps.json.
+- No _LUT_Tools\LUT_Reference_Current.jpg.
+- No user OpenSVPFlow DLL/version state or _PluginBackup.
+- No Recent / Favorites / Smart Filter CSV user state.

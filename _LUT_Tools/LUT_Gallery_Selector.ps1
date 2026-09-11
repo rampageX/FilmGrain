@@ -455,13 +455,13 @@ $top.Controls.Add($folderFilter)
 $status = New-Object System.Windows.Forms.Label
 $status.AutoSize = $false
 $status.Location = New-Object System.Drawing.Point -ArgumentList 805,13
-$status.Size = New-Object System.Drawing.Size -ArgumentList 200,22
+$status.Size = New-Object System.Drawing.Size -ArgumentList 250,22
 $status.AutoEllipsis = $true
 $top.Controls.Add($status)
 
 $none = New-Object System.Windows.Forms.Button
-$none.Text = '无 / 禁用 LUT'; $none.Size = New-Object System.Drawing.Size -ArgumentList 150,28
-$none.Anchor = 'Top,Right'; $none.Location = New-Object System.Drawing.Point -ArgumentList ($form.ClientSize.Width-170),9
+$none.Text = '禁用 LUT'; $none.Size = New-Object System.Drawing.Size -ArgumentList 95,28
+$none.Anchor = 'Top,Right'; $none.Location = New-Object System.Drawing.Point -ArgumentList ($form.ClientSize.Width-115),9
 $top.Controls.Add($none)
 
 $gallery = New-Object System.Windows.Forms.FlowLayoutPanel
@@ -495,6 +495,14 @@ $changeReference.Text = '更换参考图'; $changeReference.Size = New-Object Sy
 $changeReference.Anchor = 'Top,Right'; $changeReference.Location = New-Object System.Drawing.Point -ArgumentList ($form.ClientSize.Width-320),9
 $bottom.Controls.Add($changeReference)
 
+$smartFilter = New-Object System.Windows.Forms.Button
+$smartFilter.Text = '智能过滤'; $smartFilter.Size = New-Object System.Drawing.Size -ArgumentList 130,30
+$smartFilter.Anchor = 'Top,Right'; $smartFilter.Location = New-Object System.Drawing.Point -ArgumentList ($form.ClientSize.Width-460),9
+$bottom.Controls.Add($smartFilter)
+
+$smartTip = New-Object System.Windows.Forms.ToolTip
+$smartTip.SetToolTip($smartFilter, '隐藏高置信度功能/技术转换型 LUT；再次点击恢复全部。只读取 CUBE 文件头，不修改 LUT 文件。')
+
 $referenceTip = New-Object System.Windows.Forms.ToolTip
 $referenceTip.SetToolTip($changeReference, '选择新参考图并覆盖生成全部 LUT 预览')
 
@@ -513,6 +521,210 @@ $currentReference = Join-Path $PSScriptRoot 'LUT_Reference_Current.jpg'
 $script:PreviewBuildProcess = $null
 $script:PreviewBuildOriginalTitle = $form.Text
 
+# V2 rule: only pure technical/utility LUTs are hidden.
+# Combined LUTs that contain both an input transform and a creative look stay visible.
+$script:SmartFilterEnabled = $false
+$script:SmartScanComplete = $false
+$script:SmartTechnicalCount = 0
+$script:SmartCombinedCount = 0
+$script:CurrentSmartHiddenCount = 0
+$script:SmartLutCache = @{}
+$script:SmartCreativeFamilies = @{}
+$script:SmartFilterReport = Join-Path $PreviewRoot '_LUT_SMART_FILTER_REPORT.csv'
+
+function Get-LutHeaderForSmartFilter([string]$lutPath) {
+    $headerLines = @()
+    try {
+        foreach ($line in @(Get-Content -LiteralPath $lutPath -TotalCount 240 -ErrorAction Stop)) {
+            $s = [string]$line
+            if ($s -match '^\s*[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?\s+[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?\s+[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?(?:\s|$)') { break }
+            $headerLines += $s
+        }
+    } catch {}
+    return ($headerLines -join "`n")
+}
+
+function Get-SmartFamilyInfo($entry) {
+    $base = [IO.Path]::GetFileNameWithoutExtension([string]$entry.LutPath)
+    $relative = [string]$entry.Relative
+    $dir = Split-Path $relative -Parent
+
+    $inputToken = '(?:ACEScct|ACEScc|ACEScg|DWG|RWG|BMDFilmGen(?:4|5)|BolexLog|CanonLog(?:1|2|3)?|Cineon|DJIDLog|DragonColor2RLF|FLog2C|FLog2|FLog|KineLog3|LLog|LogC(?:3|4)?|NLog|ProTune|Rec709|BT[._-]?709|SLog3CineVenice|SLog3Cine|SLog3Venice|SLog3|SLog2|SLog1|VLog|ZLog2)'
+    $outputToken = '(?:ACEScct|ACEScc|ACEScg|DWG|RWG|Rec709|BT[._-]?709)'
+    $rx = '^(?<family>.+?)[._ -]+(?<input>' + $inputToken + ')[._ -]+to[._ -]+(?<output>' + $outputToken + ')(?:[._ -].*)?$'
+
+    $m = [regex]::Match($base,$rx,[System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    if (-not $m.Success) { return $null }
+
+    $family = $m.Groups['family'].Value.Trim(' ','-','_','.')
+    if (-not $family) { return $null }
+
+    $key = (($dir + '|' + $family).ToLowerInvariant())
+    return [pscustomobject]@{
+        Key = $key
+        Family = $family
+        Input = $m.Groups['input'].Value
+        Output = $m.Groups['output'].Value
+    }
+}
+
+function Initialize-SmartCreativeFamilies {
+    $groups = @{}
+
+    foreach ($entry in @($allItems)) {
+        $info = Get-SmartFamilyInfo $entry
+        if (-not $info) { continue }
+
+        if (-not $groups.ContainsKey($info.Key)) {
+            $groups[$info.Key] = @{}
+        }
+        $variant = (($info.Input + '>' + $info.Output).ToLowerInvariant())
+        $groups[$info.Key][$variant] = $true
+    }
+
+    $script:SmartCreativeFamilies = @{}
+    foreach ($key in @($groups.Keys)) {
+        $variantCount = @($groups[$key].Keys).Count
+        if ($variantCount -ge 3) {
+            $script:SmartCreativeFamilies[$key] = $variantCount
+        }
+    }
+}
+
+function Get-SmartLutClassification($entry) {
+    $lutPath = [string]$entry.LutPath
+    $key = Get-LutKey $lutPath
+    if ($script:SmartLutCache.ContainsKey($key)) { return $script:SmartLutCache[$key] }
+
+    $header = Get-LutHeaderForSmartFilter $lutPath
+    $relative = [string]$entry.Relative
+    $probe = $relative + "`n" + $header
+    $lines = @($header -split "`r?`n")
+
+    $spacePattern = '(?i)(?:\b(?:rec|bt|itu[\s._-]*r[\s._-]*bt)?[\s._-]*(?:709|2020)\b|\b(?:pq|st[\s._-]*2084|hlg|arib[\s._-]*std[\s._-]*b67)\b|\b(?:dci[\s._-]*p3|display[\s._-]*p3|p3)\b|\baces(?:cg|cc|cct)?\b|\b(?:logc(?:3|4)?|arri[\s._-]*logc?|s[\s._-]*log(?:1|2|3)?|slog(?:1|2|3)?|v[\s._-]*log|vlog|c[\s._-]*log(?:1|2|3)?|clog(?:1|2|3)?|f[\s._-]*log(?:2c|2)?|flog(?:2c|2)?|d[\s._-]*log|dlog|n[\s._-]*log|nlog|cineon|redlogfilm|log3g10|bmd[\s._-]*film|blackmagic[\s._-]*film)\b|\b(?:redwidegamut|davinci[\s._-]*wide[\s._-]*gamut|blackmagic[\s._-]*wide[\s._-]*gamut|s[\s._-]*gamut(?:3(?:[\s._-]*cine)?)?|v[\s._-]*gamut|v709|lc[\s._-]*709a)\b|\blinear\b)'
+    $technicalWordPattern = '(?i)\b(?:utility|utilities|technical|conversion|convert|transform|color[\s._-]*space[\s._-]*transform|colour[\s._-]*space[\s._-]*transform|colorspace[\s._-]*transform|cst|idt|odt)\b'
+    $operationPattern = '(?i)(?:tone[\s._-]*map|tonemap|gamut[\s._-]*map|range[\s._-]*conversion|full[\s._-]*(?:range[\s._-]*)?(?:to|[-=]+>)\s*legal|legal[\s._-]*(?:range[\s._-]*)?(?:to|[-=]+>)\s*full|video[\s._-]*levels?[\s._-]*(?:to|[-=]+>)\s*data[\s._-]*levels?|data[\s._-]*levels?[\s._-]*(?:to|[-=]+>)\s*video[\s._-]*levels?|\bshaper\b)'
+    $creativePattern = '(?i)(?:\bcreative\b|\blook\b|\bcinematic\b|\bteal\b|\borange\b|\bvintage\b|\bretro\b|\bbleach\b|\bcross[\s._-]*process\b|\bwarm\b|\bcool\b|\bfilm[\s._-]*(?:look|tone|boost|print|emulation)\b|\bprint[\s._-]*film\b|\b(?:kodak[\s._-]*)?(?:2383|2393)\b|\beterna(?:[\s._-]*bb)?\b)'
+
+    $inputLines = @($lines | Where-Object { $_ -match '(?i)^\s*#?\s*(?:input|input color ?space|input[_ -]?colorspace|source|source color ?space|source[_ -]?colorspace)\s*[:=]' })
+    $outputLines = @($lines | Where-Object { $_ -match '(?i)^\s*#?\s*(?:output|output color ?space|output[_ -]?colorspace|target|target color ?space|destination|destination color ?space)\s*[:=]' })
+
+    $score = 0
+    $reasons = @()
+    $strongEvidence = $false
+
+    if ($inputLines.Count -gt 0 -and $outputLines.Count -gt 0) {
+        $score += 10
+        $strongEvidence = $true
+        $reasons += 'Explicit Input/Output header fields'
+        $inText = $inputLines -join ' '
+        $outText = $outputLines -join ' '
+        if (($inText -match $spacePattern) -and ($outText -match $spacePattern)) {
+            $score += 2
+            $reasons += 'Recognized source/target color spaces'
+        }
+    }
+
+    $conversionDetected = $false
+    foreach ($line in @($probe -split "`r?`n")) {
+        if ($line -notmatch '(?i)(?:\bto\b|[-=]+>)') { continue }
+        $parts = [regex]::Split($line,'(?i)(?:\bto\b|\s*[-=]+>\s*)')
+        if ($parts.Count -lt 2) { continue }
+        for ($i = 0; $i -lt ($parts.Count - 1); $i++) {
+            if (($parts[$i] -match $spacePattern) -and ($parts[$i + 1] -match $spacePattern)) {
+                $conversionDetected = $true
+                break
+            }
+        }
+        if ($conversionDetected) { break }
+    }
+    if ($conversionDetected) {
+        $score += 9
+        $strongEvidence = $true
+        $reasons += 'Recognized color-space conversion pair'
+    }
+
+    if ($probe -match $technicalWordPattern) {
+        $score += 6
+        $reasons += 'Utility/technical/transform marker'
+    }
+    if ($probe -match $operationPattern) {
+        $score += 7
+        $strongEvidence = $true
+        $reasons += 'Technical range/tone/gamut operation marker'
+    }
+
+    $familyInfo = Get-SmartFamilyInfo $entry
+    $isCreativeFamily = $false
+    if ($familyInfo -and $script:SmartCreativeFamilies.ContainsKey($familyInfo.Key)) {
+        $isCreativeFamily = $true
+        $reasons += ('Multi-input creative family: ' + $familyInfo.Family + ' / ' + $script:SmartCreativeFamilies[$familyInfo.Key] + ' variants')
+    }
+
+    $hasCreativeMarker = ($probe -match $creativePattern)
+    if ($hasCreativeMarker) {
+        $reasons += 'Creative/look marker'
+    }
+
+    $className = 'Keep'
+    $isTechnical = $false
+
+    if ($isCreativeFamily) {
+        $className = 'Combined'
+        $isTechnical = $false
+    } elseif ($hasCreativeMarker -and $score -ge 6) {
+        $className = 'Combined'
+        $isTechnical = $false
+    } elseif ($score -ge 6) {
+        $className = 'Technical'
+        $isTechnical = $true
+    } elseif ($hasCreativeMarker) {
+        $className = 'Creative'
+        $isTechnical = $false
+    }
+
+    if ($reasons.Count -eq 0) { $reasons += 'No strong technical evidence' }
+
+    $result = [pscustomobject]@{
+        IsTechnical = [bool]$isTechnical
+        Class = $className
+        Score = [int]$score
+        Reason = ($reasons -join '; ')
+    }
+    $script:SmartLutCache[$key] = $result
+    return $result
+}
+
+function Build-SmartLutClassificationCache {
+    $script:SmartLutCache = @{}
+    Initialize-SmartCreativeFamilies
+
+    $rows = @()
+    $technical = 0
+    $combined = 0
+
+    foreach ($entry in @($allItems)) {
+        $class = Get-SmartLutClassification $entry
+        if ($class.IsTechnical) { $technical++ }
+        if ($class.Class -eq 'Combined') { $combined++ }
+
+        $rows += [pscustomobject]@{
+            Type = [string]$class.Class
+            Score = [int]$class.Score
+            RelativePath = [string]$entry.Relative
+            Reason = [string]$class.Reason
+            LutPath = [string]$entry.LutPath
+        }
+    }
+
+    $script:SmartTechnicalCount = $technical
+    $script:SmartCombinedCount = $combined
+    $script:SmartScanComplete = $true
+
+    try {
+        $rows | Sort-Object Type,RelativePath | Export-Csv -LiteralPath $script:SmartFilterReport -NoTypeInformation -Encoding UTF8
+    } catch {}
+}
 function Save-CurrentLutReference([string]$sourcePath,[string]$destinationPath) {
     if (-not $sourcePath -or -not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
         throw "参考图不存在：$sourcePath"
@@ -618,32 +830,32 @@ function Get-Thumb([string]$path) {
 
 $prev = New-Object System.Windows.Forms.Button
 $prev.Text = '< 上一页'; $prev.Size = New-Object System.Drawing.Size -ArgumentList 74,28
-$prev.Location = New-Object System.Drawing.Point -ArgumentList 1015,9
+$prev.Location = New-Object System.Drawing.Point -ArgumentList 1065,9
 $top.Controls.Add($prev)
 
 $pagePrefix = New-Object System.Windows.Forms.Label
 $pagePrefix.Text = '页码'
 $pagePrefix.AutoSize = $false; $pagePrefix.Size = New-Object System.Drawing.Size -ArgumentList 34,22
 $pagePrefix.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
-$pagePrefix.Location = New-Object System.Drawing.Point -ArgumentList 1097,12
+$pagePrefix.Location = New-Object System.Drawing.Point -ArgumentList 1147,12
 $top.Controls.Add($pagePrefix)
 
 $pageInput = New-Object System.Windows.Forms.ComboBox
 $pageInput.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
 $pageInput.Size = New-Object System.Drawing.Size -ArgumentList 54,26
-$pageInput.Location = New-Object System.Drawing.Point -ArgumentList 1134,10
+$pageInput.Location = New-Object System.Drawing.Point -ArgumentList 1184,10
 $pageInput.MaxDropDownItems = 20
 $top.Controls.Add($pageInput)
 
 $pageTotal = New-Object System.Windows.Forms.Label
 $pageTotal.AutoSize = $false; $pageTotal.Size = New-Object System.Drawing.Size -ArgumentList 38,22
 $pageTotal.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
-$pageTotal.Location = New-Object System.Drawing.Point -ArgumentList 1193,12
+$pageTotal.Location = New-Object System.Drawing.Point -ArgumentList 1243,12
 $top.Controls.Add($pageTotal)
 
 $next = New-Object System.Windows.Forms.Button
 $next.Text = '下一页 >'; $next.Size = New-Object System.Drawing.Size -ArgumentList 74,28
-$next.Location = New-Object System.Drawing.Point -ArgumentList 1236,9
+$next.Location = New-Object System.Drawing.Point -ArgumentList 1286,9
 $top.Controls.Add($next)
 
 function Clear-Page {
@@ -801,6 +1013,9 @@ function Refresh-Page {
             }
         }
         $status.Text = "匹配 $count 个 / 共 $($allItems.Count) 个"
+        if ($script:SmartFilterEnabled -and $script:CurrentSmartHiddenCount -gt 0) {
+            $status.Text += " / 隐藏功能型 $($script:CurrentSmartHiddenCount)"
+        }
         if ($cardErrors -gt 0) { $status.Text += " / $cardErrors 个卡片错误" }
         if ($imageErrors -gt 0) { $status.Text += " / $imageErrors 个图片错误" }
         $script:UpdatingPageMenu = $true
@@ -878,13 +1093,23 @@ function Apply-Filter {
             (("{0} {1}" -f $_.Name,$_.Relative).IndexOf($q,[StringComparison]::OrdinalIgnoreCase) -ge 0)
         })
     }
+    if ($script:SmartFilterEnabled) {
+        $beforeSmartCount = $script:filteredItems.Count
+        $script:filteredItems = @($script:filteredItems | Where-Object {
+            -not (Get-SmartLutClassification $_).IsTechnical
+        })
+        $script:CurrentSmartHiddenCount = $beforeSmartCount - $script:filteredItems.Count
+    } else {
+        $script:CurrentSmartHiddenCount = 0
+    }
+
     $script:CurrentPage = 0
     Update-ViewButtons
     Refresh-Page
 }
 
 function Set-PreviewBuildState([bool]$running) {
-    foreach ($control in @($search,$allView,$recentView,$favoriteView,$folderFilter,$prev,$pageInput,$next,$none,$use,$gallery)) {
+    foreach ($control in @($search,$allView,$recentView,$favoriteView,$folderFilter,$prev,$pageInput,$next,$none,$use,$smartFilter,$gallery)) {
         $control.Enabled = -not $running
     }
     $changeReference.Enabled = -not $running
@@ -980,6 +1205,36 @@ $changeReference.Add_Click({
     }
 })
 
+$smartFilter.Add_Click({
+    if (-not $script:SmartScanComplete) {
+        $form.UseWaitCursor = $true
+        $smartFilter.Enabled = $false
+        $status.Text = '正在分析 LUT...'
+        [System.Windows.Forms.Application]::DoEvents()
+        try {
+            Build-SmartLutClassificationCache
+        } catch {
+            [System.Windows.Forms.MessageBox]::Show("智能过滤扫描失败：`r`n`r`n$($_.Exception.Message)", 'LUT 图库', 'OK', 'Warning') | Out-Null
+            return
+        } finally {
+            $form.UseWaitCursor = $false
+            $smartFilter.Enabled = $true
+        }
+    }
+
+    $script:SmartFilterEnabled = -not $script:SmartFilterEnabled
+    if ($script:SmartFilterEnabled) {
+        $smartFilter.Text = '智能过滤：开'
+        $smartFilter.BackColor = [System.Drawing.Color]::LightSteelBlue
+        $selectedLabel.Text = "智能过滤已开启：隐藏 $($script:SmartTechnicalCount) 个纯功能型 LUT；保留 $($script:SmartCombinedCount) 个 Combined LUT。"
+    } else {
+        $smartFilter.Text = '智能过滤'
+        $smartFilter.BackColor = [System.Drawing.SystemColors]::Control
+        $selectedLabel.Text = '智能过滤已关闭，显示全部 LUT。'
+    }
+    Apply-Filter
+})
+
 $searchTimer = New-Object System.Windows.Forms.Timer
 $searchTimer.Interval = 300
 $searchTimer.Add_Tick({ $searchTimer.Stop(); Apply-Filter })
@@ -1024,6 +1279,7 @@ $form.Add_FormClosed({
         $script:PreviewBuildProcess = $null
     }
     $referenceTip.Dispose()
+    $smartTip.Dispose()
     Clear-Page
 })
 

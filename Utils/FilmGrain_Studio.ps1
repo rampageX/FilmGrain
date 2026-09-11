@@ -723,7 +723,7 @@ $statusVersion = New-Object System.Windows.Forms.ToolStripStatusLabel
 $statusVersion.Spring = $false
 $statusVersion.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
 $statusVersion.ForeColor = $ColorMuted
-$statusVersion.Text = 'v4.6.1'
+$statusVersion.Text = 'v4.6.2'
 $statusVersion.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 12, 0, 0, 0
 [void]$statusStrip.Items.Add($statusVersion)
 
@@ -1891,6 +1891,20 @@ function Format-ProbeResult {
         $fieldOrder = ([string]$video.field_order).ToLowerInvariant()
         $scanText = if ($fieldOrder -in @('tt', 'bb', 'tb', 'bt')) { "隔行 $fieldOrder" } elseif ($fieldOrder -eq 'progressive') { '逐行' } elseif ($fieldOrder) { "扫描标记 $fieldOrder" } else { '扫描标记 —' }
         $videoLine = '视频  ' + (Format-CodecName $video) + " · $resolution · $fps fps · $scanText · " + (Format-MediaBitrate $video.bit_rate)
+        $transfer = ([string]$video.color_transfer).ToLowerInvariant()
+        $isHdr = ($transfer -eq 'smpte2084' -or $transfer -eq 'arib-std-b67')
+        if ($isHdr) {
+            $hdrName = if ($transfer -eq 'smpte2084') { 'HDR10 / PQ' } else { 'HLG' }
+            $bitDepth = '10-bit'
+            if ($video.bits_per_raw_sample -and ([string]$video.bits_per_raw_sample) -match '^\d+$') {
+                $bitDepth = ([string]$video.bits_per_raw_sample) + '-bit'
+            } elseif (([string]$video.pix_fmt) -match '10') {
+                $bitDepth = '10-bit'
+            }
+            $prim = if ($video.color_primaries) { [string]$video.color_primaries } else { 'primaries ?' }
+            $matrix = if ($video.color_space) { [string]$video.color_space } else { 'matrix ?' }
+            $videoLine += "`r`nHDR   $hdrName · $bitDepth · $prim · $matrix"
+        }
     } else {
         $videoLine = '视频  未找到视频流'
     }
@@ -1946,6 +1960,7 @@ function Start-VideoProbe {
         Update-DeinterlaceUi
         Update-NoReencodeAvailability
         Update-BitrateDisplays
+        Update-HdrCompatibilityUi
         if ($script:ProbeVideoMeta.ContainsKey($cacheKey) -and ([string]$script:ProbeVideoMeta[$cacheKey].codec_name).ToLowerInvariant() -eq 'av1') {
             Start-Av1GrainInspect $Path $summary
         } else {
@@ -1965,7 +1980,7 @@ function Start-VideoProbe {
     try {
         $psi = New-Object System.Diagnostics.ProcessStartInfo
         $psi.FileName = $probeExe
-        $psi.Arguments = '-v error -show_entries "format=format_name,duration,bit_rate:stream=codec_type,codec_name,profile,width,height,avg_frame_rate,field_order,bit_rate,channels,channel_layout,sample_rate" -of json "' + $Path + '"'
+        $psi.Arguments = '-v error -show_entries "format=format_name,duration,bit_rate:stream=codec_type,codec_name,profile,width,height,avg_frame_rate,field_order,bit_rate,channels,channel_layout,sample_rate,pix_fmt,bits_per_raw_sample,color_range,color_space,color_transfer,color_primaries" -of json "' + $Path + '"'
         $psi.UseShellExecute = $false
         $psi.CreateNoWindow = $true
         $psi.RedirectStandardOutput = $true
@@ -2149,6 +2164,7 @@ $probeTimer.Add_Tick({
         Update-DeinterlaceUi
         Update-NoReencodeAvailability
         Update-BitrateDisplays
+        Update-HdrCompatibilityUi
         if ($cmbAv1Method.SelectedIndex -eq 2 -and -not $chkShowAllAv1Tables.Checked) { Refresh-Av1GrainTables }
         if ($videoMeta.Count -gt 0 -and ([string]$videoMeta[0].codec_name).ToLowerInvariant() -eq 'av1') {
             Start-Av1GrainInspect $targetPath $summary
@@ -2890,6 +2906,52 @@ function Update-DeinterlaceUi {
         if ($cmbFps.Items.Count -gt 0) { $cmbFps.Items[0] = '自动电影帧率 · VFR 兼容（默认）' }
         $cmbFps.Enabled = $true
     }
+}
+
+function Test-SelectedMediaIsHdr {
+    $selected = @($listFiles.SelectedItems)
+    if ($selected.Count -ne 1) { return $false }
+    $path = [string]$selected[0].Tag
+    if (-not $path) { return $false }
+    $key = $path.ToLowerInvariant()
+    if (-not $script:ProbeVideoMeta.ContainsKey($key)) { return $false }
+    $transfer = ([string]$script:ProbeVideoMeta[$key].color_transfer).ToLowerInvariant()
+    return ($transfer -eq 'smpte2084' -or $transfer -eq 'arib-std-b67')
+}
+
+function Update-HdrCompatibilityUi {
+    if (-not $chkInterpolation -or -not $chkUpload -or -not $grpLut) { return }
+    $isHdr = Test-SelectedMediaIsHdr
+    if ($cmbCodec.SelectedIndex -eq 3) { return }
+
+    if ($isHdr) {
+        $chkInterpolation.Enabled = $false
+        $cmbInterpolationMode.Enabled = $false
+        $chkUpload.Enabled = $false
+        $cmbUploadBitrate.Enabled = $false
+        $chkUploadBitrateAuto.Enabled = $false
+        $grpLut.Enabled = $false
+        $toolTip.SetToolTip($chkInterpolation, 'HDR Preserve：当前 OpenSVPFlow 集成使用 YUV420P8，HDR 文件由核心自动旁路插帧。')
+        $toolTip.SetToolTip($chkUpload, 'HDR Preserve：当前 H.264 上传版没有 HDR->SDR Tone Mapping，HDR 文件由核心自动跳过。')
+        $toolTip.SetToolTip($grpLut, 'HDR Preserve：当前 LUT 工作流按 SDR / BT.709 路线验证，HDR 文件由核心自动旁路 LUT。')
+        if ($cmbCodec.SelectedIndex -eq 2) {
+            $btnStart.Enabled = $false
+            $toolTip.SetToolTip($cmbCodec, 'HDR Preserve 主输出请使用 AV1 Main10 或 HEVC Main10；当前 H.264 x264 主线不支持 HDR Preserve。')
+        } else {
+            $btnStart.Enabled = $true
+        }
+        return
+    }
+
+    $grpLut.Enabled = $true
+    if ($cmbCodec.SelectedIndex -ne 2) {
+        $chkUpload.Enabled = (-not $script:HardwareCapsReady -or $script:X264Available)
+        $cmbUploadBitrate.Enabled = ($chkUpload.Enabled -and $chkUpload.Checked)
+        $chkUploadBitrateAuto.Enabled = ($chkUpload.Enabled -and $chkUpload.Checked)
+    }
+    $chkInterpolation.Enabled = $true
+    $btnStart.Enabled = $true
+    $toolTip.SetToolTip($chkUpload, '附加 H.264 上传版固定使用 x264 Grain 8-bit 兼容输出；与主输出共用最终分辨率 / FPS / 高动态状态，但拥有独立码率。')
 }
 
 function Update-InterpolationUi {
@@ -5018,9 +5080,9 @@ $form.Add_DragEnter($dragEnterHandler)
 $form.Add_DragDrop($dragDropHandler)
 $listFiles.Add_DragEnter($dragEnterHandler)
 $listFiles.Add_DragDrop($dragDropHandler)
-$listFiles.Add_SelectedIndexChanged({ Update-SelectedMediaInfo; Update-DeinterlaceUi; Update-NoReencodeAvailability; Update-BitrateDisplays })
+$listFiles.Add_SelectedIndexChanged({ Update-SelectedMediaInfo; Update-DeinterlaceUi; Update-NoReencodeAvailability; Update-BitrateDisplays; Update-HdrCompatibilityUi })
 
-$cmbCodec.Add_SelectedIndexChanged({ Update-CodecUi; Update-FramingUi; Update-BitrateDisplays })
+$cmbCodec.Add_SelectedIndexChanged({ Update-CodecUi; Update-FramingUi; Update-BitrateDisplays; Update-HdrCompatibilityUi })
 $cmbSpeed.Add_SelectedIndexChanged({ if (-not $script:UpdatingSpeedChoices) { Update-SfeUi } })
 $cmbDeint.Add_SelectedIndexChanged({ Update-DeinterlaceUi; Update-BitrateDisplays })
 $chkInterpolation.Add_CheckedChanged({ Update-InterpolationUi; Update-BitrateDisplays })
