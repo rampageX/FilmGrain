@@ -1,12 +1,12 @@
 diff --git a/README_FilmGrain_Studio.txt b/README_FilmGrain_Studio.txt
 --- a/README_FilmGrain_Studio.txt
 +++ b/README_FilmGrain_Studio.txt
-@@ -48,3 +48,4 @@
+@@ -45,3 +45,4 @@
  - CLI 与 GUI 均支持输入文件名或目录名包含 & 等 CMD 特殊字符。
  - 拖放视频启动时，CMD 与 PowerShell 控制台均不驻留任务栏。
 +- 主窗口标题栏与 Windows 任务栏统一使用 FGS 专用图标，不再显示 PowerShell 默认图标。
  - 主界面直接读取 Gallery 最近使用与我的最爱，各显示最多 25 个 LUT，并复用缩略图即时预览。
-@@ -83,5 +84,8 @@
+@@ -88,3 +89,6 @@
  Utils\FilmGrain_Studio.ps1
      WinForms 图形界面。
  
@@ -14,8 +14,7 @@ diff --git a/README_FilmGrain_Studio.txt b/README_FilmGrain_Studio.txt
 +    Film Grain Studio 专用应用图标；用于窗口标题栏与 Windows 任务栏。
 +
  Utils\FilmGrain_Studio_Launcher.vbs
-     无控制台启动器；异步启动 WinForms 后立即退出，不保留 CMD 任务栏窗口。
-@@ -101,4 +105,10 @@
+@@ -100,4 +104,10 @@
  FilmGrain_Universal_HEVC_AV1_CLI.bat
      CLI 入口，直接进入同一 StudioBridge 核心的交互模式，可独立拖放使用。
  
