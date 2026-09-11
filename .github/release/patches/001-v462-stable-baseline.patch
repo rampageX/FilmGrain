@@ -1,0 +1,47 @@
+diff --git a/STABLE_BASELINE.txt b/STABLE_BASELINE.txt
+--- a/STABLE_BASELINE.txt
++++ b/STABLE_BASELINE.txt
+@@ -1,24 +1,29 @@
+ Film Grain Studio formal stable baseline
+ 
+ Baseline:
++v4.6.2
++
++Supersedes:
+ v4.6.1
+ 
+-Supersedes:
+-v4.6.0
+-
+ Major changes:
+-- Adds the dedicated FGS application icon to the WinForms title bar and Windows taskbar.
+-- Adds independent OpenSVPFlow latest-release maintenance through 01_Update_OpenSVPFlow.bat / Update_OpenSVPFlow.ps1.
+-- The updater stages and smoke-tests new plugins, backs up the current DLLs, verifies the installed plugins, and rolls back automatically on failure.
+-- Keeps 00_Setup.bat as the pinned verified first-install path.
+-- Preserves the v4.6.0 AV1 SFE and interlaced/OpenSVPFlow routing behavior.
+-- Preserves GUI / CLI synchronization through the shared StudioBridge core.
+-- Keeps existing AV1 / HEVC / x264 encoding parameters, AAC 256k, Grain, LUT, subtitle, Cinematic, upload, Batch Summary, and MPEG-TS sync behavior unchanged.
++- Adds HDR Preserve for HEVC Main10 and AV1 Main10, preserving BT.2020 + PQ/HLG + 10-bit signaling and source HDR10 static metadata when present.
++- Forces HEVC NVENC P010 output so Main10 HDR output is an actual 10-bit bitstream.
++- Adds end-to-end HDR color-signaling verification for primaries, transfer, matrix, and range.
++- Uses safe HDR routing: current YUV420P8 OpenSVPFlow, H.264 upload copy, x264 main output, and existing LUT processing are not applied to HDR Preserve files.
++- Adds visible HDR compatibility state in Studio so OpenSVPFlow, H.264 upload, and LUT controls are disabled for the selected HDR file and restored for SDR.
++- Adds LUT Gallery Smart Filter for conservative Technical / Combined / Creative / Keep classification without moving or deleting LUT files.
++- Adds cross-file creative-family detection so multi-input Combined LUTs remain visible instead of being mistaken for pure utility transforms.
++- Expands the Gallery status area and shortens the Disable LUT button so filter counts remain visible.
++- Preserves the v4.6.1 FGS icon and OpenSVPFlow updater / backup flow.
++- Preserves GUI / CLI synchronization through the shared StudioBridge core and keeps AAC 256k plus previously verified encoding behavior unchanged outside the HDR routing described above.
+ 
+ Validation:
+-- Dedicated FGS title-bar and Windows taskbar icons user-tested successfully on Windows 11.
+-- OpenSVPFlow updater / backup flow user-tested successfully.
+-- v4.6.0 RTX 4080 SFE and interlaced fallback validation remains unchanged.
++- HEVC HDR10/PQ user-tested with BT.2020, true 10-bit output, Mastering Display, MaxCLL / MaxFALL preservation, and correct visual color.
++- AV1 HDR user-tested with the same HDR Preserve behavior as HEVC.
++- HEVC P010 hotfix user-tested and confirmed to restore actual 10-bit output.
++- LUT Smart Filter user-tested on large LUT libraries; the accepted rule keeps Combined creative families while hiding high-confidence pure technical LUTs.
++- v4.6.1 application icon and OpenSVPFlow updater validation remains unchanged.
+ 
+ Formal release:
+-FilmGrain_Studio_v4.6.1_Stable.zip
++FilmGrain_Studio_v4.6.2_Stable.zip
