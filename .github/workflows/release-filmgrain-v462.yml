@@ -1,0 +1,299 @@
+name: Release Film Grain Studio v4.6.2
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - '.github/release/v462-trigger.txt'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout release source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply formal v4.6.2 baseline patch
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $patches = Get-ChildItem -LiteralPath '.github\release\patches' -Filter '*.patch' -File | Sort-Object Name
+          if (-not $patches) {
+              throw 'No v4.6.2 release patches found.'
+          }
+
+          foreach ($patch in $patches) {
+              Write-Host "Checking $($patch.Name)"
+              git apply --check --whitespace=nowarn -- $patch.FullName
+              if ($LASTEXITCODE -ne 0) {
+                  throw "Patch check failed: $($patch.Name)"
+              }
+          }
+
+          foreach ($patch in $patches) {
+              Write-Host "Applying $($patch.Name)"
+              git apply --whitespace=nowarn -- $patch.FullName
+              if ($LASTEXITCODE -ne 0) {
+                  throw "Patch apply failed: $($patch.Name)"
+              }
+          }
+
+          Remove-Item -LiteralPath '.github\release\patches' -Recurse -Force
+
+      - name: Apply user-validated HDR and LUT Gallery transforms
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $payloadRoot = '.github\release\v462_payloads'
+          $payloads = Get-ChildItem -LiteralPath $payloadRoot -Filter '*.ps1.gz.b64' -File | Sort-Object Name
+          if ($payloads.Count -ne 8) {
+              throw "Expected 8 v4.6.2 formalizer payloads, found $($payloads.Count)."
+          }
+
+          $tempRoot = Join-Path '.github\release' ('.v462_formalize_' + [guid]::NewGuid().ToString('N'))
+          New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
+          try {
+              foreach ($payload in $payloads) {
+                  $scriptName = $payload.Name -replace '\.gz\.b64$',''
+                  $scriptPath = Join-Path $tempRoot $scriptName
+                  Write-Host "Preparing $scriptName"
+
+                  $b64 = (Get-Content -LiteralPath $payload.FullName -Raw).Trim()
+                  $compressed = [Convert]::FromBase64String($b64)
+                  $input = New-Object System.IO.MemoryStream(,$compressed)
+                  $gzip = New-Object System.IO.Compression.GZipStream($input,[System.IO.Compression.CompressionMode]::Decompress)
+                  $output = New-Object System.IO.MemoryStream
+                  try {
+                      $gzip.CopyTo($output)
+                      [System.IO.File]::WriteAllBytes($scriptPath,$output.ToArray())
+                  } finally {
+                      $output.Dispose()
+                      $gzip.Dispose()
+                      $input.Dispose()
+                  }
+
+                  $scriptBytes = [System.IO.File]::ReadAllBytes($scriptPath)
+                  if ($scriptBytes.Length -lt 3 -or $scriptBytes[0] -ne 0xEF -or $scriptBytes[1] -ne 0xBB -or $scriptBytes[2] -ne 0xBF) {
+                      throw "$scriptName must be UTF-8 BOM."
+                  }
+
+                  Write-Host "Running $scriptName"
+                  & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -ExecutionPolicy Bypass -File $scriptPath
+                  if ($LASTEXITCODE -ne 0) {
+                      throw "$scriptName failed with exit code $LASTEXITCODE."
+                  }
+              }
+          } finally {
+              if (Test-Path -LiteralPath $tempRoot) {
+                  Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
+              }
+          }
+
+          Remove-Item -LiteralPath $payloadRoot -Recurse -Force
+
+          [System.IO.File]::WriteAllText(
+              '.github\release\version.txt',
+              "4.6.2`n",
+              (New-Object System.Text.UTF8Encoding($false))
+          )
+
+          if (Test-Path -LiteralPath '.github\release\v462-trigger.txt') {
+              Remove-Item -LiteralPath '.github\release\v462-trigger.txt' -Force
+          }
+          if (Test-Path -LiteralPath '.github\workflows\release-filmgrain-v462.yml') {
+              Remove-Item -LiteralPath '.github\workflows\release-filmgrain-v462.yml' -Force
+          }
+
+      - name: Validate formal source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = (Get-Content -LiteralPath '.github\release\version.txt' -Raw).Trim()
+          if ($version -ne '4.6.2') {
+              throw "Invalid v4.6.2 release version: $version"
+          }
+
+          $studioPath = 'Utils\FilmGrain_Studio.ps1'
+          $capsPath = 'Utils\FilmGrain_Hardware_Caps.ps1'
+          $bridgePath = 'Utils\FilmGrain_Universal_HEVC_AV1_StudioBridge.bat'
+          $galleryPath = '_LUT_Tools\LUT_Gallery_Selector.ps1'
+
+          foreach ($psPath in @($studioPath,$capsPath,$galleryPath)) {
+              $bytes = [System.IO.File]::ReadAllBytes($psPath)
+              if ($bytes.Length -lt 3 -or $bytes[0] -ne 0xEF -or $bytes[1] -ne 0xBB -or $bytes[2] -ne 0xBF) {
+                  throw "$psPath must be UTF-8 BOM."
+              }
+          }
+
+          $bridgeBytes = [System.IO.File]::ReadAllBytes($bridgePath)
+          if ($bridgeBytes.Length -ge 3 -and $bridgeBytes[0] -eq 0xEF -and $bridgeBytes[1] -eq 0xBB -and $bridgeBytes[2] -eq 0xBF) {
+              throw 'StudioBridge BAT must not contain UTF-8 BOM.'
+          }
+
+          $studio = [System.IO.File]::ReadAllText($studioPath)
+          if (-not $studio.Contains("`$statusVersion.Text = 'v4.6.2'")) {
+              throw 'Studio version label does not match v4.6.2.'
+          }
+
+          $forbidden = @([char]0x201C,[char]0x201D,[char]0x2018,[char]0x2019)
+          foreach ($psFile in Get-ChildItem -Recurse -File -Filter '*.ps1') {
+              $psText = [System.IO.File]::ReadAllText($psFile.FullName)
+              foreach ($ch in $forbidden) {
+                  if ($psText.Contains([string]$ch)) {
+                      throw "Forbidden curly quote found in PS1: $($psFile.FullName)"
+                  }
+              }
+          }
+
+          $bridge = [System.IO.File]::ReadAllText($bridgePath)
+          foreach ($required in @('HDR_ACTIVE','VERIFY_HDR_SIGNALING','HDR_FRAME_FILTER','HDR_ENCODE_ARGS','-c:v hevc_nvenc -pix_fmt p010le -gpu')) {
+              if (-not $bridge.Contains($required)) {
+                  throw "Missing formal HDR core marker: $required"
+              }
+          }
+
+          $gallery = [System.IO.File]::ReadAllText($galleryPath)
+          foreach ($required in @('SmartTechnicalCount','SmartCombinedCount','Multi-input creative family','智能过滤')) {
+              if (-not $gallery.Contains($required)) {
+                  throw "Missing formal LUT Smart Filter marker: $required"
+              }
+          }
+
+          foreach ($marker in @('FGS_HDR_PRESERVE_TEST_WQJJX','FGS_LUT_SMART_FILTER_TEST_EIVYN','FGS_LUT_SMART_FILTER_V2_TEST_ZMAXU','FGS_LUT_UI_HOTFIX_MARKER')) {
+              if ($bridge.Contains($marker) -or $gallery.Contains($marker) -or $studio.Contains($marker)) {
+                  throw "Temporary test marker remains: $marker"
+              }
+          }
+
+          if (Get-ChildItem -Recurse -File | Where-Object { $_.Name -like '*TEST_BUILD*' -or $_.Name -like '*.HDR_BACKUP_*' -or $_.Name -like '*.HEVC10BIT_BACKUP_*' -or $_.Name -like '*.SMART_FILTER_*BACKUP_*' -or $_.Name -like '*.UI_BACKUP_*' }) {
+              throw 'Temporary test/backup file found in formal release source.'
+          }
+
+          if (-not (Select-String -LiteralPath 'README.md' -SimpleMatch '![](images/Film_Grain_Studio.jpg)')) {
+              throw 'README GUI screenshot line is missing.'
+          }
+          if (-not (Select-String -LiteralPath 'README.md' -SimpleMatch 'v4.6.2')) {
+              throw 'README.md does not document v4.6.2.'
+          }
+          if (-not (Select-String -LiteralPath 'README.md' -SimpleMatch 'grav1synth 0.2.2')) {
+              throw 'README.md does not document grav1synth 0.2.2.'
+          }
+
+      - name: Commit formal source to master
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = (Get-Content -LiteralPath '.github\release\version.txt' -Raw).Trim()
+
+          git config user.name 'rampageX'
+          git config user.email 'punkdm@gmail.com'
+          git add -A
+
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 0) {
+              throw 'No formal source changes were produced.'
+          }
+
+          git commit -m "v$version [skip ci]"
+          if ($LASTEXITCODE -ne 0) {
+              throw 'Failed to commit formal source.'
+          }
+
+          git push origin HEAD:master
+          if ($LASTEXITCODE -ne 0) {
+              throw 'Failed to push formal source to master.'
+          }
+
+          $releaseCommit = (git rev-parse HEAD).Trim()
+          "RELEASE_COMMIT=$releaseCommit" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Build formal release ZIP
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = (Get-Content -LiteralPath '.github\release\version.txt' -Raw).Trim()
+          $folderName = "FilmGrain_Studio_v${version}_Stable"
+          $distRoot = Join-Path $PWD 'dist'
+          $stage = Join-Path $distRoot $folderName
+
+          if (Test-Path -LiteralPath $distRoot) {
+              Remove-Item -LiteralPath $distRoot -Recurse -Force
+          }
+          New-Item -ItemType Directory -Path $stage | Out-Null
+
+          $releaseItems = @(
+              'FilmGrain_Universal_HEVC_AV1_CLI.bat',
+              'FilmGrain_Universal_HEVC_AV1_GUI.bat',
+              'FilmGrain_Config.ini',
+              'README.md',
+              'CHANGELOG.md',
+              'README_FilmGrain_Studio.txt',
+              'README_Toolkit.txt',
+              'STABLE_BASELINE.txt',
+              'Utils',
+              '_AV1_Grain_Tables',
+              '_LUT_Tools',
+              '_OpenSVPFlow'
+          )
+
+          foreach ($item in $releaseItems) {
+              if (-not (Test-Path -LiteralPath $item)) {
+                  throw "Required release item not found: $item"
+              }
+              Copy-Item -LiteralPath $item -Destination $stage -Recurse -Force
+          }
+
+          Get-ChildItem -LiteralPath $stage -Recurse -File -Filter '*.ps1' | ForEach-Object {
+              $text = [System.IO.File]::ReadAllText($_.FullName)
+              $text = $text -replace "`r`n", "`n" -replace "`r", "`n"
+              $text = $text.Replace("`n", "`r`n")
+              [System.IO.File]::WriteAllText($_.FullName,$text,(New-Object System.Text.UTF8Encoding($true)))
+          }
+
+          foreach ($pattern in @('*.bat','*.vbs')) {
+              Get-ChildItem -LiteralPath $stage -Recurse -File -Filter $pattern | ForEach-Object {
+                  $text = [System.IO.File]::ReadAllText($_.FullName)
+                  $text = $text -replace "`r`n", "`n" -replace "`r", "`n"
+                  $text = $text.Replace("`n", "`r`n")
+                  [System.IO.File]::WriteAllText($_.FullName,$text,(New-Object System.Text.UTF8Encoding($false)))
+              }
+          }
+
+          $zipPath = Join-Path $distRoot ($folderName + '.zip')
+          Compress-Archive -LiteralPath $stage -DestinationPath $zipPath -CompressionLevel Optimal
+
+          $hash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          $shaPath = Join-Path $distRoot ($folderName + '.sha256')
+          [System.IO.File]::WriteAllText($shaPath,"$hash  $($folderName).zip`r`n",(New-Object System.Text.UTF8Encoding($false)))
+
+          "RELEASE_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "RELEASE_TAG=v$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "RELEASE_ZIP=$zipPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "RELEASE_SHA=$shaPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Create GitHub Release and tag
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          gh release view $env:RELEASE_TAG --repo "${{ github.repository }}" 2>$null
+          if ($LASTEXITCODE -eq 0) {
+              throw "Release $env:RELEASE_TAG already exists."
+          }
+
+          gh release create $env:RELEASE_TAG `
+              "$env:RELEASE_ZIP" `
+              "$env:RELEASE_SHA" `
+              --repo "${{ github.repository }}" `
+              --target "$env:RELEASE_COMMIT" `
+              --title "Film Grain Studio v$env:RELEASE_VERSION" `
+              --notes-file ".github/release/RELEASE_NOTES.md"
