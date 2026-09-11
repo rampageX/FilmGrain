@@ -35,58 +35,58 @@ jobs:
 
           $decoderPath = Join-Path $tempRoot 'decode_payload.py'
           $decoder = @'
-import gzip
-import pathlib
-import struct
-import sys
-import zlib
+          import gzip
+          import pathlib
+          import struct
+          import sys
+          import zlib
 
-src = pathlib.Path(sys.argv[1])
-dst = pathlib.Path(sys.argv[2])
-data = src.read_bytes()
+          src = pathlib.Path(sys.argv[1])
+          dst = pathlib.Path(sys.argv[2])
+          data = src.read_bytes()
 
-try:
-    raw = gzip.decompress(data)
-except Exception:
-    if len(data) < 18 or data[0:3] != b'\x1f\x8b\x08':
-        raise
+          try:
+              raw = gzip.decompress(data)
+          except Exception:
+              if len(data) < 18 or data[0:3] != b'\x1f\x8b\x08':
+                  raise
 
-    flags = data[3]
-    pos = 10
+              flags = data[3]
+              pos = 10
 
-    if flags & 0x04:
-        if pos + 2 > len(data) - 8:
-            raise ValueError('invalid gzip FEXTRA header')
-        xlen = struct.unpack_from('<H', data, pos)[0]
-        pos += 2 + xlen
+              if flags & 0x04:
+                  if pos + 2 > len(data) - 8:
+                      raise ValueError('invalid gzip FEXTRA header')
+                  xlen = struct.unpack_from('<H', data, pos)[0]
+                  pos += 2 + xlen
 
-    if flags & 0x08:
-        end = data.find(b'\x00', pos, len(data) - 8)
-        if end < 0:
-            raise ValueError('invalid gzip FNAME header')
-        pos = end + 1
+              if flags & 0x08:
+                  end = data.find(b'\x00', pos, len(data) - 8)
+                  if end < 0:
+                      raise ValueError('invalid gzip FNAME header')
+                  pos = end + 1
 
-    if flags & 0x10:
-        end = data.find(b'\x00', pos, len(data) - 8)
-        if end < 0:
-            raise ValueError('invalid gzip FCOMMENT header')
-        pos = end + 1
+              if flags & 0x10:
+                  end = data.find(b'\x00', pos, len(data) - 8)
+                  if end < 0:
+                      raise ValueError('invalid gzip FCOMMENT header')
+                  pos = end + 1
 
-    if flags & 0x02:
-        pos += 2
+              if flags & 0x02:
+                  pos += 2
 
-    if pos >= len(data) - 8:
-        raise ValueError('invalid gzip payload bounds')
+              if pos >= len(data) - 8:
+                  raise ValueError('invalid gzip payload bounds')
 
-    raw = zlib.decompress(data[pos:-8], -15)
-    expected_size = struct.unpack_from('<I', data, len(data) - 4)[0]
-    if (len(raw) & 0xffffffff) != expected_size:
-        raise ValueError('gzip ISIZE mismatch while repairing CRC')
+              raw = zlib.decompress(data[pos:-8], -15)
+              expected_size = struct.unpack_from('<I', data, len(data) - 4)[0]
+              if (len(raw) & 0xffffffff) != expected_size:
+                  raise ValueError('gzip ISIZE mismatch while repairing CRC')
 
-    print('Recovered payload with raw DEFLATE fallback; original gzip CRC was invalid.')
+              print('Recovered payload with raw DEFLATE fallback; original gzip CRC was invalid.')
 
-dst.write_bytes(raw)
-'@
+          dst.write_bytes(raw)
+          '@
           [System.IO.File]::WriteAllText($decoderPath,$decoder,(New-Object System.Text.UTF8Encoding($false)))
 
           try {
