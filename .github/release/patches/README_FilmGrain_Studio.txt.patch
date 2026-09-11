@@ -6,7 +6,7 @@ diff --git a/README_FilmGrain_Studio.txt b/README_FilmGrain_Studio.txt
  - 拖放视频启动时，CMD 与 PowerShell 控制台均不驻留任务栏。
 +- 主窗口标题栏与 Windows 任务栏统一使用 FGS 专用图标，不再显示 PowerShell 默认图标。
  - 主界面直接读取 Gallery 最近使用与我的最爱，各显示最多 25 个 LUT，并复用缩略图即时预览。
-@@ -88,3 +89,6 @@
+@@ -88,4 +89,7 @@
  Utils\FilmGrain_Studio.ps1
      WinForms 图形界面。
  
