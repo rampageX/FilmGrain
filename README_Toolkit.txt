@@ -1,42 +1,186 @@
 ﻿Universal Film Grain Toolkit
 =============================
 
-正式稳定版：v4.6.2
+当前正式稳定版：v4.6.2
 
-所有主脚本使用固定正式文件名。版本号只体现在项目发布包和 GUI 底部版本标识中，升级时建议完整替换整个工具包。
+版本与命名
+----------
+所有独立脚本采用固定文件名，不再包含组件版本号。项目版本只体现在发布压缩包
+文件名中；升级时请整体替换，避免新旧脚本混用。
 
-GUI：FilmGrain_Universal_HEVC_AV1_GUI.bat
-CLI：FilmGrain_Universal_HEVC_AV1_CLI.bat
-共用核心：Utils\FilmGrain_Universal_HEVC_AV1_StudioBridge.bat
+目录结构
+--------
+FilmGrain_Universal_HEVC_AV1_CLI.bat
+FilmGrain_Universal_HEVC_AV1_GUI.bat
+FilmGrain_Config.ini
+README.md
+CHANGELOG.md
+README_FilmGrain_Studio.txt
+README_Toolkit.txt
+STABLE_BASELINE.txt
+Utils\
+    FilmGrain_Config.ps1
+    FilmGrain_Config_Load.bat
+    FilmGrain_Studio.ps1
+    FilmGrain_Studio_Launcher.vbs
+    FilmGrain_Universal_HEVC_AV1_StudioBridge.bat
+    FilmGrain_Subtitle_Prepare.ps1
+    AV1_FilmGrain_Bake_for_Social_Upload.bat
+    AV1_Grav1synth_Add_Replace_FilmGrain_NoReencode.bat
+    LUT_Preview_Batch_Gallery.bat
+    Collect_BT709_LUTs_Conservative.bat
+    FilmGrain_MOV_to_HEVC_Lossless_Cache.bat
+_LUT_Tools\
+    LUT_Gallery_Selector.ps1
+    LUT_Preview_Batch_Gallery.ps1
+    LUT_Reference_Default.jpg
+    LUT_Reference_Current.jpg  （用户更换参考图后自动生成；发布包默认不存在）
+_AV1_Grain_Tables\
+    README.txt
+    720p\
+    1080p\
+    1440p\
+    2160p\
+_OpenSVPFlow\
+    00_Setup.bat
+    01_Update_OpenSVPFlow.bat
+    Setup_OpenSVPFlow.ps1
+    Update_OpenSVPFlow.ps1
+    Check_OpenSVPFlow.vpy
+    FilmGrain_OpenSVPFlow.vpy
+    Plugins\
 
-主线：AV1 Main10 + grav1synth、HEVC Main10 + 扫描 Grain、H.264 x264 Grain。AAC 标准码率 256k。
+根目录保留 CLI / GUI 两个 BAT 入口以及 FilmGrain_Config.ini。请保持 Utils、README、
+_LUT_Tools 与 _AV1_Grain_Tables 文件夹的相对位置不变。
 
-HDR Preserve：v4.6.2 支持 HEVC/AV1 HDR，保持 10-bit、BT.2020、PQ/HLG、BT.2020 non-constant 和 color range；源本来有 HDR10 Mastering Display / MaxCLL / MaxFALL 时保持，源本来没有时不创建虚构值。HEVC 显式强制 p010le，输出完成后校验 HDR 色彩信号。HDR 当前自动旁路 OpenSVPFlow 8-bit 插帧、H.264 x264 HDR 主输出、H.264 上传版和现有 SDR/BT.709 LUT 处理。
+统一依赖与默认路径
+------------------
+以下路径统一保存在根目录 FilmGrain_Config.ini，并可通过 GUI“配置…”修改：
+FFmpeg 目录：E:\EnCoder\FFMpeg\x64\bin（目录内同时使用 ffmpeg.exe 与 ffprobe.exe）
+grav1synth：E:\EnCoder\FFMpeg\grav1synth\grav1synth.exe
+HEVC Grain 库：D:\Film_Grain
+LUT 根目录：E:\Adobe Portable\LUTs
+GPU：NVIDIA GPU 自动探测（已验证 RTX 4080 与 T600 Laptop）
 
-AV1 Film Grain 支持 Film Preset、Photon ISO、现成 .tbl/.txt、grav1synth 添加/替换、最终 Film Grain 验证、SFE；SFE 要求 grav1synth 0.2.2+。
+1. 整合主脚本
+-------------
+将一个或多个视频拖到：
+FilmGrain_Universal_HEVC_AV1_CLI.bat
 
-现成 Grain Table：_AV1_Grain_Tables\720p / 1080p / 1440p / 2160p。公开来源：
-https://github.com/Boulder08/chunknorris
-https://github.com/nekotrix/AV1-Photon-Noise-Tables
+功能：
+- AV1 Main10：NVENC 编码后由 grav1synth 写入 Film Grain metadata。
+- AV1 Grain 可使用内置 Film Preset / Photon ISO，也可加载 _AV1_Grain_Tables 中现成 .tbl / .txt；GUI 默认按源视频分辨率档位过滤。
+- v4.6.2 包内整理的公开 Grain Table 主要来自 Boulder08/chunknorris 与 nekotrix/AV1-Photon-Noise-Tables；具体来源记录在 `_AV1_Grain_Tables\README.txt`。
+- HEVC Main10：使用扫描 Grain plate、Vulkan overlay 和 NVENC 编码。
+- H.264 x264 Grain：与 HEVC 共用扫描 Grain / LUT / 画幅 / 反交错 / OpenSVPFlow 前处理，默认使用 libx264 faster + tune grain + VBR 单次；高级设置可选 Medium / Slow 与 VBR 2-Pass；默认最终输出 High 8-bit，也可启用 High10 实验模式。
+- v4.6.2 HDR Preserve 覆盖 HEVC Main10 / AV1 Main10：保持实际 10-bit、BT.2020、PQ/HLG、Matrix/Range 与源本来存在的 HDR10 Mastering Display / MaxCLL / MaxFALL；源缺失时不伪造。
+- HEVC HDR 显式强制 P010 10-bit；最终输出通过 FFprobe 校验 HDR Primaries / Transfer / Matrix / Range。
+- 当前 HDR 自动旁路 OpenSVPFlow YUV420P8、H.264 x264 HDR 主输出、H.264 上传版及现有 SDR/BT.709 LUT；GUI 对单个 HDR 文件同步灰显这些区域。
+- 共享速度、画幅、反交错、帧率、容器、LUT Gallery、码率和批量处理菜单。
+- 默认编码方式：AV1。
+- 默认输出容器：MP4（音频转 AAC 256k，不兼容的字幕、附件和数据流不写入）。
+- MKV 模式仍可保留原始音频、字幕、附件和数据流。
+- Cinematic Style 约 2.39:1；AV1 / HEVC / H.264 均可选择“加黑边保留原分辨率”或“裁剪有效画面”。
+- 自动反交错默认使用 BWDIF Vulkan；隔行 29.97i → 59.94p、25i → 50p。
+- AV1 / HEVC 均可同时生成 H.264 上传版；上传副本固定为 x264 Grain / High 8-bit，默认 Faster + tune grain + VBR 单次，并与主线共享 Preset / Pass 设置，同时使用独立自动/手动码率。
+- OpenSVPFlow 60 fps 插帧开启时也可继续生成 H.264 上传版；AV1 复用最终 AV1，HEVC 复用最终插帧 HEVC，不重复运行插帧。
+- AV1 / HEVC / H.264 三条主线共用分辨率 + 最终 FPS + 高动态自动码率，主界面直接显示实际 kbps；手动输入后不覆盖。统一 VBV 为 maxrate=平均×3、bufsize=平均×6。
+- 字幕功能独立开关，可烧写进主 AV1 / HEVC / H.264；同时生成 H.264 上传副本时也会继承字幕。
+- 支持内嵌 / 同名外部 / 浏览外部文本字幕；默认 huiwen-mincho、69 号 1080p 基准，
+  统一以最终输出底边定位，MarginV=5 px，并按输出宽度等比缩放。
 
-HEVC 扫描 Grain 使用真实 Grain Plate，经 Vulkan 合成到像素，再由 HEVC Main10 NVENC 编码。
+LUT 选择中选择 Gallery 后，可搜索、分页、双击选择，或使用 Enter、
+PageUp、PageDown 和 Esc。Resolve CUBE 兼容转换、tetrahedral 插值与
+LUT 强度选择均保留。
 
-H.264 x264 Grain 默认 preset faster / tune grain / VBR single-pass / High 8-bit；可选 Medium / Slow / VBR 2-Pass / High10（实验）。
+v4.6.2 Gallery 新增“智能过滤”：分类为 Technical / Combined / Creative / Keep，
+仅隐藏高置信度纯 Technical。扫描会读取 CUBE 文件头、Input/Output Color Space、
+Utility/Technical/Transform/Conversion、CST/IDT/ODT、Log→Rec.709、Tone/Gamut/Range
+以及跨文件 Creative Family。Combined / Creative / Keep 继续保留。智能过滤仅影响
+图库显示，不移动、不删除、不改名原 LUT；报告写入
+<LUT_ROOT>\_LUT_PREVIEWS\_LUT_SMART_FILTER_REPORT.csv。
 
-LUT Gallery 支持 Recent、Favorites、文件夹、搜索、分页、页码下拉、强度、更换参考图和智能过滤。智能过滤分类 Technical / Combined / Creative / Keep，只隐藏 Technical；报告为 <LUT_ROOT>\_LUT_PREVIEWS\_LUT_SMART_FILTER_REPORT.csv。
+Recent 与 Favorites 仅由 LUT Gallery 写入。Gallery 双击或确认 LUT 时立即
+登记 Recent；Studio 的“最近使用”和“我的最爱”下拉列表平时只读。只有从
+Studio“我的最爱”选择 LUT 并点击“开始编码”时，Studio 才调用 Gallery 的
+无界面入口，由 Gallery 登记一次 Recent。Recent 保持去重、25 条上限及
+同目录原子替换。
 
-OpenSVPFlow 首次安装 _OpenSVPFlow\00_Setup.bat，主动更新 _OpenSVPFlow\01_Update_OpenSVPFlow.bat。正式包只保留安装/更新/检查脚本与 Plugins 占位文件。
+CLI 入口与 GUI 直接共用 Utils\FilmGrain_Universal_HEVC_AV1_StudioBridge.bat
+编码核心，因此 HEVC、AV1、反交错、画幅、帧率、LUT 与 Grain 逻辑同步。
+输入文件名或目录名可包含 & 等 CMD 特殊字符。逐行素材的自动电影帧率继续
+使用数值归一化；隔行素材启用自动反交错时优先使用 Field-rate ×2 输出。
 
-反交错默认 BWDIF Vulkan；29.97i -> 59.94p，25i -> 50p；隔行素材自动旁路 OpenSVPFlow。
+Recent 写入发生在 Gallery 选择 LUT 的当下，与之后编码成功或失败无关；
+写入失败时 Gallery 会显示具体错误。
 
-AV1/HEVC 可选同时生成 H.264 上传版；默认 x264 Faster + tune grain + VBR 单次，AAC 256k。HDR 输入当前不生成上传版。
+Gallery 已统一为中文界面。页码使用只读下拉菜单，可显示当前页并直接选择
+任意页面；上一页/下一页以及 PageUp/PageDown 均可在第一页与最后一页之间循环。
 
-AV1 免重编码工具：Utils\AV1_Grav1synth_Add_Replace_FilmGrain_NoReencode.bat
-社交网站烘焙工具：Utils\AV1_FilmGrain_Bake_for_Social_Upload.bat
-LUT 缩略图：Utils\LUT_Preview_Batch_Gallery.bat
+1.1 OpenSVPFlow 安装与更新
+------------------------
+首次安装继续运行：
+_OpenSVPFlow\00_Setup.bat
 
-FilmGrain_Config.ini 统一管理 FFmpeg、grav1synth、Grain Root、LUT Root。Utils\FilmGrain_Hardware_Caps.ps1 运行后产生 Utils\_HardwareCaps.json，正式包不包含该机器相关缓存。
+需要主动跟随上游最新版时运行：
+_OpenSVPFlow\01_Update_OpenSVPFlow.bat
 
-正式包不包含测试 Patch/HOTFIX/TEST 构建文件、_HardwareCaps.json、LUT_Reference_Current.jpg、OpenSVPFlow 用户 DLL/_PluginBackup、Recent/Favorites/Smart Filter Report 等用户状态。
+更新器会在替换插件前后执行 CPU / GPU/OpenCL smoke test，备份当前 DLL，
+安装后验证失败则自动回滚。正式发布包不携带用户本机安装后的 DLL、version state
+或 _PluginBackup。当前 HDR 输入因 OpenSVPFlow 集成为 YUV420P8 而自动旁路插帧。
 
-完整说明请查看 README.md，版本变更请查看 CHANGELOG.md。
+2. 社交网站转码工具
+-------------------
+将一个或多个已完成颗粒效果/插帧处理的 AV1 或 HEVC 视频拖到：
+Utils\AV1_FilmGrain_Bake_for_Social_Upload.bat
+
+脚本先检测输入编码：AV1 使用 libdav1d 将 Film Grain metadata 烘焙为
+实际像素，HEVC 等输入使用 FFmpeg 正常解码；之后统一采用 libx264
+slow + tune grain + 2-pass，并按 FPS + 分辨率 + 动态系数联动码率。
+音频统一 AAC 256k，输出文件名包含实际 x264 码率。
+
+3. AV1 免重编码胶片颗粒工具
+---------------------------
+将一个或多个已有 AV1 视频拖到：
+Utils\AV1_Grav1synth_Add_Replace_FilmGrain_NoReencode.bat
+
+脚本不重新编码视频，只将 AV1 视频流复制到 IVF，使用 grav1synth 添加或
+替换 Film Grain metadata，再封装为 MKV 或 MP4，并检查最终 Film Grain。
+默认输出 MKV；MP4 模式会将音频转换为 AAC 256k。
+Studio GUI 在单个 AV1 输入时也会提供“AV1 不重编码 · 添加/替换胶片颗粒”，
+并自动禁用需要重新编码的视频处理功能；所选 AV1 会显示胶片颗粒为无、亮度或亮度 + 色度。
+
+4. LUT 缩略图生成器
+-------------------
+运行 Utils\LUT_Preview_Batch_Gallery.bat。
+LUT 根目录和参考图片/视频均有默认值，直接回车采用默认值，也可临时输入
+其他路径。保留 Resolve CUBE 兼容、Junction/Symlink、防循环、1920 预览
+及 Gallery index 功能。GUI“配置…”中的 LUT 根目录刷新还会统计 Gallery
+预览完整度；存在缺失时可直接点击“创建缩略图”，只补缺失文件。
+Gallery“更换参考图”后会将所选图片统一保存为 _LUT_Tools\LUT_Reference_Current.jpg。
+之后 Gallery 全量重建、GUI 补建缺失预览以及独立预览生成器均优先使用 Current；
+若 Current 尚不存在，则使用出厂 LUT_Reference_Default.jpg。这样删除部分预览后再次
+补建，也会继续沿用最近一次选择的参考图。
+
+5. 其他 Utils 工具
+------------------
+Collect_BT709_LUTs_Conservative.bat：保守筛选明确标注 BT.709/Rec.709
+输入的 CUBE LUT，复制到 LUT 根目录的 BT.709 子目录并生成 CSV 报告。
+
+FilmGrain_MOV_to_HEVC_Lossless_Cache.bat：统一 Cache 生成器。递归扫描
+D:\Film_Grain，可选择生成原始分辨率、Vulkan bilinear 1920×1080，
+或同时生成两种 HEVC Main10 Lossless Cache。校验统一比较实际 10-bit
+YUV 样本；参考哈希来自与 NVENC 相同的同一帧流，避免 P010 低 6 位
+填充差异造成假失败。已验证 RTX 4080 与 T600 Laptop。GUI“配置…”中的
+Grain 根目录刷新会同时统计两类 Cache，缺失时可直接点击“生成高速缓存”；
+GUI 以非交互模式调用同一 BAT，单独双击 BAT 时仍保留 1 / 2 / 3 菜单。
+
+注意事项
+--------
+- GPU、驱动与 FFmpeg 能力由 FilmGrain_Hardware_Caps.ps1 自动探测，不需要
+  为 RTX 4080 / T600 Laptop 手工切换 B-frame 或 Temporal AQ。
+- 输出文件已存在时，脚本会跳过，避免覆盖现有结果。
+- AV1 免重编码工具失败时默认保留临时目录，便于查看日志。
+- HDR Preserve 当前不包含 HDR→SDR Tone Mapping、Dolby Vision RPU、HDR10+ 动态 metadata 或 HDR OpenSVPFlow 插帧。
+- LUT 智能过滤是保守初筛；无法高置信确认的 LUT 优先保留。
+- 正式 v4.6.2 不携带 `_HardwareCaps.json`、`LUT_Reference_Current.jpg`、OpenSVPFlow 用户 DLL/备份、Smart Filter CSV 等机器/用户运行状态。
