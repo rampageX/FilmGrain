@@ -20,7 +20,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Normalize payload gzip streams and retrigger release
+      - name: Recover and normalize payload gzip streams
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -79,15 +79,22 @@ jobs:
                   raise ValueError('invalid gzip payload bounds')
 
               raw = zlib.decompress(data[pos:-8], -15)
+              expected_crc = struct.unpack_from('<I', data, len(data) - 8)[0]
               expected_size = struct.unpack_from('<I', data, len(data) - 4)[0]
-              if (len(raw) & 0xffffffff) != expected_size:
-                  raise ValueError('gzip ISIZE mismatch while repairing CRC')
-
-              print('Recovered payload with raw DEFLATE fallback; original gzip CRC was invalid.')
+              actual_crc = zlib.crc32(raw) & 0xffffffff
+              actual_size = len(raw) & 0xffffffff
+              print(f'Recovered raw DEFLATE payload. Trailer CRC {expected_crc:08x}->{actual_crc:08x}; ISIZE {expected_size}->{actual_size}.')
 
           dst.write_bytes(raw)
           '@
           [System.IO.File]::WriteAllText($decoderPath,$decoder,(New-Object System.Text.UTF8Encoding($false)))
+
+          $requiredMarkers = @{
+              '01_HDR_Preserve.ps1' = 'FGS_HDR_PRESERVE_TEST_WQJJX'
+              '03_LUT_SmartFilter_V1.ps1' = 'FGS_LUT_SMART_FILTER_TEST_EIVYN'
+              '04_LUT_SmartFilter_V2.ps1' = 'FGS_LUT_SMART_FILTER_V2_TEST_ZMAXU'
+              '05_LUT_UI.ps1' = 'FGS_LUT_UI_HOTFIX_MARKER'
+          }
 
           try {
               foreach ($payload in $payloads) {
@@ -109,6 +116,24 @@ jobs:
                   if ($rawBytes.Length -lt 3 -or $rawBytes[0] -ne 0xEF -or $rawBytes[1] -ne 0xBB -or $rawBytes[2] -ne 0xBF) {
                       throw "$baseName is not UTF-8 BOM after decompression."
                   }
+
+                  $tokens = $null
+                  $parseErrors = $null
+                  [void][System.Management.Automation.Language.Parser]::ParseFile($raw,[ref]$tokens,[ref]$parseErrors)
+                  if ($parseErrors -and $parseErrors.Count -gt 0) {
+                      $firstError = [string]$parseErrors[0].Message
+                      throw "$baseName failed PowerShell syntax validation: $firstError"
+                  }
+
+                  if ($requiredMarkers.ContainsKey($baseName)) {
+                      $rawText = [System.IO.File]::ReadAllText($raw)
+                      $requiredMarker = [string]$requiredMarkers[$baseName]
+                      if (-not $rawText.Contains($requiredMarker)) {
+                          throw "$baseName is missing expected recovery marker: $requiredMarker"
+                      }
+                  }
+
+                  Write-Host "Validated recovered source: $baseName / $($rawBytes.Length) bytes"
 
                   $output = New-Object System.IO.MemoryStream
                   $gzip = New-Object System.IO.Compression.GZipStream($output,[System.IO.Compression.CompressionLevel]::Optimal,$true)
