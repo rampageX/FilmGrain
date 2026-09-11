@@ -1,0 +1,115 @@
+name: Repair v4.6.2 release payloads
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - '.github/release/v462-repair-trigger.txt'
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Normalize payload gzip streams and retrigger release
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $payloadRoot = '.github\release\v462_payloads'
+          $payloads = Get-ChildItem -LiteralPath $payloadRoot -Filter '*.ps1.gz.b64' -File | Sort-Object Name
+          if ($payloads.Count -ne 8) {
+              throw "Expected 8 v4.6.2 payloads, found $($payloads.Count)."
+          }
+
+          $tempRoot = Join-Path $env:RUNNER_TEMP ('FGS_v462_payload_repair_' + [guid]::NewGuid().ToString('N'))
+          New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
+
+          try {
+              foreach ($payload in $payloads) {
+                  Write-Host "Normalizing $($payload.Name)"
+                  $baseName = $payload.Name -replace '\.gz\.b64$',''
+                  $gzIn = Join-Path $tempRoot ($baseName + '.input.gz')
+                  $raw = Join-Path $tempRoot $baseName
+
+                  $b64 = (Get-Content -LiteralPath $payload.FullName -Raw).Trim()
+                  $compressed = [Convert]::FromBase64String($b64)
+                  [System.IO.File]::WriteAllBytes($gzIn,$compressed)
+
+                  $pythonCode = 'import gzip,pathlib,sys; pathlib.Path(sys.argv[2]).write_bytes(gzip.decompress(pathlib.Path(sys.argv[1]).read_bytes()))'
+                  & python -c $pythonCode $gzIn $raw
+                  if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $raw -PathType Leaf)) {
+                      throw "Python gzip validation failed: $($payload.Name)"
+                  }
+
+                  $rawBytes = [System.IO.File]::ReadAllBytes($raw)
+                  if ($rawBytes.Length -lt 3 -or $rawBytes[0] -ne 0xEF -or $rawBytes[1] -ne 0xBB -or $rawBytes[2] -ne 0xBF) {
+                      throw "$baseName is not UTF-8 BOM after decompression."
+                  }
+
+                  $output = New-Object System.IO.MemoryStream
+                  $gzip = New-Object System.IO.Compression.GZipStream($output,[System.IO.Compression.CompressionLevel]::Optimal,$true)
+                  try {
+                      $gzip.Write($rawBytes,0,$rawBytes.Length)
+                  } finally {
+                      $gzip.Dispose()
+                  }
+                  $normalized = $output.ToArray()
+                  $output.Dispose()
+
+                  $verifyInput = New-Object System.IO.MemoryStream(,$normalized)
+                  $verifyGzip = New-Object System.IO.Compression.GZipStream($verifyInput,[System.IO.Compression.CompressionMode]::Decompress)
+                  $verifyOutput = New-Object System.IO.MemoryStream
+                  try {
+                      $verifyGzip.CopyTo($verifyOutput)
+                      $verifyBytes = $verifyOutput.ToArray()
+                  } finally {
+                      $verifyOutput.Dispose()
+                      $verifyGzip.Dispose()
+                      $verifyInput.Dispose()
+                  }
+                  if ($verifyBytes.Length -ne $rawBytes.Length) {
+                      throw "Normalized gzip verification length mismatch: $($payload.Name)"
+                  }
+
+                  $normalizedB64 = [Convert]::ToBase64String($normalized)
+                  [System.IO.File]::WriteAllText(
+                      $payload.FullName,
+                      $normalizedB64 + "`n",
+                      (New-Object System.Text.UTF8Encoding($false))
+                  )
+              }
+          } finally {
+              if (Test-Path -LiteralPath $tempRoot) {
+                  Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
+              }
+          }
+
+          [System.IO.File]::WriteAllText(
+              '.github\release\v462-trigger.txt',
+              ('release v4.6.2 retry ' + [guid]::NewGuid().ToString('N') + "`n"),
+              (New-Object System.Text.UTF8Encoding($false))
+          )
+
+          Remove-Item -LiteralPath '.github\release\v462-repair-trigger.txt' -Force -ErrorAction SilentlyContinue
+          Remove-Item -LiteralPath '.github\workflows\repair-v462-payloads.yml' -Force -ErrorAction SilentlyContinue
+
+          git config user.name 'rampageX'
+          git config user.email 'punkdm@gmail.com'
+          git add -A
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 0) {
+              throw 'Payload normalization produced no changes.'
+          }
+          git commit -m 'Normalize v4.6.2 release payload gzip streams'
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to commit normalized payloads.' }
+          git push origin HEAD:master
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to push normalized payloads.' }
