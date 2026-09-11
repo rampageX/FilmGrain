@@ -1,4 +1,3 @@
-# trigger after registration
 name: Build H264 Upload Fix K7M4Q
 
 on:
@@ -24,30 +23,30 @@ jobs:
           $path = 'Utils\FilmGrain_Universal_HEVC_AV1_StudioBridge.bat'
           $text = [IO.File]::ReadAllText($path)
           $old = @'
-:SELECT_UPLOAD_STUDIO_MANUAL
-if not defined FG_UPLOAD_BITRATE goto SELECT_UPLOAD_STUDIO_INVALID
-set "BSEL=%FG_UPLOAD_BITRATE%"
-call :VALIDATE_CUSTOM_BITRATE
-if errorlevel 1 goto SELECT_UPLOAD_STUDIO_INVALID
-set "UPLOAD_BITRATE_MODE=MANUAL"
-set "UPLOAD_BITRATE_NUM=%CUSTOM_BITRATE_NUM%"
-set "UPLOAD_BITRATE=%CUSTOM_BITRATE_NUM%k"
-set "UPLOAD_MAXRATE=%CUSTOM_BITRATE_MAX%k"
-set "UPLOAD_BUFSIZE=%CUSTOM_BITRATE_BUF%k"
-set "UPLOAD_FILE_TAG=X264_%CUSTOM_BITRATE_NUM%k"
-'@
+          :SELECT_UPLOAD_STUDIO_MANUAL
+          if not defined FG_UPLOAD_BITRATE goto SELECT_UPLOAD_STUDIO_INVALID
+          set "BSEL=%FG_UPLOAD_BITRATE%"
+          call :VALIDATE_CUSTOM_BITRATE
+          if errorlevel 1 goto SELECT_UPLOAD_STUDIO_INVALID
+          set "UPLOAD_BITRATE_MODE=MANUAL"
+          set "UPLOAD_BITRATE_NUM=%CUSTOM_BITRATE_NUM%"
+          set "UPLOAD_BITRATE=%CUSTOM_BITRATE_NUM%k"
+          set "UPLOAD_MAXRATE=%CUSTOM_BITRATE_MAX%k"
+          set "UPLOAD_BUFSIZE=%CUSTOM_BITRATE_BUF%k"
+          set "UPLOAD_FILE_TAG=X264_%CUSTOM_BITRATE_NUM%k"
+          '@
           $new = @'
-:SELECT_UPLOAD_STUDIO_MANUAL
-if not defined FG_UPLOAD_BITRATE goto SELECT_UPLOAD_STUDIO_INVALID
-if not defined FG_UPLOAD_MAXRATE goto SELECT_UPLOAD_STUDIO_INVALID
-if not defined FG_UPLOAD_BUFSIZE goto SELECT_UPLOAD_STUDIO_INVALID
-set "UPLOAD_BITRATE_MODE=MANUAL"
-set "UPLOAD_BITRATE_NUM=%FG_UPLOAD_BITRATE%"
-set "UPLOAD_BITRATE=%FG_UPLOAD_BITRATE%k"
-set "UPLOAD_MAXRATE=%FG_UPLOAD_MAXRATE%k"
-set "UPLOAD_BUFSIZE=%FG_UPLOAD_BUFSIZE%k"
-set "UPLOAD_FILE_TAG=X264_%FG_UPLOAD_BITRATE%k"
-'@
+          :SELECT_UPLOAD_STUDIO_MANUAL
+          if not defined FG_UPLOAD_BITRATE goto SELECT_UPLOAD_STUDIO_INVALID
+          if not defined FG_UPLOAD_MAXRATE goto SELECT_UPLOAD_STUDIO_INVALID
+          if not defined FG_UPLOAD_BUFSIZE goto SELECT_UPLOAD_STUDIO_INVALID
+          set "UPLOAD_BITRATE_MODE=MANUAL"
+          set "UPLOAD_BITRATE_NUM=%FG_UPLOAD_BITRATE%"
+          set "UPLOAD_BITRATE=%FG_UPLOAD_BITRATE%k"
+          set "UPLOAD_MAXRATE=%FG_UPLOAD_MAXRATE%k"
+          set "UPLOAD_BUFSIZE=%FG_UPLOAD_BUFSIZE%k"
+          set "UPLOAD_FILE_TAG=X264_%FG_UPLOAD_BITRATE%k"
+          '@
           if (-not $text.Contains($old)) { throw 'Expected v4.6.2 target block not found.' }
           $text = $text.Replace($old,$new)
           [IO.File]::WriteAllText($path,$text,(New-Object Text.UTF8Encoding($false)))
@@ -69,21 +68,21 @@ set "UPLOAD_FILE_TAG=X264_%FG_UPLOAD_BITRATE%k"
             if (Test-Path -LiteralPath $item) { Copy-Item -LiteralPath $item -Destination $name -Recurse -Force }
           }
           $note = @'
-Film Grain Studio v4.6.2 H264 Upload Bitrate TEST K7M4Q
+          Film Grain Studio v4.6.2 H264 Upload Bitrate TEST K7M4Q
 
-Only change:
-- Studio H.264 upload-copy Manual bitrate now directly consumes the GUI-validated FG_UPLOAD_BITRATE / FG_UPLOAD_MAXRATE / FG_UPLOAD_BUFSIZE values.
-- Removes the redundant second BAT/PowerShell integer validation that rejected values such as 10000 on the affected system.
-- Shared AV1 / HEVC / x264 main manual bitrate path is unchanged.
-- AV1 and HEVC optional H.264 upload copy both use this same fixed branch.
-- No encoder, HDR, Grain, LUT, OpenSVPFlow, subtitle, audio, or Auto bitrate behavior changed.
+          Only change:
+          - Studio H.264 upload-copy Manual bitrate directly consumes GUI-validated FG_UPLOAD_BITRATE / FG_UPLOAD_MAXRATE / FG_UPLOAD_BUFSIZE values.
+          - Redundant second BAT/PowerShell integer validation is removed from Studio upload Manual mode.
+          - Shared AV1 / HEVC / x264 main Manual bitrate path is unchanged.
+          - AV1 and HEVC optional H.264 upload copy share this fixed branch.
+          - Encoder, HDR, Grain, LUT, OpenSVPFlow, subtitle, audio and Auto bitrate behavior are unchanged.
 
-Suggested checks:
-1. AV1 + H.264 upload Manual 10000 kbps.
-2. HEVC + H.264 upload Manual 15000 kbps.
-3. H.264 upload Auto.
-4. AV1 / HEVC / x264 main Manual bitrate regression check.
-'@
+          Suggested checks:
+          1. AV1 + H.264 upload Manual 10000 kbps.
+          2. HEVC + H.264 upload Manual 15000 kbps.
+          3. H.264 upload Auto.
+          4. AV1 / HEVC / x264 main Manual bitrate regression check.
+          '@
           [IO.File]::WriteAllText((Join-Path $name 'TEST_NOTES_K7M4Q.txt'),$note,(New-Object Text.UTF8Encoding($false)))
           Compress-Archive -Path $name -DestinationPath ($name + '.zip') -CompressionLevel Optimal
 
