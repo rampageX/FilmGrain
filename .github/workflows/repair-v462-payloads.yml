@@ -8,7 +8,7 @@ on:
       - '.github/release/v462-repair-trigger.txt'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   repair:
@@ -17,179 +17,75 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Recover and normalize payload gzip streams
+      - name: Inspect SmartFilter payloads
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $payloadRoot = '.github\release\v462_payloads'
-          $payloads = Get-ChildItem -LiteralPath $payloadRoot -Filter '*.ps1.gz.b64' -File | Sort-Object Name
-          if ($payloads.Count -ne 8) {
-              throw "Expected 8 v4.6.2 payloads, found $($payloads.Count)."
-          }
-
-          $tempRoot = Join-Path $env:RUNNER_TEMP ('FGS_v462_payload_repair_' + [guid]::NewGuid().ToString('N'))
+          $tempRoot = Join-Path $env:RUNNER_TEMP ('FGS_v462_diag_' + [guid]::NewGuid().ToString('N'))
           New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
 
-          $decoderPath = Join-Path $tempRoot 'decode_payload.py'
-          $decoder = @'
+          $py = Join-Path $tempRoot 'decode.py'
+          $pyText = @'
           import gzip
           import pathlib
-          import struct
           import sys
           import zlib
 
           src = pathlib.Path(sys.argv[1])
           dst = pathlib.Path(sys.argv[2])
+          mode = sys.argv[3]
           data = src.read_bytes()
-
-          try:
+          if mode == 'raw':
+              raw = zlib.decompress(data[10:-8], -15)
+          else:
               raw = gzip.decompress(data)
-          except Exception:
-              if len(data) < 18 or data[0:3] != b'\x1f\x8b\x08':
-                  raise
-
-              flags = data[3]
-              pos = 10
-
-              if flags & 0x04:
-                  if pos + 2 > len(data) - 8:
-                      raise ValueError('invalid gzip FEXTRA header')
-                  xlen = struct.unpack_from('<H', data, pos)[0]
-                  pos += 2 + xlen
-
-              if flags & 0x08:
-                  end = data.find(b'\x00', pos, len(data) - 8)
-                  if end < 0:
-                      raise ValueError('invalid gzip FNAME header')
-                  pos = end + 1
-
-              if flags & 0x10:
-                  end = data.find(b'\x00', pos, len(data) - 8)
-                  if end < 0:
-                      raise ValueError('invalid gzip FCOMMENT header')
-                  pos = end + 1
-
-              if flags & 0x02:
-                  pos += 2
-
-              if pos >= len(data) - 8:
-                  raise ValueError('invalid gzip payload bounds')
-
-              raw = zlib.decompress(data[pos:-8], -15)
-              expected_crc = struct.unpack_from('<I', data, len(data) - 8)[0]
-              expected_size = struct.unpack_from('<I', data, len(data) - 4)[0]
-              actual_crc = zlib.crc32(raw) & 0xffffffff
-              actual_size = len(raw) & 0xffffffff
-              print(f'Recovered raw DEFLATE payload. Trailer CRC {expected_crc:08x}->{actual_crc:08x}; ISIZE {expected_size}->{actual_size}.')
-
           dst.write_bytes(raw)
+          print(len(raw))
           '@
-          [System.IO.File]::WriteAllText($decoderPath,$decoder,(New-Object System.Text.UTF8Encoding($false)))
-
-          $requiredMarkers = @{
-              '01_HDR_Preserve.ps1' = 'FGS_HDR_PRESERVE_TEST_WQJJX'
-              '03_LUT_SmartFilter_V1.ps1' = 'FGS_LUT_SMART_FILTER_TEST_EIVYN'
-              '04_LUT_SmartFilter_V2.ps1' = 'FGS_LUT_SMART_FILTER_V2_TEST_ZMAXU'
-              '05_LUT_UI.ps1' = 'FGS_LUT_UI_HOTFIX_MARKER'
-          }
+          [System.IO.File]::WriteAllText($py,$pyText,(New-Object System.Text.UTF8Encoding($false)))
 
           try {
-              foreach ($payload in $payloads) {
-                  Write-Host "Normalizing $($payload.Name)"
-                  $baseName = $payload.Name -replace '\.gz\.b64$',''
-                  $gzIn = Join-Path $tempRoot ($baseName + '.input.gz')
-                  $raw = Join-Path $tempRoot $baseName
-
-                  $b64 = (Get-Content -LiteralPath $payload.FullName -Raw).Trim()
-                  $compressed = [Convert]::FromBase64String($b64)
-                  [System.IO.File]::WriteAllBytes($gzIn,$compressed)
-
-                  & python $decoderPath $gzIn $raw
-                  if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $raw -PathType Leaf)) {
-                      throw "Payload recovery failed: $($payload.Name)"
+              foreach ($name in @('03_LUT_SmartFilter_V1.ps1.gz.b64','04_LUT_SmartFilter_V2.ps1.gz.b64','05_LUT_UI.ps1.gz.b64','06_Studio_HDR_UI.ps1.gz.b64','07_Docs.ps1.gz.b64','99_Cleanup.ps1.gz.b64')) {
+                  $src = Join-Path '.github\release\v462_payloads' $name
+                  $gz = Join-Path $tempRoot ($name + '.gz')
+                  $out = Join-Path $tempRoot ($name -replace '\.gz\.b64$','')
+                  [System.IO.File]::WriteAllBytes($gz,[Convert]::FromBase64String((Get-Content -LiteralPath $src -Raw).Trim()))
+                  $mode = if ($name.StartsWith('03_')) { 'raw' } else { 'gzip' }
+                  Write-Host "=== DECODE $name / mode=$mode ==="
+                  & python $py $gz $out $mode
+                  if ($LASTEXITCODE -ne 0) {
+                      Write-Host "DECODE FAILED: $name"
+                      continue
                   }
 
-                  $rawBytes = [System.IO.File]::ReadAllBytes($raw)
-                  if ($rawBytes.Length -lt 3 -or $rawBytes[0] -ne 0xEF -or $rawBytes[1] -ne 0xBB -or $rawBytes[2] -ne 0xBF) {
-                      throw "$baseName is not UTF-8 BOM after decompression."
-                  }
-
+                  $bytes = [System.IO.File]::ReadAllBytes($out)
+                  Write-Host "BYTES=$($bytes.Length) BOM=$($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)"
                   $tokens = $null
-                  $parseErrors = $null
-                  [void][System.Management.Automation.Language.Parser]::ParseFile($raw,[ref]$tokens,[ref]$parseErrors)
-                  if ($parseErrors -and $parseErrors.Count -gt 0) {
-                      $firstError = [string]$parseErrors[0].Message
-                      throw "$baseName failed PowerShell syntax validation: $firstError"
+                  $errs = $null
+                  [void][System.Management.Automation.Language.Parser]::ParseFile($out,[ref]$tokens,[ref]$errs)
+                  if ($errs -and $errs.Count -gt 0) {
+                      Write-Host "PARSE_ERRORS=$($errs.Count) FIRST=$([string]$errs[0].Message)"
+                  } else {
+                      Write-Host 'PARSE_OK'
                   }
 
-                  if ($requiredMarkers.ContainsKey($baseName)) {
-                      $rawText = [System.IO.File]::ReadAllText($raw)
-                      $requiredMarker = [string]$requiredMarkers[$baseName]
-                      if (-not $rawText.Contains($requiredMarker)) {
-                          throw "$baseName is missing expected recovery marker: $requiredMarker"
-                      }
+                  if ($name.StartsWith('03_')) {
+                      Write-Host '===== BEGIN 03 TAIL ====='
+                      Get-Content -LiteralPath $out -Encoding UTF8 -Tail 120
+                      Write-Host '===== END 03 TAIL ====='
                   }
-
-                  Write-Host "Validated recovered source: $baseName / $($rawBytes.Length) bytes"
-
-                  $output = New-Object System.IO.MemoryStream
-                  $gzip = New-Object System.IO.Compression.GZipStream($output,[System.IO.Compression.CompressionLevel]::Optimal,$true)
-                  try {
-                      $gzip.Write($rawBytes,0,$rawBytes.Length)
-                  } finally {
-                      $gzip.Dispose()
+                  if ($name.StartsWith('04_')) {
+                      Write-Host '===== BEGIN 04 SCRIPT ====='
+                      Get-Content -LiteralPath $out -Encoding UTF8
+                      Write-Host '===== END 04 SCRIPT ====='
                   }
-                  $normalized = $output.ToArray()
-                  $output.Dispose()
-
-                  $verifyInput = New-Object System.IO.MemoryStream(,$normalized)
-                  $verifyGzip = New-Object System.IO.Compression.GZipStream($verifyInput,[System.IO.Compression.CompressionMode]::Decompress)
-                  $verifyOutput = New-Object System.IO.MemoryStream
-                  try {
-                      $verifyGzip.CopyTo($verifyOutput)
-                      $verifyBytes = $verifyOutput.ToArray()
-                  } finally {
-                      $verifyOutput.Dispose()
-                      $verifyGzip.Dispose()
-                      $verifyInput.Dispose()
+                  if ($name.StartsWith('05_')) {
+                      Write-Host '===== BEGIN 05 SCRIPT ====='
+                      Get-Content -LiteralPath $out -Encoding UTF8
+                      Write-Host '===== END 05 SCRIPT ====='
                   }
-                  if ($verifyBytes.Length -ne $rawBytes.Length) {
-                      throw "Normalized gzip verification length mismatch: $($payload.Name)"
-                  }
-
-                  $normalizedB64 = [Convert]::ToBase64String($normalized)
-                  [System.IO.File]::WriteAllText(
-                      $payload.FullName,
-                      $normalizedB64 + "`n",
-                      (New-Object System.Text.UTF8Encoding($false))
-                  )
               }
           } finally {
-              if (Test-Path -LiteralPath $tempRoot) {
-                  Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
-              }
+              Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
           }
-
-          [System.IO.File]::WriteAllText(
-              '.github\release\v462-trigger.txt',
-              ('release v4.6.2 retry ' + [guid]::NewGuid().ToString('N') + "`n"),
-              (New-Object System.Text.UTF8Encoding($false))
-          )
-
-          Remove-Item -LiteralPath '.github\release\v462-repair-trigger.txt' -Force -ErrorAction SilentlyContinue
-          Remove-Item -LiteralPath '.github\workflows\repair-v462-payloads.yml' -Force -ErrorAction SilentlyContinue
-
-          git config user.name 'rampageX'
-          git config user.email 'punkdm@gmail.com'
-          git add -A
-          git diff --cached --quiet
-          if ($LASTEXITCODE -eq 0) {
-              throw 'Payload normalization produced no changes.'
-          }
-          git commit -m 'Normalize v4.6.2 release payload gzip streams'
-          if ($LASTEXITCODE -ne 0) { throw 'Failed to commit normalized payloads.' }
-          git push origin HEAD:master
-          if ($LASTEXITCODE -ne 0) { throw 'Failed to push normalized payloads.' }
