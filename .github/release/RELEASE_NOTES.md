@@ -1,24 +1,39 @@
-# Film Grain Studio v4.6.1
+# Film Grain Studio v4.6.2
 
-Based on the user-validated v4.6.0 stable line.
+Based on the user-validated v4.6.1 stable line.
 
 ## Highlights
 
-- Adds a dedicated **FGS application icon** for both the WinForms title bar and the Windows taskbar.
-- Adds `_OpenSVPFlow\01_Update_OpenSVPFlow.bat` and `Update_OpenSVPFlow.ps1` for intentional updates to the latest upstream `Z1xus/open-svpflow` release.
-- The updater downloads and stages the latest Windows x64 build, verifies the GitHub SHA-256 digest when provided, smoke-tests CPU and GPU/OpenCL before installation, backs up the current plugin DLLs, verifies again after installation, and automatically rolls back on failure.
-- Keeps `00_Setup.bat` as the pinned, verified first-install path.
-- Does not change the encoding core: AV1 / HEVC / x264 parameters, SFE, Grain, LUT, subtitles, Cinematic framing, interpolation settings, upload copy, Batch Summary, and MPEG-TS synchronization remain unchanged.
+- Adds **HDR Preserve** for HEVC Main10 and AV1 Main10.
+- Preserves BT.2020 + PQ/HLG + 10-bit signaling, and preserves source HDR10 static metadata such as Mastering Display / MaxCLL / MaxFALL when it is present in the source.
+- Forces HEVC NVENC to actual P010 10-bit output; Main10 profile is no longer allowed to fall back to an 8-bit bitstream.
+- Adds final-output HDR signaling verification for color primaries, transfer characteristics, matrix coefficients, and range.
+- HDR Preserve safely bypasses paths that are not HDR-safe in the current implementation: OpenSVPFlow YUV420P8 interpolation, x264 main output, H.264 upload copy, and the existing LUT processing path.
+- Studio now reflects those HDR compatibility limits visually by disabling incompatible controls for the selected HDR source and restoring them for SDR sources.
+- Adds **LUT Gallery Smart Filter**. It conservatively classifies LUTs as Technical / Combined / Creative / Keep and hides only high-confidence pure Technical LUTs.
+- Adds cross-file creative-family recognition so multi-input creative LUT families remain visible instead of being mistaken for pure utility transforms.
+- Smart Filter never moves, deletes, or renames LUT files; it also writes a CSV classification report for review.
+- Refines the LUT Gallery layout so filter counts remain visible and shortens the Disable LUT button.
 
-## OpenSVPFlow maintenance
+## HDR validation
 
-Use `00_Setup.bat` for first installation.
+HEVC HDR10/PQ and AV1 HDR were both user-tested successfully. HEVC was additionally verified to output a true 10-bit P010 bitstream. BT.2020 / PQ signaling, correct visual color, and source Mastering Display / MaxCLL / MaxFALL preservation were confirmed on test material where those metadata fields existed.
 
-Run `01_Update_OpenSVPFlow.bat` only when you intentionally want to update the plugin DLLs to the latest upstream release. Existing DLLs are backed up under `_OpenSVPFlow\_PluginBackup`, and a failed post-install validation automatically restores the previous state.
+Source files that do not contain HDR10 static mastering metadata are not given fabricated values.
 
-## grav1synth
+Dolby Vision RPU, HDR10+ dynamic metadata, HDR-to-SDR tone mapping, and HDR OpenSVPFlow interpolation are not added by this release.
 
-AV1 SFE continues to require **grav1synth 0.2.2+**:
+## LUT Smart Filter
+
+The accepted filter logic was tested against large real-world LUT libraries. Combined creative families such as camera-log-specific variants of the same creative look are retained, while high-confidence utility/technical transforms can be hidden from the Gallery. The filter is display-only and fully reversible.
+
+## Compatibility
+
+- Existing AV1 / HEVC / x264 encoding behavior outside HDR routing remains unchanged.
+- AAC remains standardized at 256k.
+- v4.6.1 FGS application icon and OpenSVPFlow updater / backup flow are preserved.
+- GUI and CLI continue to share the same StudioBridge encoding core.
+- AV1 SFE continues to require **grav1synth 0.2.2+**.
 
 https://github.com/rampageX/grav1synth/releases/latest
 
