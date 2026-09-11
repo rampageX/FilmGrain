@@ -1,0 +1,29 @@
+diff --git a/README_FilmGrain_Studio.txt b/README_FilmGrain_Studio.txt
+--- a/README_FilmGrain_Studio.txt
++++ b/README_FilmGrain_Studio.txt
+@@ -48,3 +48,4 @@
+ - CLI 与 GUI 均支持输入文件名或目录名包含 & 等 CMD 特殊字符。
+ - 拖放视频启动时，CMD 与 PowerShell 控制台均不驻留任务栏。
++- 主窗口标题栏与 Windows 任务栏统一使用 FGS 专用图标，不再显示 PowerShell 默认图标。
+ - 主界面直接读取 Gallery 最近使用与我的最爱，各显示最多 25 个 LUT，并复用缩略图即时预览。
+@@ -83,5 +84,8 @@
+ Utils\FilmGrain_Studio.ps1
+     WinForms 图形界面。
+ 
++Utils\FGS.ico
++    Film Grain Studio 专用应用图标；用于窗口标题栏与 Windows 任务栏。
++
+ Utils\FilmGrain_Studio_Launcher.vbs
+     无控制台启动器；异步启动 WinForms 后立即退出，不保留 CMD 任务栏窗口。
+@@ -101,4 +105,10 @@
+ FilmGrain_Universal_HEVC_AV1_CLI.bat
+     CLI 入口，直接进入同一 StudioBridge 核心的交互模式，可独立拖放使用。
+ 
+-请保持两个入口 BAT、Utils、_LUT_Tools 与 _AV1_Grain_Tables 文件夹的相对位置不变。
++_OpenSVPFlow\00_Setup.bat
++    首次安装已验证的固定 OpenSVPFlow 运行环境。
++
++_OpenSVPFlow\01_Update_OpenSVPFlow.bat
++    主动更新至上游最新 OpenSVPFlow Release；更新前自动备份，安装验证失败自动回滚。
++
++请保持两个入口 BAT、Utils、_LUT_Tools、_AV1_Grain_Tables 与 _OpenSVPFlow 文件夹的相对位置不变。

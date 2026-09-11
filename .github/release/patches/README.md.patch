@@ -1,0 +1,41 @@
+diff --git a/README.md b/README.md
+--- a/README.md
++++ b/README.md
+@@ -10,7 +10,7 @@
+-当前正式稳定版为 **v4.6.0**，发布包名称：
++当前正式稳定版为 **v4.6.1**，发布包名称：
+ 
+ ```text
+-FilmGrain_Studio_v4.6.0_Stable.zip
++FilmGrain_Studio_v4.6.1_Stable.zip
+ ```
+ 
+ 所有独立脚本使用固定文件名，不再包含组件版本号；版本号只体现在整个项目的发布压缩包上。升级时建议完整替换工具包，避免新旧脚本混用。
+@@ -10,4 +10,6 @@
+ 
+ v4.6.0 同时修复隔行素材与 OpenSVPFlow 插帧的组合：OpenSVPFlow 仍只处理逐行输入；若任务中检测到隔行视频，则该文件自动旁路 OpenSVPFlow，改走既有 Field-rate 反交错，例如 29.97i → 59.94p、25i → 50p。逐行素材继续使用 OpenSVPFlow 60 fps；混合批量任务按文件分别判断。
+ 
++v4.6.1 不修改编码核心与既有参数，新增 **FGS 专用应用图标**，主窗口标题栏和 Windows 任务栏统一显示 FGS 图标；同时在 `_OpenSVPFlow` 中加入独立的最新版更新器，可在主动更新前后执行 CPU / GPU smoke test、自动备份现有插件并在失败时回滚。`00_Setup.bat` 继续负责首次安装已验证的固定运行环境。
++
+ 默认配置仍为 **AV1 Main10 + MP4 + AAC 256k**，并集成 LUT Gallery、自动 Field-rate 反交错、自动电影帧率、可选 OpenSVPFlow GPU 60 fps 插帧、Cinematic Style、多文件处理、NVENC / OpenSVPFlow 硬件能力自动探测、AV1 UHQ、AV1 SFE 及 AV1 Film Grain 最终验证。
+@@ -66,4 +68,5 @@
+     FilmGrain_Hardware_Caps.ps1
+     FilmGrain_Studio.ps1
++    FGS.ico
+     FilmGrain_Studio_Launcher.vbs
+     FilmGrain_Universal_HEVC_AV1_StudioBridge.bat
+@@ -91,9 +94,13 @@
+ _OpenSVPFlow\
+-    00_Setup.bat                 # 首次安装本地 OpenSVPFlow 运行环境
++    00_Setup.bat                 # 首次安装已验证的固定 OpenSVPFlow 运行环境
+     Setup_OpenSVPFlow.ps1
++    01_Update_OpenSVPFlow.bat    # 主动更新至上游最新版；自动备份并支持失败回滚
++    Update_OpenSVPFlow.ps1
+     Check_OpenSVPFlow.vpy
+     FilmGrain_OpenSVPFlow.vpy
+     Plugins\
+ ```
+ 
++OpenSVPFlow 首次安装仍运行 `00_Setup.bat`。需要主动跟随 `Z1xus/open-svpflow` 最新 Release 时，再运行 `01_Update_OpenSVPFlow.bat`；当前 DLL 会先备份到 `_OpenSVPFlow\_PluginBackup`，新版通过安装后 smoke test 才保留，失败则自动回滚。
++
+ 请保持两个入口 BAT、`Utils`、`_LUT_Tools`、`_AV1_Grain_Tables` 与 `_OpenSVPFlow` 的相对位置不变。
