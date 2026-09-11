@@ -1,0 +1,94 @@
+name: Build H264 Upload Fix K7M4Q
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - '.github/workflows/build-h264-upload-fix-k7m4q.yml'
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout v4.6.2
+        uses: actions/checkout@v4
+        with:
+          ref: v4.6.2
+
+      - name: Patch StudioBridge
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path = 'Utils\FilmGrain_Universal_HEVC_AV1_StudioBridge.bat'
+          $text = [IO.File]::ReadAllText($path)
+          $old = @'
+:SELECT_UPLOAD_STUDIO_MANUAL
+if not defined FG_UPLOAD_BITRATE goto SELECT_UPLOAD_STUDIO_INVALID
+set "BSEL=%FG_UPLOAD_BITRATE%"
+call :VALIDATE_CUSTOM_BITRATE
+if errorlevel 1 goto SELECT_UPLOAD_STUDIO_INVALID
+set "UPLOAD_BITRATE_MODE=MANUAL"
+set "UPLOAD_BITRATE_NUM=%CUSTOM_BITRATE_NUM%"
+set "UPLOAD_BITRATE=%CUSTOM_BITRATE_NUM%k"
+set "UPLOAD_MAXRATE=%CUSTOM_BITRATE_MAX%k"
+set "UPLOAD_BUFSIZE=%CUSTOM_BITRATE_BUF%k"
+set "UPLOAD_FILE_TAG=X264_%CUSTOM_BITRATE_NUM%k"
+'@
+          $new = @'
+:SELECT_UPLOAD_STUDIO_MANUAL
+if not defined FG_UPLOAD_BITRATE goto SELECT_UPLOAD_STUDIO_INVALID
+if not defined FG_UPLOAD_MAXRATE goto SELECT_UPLOAD_STUDIO_INVALID
+if not defined FG_UPLOAD_BUFSIZE goto SELECT_UPLOAD_STUDIO_INVALID
+set "UPLOAD_BITRATE_MODE=MANUAL"
+set "UPLOAD_BITRATE_NUM=%FG_UPLOAD_BITRATE%"
+set "UPLOAD_BITRATE=%FG_UPLOAD_BITRATE%k"
+set "UPLOAD_MAXRATE=%FG_UPLOAD_MAXRATE%k"
+set "UPLOAD_BUFSIZE=%FG_UPLOAD_BUFSIZE%k"
+set "UPLOAD_FILE_TAG=X264_%FG_UPLOAD_BITRATE%k"
+'@
+          if (-not $text.Contains($old)) { throw 'Expected v4.6.2 target block not found.' }
+          $text = $text.Replace($old,$new)
+          [IO.File]::WriteAllText($path,$text,(New-Object Text.UTF8Encoding($false)))
+          $bytes = [IO.File]::ReadAllBytes($path)
+          if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) { throw 'BAT has BOM.' }
+          $check = [IO.File]::ReadAllText($path)
+          if ($check.Contains('set "BSEL=%FG_UPLOAD_BITRATE%"')) { throw 'Old redundant Studio validation remains.' }
+          if (-not $check.Contains('set "UPLOAD_MAXRATE=%FG_UPLOAD_MAXRATE%k"')) { throw 'New Studio upload maxrate path missing.' }
+          if (-not $check.Contains('set "BITRATE_NUM=%FG_BITRATE%"')) { throw 'Shared main manual bitrate path missing.' }
+
+      - name: Build complete test zip
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $name = 'FilmGrain_Studio_v4.6.2_H264UploadBitrate_TEST_K7M4Q'
+          New-Item -ItemType Directory -Path $name | Out-Null
+          $items = @('FilmGrain_Universal_HEVC_AV1_CLI.bat','FilmGrain_Universal_HEVC_AV1_GUI.bat','FilmGrain_Config.ini','README.md','CHANGELOG.md','README_FilmGrain_Studio.txt','README_Toolkit.txt','STABLE_BASELINE.txt','Utils','_AV1_Grain_Tables','_LUT_Tools','_OpenSVPFlow')
+          foreach ($item in $items) {
+            if (Test-Path -LiteralPath $item) { Copy-Item -LiteralPath $item -Destination $name -Recurse -Force }
+          }
+          $note = @'
+Film Grain Studio v4.6.2 H264 Upload Bitrate TEST K7M4Q
+
+Only change:
+- Studio H.264 upload-copy Manual bitrate now directly consumes the GUI-validated FG_UPLOAD_BITRATE / FG_UPLOAD_MAXRATE / FG_UPLOAD_BUFSIZE values.
+- Removes the redundant second BAT/PowerShell integer validation that rejected values such as 10000 on the affected system.
+- Shared AV1 / HEVC / x264 main manual bitrate path is unchanged.
+- AV1 and HEVC optional H.264 upload copy both use this same fixed branch.
+- No encoder, HDR, Grain, LUT, OpenSVPFlow, subtitle, audio, or Auto bitrate behavior changed.
+
+Suggested checks:
+1. AV1 + H.264 upload Manual 10000 kbps.
+2. HEVC + H.264 upload Manual 15000 kbps.
+3. H.264 upload Auto.
+4. AV1 / HEVC / x264 main Manual bitrate regression check.
+'@
+          [IO.File]::WriteAllText((Join-Path $name 'TEST_NOTES_K7M4Q.txt'),$note,(New-Object Text.UTF8Encoding($false)))
+          Compress-Archive -Path $name -DestinationPath ($name + '.zip') -CompressionLevel Optimal
+
+      - name: Upload test zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: FilmGrain_Studio_v4.6.2_H264UploadBitrate_TEST_K7M4Q
+          path: FilmGrain_Studio_v4.6.2_H264UploadBitrate_TEST_K7M4Q.zip
+          retention-days: 7
