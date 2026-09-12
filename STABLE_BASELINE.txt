@@ -1,34 +1,34 @@
-Film Grain Studio formal stable baseline
+﻿Film Grain Studio formal stable baseline
 
 Baseline:
-v4.6.3
+v4.6.3.1
 
 Supersedes:
-v4.6.2.1
+v4.6.3
 
 Formal release:
-FilmGrain_Studio_v4.6.3_Stable.zip
+FilmGrain_Studio_v4.6.3.1_Stable.zip
 
-v4.6.3 changes:
-- Adds LUT Gallery Update Preview directly in the Gallery UI.
-- Missing/new LUT previews are generated without ForceOverwrite.
-- Deleted LUT cleanup is index-driven and conservative: only exact stale *_preview.jpg files whose source LUT is confirmed missing are eligible.
-- Matching Gallery thumbnails are deleted by exact path hash.
-- Recursive preview-directory deletion is forbidden; only already-empty parent directories may be removed non-recursively.
-- Gallery reloads immediately after update and reports added / deleted / current counts.
-- Moves Disable LUT to the bottom action row, places Update Preview after Change Reference, right-aligns pagination, fixes folder dropdown spacing, and shows Smart Filter hidden count as Smart Filter X.
-- User validation completed for add, delete, refresh and final UI layout through R6T2B.
+v4.6.3.1 packaging compatibility fix:
+- Functional source and encoding behavior are unchanged from user-validated v4.6.3.
+- Formal FGS release packaging is fixed to a Windows runner.
+- BAT / VBS / CMD are normalized to CRLF with no BOM in the release package.
+- PS1 is normalized to UTF-8 BOM + CRLF in the release package.
+- Final ZIP is unpacked and revalidated before release creation.
+- AV1 + LUT path was user-tested successfully with Windows CRLF package M8Q4X.
 
-Inherited baseline:
-- v4.6.2.1 H.264 upload Manual bitrate fix remains unchanged.
-- v4.6.2 HDR Preserve and LUT Smart Filter remain unchanged.
-- v4.6.1 FGS icon and OpenSVPFlow updater remain unchanged.
-- v4.6.0 AV1 SFE and interlaced/OpenSVPFlow routing remain unchanged.
-- GUI / CLI continue sharing StudioBridge; AV1 / HEVC / x264 encoding parameters are unchanged in v4.6.3.
+Inherited v4.6.3:
+- LUT Gallery Update Preview synchronization and safe stale-preview cleanup.
+- Added / deleted / current LUT counts refresh immediately.
+- Final R6T2B Gallery layout and Smart Filter count display.
+- v4.6.2.1 H.264 upload manual bitrate fix.
+- v4.6.2 HDR Preserve and LUT Smart Filter.
+- v4.6.1 FGS icon and OpenSVPFlow updater.
+- v4.6.0 AV1 SFE and interlaced/OpenSVPFlow routing.
 
 Release cleanup:
-- No TEST / HOTFIX files.
+- No temporary patch / hotfix / test files.
 - No Utils\_HardwareCaps.json.
 - No _LUT_Tools\LUT_Reference_Current.jpg.
-- No LUT Recent / Favorites / Smart Filter report state.
-- No OpenSVPFlow user DLL/version backup state.
+- No user OpenSVPFlow DLL/version state or _PluginBackup.
+- No Recent / Favorites / Smart Filter CSV user state.

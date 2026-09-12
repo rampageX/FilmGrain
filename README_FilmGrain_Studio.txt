@@ -1,7 +1,7 @@
 ﻿Film Grain Studio - 使用说明
 ============================
 
-当前正式稳定版：v4.6.3
+当前正式稳定版：v4.6.3.1
 
 这是 Universal Film Grain Toolkit 的图形前端。
 CLI 与 GUI Bridge 共享同一套编码逻辑，并分别提供交互菜单和图形界面。

@@ -1,5 +1,13 @@
 # Film Grain Studio — CHANGELOG
 
+## v4.6.3.1 — 2026-09-12
+
+- 修复 v4.6.3 正式 ZIP 由 Linux/Ubuntu runner 打包后，Windows 脚本换行格式不稳定的问题；该问题可导致 CMD 出现标签明明存在却提示 `The system cannot find the batch label specified`。
+- v4.6.3.1 不修改 AV1 / HEVC / x264、LUT Gallery、HDR Preserve、Grain、OpenSVPFlow、字幕、码率、AAC 256k 或其它编码参数；功能内容与已验证的 v4.6.3 完全一致。
+- 正式 FGS Release 固定使用 Windows Server runner；最终 ZIP 内 BAT/VBS/CMD 强制 CRLF + 无 BOM，PS1 强制 UTF-8 BOM + CRLF。
+- 发布门禁对最终 ZIP 解压后的全部 BAT/VBS/CMD/PS1 检查换行、BOM、PS1 中文弯引号、BAT `^` 行尾空格，以及静态 `goto/call :label` 目标。
+- AV1 + LUT 路线已使用 Windows CRLF 测试包 M8Q4X 完成用户侧实际验证。
+
 ## v4.6.3 — 2026-09-12
 
 - LUT Gallery 新增 **“更新预览图”**，直接在图库中同步 LUT 预览，不再需要手动进入 Utils 运行批处理工具。
