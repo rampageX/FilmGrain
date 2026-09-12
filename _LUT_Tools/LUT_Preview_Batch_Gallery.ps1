@@ -5,6 +5,7 @@ param(
     [string]$OutputRoot,
     [string]$FFmpegPath,
     [switch]$ForceOverwrite,
+    [switch]$SyncDeleted,
     [switch]$NonInteractive,
     [switch]$NoPause
 )
@@ -212,6 +213,23 @@ New-Item -ItemType Directory -Force -Path $out | Out-Null
 $out = (Resolve-Path $out).Path
 $overwrite = if ($NonInteractive) { [bool]$ForceOverwrite } else { (Read-Host "Overwrite existing previews? [y/N]") -match '^(y|yes)$' }
 
+# SyncDeleted safety model:
+# - read only the previous gallery index;
+# - delete only an exact generated *_preview.jpg whose indexed source LUT no longer exists;
+# - delete only the exact hashed gallery thumbnail for that preview;
+# - remove parent directories only when already empty, never recursively.
+$oldGalleryRows = @()
+$galleryIndex = Join-Path $out "_LUT_GALLERY_INDEX.json"
+if ($SyncDeleted -and (Test-Path -LiteralPath $galleryIndex -PathType Leaf)) {
+    try {
+        $oldIndexRaw = Get-Content -LiteralPath $galleryIndex -Raw -Encoding UTF8
+        if ($oldIndexRaw.Trim()) { $oldGalleryRows = @($oldIndexRaw | ConvertFrom-Json) }
+    } catch {
+        Write-Host "WARNING: Existing gallery index could not be read; stale-preview cleanup will be skipped." -ForegroundColor Yellow
+        $oldGalleryRows = @()
+    }
+}
+
 $luts = @(FindLuts $root $out | Sort-Object FullName)
 Write-Host "`nFound $($luts.Count) LUT files (junctions included).`n"
 
@@ -311,14 +329,84 @@ foreach ($lut in $luts) {
     }
 }
 
+# Synchronize only stale preview files explicitly present in the previous index
+# and whose source LUT no longer exists.
+$removedPreviewCount = 0
+$removedThumbCount = 0
+$removedEmptyDirCount = 0
+
+if ($SyncDeleted -and $oldGalleryRows.Count -gt 0) {
+    $outFull = [IO.Path]::GetFullPath($out).TrimEnd('\')
+    $outPrefix = $outFull + '\'
+    $thumbRoot = Join-Path $out '_GALLERY_THUMBS_v3_240x135'
+    $thumbRootFull = [IO.Path]::GetFullPath($thumbRoot).TrimEnd('\')
+
+    foreach ($oldRow in $oldGalleryRows) {
+        $oldLutPath = [string]$oldRow.LutPath
+        $oldRelative = [string]$oldRow.Relative
+        $oldPreviewPath = [string]$oldRow.PreviewPath
+        if (-not $oldPreviewPath) { continue }
+
+        $sourceStillExists = $false
+        if ($oldLutPath -and (Test-Path -LiteralPath $oldLutPath -PathType Leaf)) {
+            $sourceStillExists = $true
+        } elseif ($oldRelative -and -not $oldRelative.StartsWith('..\')) {
+            $rebasedLut = Join-Path $root $oldRelative
+            if (Test-Path -LiteralPath $rebasedLut -PathType Leaf) { $sourceStillExists = $true }
+        }
+        if ($sourceStillExists) { continue }
+
+        try { $oldPreviewFull = [IO.Path]::GetFullPath($oldPreviewPath) } catch { continue }
+        if (-not $oldPreviewFull.StartsWith($outPrefix,[StringComparison]::OrdinalIgnoreCase)) { continue }
+        if ($oldPreviewFull.StartsWith($thumbRootFull + '\',[StringComparison]::OrdinalIgnoreCase)) { continue }
+        if (-not $oldPreviewFull.EndsWith('_preview.jpg',[StringComparison]::OrdinalIgnoreCase)) { continue }
+
+        if (Test-Path -LiteralPath $oldPreviewFull -PathType Leaf) {
+            try {
+                Remove-Item -LiteralPath $oldPreviewFull -Force -ErrorAction Stop
+                $removedPreviewCount++
+                Write-Host "  REMOVE stale preview: $oldPreviewFull" -ForegroundColor DarkYellow
+            } catch {
+                Write-Host "  WARNING: Could not remove stale preview: $oldPreviewFull" -ForegroundColor Yellow
+                continue
+            }
+        }
+
+        $sha256 = [System.Security.Cryptography.SHA256]::Create()
+        try {
+            $hashBytes = [System.Text.Encoding]::UTF8.GetBytes($oldPreviewFull.ToLowerInvariant())
+            $thumbHash = -join ($sha256.ComputeHash($hashBytes) | ForEach-Object { $_.ToString('x2') })
+        } finally { $sha256.Dispose() }
+        $oldThumb = Join-Path $thumbRoot ($thumbHash + '.jpg')
+        if (Test-Path -LiteralPath $oldThumb -PathType Leaf) {
+            try { Remove-Item -LiteralPath $oldThumb -Force -ErrorAction Stop; $removedThumbCount++ }
+            catch { Write-Host "  WARNING: Could not remove stale thumbnail: $oldThumb" -ForegroundColor Yellow }
+        }
+
+        $parent = Split-Path $oldPreviewFull -Parent
+        while ($parent) {
+            try { $parentFull = [IO.Path]::GetFullPath($parent).TrimEnd('\') } catch { break }
+            if ($parentFull.Equals($outFull,[StringComparison]::OrdinalIgnoreCase)) { break }
+            if ($parentFull.Equals($thumbRootFull,[StringComparison]::OrdinalIgnoreCase)) { break }
+            if (-not $parentFull.StartsWith($outPrefix,[StringComparison]::OrdinalIgnoreCase)) { break }
+            try {
+                [IO.Directory]::Delete($parentFull,$false)
+                $removedEmptyDirCount++
+                Write-Host "  REMOVE empty preview folder: $parentFull" -ForegroundColor DarkYellow
+            } catch { break }
+            $parent = Split-Path $parentFull -Parent
+        }
+    }
+}
+
 # Write a gallery index that maps each preview image to its source LUT.
 # This is consumed by LUT_Gallery_Selector.ps1 and the AV1 pipeline.
-$galleryIndex = Join-Path $out "_LUT_GALLERY_INDEX.json"
 $galleryRows | Sort-Object Relative | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $galleryIndex -Encoding UTF8
 
 Write-Host "`nGallery entries: $($galleryRows.Count)"
 Write-Host "Gallery index: $galleryIndex"
 Write-Host "`nSuccess: $ok  Skipped: $skip  Unsupported: $unsupported  Failed: $fail"
+if ($SyncDeleted) { Write-Host "Sync cleanup: previews=$removedPreviewCount  thumbs=$removedThumbCount  empty folders=$removedEmptyDirCount" }
 Write-Host "Resolve CUBE files converted temporarily: $convertedCount"
 Write-Host "Output: $out"
 if (Test-Path -LiteralPath $log) { Write-Host "Log: $log" }

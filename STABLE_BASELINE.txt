@@ -1,65 +1,34 @@
 Film Grain Studio formal stable baseline
 
 Baseline:
-v4.6.2.1
+v4.6.3
 
 Supersedes:
-v4.6.2
+v4.6.2.1
 
 Formal release:
-FilmGrain_Studio_v4.6.2.1_Stable.zip
+FilmGrain_Studio_v4.6.3_Stable.zip
 
-v4.6.2.1 patch changes:
-- Fixes Studio Manual bitrate for the optional H.264 upload copy used by AV1 and HEVC.
-- StudioBridge now directly consumes GUI-validated FG_UPLOAD_BITRATE / FG_UPLOAD_MAXRATE / FG_UPLOAD_BUFSIZE values instead of running a redundant second validator.
-- Manual H.264 upload bitrate keeps average / 3x maxrate / 6x bufsize behavior.
-- AV1 / HEVC / x264 main bitrate paths and all encoder, HDR, Grain, LUT, OpenSVPFlow, subtitle and AAC settings remain unchanged.
-- User validation completed on v4.6.2_H264UploadBitrate_TEST_K7M4Q.
+v4.6.3 changes:
+- Adds LUT Gallery Update Preview directly in the Gallery UI.
+- Missing/new LUT previews are generated without ForceOverwrite.
+- Deleted LUT cleanup is index-driven and conservative: only exact stale *_preview.jpg files whose source LUT is confirmed missing are eligible.
+- Matching Gallery thumbnails are deleted by exact path hash.
+- Recursive preview-directory deletion is forbidden; only already-empty parent directories may be removed non-recursively.
+- Gallery reloads immediately after update and reports added / deleted / current counts.
+- Moves Disable LUT to the bottom action row, places Update Preview after Change Reference, right-aligns pagination, fixes folder dropdown spacing, and shows Smart Filter hidden count as Smart Filter X.
+- User validation completed for add, delete, refresh and final UI layout through R6T2B.
 
-Inherited v4.6.1 baseline:
-- Dedicated FGS application icon remains active in the WinForms title bar and Windows taskbar.
-- Independent OpenSVPFlow maintenance remains available through 01_Update_OpenSVPFlow.bat / Update_OpenSVPFlow.ps1.
-- The OpenSVPFlow updater stages and smoke-tests new plugins, backs up current DLLs, verifies installation, and rolls back automatically on failure.
-- 00_Setup.bat remains the pinned verified first-install path.
-- v4.6.0 AV1 SFE and interlaced/OpenSVPFlow routing behavior remains preserved.
-- GUI / CLI remain synchronized through the shared StudioBridge core.
-- Existing SDR AV1 / HEVC / x264 parameters, AAC 256k, Grain, subtitle, Cinematic, upload, Batch Summary, MPEG-TS sync and other validated behavior remain unchanged unless explicitly noted below.
-
-v4.6.2 major changes:
-- Adds HDR Preserve for HEVC Main10 and AV1 Main10.
-- Detects BT.2020 + PQ/HLG and preserves 10-bit HDR processing.
-- HEVC NVENC explicitly forces p010le so Main10 cannot silently produce an 8-bit bitstream.
-- Preserves source HDR10 static metadata such as Mastering Display / MaxCLL / MaxFALL when present; missing source values are not fabricated.
-- Adds final output HDR signaling verification for primaries, transfer, matrix and range.
-- HDR safely bypasses the current non-HDR-safe OpenSVPFlow YUV420P8 path, x264 HDR main output, H.264 upload output and existing SDR/BT.709 LUT route.
-- Studio visually disables incompatible OpenSVPFlow / H.264 upload / LUT controls for a selected HDR source and restores them for SDR.
-- Adds LUT Gallery Smart Filter.
-- Smart Filter classifies Technical / Combined / Creative / Keep and hides only high-confidence pure Technical LUTs.
-- Adds cross-file Creative Family recognition so camera-log-specific variants of the same creative look remain visible as Combined.
-- Smart Filter never moves, deletes or renames LUT files and writes a CSV report for review.
-- Refines LUT Gallery top layout so matching / total / hidden counts remain visible.
-- Keeps the current curated public AV1 Grain Table collection organized by 720p / 1080p / 1440p / 2160p with source attribution in _AV1_Grain_Tables\README.txt.
-
-Validation:
-- HEVC HDR10/PQ user-tested successfully.
-- HEVC verified as actual 10-bit P010 output.
-- AV1 HDR user-tested successfully with equivalent BT.2020 / PQ / 10-bit preservation.
-- Source Mastering Display / MaxCLL / MaxFALL preserved on test clips where present.
-- LUT Smart Filter tested against both company and home LUT libraries containing hundreds of CUBE files.
-- V2 Creative Family logic confirmed to retain Combined creative LUT sets that the initial rule set over-filtered.
-- Dedicated FGS icon and OpenSVPFlow updater / backup flow validation from v4.6.1 remains unchanged.
-- RTX 4080 SFE and interlaced fallback validation from v4.6.0 remains unchanged.
-
-Known scope limits:
-- No Dolby Vision RPU workflow.
-- No HDR10+ dynamic metadata workflow.
-- No HDR-to-SDR tone mapping.
-- No HDR OpenSVPFlow interpolation in the current YUV420P8 integration.
-- Existing LUT processing remains conservatively bypassed for HDR until HDR->HDR LUT input/output classification is formalized.
+Inherited baseline:
+- v4.6.2.1 H.264 upload Manual bitrate fix remains unchanged.
+- v4.6.2 HDR Preserve and LUT Smart Filter remain unchanged.
+- v4.6.1 FGS icon and OpenSVPFlow updater remain unchanged.
+- v4.6.0 AV1 SFE and interlaced/OpenSVPFlow routing remain unchanged.
+- GUI / CLI continue sharing StudioBridge; AV1 / HEVC / x264 encoding parameters are unchanged in v4.6.3.
 
 Release cleanup:
-- No temporary patch / hotfix / test files.
+- No TEST / HOTFIX files.
 - No Utils\_HardwareCaps.json.
 - No _LUT_Tools\LUT_Reference_Current.jpg.
-- No user OpenSVPFlow DLL/version state or _PluginBackup.
-- No Recent / Favorites / Smart Filter CSV user state.
+- No LUT Recent / Favorites / Smart Filter report state.
+- No OpenSVPFlow user DLL/version backup state.

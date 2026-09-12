@@ -8,10 +8,10 @@
 - **HEVC Main10 + 真实扫描 Grain Plate**：将真实胶片颗粒合成到视频像素中，由 NVENC Main10 编码。
 - **H.264 x264 Grain + 真实扫描 Grain Plate**：与 HEVC 共用扫描 Grain / LUT / 画幅 / 反交错 / OpenSVPFlow 前处理，使用 `libx264 + preset faster + tune grain + VBR 单次` 作为默认日常路线；高级设置可选择 Medium / Slow 与 VBR 2-Pass。默认在编码边界高质量降为 8-bit High Profile，也可启用实验性 High10。
 
-当前正式稳定版为 **v4.6.2.1**，发布包名称：
+当前正式稳定版为 **v4.6.3**，发布包名称：
 
 ```text
-FilmGrain_Studio_v4.6.2.1_Stable.zip
+FilmGrain_Studio_v4.6.3_Stable.zip
 ```
 
 所有独立脚本使用固定文件名，不再包含组件版本号；版本号只体现在整个项目的发布压缩包上。升级时建议完整替换工具包，避免新旧脚本混用。
@@ -26,6 +26,8 @@ v4.6.2 在 v4.6.1 稳定基线上正式加入 **HDR Preserve** 与 **LUT Gallery
 
 
 v4.6.2.1 为小型稳定性修复：修复 AV1 / HEVC 同时生成 H.264 上传版时，手动码率在 StudioBridge 中被重复校验并可能错误拒绝（例如 10000 kbps）的问题。上传版现在直接使用 GUI 已校验的平均码率、3× maxrate 与 6× bufsize；AV1 / HEVC / x264 三条主编码线的既有码率逻辑和编码参数均不变。
+
+v4.6.3 在 v4.6.2.1 稳定基线上完善 **LUT Gallery 预览同步**：图库新增“更新预览图”，可补建新增/缺失 LUT 预览，并仅对旧索引中明确记录且源 LUT 已不存在的单个 `*_preview.jpg` 与对应缩略图执行安全清理；目录仅在已经为空时使用非递归删除。更新完成后图库立即刷新匹配/总数，并显示新增、删除与当前总数。Gallery 同时优化底部按钮布局、分页右对齐、文件夹下拉框间距，以及智能过滤隐藏数量显示。现有“更换参考图”全量重建流程与 AV1 / HEVC / x264 编码核心参数均保持不变。
 
 默认配置仍为 **AV1 Main10 + MP4 + AAC 256k**，并集成 HDR Preserve、LUT Gallery（含智能过滤）、自动 Field-rate 反交错、自动电影帧率、可选 OpenSVPFlow GPU 60 fps 插帧、Cinematic Style、多文件处理、NVENC / OpenSVPFlow 硬件能力自动探测、AV1 UHQ、AV1 SFE 及 AV1 Film Grain 最终验证。
 

@@ -1,5 +1,15 @@
 # Film Grain Studio — CHANGELOG
 
+## v4.6.3 — 2026-09-12
+
+- LUT Gallery 新增 **“更新预览图”**，直接在图库中同步 LUT 预览，不再需要手动进入 Utils 运行批处理工具。
+- 更新模式只补建新增或缺失的 LUT 预览；现有“更换参考图”继续保持选择新参考图并全量重建的原有行为。
+- 删除同步采用保守安全策略：仅删除旧 Gallery 索引中明确记录、且源 LUT 已确认不存在的单个 `*_preview.jpg`；对应 Gallery 缩略图按完整预览路径哈希精确删除。
+- 禁止递归删除预览目录；父目录仅在确认已经为空时使用非递归 `Directory.Delete(path, false)` 删除，`_LUT_PREVIEWS` 根目录与缩略图缓存树均受保护。
+- 更新完成后 Gallery 立即重新加载，顶部 `匹配 / 共` 数量无需重新打开即可刷新；左下角显示本次 `新增 X / 删除 Y / 当前共 Z`。
+- LUT Gallery UI 调整：`禁用 LUT` 移至底部并放在“使用选中的 LUT”之后；“更新预览图”位于“更换参考图”之后；分页控件整体右对齐；文件夹下拉框间距修正；智能过滤状态简化为 `智能过滤 X`。
+- 本次功能经新增 LUT、删除 LUT 与 UI 刷新实际测试通过；AV1 / HEVC / x264 编码参数、HDR Preserve、Grain、OpenSVPFlow、字幕、AAC 256k 与 H.264 上传版逻辑均未修改。
+
 ## v4.6.2.1 — 2026-09-12
 
 - 修复 AV1 / HEVC “同时生成 H.264 上传版”在手动码率模式下可能错误提示 `Invalid Studio H.264 upload bitrate` 的问题。

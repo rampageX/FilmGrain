@@ -444,8 +444,8 @@ $top.Controls.Add($folderLabel)
 
 $folderFilter = New-Object System.Windows.Forms.ComboBox
 $folderFilter.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
-$folderFilter.Location = New-Object System.Drawing.Point -ArgumentList 622,10
-$folderFilter.Size = New-Object System.Drawing.Size -ArgumentList 170,26
+$folderFilter.Location = New-Object System.Drawing.Point -ArgumentList 634,10
+$folderFilter.Size = New-Object System.Drawing.Size -ArgumentList 168,26
 $folderFilter.DropDownWidth = 520
 $folderFilter.MaxDropDownItems = 20
 foreach ($folderName in $folderOptions) { [void]$folderFilter.Items.Add($folderName) }
@@ -458,11 +458,6 @@ $status.Location = New-Object System.Drawing.Point -ArgumentList 805,13
 $status.Size = New-Object System.Drawing.Size -ArgumentList 250,22
 $status.AutoEllipsis = $true
 $top.Controls.Add($status)
-
-$none = New-Object System.Windows.Forms.Button
-$none.Text = '禁用 LUT'; $none.Size = New-Object System.Drawing.Size -ArgumentList 95,28
-$none.Anchor = 'Top,Right'; $none.Location = New-Object System.Drawing.Point -ArgumentList ($form.ClientSize.Width-115),9
-$top.Controls.Add($none)
 
 $gallery = New-Object System.Windows.Forms.FlowLayoutPanel
 $gallery.Dock = 'Fill'
@@ -481,30 +476,43 @@ $selectedLabel = New-Object System.Windows.Forms.Label
 $selectedLabel.Text = '双击缩略图，或选中后点击【使用选中的 LUT】。'
 $selectedLabel.AutoEllipsis = $true
 $selectedLabel.Location = New-Object System.Drawing.Point -ArgumentList 12,16
-$selectedLabel.Size = New-Object System.Drawing.Size -ArgumentList 850,22
+$selectedLabel.Size = New-Object System.Drawing.Size -ArgumentList ($form.ClientSize.Width-730),22
 $selectedLabel.Anchor = 'Left,Right,Top'
 $bottom.Controls.Add($selectedLabel)
 
-$use = New-Object System.Windows.Forms.Button
-$use.Text = '使用选中的 LUT'; $use.Size = New-Object System.Drawing.Size -ArgumentList 160,30
-$use.Anchor = 'Top,Right'; $use.Location = New-Object System.Drawing.Point -ArgumentList ($form.ClientSize.Width-180),9
-$bottom.Controls.Add($use)
+$smartFilter = New-Object System.Windows.Forms.Button
+$smartFilter.Text = '智能过滤'; $smartFilter.Size = New-Object System.Drawing.Size -ArgumentList 130,30
+$smartFilter.Anchor = 'Top,Right'; $smartFilter.Location = New-Object System.Drawing.Point -ArgumentList ($form.ClientSize.Width-705),9
+$bottom.Controls.Add($smartFilter)
 
 $changeReference = New-Object System.Windows.Forms.Button
 $changeReference.Text = '更换参考图'; $changeReference.Size = New-Object System.Drawing.Size -ArgumentList 130,30
-$changeReference.Anchor = 'Top,Right'; $changeReference.Location = New-Object System.Drawing.Point -ArgumentList ($form.ClientSize.Width-320),9
+$changeReference.Anchor = 'Top,Right'; $changeReference.Location = New-Object System.Drawing.Point -ArgumentList ($form.ClientSize.Width-565),9
 $bottom.Controls.Add($changeReference)
 
-$smartFilter = New-Object System.Windows.Forms.Button
-$smartFilter.Text = '智能过滤'; $smartFilter.Size = New-Object System.Drawing.Size -ArgumentList 130,30
-$smartFilter.Anchor = 'Top,Right'; $smartFilter.Location = New-Object System.Drawing.Point -ArgumentList ($form.ClientSize.Width-460),9
-$bottom.Controls.Add($smartFilter)
+$updatePreview = New-Object System.Windows.Forms.Button
+$updatePreview.Text = '更新预览图'; $updatePreview.Size = New-Object System.Drawing.Size -ArgumentList 130,30
+$updatePreview.Anchor = 'Top,Right'; $updatePreview.Location = New-Object System.Drawing.Point -ArgumentList ($form.ClientSize.Width-425),9
+$bottom.Controls.Add($updatePreview)
+
+$use = New-Object System.Windows.Forms.Button
+$use.Text = '使用选中的 LUT'; $use.Size = New-Object System.Drawing.Size -ArgumentList 160,30
+$use.Anchor = 'Top,Right'; $use.Location = New-Object System.Drawing.Point -ArgumentList ($form.ClientSize.Width-285),9
+$bottom.Controls.Add($use)
+
+$none = New-Object System.Windows.Forms.Button
+$none.Text = '禁用 LUT'; $none.Size = New-Object System.Drawing.Size -ArgumentList 95,30
+$none.Anchor = 'Top,Right'; $none.Location = New-Object System.Drawing.Point -ArgumentList ($form.ClientSize.Width-115),9
+$bottom.Controls.Add($none)
 
 $smartTip = New-Object System.Windows.Forms.ToolTip
 $smartTip.SetToolTip($smartFilter, '隐藏高置信度功能/技术转换型 LUT；再次点击恢复全部。只读取 CUBE 文件头，不修改 LUT 文件。')
 
 $referenceTip = New-Object System.Windows.Forms.ToolTip
 $referenceTip.SetToolTip($changeReference, '选择新参考图并覆盖生成全部 LUT 预览')
+
+$updatePreviewTip = New-Object System.Windows.Forms.ToolTip
+$updatePreviewTip.SetToolTip($updatePreview, '同步 LUT 预览：补建新增或缺失预览，并安全清理已删除 LUT 对应的旧预览')
 
 $allItems = @($items)
 $ViewMode = 'All'
@@ -519,6 +527,8 @@ $PageImages = New-Object System.Collections.Generic.List[System.Drawing.Image]
 $previewGenerator = Join-Path $PSScriptRoot 'LUT_Preview_Batch_Gallery.ps1'
 $currentReference = Join-Path $PSScriptRoot 'LUT_Reference_Current.jpg'
 $script:PreviewBuildProcess = $null
+$script:PreviewBuildMode = ''
+$script:PreviewUpdateBeforeKeys = @{}
 $script:PreviewBuildOriginalTitle = $form.Text
 
 # V2 rule: only pure technical/utility LUTs are hidden.
@@ -830,32 +840,37 @@ function Get-Thumb([string]$path) {
 
 $prev = New-Object System.Windows.Forms.Button
 $prev.Text = '< 上一页'; $prev.Size = New-Object System.Drawing.Size -ArgumentList 74,28
-$prev.Location = New-Object System.Drawing.Point -ArgumentList 1065,9
+$prev.Anchor = 'Top,Right'
+$prev.Location = New-Object System.Drawing.Point -ArgumentList ($form.ClientSize.Width-315),9
 $top.Controls.Add($prev)
 
 $pagePrefix = New-Object System.Windows.Forms.Label
 $pagePrefix.Text = '页码'
 $pagePrefix.AutoSize = $false; $pagePrefix.Size = New-Object System.Drawing.Size -ArgumentList 34,22
 $pagePrefix.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
-$pagePrefix.Location = New-Object System.Drawing.Point -ArgumentList 1147,12
+$pagePrefix.Anchor = 'Top,Right'
+$pagePrefix.Location = New-Object System.Drawing.Point -ArgumentList ($form.ClientSize.Width-233),12
 $top.Controls.Add($pagePrefix)
 
 $pageInput = New-Object System.Windows.Forms.ComboBox
 $pageInput.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
 $pageInput.Size = New-Object System.Drawing.Size -ArgumentList 54,26
-$pageInput.Location = New-Object System.Drawing.Point -ArgumentList 1184,10
+$pageInput.Anchor = 'Top,Right'
+$pageInput.Location = New-Object System.Drawing.Point -ArgumentList ($form.ClientSize.Width-196),10
 $pageInput.MaxDropDownItems = 20
 $top.Controls.Add($pageInput)
 
 $pageTotal = New-Object System.Windows.Forms.Label
 $pageTotal.AutoSize = $false; $pageTotal.Size = New-Object System.Drawing.Size -ArgumentList 38,22
 $pageTotal.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
-$pageTotal.Location = New-Object System.Drawing.Point -ArgumentList 1243,12
+$pageTotal.Anchor = 'Top,Right'
+$pageTotal.Location = New-Object System.Drawing.Point -ArgumentList ($form.ClientSize.Width-137),12
 $top.Controls.Add($pageTotal)
 
 $next = New-Object System.Windows.Forms.Button
 $next.Text = '下一页 >'; $next.Size = New-Object System.Drawing.Size -ArgumentList 74,28
-$next.Location = New-Object System.Drawing.Point -ArgumentList 1286,9
+$next.Anchor = 'Top,Right'
+$next.Location = New-Object System.Drawing.Point -ArgumentList ($form.ClientSize.Width-94),9
 $top.Controls.Add($next)
 
 function Clear-Page {
@@ -1014,7 +1029,7 @@ function Refresh-Page {
         }
         $status.Text = "匹配 $count 个 / 共 $($allItems.Count) 个"
         if ($script:SmartFilterEnabled -and $script:CurrentSmartHiddenCount -gt 0) {
-            $status.Text += " / 隐藏功能型 $($script:CurrentSmartHiddenCount)"
+            $status.Text += " / 智能过滤 $($script:CurrentSmartHiddenCount)"
         }
         if ($cardErrors -gt 0) { $status.Text += " / $cardErrors 个卡片错误" }
         if ($imageErrors -gt 0) { $status.Text += " / $imageErrors 个图片错误" }
@@ -1108,14 +1123,120 @@ function Apply-Filter {
     Refresh-Page
 }
 
+function Get-CurrentGalleryItems {
+    $reloadByLut = @{}
+    $reloadIndexPath = Join-Path $PreviewRoot '_LUT_GALLERY_INDEX.json'
+
+    if (Test-Path -LiteralPath $reloadIndexPath) {
+        try {
+            $reloadRaw = Get-Content -LiteralPath $reloadIndexPath -Raw -Encoding UTF8
+            $reloadParsed = $reloadRaw | ConvertFrom-Json
+            foreach ($reloadRow in @($reloadParsed)) {
+                $reloadLutPath = [string]$reloadRow.LutPath
+                $reloadPreviewPath = [string]$reloadRow.PreviewPath
+                $reloadRelative = [string]$reloadRow.Relative
+                if ((-not $reloadLutPath -or -not (Test-Path -LiteralPath $reloadLutPath)) -and $reloadRelative -and -not $reloadRelative.StartsWith('..\\')) {
+                    $reloadCandidate = Join-Path $LutRoot $reloadRelative
+                    if (Test-Path -LiteralPath $reloadCandidate) { $reloadLutPath = (Get-Item -LiteralPath $reloadCandidate).FullName }
+                }
+                if ($reloadLutPath -and (Test-Path -LiteralPath $reloadLutPath) -and ([IO.Path]::GetExtension($reloadLutPath) -ieq '.cube')) {
+                    $reloadFi = Get-Item -LiteralPath $reloadLutPath
+                    $reloadCandidatePreview = Get-ExpectedPreview $reloadFi
+                    if (Test-Path -LiteralPath $reloadCandidatePreview) {
+                        $reloadPreviewPath = $reloadCandidatePreview
+                    } elseif (-not $reloadPreviewPath -or -not (Test-Path -LiteralPath $reloadPreviewPath)) {
+                        $reloadPreviewPath = $null
+                    }
+                    if ($reloadPreviewPath -and (Test-Path -LiteralPath $reloadPreviewPath)) {
+                        $reloadKey = $reloadFi.FullName.ToLowerInvariant()
+                        $reloadByLut[$reloadKey] = [pscustomobject]@{
+                            Name = $reloadFi.BaseName
+                            Relative = $(if ($reloadRelative) { $reloadRelative } else { Get-RelativePath $LutRoot $reloadFi.FullName })
+                            LutPath = $reloadFi.FullName
+                            PreviewPath = (Get-Item -LiteralPath $reloadPreviewPath).FullName
+                        }
+                    }
+                }
+            }
+        } catch {}
+    }
+
+    try {
+        Get-ChildItem -LiteralPath $LutRoot -Filter '*.cube' -File -Recurse -ErrorAction SilentlyContinue |
+            Where-Object { -not $_.FullName.StartsWith($PreviewRoot, [StringComparison]::OrdinalIgnoreCase) } |
+            ForEach-Object {
+                $reloadPreview = Get-ExpectedPreview $_
+                if (Test-Path -LiteralPath $reloadPreview) {
+                    $reloadKey = $_.FullName.ToLowerInvariant()
+                    if (-not $reloadByLut.ContainsKey($reloadKey)) {
+                        $reloadByLut[$reloadKey] = [pscustomobject]@{
+                            Name = $_.BaseName
+                            Relative = Get-RelativePath $LutRoot $_.FullName
+                            LutPath = $_.FullName
+                            PreviewPath = (Get-Item -LiteralPath $reloadPreview).FullName
+                        }
+                    }
+                }
+            }
+    } catch {}
+    return @($reloadByLut.Values | Sort-Object Relative)
+}
+
+function Reload-GalleryAfterPreviewSync {
+    $newItems = @(Get-CurrentGalleryItems)
+    if ($newItems.Count -eq 0) { throw '同步完成后没有读取到任何有效 LUT 预览；当前图库内容保持不变。' }
+
+    $script:allItems = @($newItems)
+    $script:allByPath = @{}
+    foreach ($entry in $script:allItems) { $script:allByPath[(Get-LutKey ([string]$entry.LutPath))] = $entry }
+
+    $selectedFolder = if ($folderFilter.SelectedIndex -gt 0) { [string]$folderFilter.SelectedItem } else { '全部文件夹' }
+    $reloadFolderSet = @{}
+    foreach ($entry in $script:allItems) {
+        $reloadRel = [string]$entry.Relative
+        $reloadDir = Split-Path $reloadRel -Parent
+        if (-not $reloadDir -or $reloadDir -eq '.') { continue }
+        $reloadParts = $reloadDir -split '\\'
+        $reloadCurrent = ''
+        foreach ($reloadPart in $reloadParts) {
+            if (-not $reloadPart) { continue }
+            if ($reloadCurrent) { $reloadCurrent = $reloadCurrent + '\' + $reloadPart } else { $reloadCurrent = $reloadPart }
+            $reloadFolderSet[$reloadCurrent] = $true
+        }
+    }
+
+    $folderFilter.Items.Clear()
+    [void]$folderFilter.Items.Add('全部文件夹')
+    foreach ($reloadFolderName in @($reloadFolderSet.Keys | Sort-Object)) { [void]$folderFilter.Items.Add($reloadFolderName) }
+    $restoreFolderIndex = $folderFilter.Items.IndexOf($selectedFolder)
+    if ($restoreFolderIndex -ge 0) { $folderFilter.SelectedIndex = $restoreFolderIndex } else { $folderFilter.SelectedIndex = 0 }
+
+    $script:SelectedEntry = $null
+    $script:SelectedCard = $null
+    $script:SmartScanComplete = $false
+    $script:SmartTechnicalCount = 0
+    $script:SmartCombinedCount = 0
+    $script:CurrentSmartHiddenCount = 0
+    $script:SmartLutCache = @{}
+    $script:SmartCreativeFamilies = @{}
+    $script:PreviewBuildOriginalTitle = "电影风格 LUT 图库 - $($script:allItems.Count) 个 LUT"
+    $form.Text = $script:PreviewBuildOriginalTitle
+    if ($script:SmartFilterEnabled) { Build-SmartLutClassificationCache }
+    Apply-Filter
+}
+
 function Set-PreviewBuildState([bool]$running) {
-    foreach ($control in @($search,$allView,$recentView,$favoriteView,$folderFilter,$prev,$pageInput,$next,$none,$use,$smartFilter,$gallery)) {
+    foreach ($control in @($search,$allView,$recentView,$favoriteView,$folderFilter,$prev,$pageInput,$next,$none,$use,$smartFilter,$gallery,$changeReference,$updatePreview)) {
         $control.Enabled = -not $running
     }
-    $changeReference.Enabled = -not $running
     if ($running) {
-        $form.Text = $script:PreviewBuildOriginalTitle + ' - 正在重新生成预览…'
-        $selectedLabel.Text = '正在使用新参考图重新生成全部 LUT 预览，请查看进度窗口。'
+        if ($script:PreviewBuildMode -eq 'Update') {
+            $form.Text = $script:PreviewBuildOriginalTitle + ' - 正在更新预览…'
+            $selectedLabel.Text = '正在同步 LUT 预览，请查看进度窗口。'
+        } else {
+            $form.Text = $script:PreviewBuildOriginalTitle + ' - 正在重新生成预览…'
+            $selectedLabel.Text = '正在使用新参考图重新生成全部 LUT 预览，请查看进度窗口。'
+        }
     } else {
         $form.Text = $script:PreviewBuildOriginalTitle
     }
@@ -1132,15 +1253,33 @@ $previewBuildTimer.Add_Tick({
         $script:PreviewBuildProcess.Dispose()
         $script:PreviewBuildProcess = $null
         Set-PreviewBuildState $false
-        Refresh-Page
 
         if ($exitCode -eq 0) {
-            $selectedLabel.Text = '全部 LUT 预览已使用新参考图重新生成。'
-            [System.Windows.Forms.MessageBox]::Show('全部 LUT 预览已重新生成，当前图库已刷新。', 'LUT 图库', 'OK', 'Information') | Out-Null
+            if ($script:PreviewBuildMode -eq 'Update') {
+                Reload-GalleryAfterPreviewSync
+                $afterKeys = @{}
+                foreach ($entry in @($script:allItems)) {
+                    $key = Get-LutKey ([string]$entry.LutPath)
+                    if ($key) { $afterKeys[$key] = $true }
+                }
+                $addedCount = 0
+                foreach ($key in $afterKeys.Keys) { if (-not $script:PreviewUpdateBeforeKeys.ContainsKey($key)) { $addedCount++ } }
+                $deletedCount = 0
+                foreach ($key in $script:PreviewUpdateBeforeKeys.Keys) { if (-not $afterKeys.ContainsKey($key)) { $deletedCount++ } }
+                $selectedLabel.Text = "LUT 预览更新完成：新增 $addedCount 个 / 删除 $deletedCount 个 / 当前共 $($script:allItems.Count) 个。"
+                [System.Windows.Forms.MessageBox]::Show("LUT 预览更新完成。`r`n`r`n新增：$addedCount 个`r`n删除：$deletedCount 个`r`n当前图库：$($script:allItems.Count) 个 LUT", 'LUT 图库', 'OK', 'Information') | Out-Null
+                $script:PreviewUpdateBeforeKeys = @{}
+            } else {
+                Refresh-Page
+                $selectedLabel.Text = '全部 LUT 预览已使用新参考图重新生成。'
+                [System.Windows.Forms.MessageBox]::Show('全部 LUT 预览已重新生成，当前图库已刷新。', 'LUT 图库', 'OK', 'Information') | Out-Null
+            }
         } else {
-            $selectedLabel.Text = '预览重新生成失败。'
+            Refresh-Page
+            $selectedLabel.Text = '预览生成失败。'
             [System.Windows.Forms.MessageBox]::Show("预览生成脚本退出，代码：$exitCode`r`n`r`n请检查进度窗口或预览目录中的失败日志。", 'LUT 图库', 'OK', 'Warning') | Out-Null
         }
+        $script:PreviewBuildMode = ''
     } catch {
         $previewBuildTimer.Stop()
         if ($script:PreviewBuildProcess) {
@@ -1149,6 +1288,7 @@ $previewBuildTimer.Add_Tick({
         }
         Set-PreviewBuildState $false
         Refresh-Page
+        $script:PreviewBuildMode = ''
         [System.Windows.Forms.MessageBox]::Show("无法获取预览生成结果：`r`n`r`n$($_.Exception.Message)", 'LUT 图库', 'OK', 'Error') | Out-Null
     }
 })
@@ -1194,6 +1334,7 @@ $changeReference.Add_Click({
         $process = New-Object System.Diagnostics.Process
         $process.StartInfo = $psi
         if (-not $process.Start()) { throw '无法启动预览生成进程。' }
+        $script:PreviewBuildMode = 'Reference'
         $script:PreviewBuildProcess = $process
         Set-PreviewBuildState $true
         $previewBuildTimer.Start()
@@ -1202,6 +1343,49 @@ $changeReference.Add_Click({
         $script:PreviewBuildProcess = $null
         Set-PreviewBuildState $false
         [System.Windows.Forms.MessageBox]::Show("无法启动预览生成：`r`n`r`n$($_.Exception.Message)", 'LUT 图库', 'OK', 'Error') | Out-Null
+    }
+})
+
+$updatePreview.Add_Click({
+    if ($script:PreviewBuildProcess) { return }
+    if (-not (Test-Path -LiteralPath $previewGenerator -PathType Leaf)) {
+        [System.Windows.Forms.MessageBox]::Show("预览生成脚本不存在：`r`n`r`n$previewGenerator", 'LUT 图库', 'OK', 'Error') | Out-Null
+        return
+    }
+    $referencePath = if (Test-Path -LiteralPath $currentReference -PathType Leaf) { $currentReference } else { Join-Path $PSScriptRoot 'LUT_Reference_Default.jpg' }
+    if (-not (Test-Path -LiteralPath $referencePath -PathType Leaf)) {
+        [System.Windows.Forms.MessageBox]::Show("没有找到可用的 LUT 参考图：`r`n`r`n$referencePath", 'LUT 图库', 'OK', 'Error') | Out-Null
+        return
+    }
+
+    $script:PreviewUpdateBeforeKeys = @{}
+    foreach ($entry in @($script:allItems)) {
+        $key = Get-LutKey ([string]$entry.LutPath)
+        if ($key) { $script:PreviewUpdateBeforeKeys[$key] = $true }
+    }
+
+    $process = $null
+    try {
+        $powerShellExe = Join-Path $PSHOME 'powershell.exe'
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = $powerShellExe
+        $psi.Arguments = '-NoLogo -NoProfile -ExecutionPolicy Bypass -File "' + $previewGenerator + '" -LutRoot "' + $LutRoot + '" -ReferencePath "' + $referencePath + '" -OutputRoot "' + $PreviewRoot + '" -SyncDeleted -NonInteractive -NoPause'
+        $psi.UseShellExecute = $true
+        $psi.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Normal
+        $process = New-Object System.Diagnostics.Process
+        $process.StartInfo = $psi
+        if (-not $process.Start()) { throw '无法启动预览更新进程。' }
+        $script:PreviewBuildMode = 'Update'
+        $script:PreviewBuildProcess = $process
+        Set-PreviewBuildState $true
+        $previewBuildTimer.Start()
+    } catch {
+        if ($process) { try { $process.Dispose() } catch {} }
+        $script:PreviewBuildProcess = $null
+        $script:PreviewBuildMode = ''
+        $script:PreviewUpdateBeforeKeys = @{}
+        Set-PreviewBuildState $false
+        [System.Windows.Forms.MessageBox]::Show("无法启动预览更新：`r`n`r`n$($_.Exception.Message)", 'LUT 图库', 'OK', 'Error') | Out-Null
     }
 })
 
@@ -1279,6 +1463,7 @@ $form.Add_FormClosed({
         $script:PreviewBuildProcess = $null
     }
     $referenceTip.Dispose()
+    $updatePreviewTip.Dispose()
     $smartTip.Dispose()
     Clear-Page
 })
