@@ -1,7 +1,7 @@
 ﻿Film Grain Studio - 使用说明
 ============================
 
-当前正式稳定版：v4.6.2
+当前正式稳定版：v4.6.2.1
 
 这是 Universal Film Grain Toolkit 的图形前端。
 CLI 与 GUI Bridge 共享同一套编码逻辑，并分别提供交互菜单和图形界面。
@@ -39,7 +39,7 @@ Studio 打开后会自动加入文件列表。
 - AV1 胶片颗粒元数据支持胶片预设 / 感光度 ISO、胶片格式、胶片型号，以及亮度 + 色度。
 - AV1 另支持现成 .tbl / .txt Grain Table；_AV1_Grain_Tables 按 720p / 1080p / 1440p / 2160p 分类，GUI 默认只显示与源视频最接近的档位，勾选右侧无文字复选框可显示全部。
 - v4.6.2 正式包保留当前整理的一组公开 Grain Table；主要来源为 Boulder08/chunknorris 与 nekotrix/AV1-Photon-Noise-Tables，来源说明见 `_AV1_Grain_Tables\README.txt`。
-- AV1 / HEVC 均可选“同时生成 H.264 上传版”：上传副本固定使用 x264 Grain / High 8-bit，默认 Faster + tune grain + VBR 单次，并与主线共享 Preset / Pass 设置，拥有独立自动/手动码率；OpenSVPFlow 60 fps 插帧开启时同样可用，且不会重复运行插帧。
+- AV1 / HEVC 均可选“同时生成 H.264 上传版”：上传副本固定使用 x264 Grain / High 8-bit，默认 Faster + tune grain + VBR 单次，并与主线共享 Preset / Pass 设置，拥有独立自动/手动码率；OpenSVPFlow 60 fps 插帧开启时同样可用，且不会重复运行插帧。v4.6.2.1 修复手动上传码率被 StudioBridge 二次校验后误拒绝的问题，继续统一使用平均码率 / 3× maxrate / 6× bufsize。
 - x264 主线与上传副本共用分辨率 + 最终 FPS + 高动态码率策略，VBV 固定为 maxrate=平均×3、bufsize=平均×6；全局“高动态”还会按能力启用 NVENC 运动优化。
 - 高级设置“编码”页提供 H.264 High10（实验），默认关闭；仅作用于 H.264 x264 Grain 主输出，不作用于兼容性优先的上传副本。
 - 字幕功能已独立于 H.264 上传版：可直接烧写进主 AV1 / HEVC / H.264；如同时生成 H.264 上传副本，

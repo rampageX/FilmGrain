@@ -1,13 +1,20 @@
 Film Grain Studio formal stable baseline
 
 Baseline:
-v4.6.2
+v4.6.2.1
 
 Supersedes:
-v4.6.1
+v4.6.2
 
 Formal release:
-FilmGrain_Studio_v4.6.2_Stable.zip
+FilmGrain_Studio_v4.6.2.1_Stable.zip
+
+v4.6.2.1 patch changes:
+- Fixes Studio Manual bitrate for the optional H.264 upload copy used by AV1 and HEVC.
+- StudioBridge now directly consumes GUI-validated FG_UPLOAD_BITRATE / FG_UPLOAD_MAXRATE / FG_UPLOAD_BUFSIZE values instead of running a redundant second validator.
+- Manual H.264 upload bitrate keeps average / 3x maxrate / 6x bufsize behavior.
+- AV1 / HEVC / x264 main bitrate paths and all encoder, HDR, Grain, LUT, OpenSVPFlow, subtitle and AAC settings remain unchanged.
+- User validation completed on v4.6.2_H264UploadBitrate_TEST_K7M4Q.
 
 Inherited v4.6.1 baseline:
 - Dedicated FGS application icon remains active in the WinForms title bar and Windows taskbar.

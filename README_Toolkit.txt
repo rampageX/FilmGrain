@@ -1,7 +1,7 @@
 ﻿Universal Film Grain Toolkit
 =============================
 
-当前正式稳定版：v4.6.2
+当前正式稳定版：v4.6.2.1
 
 版本与命名
 ----------
@@ -82,7 +82,7 @@ FilmGrain_Universal_HEVC_AV1_CLI.bat
 - MKV 模式仍可保留原始音频、字幕、附件和数据流。
 - Cinematic Style 约 2.39:1；AV1 / HEVC / H.264 均可选择“加黑边保留原分辨率”或“裁剪有效画面”。
 - 自动反交错默认使用 BWDIF Vulkan；隔行 29.97i → 59.94p、25i → 50p。
-- AV1 / HEVC 均可同时生成 H.264 上传版；上传副本固定为 x264 Grain / High 8-bit，默认 Faster + tune grain + VBR 单次，并与主线共享 Preset / Pass 设置，同时使用独立自动/手动码率。
+- AV1 / HEVC 均可同时生成 H.264 上传版；上传副本固定为 x264 Grain / High 8-bit，默认 Faster + tune grain + VBR 单次，并与主线共享 Preset / Pass 设置，同时使用独立自动/手动码率。v4.6.2.1 修复手动上传码率在 StudioBridge 中被重复校验并可能误拒绝的问题。
 - OpenSVPFlow 60 fps 插帧开启时也可继续生成 H.264 上传版；AV1 复用最终 AV1，HEVC 复用最终插帧 HEVC，不重复运行插帧。
 - AV1 / HEVC / H.264 三条主线共用分辨率 + 最终 FPS + 高动态自动码率，主界面直接显示实际 kbps；手动输入后不覆盖。统一 VBV 为 maxrate=平均×3、bufsize=平均×6。
 - 字幕功能独立开关，可烧写进主 AV1 / HEVC / H.264；同时生成 H.264 上传副本时也会继承字幕。
@@ -183,4 +183,4 @@ GUI 以非交互模式调用同一 BAT，单独双击 BAT 时仍保留 1 / 2 / 3
 - AV1 免重编码工具失败时默认保留临时目录，便于查看日志。
 - HDR Preserve 当前不包含 HDR→SDR Tone Mapping、Dolby Vision RPU、HDR10+ 动态 metadata 或 HDR OpenSVPFlow 插帧。
 - LUT 智能过滤是保守初筛；无法高置信确认的 LUT 优先保留。
-- 正式 v4.6.2 不携带 `_HardwareCaps.json`、`LUT_Reference_Current.jpg`、OpenSVPFlow 用户 DLL/备份、Smart Filter CSV 等机器/用户运行状态。
+- 正式 v4.6.2.1 不携带 `_HardwareCaps.json`、`LUT_Reference_Current.jpg`、OpenSVPFlow 用户 DLL/备份、Smart Filter CSV 等机器/用户运行状态。

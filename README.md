@@ -8,10 +8,10 @@
 - **HEVC Main10 + 真实扫描 Grain Plate**：将真实胶片颗粒合成到视频像素中，由 NVENC Main10 编码。
 - **H.264 x264 Grain + 真实扫描 Grain Plate**：与 HEVC 共用扫描 Grain / LUT / 画幅 / 反交错 / OpenSVPFlow 前处理，使用 `libx264 + preset faster + tune grain + VBR 单次` 作为默认日常路线；高级设置可选择 Medium / Slow 与 VBR 2-Pass。默认在编码边界高质量降为 8-bit High Profile，也可启用实验性 High10。
 
-当前正式稳定版为 **v4.6.2**，发布包名称：
+当前正式稳定版为 **v4.6.2.1**，发布包名称：
 
 ```text
-FilmGrain_Studio_v4.6.2_Stable.zip
+FilmGrain_Studio_v4.6.2.1_Stable.zip
 ```
 
 所有独立脚本使用固定文件名，不再包含组件版本号；版本号只体现在整个项目的发布压缩包上。升级时建议完整替换工具包，避免新旧脚本混用。
@@ -24,6 +24,8 @@ v4.6.1 不修改编码核心与既有参数，新增 **FGS 专用应用图标**�
 
 v4.6.2 在 v4.6.1 稳定基线上正式加入 **HDR Preserve** 与 **LUT Gallery 智能过滤**。HEVC Main10 / AV1 Main10 对 HDR 输入保持 BT.2020、PQ/HLG、10-bit 与源本来存在的 HDR10 静态元数据；HEVC 明确强制 `p010le`，并在最终输出执行 HDR 色彩信号验证。当前 OpenSVPFlow 仍是 YUV420P8 基线，因此 HDR 输入自动旁路插帧；H.264 主输出、H.264 上传版和现有 SDR/BT.709 LUT 路线也对 HDR 采用安全旁路。LUT Gallery 智能过滤将 LUT 分为 `Technical / Combined / Creative / Keep`，只隐藏高置信度纯 Technical，并通过跨文件 Creative Family 识别保留带多种 Log 输入适配的创意 Combined LUT。HEVC HDR10/PQ 与 AV1 HDR 均已完成用户侧实际测试。
 
+
+v4.6.2.1 为小型稳定性修复：修复 AV1 / HEVC 同时生成 H.264 上传版时，手动码率在 StudioBridge 中被重复校验并可能错误拒绝（例如 10000 kbps）的问题。上传版现在直接使用 GUI 已校验的平均码率、3× maxrate 与 6× bufsize；AV1 / HEVC / x264 三条主编码线的既有码率逻辑和编码参数均不变。
 
 默认配置仍为 **AV1 Main10 + MP4 + AAC 256k**，并集成 HDR Preserve、LUT Gallery（含智能过滤）、自动 Field-rate 反交错、自动电影帧率、可选 OpenSVPFlow GPU 60 fps 插帧、Cinematic Style、多文件处理、NVENC / OpenSVPFlow 硬件能力自动探测、AV1 UHQ、AV1 SFE 及 AV1 Film Grain 最终验证。
 

@@ -1,5 +1,15 @@
 # Film Grain Studio — CHANGELOG
 
+## v4.6.2.1 — 2026-09-12
+
+- 修复 AV1 / HEVC “同时生成 H.264 上传版”在手动码率模式下可能错误提示 `Invalid Studio H.264 upload bitrate` 的问题。
+- Studio GUI 已完成整数范围校验后，StudioBridge 不再对 `FG_UPLOAD_BITRATE` 重复调用第二套 PowerShell/CMD 校验，而是直接使用同一组已验证的 `FG_UPLOAD_BITRATE / FG_UPLOAD_MAXRATE / FG_UPLOAD_BUFSIZE`。
+- 手动上传码率继续统一采用平均码率、`maxrate = 3×`、`bufsize = 6×`；例如 10000 kbps 对应 10000k / 30000k / 60000k。
+- AV1 与 HEVC 的 H.264 上传副本共用同一修复分支；x264 主输出不创建重复的 H.264 上传副本。
+- AV1 / HEVC / x264 三条主编码线现有手动码率仍走共享 `FG_BITRATE / FG_MAXRATE / FG_BUFSIZE` 路径，本次不修改其编码参数、自动码率、HDR、Grain、LUT、OpenSVPFlow、字幕或 AAC 256k 行为。
+- 修复已由用户在 v4.6.2_H264UploadBitrate_TEST_K7M4Q 测试包上验证通过。
+- 正式发布恢复干净版本号与文件名，不包含 TEST_K7M4Q 测试标记。
+
 ## v4.6.2 — 2026-09-11
 
 - 正式加入 **HDR Preserve**，覆盖 HEVC Main10 与 AV1 Main10。
