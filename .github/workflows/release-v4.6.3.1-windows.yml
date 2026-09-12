@@ -1,0 +1,272 @@
+name: Release Film Grain Studio v4.6.3.1 Windows
+
+on:
+  push:
+    paths:
+      - '.github/workflows/release-v4.6.3.1-windows.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout master
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Audit published v4.6.3 package
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $auditDir = Join-Path $env:RUNNER_TEMP 'audit-v463'
+          New-Item -ItemType Directory -Force -Path $auditDir | Out-Null
+          gh release download v4.6.3 --pattern 'FilmGrain_Studio_v4.6.3_Stable.zip' -D $auditDir
+          $zip = Join-Path $auditDir 'FilmGrain_Studio_v4.6.3_Stable.zip'
+          $unpack = Join-Path $auditDir 'unpack'
+          Expand-Archive -LiteralPath $zip -DestinationPath $unpack -Force
+
+          $bad = New-Object System.Collections.Generic.List[string]
+          $files = @(Get-ChildItem -LiteralPath $unpack -Recurse -File | Where-Object { $_.Extension -in '.bat','.vbs','.ps1','.cmd' })
+          foreach ($f in $files) {
+              $bytes = [IO.File]::ReadAllBytes($f.FullName)
+              $hasBom = $bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF
+              $lf = 0; $crlf = 0
+              for ($i=0; $i -lt $bytes.Length; $i++) {
+                  if ($bytes[$i] -eq 0x0A) { $lf++; if ($i -gt 0 -and $bytes[$i-1] -eq 0x0D) { $crlf++ } }
+              }
+              $rel = $f.FullName.Substring($unpack.Length + 1)
+              if ($f.Extension -in '.bat','.vbs','.cmd') {
+                  if ($hasBom) { $bad.Add("BOM: $rel") }
+                  if ($lf -ne $crlf) { $bad.Add("LF-only/mixed: $rel (LF=$lf CRLF=$crlf)") }
+              } elseif ($f.Extension -eq '.ps1') {
+                  if (-not $hasBom) { $bad.Add("PS1 missing BOM: $rel") }
+                  if ($lf -ne $crlf) { $bad.Add("PS1 LF-only/mixed: $rel (LF=$lf CRLF=$crlf)") }
+              }
+          }
+          Write-Host "v4.6.3 package scripts audited: $($files.Count)"
+          if ($bad.Count -gt 0) {
+              Write-Host "v4.6.3 packaging issues found: $($bad.Count)" -ForegroundColor Yellow
+              $bad | ForEach-Object { Write-Host "  $_" -ForegroundColor Yellow }
+          } else {
+              Write-Host 'v4.6.3 package has no script encoding/line-ending issues.'
+          }
+
+      - name: Prepare v4.6.3.1 source metadata
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $utf8Bom = New-Object System.Text.UTF8Encoding($true)
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+
+          function Read-Utf8([string]$p) { return [IO.File]::ReadAllText((Join-Path $PWD $p), [Text.Encoding]::UTF8) }
+          function Write-Utf8NoBom([string]$p,[string]$s) { [IO.File]::WriteAllText((Join-Path $PWD $p), $s, $utf8NoBom) }
+          function Write-Utf8Bom([string]$p,[string]$s) { [IO.File]::WriteAllText((Join-Path $PWD $p), $s, $utf8Bom) }
+
+          $studioPath = 'Utils\FilmGrain_Studio.ps1'
+          $studio = Read-Utf8 $studioPath
+          if ($studio -notmatch "statusVersion.Text = 'v4\.6\.3'") { throw 'Expected v4.6.3 Studio version marker not found' }
+          $studio = $studio -replace "statusVersion.Text = 'v4\.6\.3'", "statusVersion.Text = 'v4.6.3.1'"
+          Write-Utf8Bom $studioPath $studio
+
+          $readme = Read-Utf8 'README.md'
+          $readme = $readme -replace '当前正式稳定版为 \*\*v4\.6\.3\*\*', '当前正式稳定版为 **v4.6.3.1**'
+          $readme = $readme -replace 'FilmGrain_Studio_v4\.6\.3_Stable\.zip', 'FilmGrain_Studio_v4.6.3.1_Stable.zip'
+          $insert = "`r`n`r`nv4.6.3.1 为 Windows 打包兼容性修正版：v4.6.3 功能与编码参数完全不变；正式发布固定改用 Windows runner，并在最终 ZIP 内强制校验 BAT/VBS 的 CRLF + 无 BOM、PS1 的 UTF-8 BOM + CRLF。该修复解决 Linux runner 打包后 Windows CMD 可能出现 BAT 标签实际存在却无法 `goto/call` 的问题。`r`n"
+          $anchor = 'v4.6.3 在 v4.6.2.1 稳定基线之上'
+          if ($readme.Contains($anchor)) { $readme = $readme.Replace($anchor, $insert + "`r`n" + $anchor) }
+          else { $readme = $readme.Replace('默认配置仍为', $insert + "`r`n默认配置仍为") }
+          Write-Utf8NoBom 'README.md' $readme
+
+          $cl = Read-Utf8 'CHANGELOG.md'
+          $entry = @"
+# Film Grain Studio — CHANGELOG
+
+## v4.6.3.1 — 2026-09-12
+
+- 修复 v4.6.3 正式 ZIP 由 Linux/Ubuntu runner 打包后，部分 Windows BAT 以 LF 换行进入发布包，导致 CMD 可能出现标签明明存在却提示 `The system cannot find the batch label specified` 的兼容性问题。
+- v4.6.3.1 不修改 AV1 / HEVC / x264、LUT Gallery、HDR Preserve、Grain、OpenSVPFlow、字幕、码率、AAC 256k 或其它编码参数；功能内容与已验证的 v4.6.3 完全一致。
+- 正式发布流程固定改为 Windows Server runner；打包前统一 BAT/VBS/CMD 为 CRLF + 无 BOM，PS1 为 UTF-8 BOM + CRLF。
+- 发布门禁对最终 ZIP 解压后的全部 BAT/VBS/CMD/PS1 再次检查换行、BOM、PS1 中文弯引号、BAT `^` 行尾空格，以及静态 `goto/call :label` 目标。
+- AV1 + LUT 路线已使用 Windows CRLF 测试包 M8Q4X 完成用户侧实际验证。
+
+"@
+          $cl = $cl -replace '^# Film Grain Studio — CHANGELOG\s*', $entry
+          Write-Utf8NoBom 'CHANGELOG.md' $cl
+
+          foreach ($p in @('README_FilmGrain_Studio.txt','README_Toolkit.txt')) {
+              $t = Read-Utf8 $p
+              $t = $t -replace '当前正式稳定版：v4\.6\.3', '当前正式稳定版：v4.6.3.1'
+              Write-Utf8Bom $p $t
+          }
+
+          $stable = @"
+Film Grain Studio formal stable baseline
+
+Baseline:
+v4.6.3.1
+
+Supersedes:
+v4.6.3
+
+Formal release:
+FilmGrain_Studio_v4.6.3.1_Stable.zip
+
+v4.6.3.1 packaging compatibility fix:
+- Functional source and encoding behavior are unchanged from user-validated v4.6.3.
+- Formal FGS release packaging is fixed to a Windows runner.
+- BAT / VBS / CMD are normalized to CRLF with no BOM in the release package.
+- PS1 is normalized to UTF-8 BOM + CRLF in the release package.
+- Final ZIP is unpacked and revalidated before release creation.
+- AV1 + LUT path was user-tested successfully with Windows CRLF package M8Q4X.
+
+Inherited v4.6.3:
+- LUT Gallery Update Preview synchronization and safe stale-preview cleanup.
+- Added / deleted / current LUT counts refresh immediately.
+- Final R6T2B Gallery layout and Smart Filter count display.
+- v4.6.2.1 H.264 upload manual bitrate fix.
+- v4.6.2 HDR Preserve and LUT Smart Filter.
+- v4.6.1 FGS icon and OpenSVPFlow updater.
+- v4.6.0 AV1 SFE and interlaced/OpenSVPFlow routing.
+
+Release cleanup:
+- No temporary patch / hotfix / test files.
+- No Utils\_HardwareCaps.json.
+- No _LUT_Tools\LUT_Reference_Current.jpg.
+- No user OpenSVPFlow DLL/version state or _PluginBackup.
+- No Recent / Favorites / Smart Filter CSV user state.
+"@
+          Write-Utf8Bom 'STABLE_BASELINE.txt' $stable
+
+      - name: Commit v4.6.3.1 metadata
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add Utils/FilmGrain_Studio.ps1 README.md CHANGELOG.md README_FilmGrain_Studio.txt README_Toolkit.txt STABLE_BASELINE.txt
+          git commit -m 'release: Film Grain Studio v4.6.3.1'
+          git push origin HEAD:master
+          git tag v4.6.3.1
+          git push origin v4.6.3.1
+
+      - name: Stage Windows release package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $stage = Join-Path $env:RUNNER_TEMP 'FilmGrain_Studio_v4.6.3.1_Stage'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Get-ChildItem -LiteralPath $PWD -Force | Where-Object { $_.Name -notin '.git','.github' } | ForEach-Object {
+              Copy-Item -LiteralPath $_.FullName -Destination $stage -Recurse -Force
+          }
+
+          Remove-Item -LiteralPath (Join-Path $stage 'Utils\_HardwareCaps.json') -Force -ErrorAction SilentlyContinue
+          Remove-Item -LiteralPath (Join-Path $stage '_LUT_Tools\LUT_Reference_Current.jpg') -Force -ErrorAction SilentlyContinue
+          Remove-Item -LiteralPath (Join-Path $stage '_OpenSVPFlow\_PluginBackup') -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -LiteralPath (Join-Path $stage '_OpenSVPFlow\Plugins\open-svpflow-version.txt') -Force -ErrorAction SilentlyContinue
+          Get-ChildItem -LiteralPath $stage -Recurse -File -Include '_LUT_GALLERY_RECENT.json','_LUT_GALLERY_FAVORITES.json','_LUT_SMART_FILTER_REPORT.csv' | Remove-Item -Force -ErrorAction SilentlyContinue
+
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+          $utf8Bom = New-Object System.Text.UTF8Encoding($true)
+          Get-ChildItem -LiteralPath $stage -Recurse -File | Where-Object { $_.Extension -in '.bat','.vbs','.cmd' } | ForEach-Object {
+              $text = [IO.File]::ReadAllText($_.FullName)
+              $text = $text -replace "`r?`n", "`r`n"
+              [IO.File]::WriteAllText($_.FullName, $text, $utf8NoBom)
+          }
+          Get-ChildItem -LiteralPath $stage -Recurse -File -Filter '*.ps1' | ForEach-Object {
+              $text = [IO.File]::ReadAllText($_.FullName)
+              $text = $text -replace "`r?`n", "`r`n"
+              [IO.File]::WriteAllText($_.FullName, $text, $utf8Bom)
+          }
+
+          $zip = Join-Path $PWD 'FilmGrain_Studio_v4.6.3.1_Stable.zip'
+          Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip -CompressionLevel Optimal
+          $sha = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$sha  FilmGrain_Studio_v4.6.3.1_Stable.zip" | Set-Content -LiteralPath (Join-Path $PWD 'FilmGrain_Studio_v4.6.3.1_Stable.sha256') -Encoding ascii
+          Write-Host "RELEASE_SHA256=$sha"
+
+      - name: Validate final ZIP scripts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $zip = Join-Path $PWD 'FilmGrain_Studio_v4.6.3.1_Stable.zip'
+          $verify = Join-Path $env:RUNNER_TEMP 'verify-v4631'
+          Expand-Archive -LiteralPath $zip -DestinationPath $verify -Force
+          $issues = New-Object System.Collections.Generic.List[string]
+          $files = @(Get-ChildItem -LiteralPath $verify -Recurse -File | Where-Object { $_.Extension -in '.bat','.vbs','.cmd','.ps1' })
+
+          foreach ($f in $files) {
+              $rel = $f.FullName.Substring($verify.Length + 1)
+              $bytes = [IO.File]::ReadAllBytes($f.FullName)
+              $hasBom = $bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF
+              $lf=0; $crlf=0
+              for ($i=0; $i -lt $bytes.Length; $i++) { if ($bytes[$i] -eq 0x0A) { $lf++; if ($i -gt 0 -and $bytes[$i-1] -eq 0x0D) { $crlf++ } } }
+              $text = [IO.File]::ReadAllText($f.FullName)
+
+              if ($f.Extension -in '.bat','.vbs','.cmd') {
+                  if ($hasBom) { $issues.Add("BOM not allowed: $rel") }
+                  if ($lf -ne $crlf) { $issues.Add("Non-CRLF: $rel LF=$lf CRLF=$crlf") }
+              } else {
+                  if (-not $hasBom) { $issues.Add("PS1 BOM missing: $rel") }
+                  if ($lf -ne $crlf) { $issues.Add("PS1 non-CRLF: $rel LF=$lf CRLF=$crlf") }
+                  if ($text.IndexOf([char]0x201C) -ge 0 -or $text.IndexOf([char]0x201D) -ge 0 -or $text.IndexOf([char]0x2018) -ge 0 -or $text.IndexOf([char]0x2019) -ge 0) { $issues.Add("PS1 curly quote: $rel") }
+              }
+
+              if ($f.Extension -eq '.bat') {
+                  $lines = $text -split "`r`n"
+                  $first = @($lines | Where-Object { $_.Trim().Length -gt 0 } | Select-Object -First 1)
+                  if ($first.Count -eq 0 -or $first[0].Trim().ToLowerInvariant() -ne '@echo off') { $issues.Add("BAT first non-empty line is not @echo off: $rel") }
+                  for ($n=0; $n -lt $lines.Count; $n++) { if ($lines[$n] -match '\^[ \t]+$') { $issues.Add("BAT caret trailing whitespace: $rel line $($n+1)") } }
+
+                  $labels = @{}
+                  foreach ($line in $lines) { if ($line -match '^:([A-Za-z0-9_]+)\s*$') { $labels[$Matches[1].ToUpperInvariant()] = $true } }
+                  foreach ($line in $lines) {
+                      if ($line -match '(?i)^\s*goto\s+([A-Za-z0-9_]+)\s*$') {
+                          $target = $Matches[1].ToUpperInvariant()
+                          if ($target -ne 'EOF' -and -not $labels.ContainsKey($target)) { $issues.Add("Missing GOTO label $target in $rel") }
+                      }
+                      if ($line -match '(?i)^\s*call\s+:([A-Za-z0-9_]+)(?:\s|$)') {
+                          $target = $Matches[1].ToUpperInvariant()
+                          if (-not $labels.ContainsKey($target)) { $issues.Add("Missing CALL label $target in $rel") }
+                      }
+                  }
+              }
+          }
+
+          Write-Host "Final ZIP scripts checked: $($files.Count)"
+          if ($issues.Count -gt 0) { $issues | ForEach-Object { Write-Host "ERROR: $_" -ForegroundColor Red }; throw "Final ZIP validation failed with $($issues.Count) issue(s)." }
+          Write-Host 'FINAL ZIP SCRIPT VALIDATION: PASS' -ForegroundColor Green
+
+      - name: Create GitHub Release v4.6.3.1
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $body = @"
+# Film Grain Studio v4.6.3.1
+
+Windows packaging compatibility release. Functional behavior is unchanged from v4.6.3.
+
+## Fixed
+- Formal FGS release packaging is now fixed to a Windows Server runner.
+- BAT / VBS / CMD files in the final ZIP are normalized to CRLF with no BOM.
+- PS1 files in the final ZIP are normalized to UTF-8 BOM + CRLF.
+- Fixes Windows CMD cases where a BAT label exists in source but `goto/call` can still report `The system cannot find the batch label specified` after Linux-built packaging.
+
+## Release validation
+- Every BAT / VBS / CMD / PS1 in the actual final ZIP is checked after re-extraction.
+- BAT static `goto` and `call :label` targets are verified.
+- BAT caret-continuation trailing whitespace is rejected.
+- PS1 Chinese curly quotes are rejected.
+- AV1 + LUT was user-tested successfully with Windows CRLF TEST M8Q4X before this release.
+
+No AV1 / HEVC / x264 encoding parameters, LUT Gallery behavior, HDR, Grain, OpenSVPFlow, subtitles, bitrate logic or AAC settings changed from v4.6.3.
+"@
+          gh release create v4.6.3.1 'FilmGrain_Studio_v4.6.3.1_Stable.zip' 'FilmGrain_Studio_v4.6.3.1_Stable.sha256' --title 'Film Grain Studio v4.6.3.1' --notes $body
