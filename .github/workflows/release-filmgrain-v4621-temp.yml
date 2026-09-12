@@ -24,75 +24,84 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
 
-          function Replace-ExactText {
-              param([string]$Path,[string]$Old,[string]$New)
+          function Write-Utf8PreserveBom {
+              param([string]$Path,[string]$Text)
               $bytes = [System.IO.File]::ReadAllBytes($Path)
               $hasBom = $bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF
+              [System.IO.File]::WriteAllText($Path,$Text,(New-Object System.Text.UTF8Encoding($hasBom)))
+          }
+
+          function Replace-One {
+              param([string]$Path,[string]$Old,[string]$New)
               $text = [System.IO.File]::ReadAllText($Path)
-              if (-not $text.Contains($Old)) { throw "Expected text not found in $Path" }
               $count = ([regex]::Matches($text,[regex]::Escape($Old))).Count
-              if ($count -ne 1) { throw "Expected exactly one match in $Path, found $count" }
-              $text = $text.Replace($Old,$New)
-              [System.IO.File]::WriteAllText($Path,$text,(New-Object System.Text.UTF8Encoding($hasBom)))
+              if ($count -ne 1) { throw "Expected one match in $Path, found $count :: $Old" }
+              Write-Utf8PreserveBom $Path ($text.Replace($Old,$New))
           }
 
           $bridge = 'Utils\FilmGrain_Universal_HEVC_AV1_StudioBridge.bat'
-          $oldUpload = @'
-:SELECT_UPLOAD_STUDIO_MANUAL
-if not defined FG_UPLOAD_BITRATE goto SELECT_UPLOAD_STUDIO_INVALID
-set "BSEL=%FG_UPLOAD_BITRATE%"
-call :VALIDATE_CUSTOM_BITRATE
-if errorlevel 1 goto SELECT_UPLOAD_STUDIO_INVALID
-set "UPLOAD_BITRATE_MODE=MANUAL"
-set "UPLOAD_BITRATE_NUM=%CUSTOM_BITRATE_NUM%"
-set "UPLOAD_BITRATE=%CUSTOM_BITRATE_NUM%k"
-set "UPLOAD_MAXRATE=%CUSTOM_BITRATE_MAX%k"
-set "UPLOAD_BUFSIZE=%CUSTOM_BITRATE_BUF%k"
-set "UPLOAD_FILE_TAG=X264_%CUSTOM_BITRATE_NUM%k"
-'@
-          $newUpload = @'
-:SELECT_UPLOAD_STUDIO_MANUAL
-if not defined FG_UPLOAD_BITRATE goto SELECT_UPLOAD_STUDIO_INVALID
-if not defined FG_UPLOAD_MAXRATE goto SELECT_UPLOAD_STUDIO_INVALID
-if not defined FG_UPLOAD_BUFSIZE goto SELECT_UPLOAD_STUDIO_INVALID
-set "UPLOAD_BITRATE_MODE=MANUAL"
-set "UPLOAD_BITRATE_NUM=%FG_UPLOAD_BITRATE%"
-set "UPLOAD_BITRATE=%FG_UPLOAD_BITRATE%k"
-set "UPLOAD_MAXRATE=%FG_UPLOAD_MAXRATE%k"
-set "UPLOAD_BUFSIZE=%FG_UPLOAD_BUFSIZE%k"
-set "UPLOAD_FILE_TAG=X264_%FG_UPLOAD_BITRATE%k"
-'@
-          Replace-ExactText $bridge $oldUpload $newUpload
+          $bridgeText = [System.IO.File]::ReadAllText($bridge)
+          $pattern = '(?ms)^:SELECT_UPLOAD_STUDIO_MANUAL\r?\nif not defined FG_UPLOAD_BITRATE goto SELECT_UPLOAD_STUDIO_INVALID\r?\nset "BSEL=%FG_UPLOAD_BITRATE%"\r?\ncall :VALIDATE_CUSTOM_BITRATE\r?\nif errorlevel 1 goto SELECT_UPLOAD_STUDIO_INVALID\r?\nset "UPLOAD_BITRATE_MODE=MANUAL"\r?\nset "UPLOAD_BITRATE_NUM=%CUSTOM_BITRATE_NUM%"\r?\nset "UPLOAD_BITRATE=%CUSTOM_BITRATE_NUM%k"\r?\nset "UPLOAD_MAXRATE=%CUSTOM_BITRATE_MAX%k"\r?\nset "UPLOAD_BUFSIZE=%CUSTOM_BITRATE_BUF%k"\r?\nset "UPLOAD_FILE_TAG=X264_%CUSTOM_BITRATE_NUM%k"'
+          $replacement = @(
+              ':SELECT_UPLOAD_STUDIO_MANUAL',
+              'if not defined FG_UPLOAD_BITRATE goto SELECT_UPLOAD_STUDIO_INVALID',
+              'if not defined FG_UPLOAD_MAXRATE goto SELECT_UPLOAD_STUDIO_INVALID',
+              'if not defined FG_UPLOAD_BUFSIZE goto SELECT_UPLOAD_STUDIO_INVALID',
+              'set "UPLOAD_BITRATE_MODE=MANUAL"',
+              'set "UPLOAD_BITRATE_NUM=%FG_UPLOAD_BITRATE%"',
+              'set "UPLOAD_BITRATE=%FG_UPLOAD_BITRATE%k"',
+              'set "UPLOAD_MAXRATE=%FG_UPLOAD_MAXRATE%k"',
+              'set "UPLOAD_BUFSIZE=%FG_UPLOAD_BUFSIZE%k"',
+              'set "UPLOAD_FILE_TAG=X264_%FG_UPLOAD_BITRATE%k"'
+          ) -join "`r`n"
+          $matches = [regex]::Matches($bridgeText,$pattern)
+          if ($matches.Count -ne 1) { throw "Expected one Studio upload block, found $($matches.Count)" }
+          $bridgeText = [regex]::Replace($bridgeText,$pattern,[System.Text.RegularExpressions.MatchEvaluator]{ param($m) $replacement },1)
+          Write-Utf8PreserveBom $bridge $bridgeText
 
-          Replace-ExactText 'Utils\FilmGrain_Studio.ps1' "`$statusVersion.Text = 'v4.6.2'" "`$statusVersion.Text = 'v4.6.2.1'"
+          Replace-One 'Utils\FilmGrain_Studio.ps1' "`$statusVersion.Text = 'v4.6.2'" "`$statusVersion.Text = 'v4.6.2.1'"
 
-          Replace-ExactText 'README.md' '当前正式稳定版为 **v4.6.2**' '当前正式稳定版为 **v4.6.2.1**'
-          Replace-ExactText 'README.md' 'FilmGrain_Studio_v4.6.2_Stable.zip' 'FilmGrain_Studio_v4.6.2.1_Stable.zip'
-          Replace-ExactText 'README.md' '默认配置仍为 **AV1 Main10 + MP4 + AAC 256k**' "v4.6.2.1 为小型稳定性修复：修复 AV1 / HEVC 同时生成 H.264 上传版时，手动码率在 StudioBridge 中被重复校验并可能错误拒绝（例如 10000 kbps）的问题。上传版现在直接使用 GUI 已校验的平均码率、3× maxrate 与 6× bufsize；AV1 / HEVC / x264 三条主编码线的既有码率逻辑和编码参数均不变。`r`n`r`n默认配置仍为 **AV1 Main10 + MP4 + AAC 256k**"
+          Replace-One 'README.md' '当前正式稳定版为 **v4.6.2**' '当前正式稳定版为 **v4.6.2.1**'
+          Replace-One 'README.md' 'FilmGrain_Studio_v4.6.2_Stable.zip' 'FilmGrain_Studio_v4.6.2.1_Stable.zip'
+          $readmeInsert = 'v4.6.2.1 为小型稳定性修复：修复 AV1 / HEVC 同时生成 H.264 上传版时，手动码率在 StudioBridge 中被重复校验并可能错误拒绝（例如 10000 kbps）的问题。上传版现在直接使用 GUI 已校验的平均码率、3× maxrate 与 6× bufsize；AV1 / HEVC / x264 三条主编码线的既有码率逻辑和编码参数均不变。' + "`r`n`r`n" + '默认配置仍为 **AV1 Main10 + MP4 + AAC 256k**'
+          Replace-One 'README.md' '默认配置仍为 **AV1 Main10 + MP4 + AAC 256k**' $readmeInsert
 
-          $changeEntry = @'
-## v4.6.2.1 — 2026-09-12
+          $changeLines = @(
+              '## v4.6.2.1 — 2026-09-12',
+              '',
+              '- 修复 AV1 / HEVC “同时生成 H.264 上传版”在手动码率模式下可能错误提示 `Invalid Studio H.264 upload bitrate` 的问题。',
+              '- Studio GUI 已完成整数范围校验后，StudioBridge 不再对 `FG_UPLOAD_BITRATE` 重复调用第二套 PowerShell/CMD 校验，而是直接使用同一组已验证的 `FG_UPLOAD_BITRATE / FG_UPLOAD_MAXRATE / FG_UPLOAD_BUFSIZE`。',
+              '- 手动上传码率继续统一采用平均码率、`maxrate = 3×`、`bufsize = 6×`；例如 10000 kbps 对应 10000k / 30000k / 60000k。',
+              '- AV1 与 HEVC 的 H.264 上传副本共用同一修复分支；x264 主输出不创建重复的 H.264 上传副本。',
+              '- AV1 / HEVC / x264 三条主编码线现有手动码率仍走共享 `FG_BITRATE / FG_MAXRATE / FG_BUFSIZE` 路径，本次不修改其编码参数、自动码率、HDR、Grain、LUT、OpenSVPFlow、字幕或 AAC 256k 行为。',
+              '- 修复已由用户在 v4.6.2_H264UploadBitrate_TEST_K7M4Q 测试包上验证通过。',
+              '- 正式发布恢复干净版本号与文件名，不包含 TEST_K7M4Q 测试标记。',
+              ''
+          ) -join "`r`n"
+          Replace-One 'CHANGELOG.md' '## v4.6.2 — 2026-09-11' ($changeLines + "`r`n## v4.6.2 — 2026-09-11")
 
-- 修复 AV1 / HEVC “同时生成 H.264 上传版”在手动码率模式下可能错误提示 `Invalid Studio H.264 upload bitrate` 的问题。
-- Studio GUI 已完成整数范围校验后，StudioBridge 不再对 `FG_UPLOAD_BITRATE` 重复调用第二套 PowerShell/CMD 校验，而是直接使用同一组已验证的 `FG_UPLOAD_BITRATE / FG_UPLOAD_MAXRATE / FG_UPLOAD_BUFSIZE`。
-- 手动上传码率继续统一采用平均码率、`maxrate = 3×`、`bufsize = 6×`；例如 10000 kbps 对应 10000k / 30000k / 60000k。
-- AV1 与 HEVC 的 H.264 上传副本共用同一修复分支；x264 主输出不创建重复的 H.264 上传副本。
-- AV1 / HEVC / x264 三条主编码线现有手动码率仍走共享 `FG_BITRATE / FG_MAXRATE / FG_BUFSIZE` 路径，本次不修改其编码参数、自动码率、HDR、Grain、LUT、OpenSVPFlow、字幕或 AAC 256k 行为。
-- 修复已由用户在 v4.6.2_H264UploadBitrate_TEST_K7M4Q 测试包上验证通过。
-- 正式发布恢复干净版本号与文件名，不包含 TEST_K7M4Q 测试标记。
+          Replace-One 'README_FilmGrain_Studio.txt' '当前正式稳定版：v4.6.2' '当前正式稳定版：v4.6.2.1'
+          $studioDocOld = '- AV1 / HEVC 均可选“同时生成 H.264 上传版”：上传副本固定使用 x264 Grain / High 8-bit，默认 Faster + tune grain + VBR 单次，并与主线共享 Preset / Pass 设置，拥有独立自动/手动码率；OpenSVPFlow 60 fps 插帧开启时同样可用，且不会重复运行插帧。'
+          $studioDocNew = $studioDocOld + 'v4.6.2.1 修复手动上传码率被 StudioBridge 二次校验后误拒绝的问题，继续统一使用平均码率 / 3× maxrate / 6× bufsize。'
+          Replace-One 'README_FilmGrain_Studio.txt' $studioDocOld $studioDocNew
 
-'@
-          Replace-ExactText 'CHANGELOG.md' "# Film Grain Studio — CHANGELOG`r`n`r`n## v4.6.2 — 2026-09-11" ("# Film Grain Studio — CHANGELOG`r`n`r`n" + $changeEntry + '## v4.6.2 — 2026-09-11')
+          Replace-One 'README_Toolkit.txt' '当前正式稳定版：v4.6.2' '当前正式稳定版：v4.6.2.1'
+          $toolDocOld = '- AV1 / HEVC 均可同时生成 H.264 上传版；上传副本固定为 x264 Grain / High 8-bit，默认 Faster + tune grain + VBR 单次，并与主线共享 Preset / Pass 设置，同时使用独立自动/手动码率。'
+          Replace-One 'README_Toolkit.txt' $toolDocOld ($toolDocOld + 'v4.6.2.1 修复手动上传码率在 StudioBridge 中被重复校验并可能误拒绝的问题。')
+          Replace-One 'README_Toolkit.txt' '- 正式 v4.6.2 不携带 `_HardwareCaps.json`、`LUT_Reference_Current.jpg`、OpenSVPFlow 用户 DLL/备份、Smart Filter CSV 等机器/用户运行状态。' '- 正式 v4.6.2.1 不携带 `_HardwareCaps.json`、`LUT_Reference_Current.jpg`、OpenSVPFlow 用户 DLL/备份、Smart Filter CSV 等机器/用户运行状态。'
 
-          Replace-ExactText 'README_FilmGrain_Studio.txt' '当前正式稳定版：v4.6.2' '当前正式稳定版：v4.6.2.1'
-          Replace-ExactText 'README_FilmGrain_Studio.txt' '- AV1 / HEVC 均可选“同时生成 H.264 上传版”：上传副本固定使用 x264 Grain / High 8-bit，默认 Faster + tune grain + VBR 单次，并与主线共享 Preset / Pass 设置，拥有独立自动/手动码率；OpenSVPFlow 60 fps 插帧开启时同样可用，且不会重复运行插帧。' '- AV1 / HEVC 均可选“同时生成 H.264 上传版”：上传副本固定使用 x264 Grain / High 8-bit，默认 Faster + tune grain + VBR 单次，并与主线共享 Preset / Pass 设置，拥有独立自动/手动码率；OpenSVPFlow 60 fps 插帧开启时同样可用，且不会重复运行插帧。v4.6.2.1 修复手动上传码率被 StudioBridge 二次校验后误拒绝的问题，继续统一使用平均码率 / 3× maxrate / 6× bufsize。'
-
-          Replace-ExactText 'README_Toolkit.txt' '当前正式稳定版：v4.6.2' '当前正式稳定版：v4.6.2.1'
-          Replace-ExactText 'README_Toolkit.txt' '- AV1 / HEVC 均可同时生成 H.264 上传版；上传副本固定为 x264 Grain / High 8-bit，默认 Faster + tune grain + VBR 单次，并与主线共享 Preset / Pass 设置，同时使用独立自动/手动码率。' '- AV1 / HEVC 均可同时生成 H.264 上传版；上传副本固定为 x264 Grain / High 8-bit，默认 Faster + tune grain + VBR 单次，并与主线共享 Preset / Pass 设置，同时使用独立自动/手动码率。v4.6.2.1 修复手动上传码率在 StudioBridge 中被重复校验并可能误拒绝的问题。'
-          Replace-ExactText 'README_Toolkit.txt' '- 正式 v4.6.2 不携带 `_HardwareCaps.json`、`LUT_Reference_Current.jpg`、OpenSVPFlow 用户 DLL/备份、Smart Filter CSV 等机器/用户运行状态。' '- 正式 v4.6.2.1 不携带 `_HardwareCaps.json`、`LUT_Reference_Current.jpg`、OpenSVPFlow 用户 DLL/备份、Smart Filter CSV 等机器/用户运行状态。'
-
-          Replace-ExactText 'STABLE_BASELINE.txt' "Baseline:`r`nv4.6.2`r`n`r`nSupersedes:`r`nv4.6.1`r`n`r`nFormal release:`r`nFilmGrain_Studio_v4.6.2_Stable.zip" "Baseline:`r`nv4.6.2.1`r`n`r`nSupersedes:`r`nv4.6.2`r`n`r`nFormal release:`r`nFilmGrain_Studio_v4.6.2.1_Stable.zip"
-          Replace-ExactText 'STABLE_BASELINE.txt' 'Inherited v4.6.1 baseline:' "v4.6.2.1 patch changes:`r`n- Fixes Studio Manual bitrate for the optional H.264 upload copy used by AV1 and HEVC.`r`n- StudioBridge now directly consumes GUI-validated FG_UPLOAD_BITRATE / FG_UPLOAD_MAXRATE / FG_UPLOAD_BUFSIZE values instead of running a redundant second validator.`r`n- Manual H.264 upload bitrate keeps average / 3x maxrate / 6x bufsize behavior.`r`n- AV1 / HEVC / x264 main bitrate paths and all encoder, HDR, Grain, LUT, OpenSVPFlow, subtitle and AAC settings remain unchanged.`r`n- User validation completed on v4.6.2_H264UploadBitrate_TEST_K7M4Q.`r`n`r`nInherited v4.6.1 baseline:"
+          Replace-One 'STABLE_BASELINE.txt' "Baseline:`r`nv4.6.2`r`n`r`nSupersedes:`r`nv4.6.1`r`n`r`nFormal release:`r`nFilmGrain_Studio_v4.6.2_Stable.zip" "Baseline:`r`nv4.6.2.1`r`n`r`nSupersedes:`r`nv4.6.2`r`n`r`nFormal release:`r`nFilmGrain_Studio_v4.6.2.1_Stable.zip"
+          $baselineInsert = @(
+              'v4.6.2.1 patch changes:',
+              '- Fixes Studio Manual bitrate for the optional H.264 upload copy used by AV1 and HEVC.',
+              '- StudioBridge now directly consumes GUI-validated FG_UPLOAD_BITRATE / FG_UPLOAD_MAXRATE / FG_UPLOAD_BUFSIZE values instead of running a redundant second validator.',
+              '- Manual H.264 upload bitrate keeps average / 3x maxrate / 6x bufsize behavior.',
+              '- AV1 / HEVC / x264 main bitrate paths and all encoder, HDR, Grain, LUT, OpenSVPFlow, subtitle and AAC settings remain unchanged.',
+              '- User validation completed on v4.6.2_H264UploadBitrate_TEST_K7M4Q.',
+              '',
+              'Inherited v4.6.1 baseline:'
+          ) -join "`r`n"
+          Replace-One 'STABLE_BASELINE.txt' 'Inherited v4.6.1 baseline:' $baselineInsert
 
       - name: Validate formal source
         shell: pwsh
@@ -211,25 +220,25 @@ set "UPLOAD_FILE_TAG=X264_%FG_UPLOAD_BITRATE%k"
           GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $notes = @'
-# Film Grain Studio v4.6.2.1
-
-Small stability update based on the user-validated v4.6.2 line.
-
-## Fixed
-
-- Fixes AV1 / HEVC optional H.264 upload-copy Manual bitrate being rejected by a redundant second StudioBridge validator on some Windows / PowerShell environments.
-- StudioBridge now directly consumes the GUI-validated `FG_UPLOAD_BITRATE`, `FG_UPLOAD_MAXRATE`, and `FG_UPLOAD_BUFSIZE` values.
-- Manual H.264 upload bitrate continues to use average bitrate with `maxrate = 3×` and `bufsize = 6×` (for example, 10000 kbps -> 10000k / 30000k / 60000k).
-- AV1 and HEVC share the same corrected H.264 upload path.
-
-## Unchanged
-
-- AV1 / HEVC / x264 main bitrate paths and encoding parameters.
-- HDR Preserve, Grain, LUT, OpenSVPFlow, subtitles, AAC 256k, Auto bitrate, Batch Summary and MPEG-TS timing behavior.
-
-The fix was user-tested successfully in `v4.6.2_H264UploadBitrate_TEST_K7M4Q` before formal release.
-'@
+          $notes = @(
+              '# Film Grain Studio v4.6.2.1',
+              '',
+              'Small stability update based on the user-validated v4.6.2 line.',
+              '',
+              '## Fixed',
+              '',
+              '- Fixes AV1 / HEVC optional H.264 upload-copy Manual bitrate being rejected by a redundant second StudioBridge validator on some Windows / PowerShell environments.',
+              '- StudioBridge now directly consumes the GUI-validated `FG_UPLOAD_BITRATE`, `FG_UPLOAD_MAXRATE`, and `FG_UPLOAD_BUFSIZE` values.',
+              '- Manual H.264 upload bitrate continues to use average bitrate with `maxrate = 3×` and `bufsize = 6×` (for example, 10000 kbps -> 10000k / 30000k / 60000k).',
+              '- AV1 and HEVC share the same corrected H.264 upload path.',
+              '',
+              '## Unchanged',
+              '',
+              '- AV1 / HEVC / x264 main bitrate paths and encoding parameters.',
+              '- HDR Preserve, Grain, LUT, OpenSVPFlow, subtitles, AAC 256k, Auto bitrate, Batch Summary and MPEG-TS timing behavior.',
+              '',
+              'The fix was user-tested successfully in `v4.6.2_H264UploadBitrate_TEST_K7M4Q` before formal release.'
+          ) -join "`r`n"
           $notesPath = Join-Path $env:RUNNER_TEMP 'FGS_v4621_release_notes.md'
           [System.IO.File]::WriteAllText($notesPath,$notes,(New-Object System.Text.UTF8Encoding($false)))
 
