@@ -1,0 +1,71 @@
+name: Build v4.6.3 Windows CRLF TEST M8Q4X
+
+on:
+  push:
+    paths:
+      - '.github/workflows/build-v463-crlf-test-m8q4x.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout v4.6.3
+        uses: actions/checkout@v4
+        with:
+          ref: v4.6.3
+          fetch-depth: 0
+
+      - name: Normalize Windows script encodings
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+          $utf8Bom = New-Object System.Text.UTF8Encoding($true)
+          Get-ChildItem -Recurse -File -Include *.bat,*.vbs | ForEach-Object {
+              $text = [IO.File]::ReadAllText($_.FullName)
+              $text = $text -replace "`r?`n", "`r`n"
+              [IO.File]::WriteAllText($_.FullName, $text, $utf8NoBom)
+          }
+          Get-ChildItem -Recurse -File -Include *.ps1 | ForEach-Object {
+              $text = [IO.File]::ReadAllText($_.FullName)
+              $text = $text -replace "`r?`n", "`r`n"
+              if ($text.IndexOf([char]0x201C) -ge 0 -or $text.IndexOf([char]0x201D) -ge 0 -or $text.IndexOf([char]0x2018) -ge 0 -or $text.IndexOf([char]0x2019) -ge 0) { throw "Chinese curly quote found in PS1: $($_.FullName)" }
+              [IO.File]::WriteAllText($_.FullName, $text, $utf8Bom)
+          }
+
+      - name: Validate StudioBridge labels and CRLF
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bridge = Join-Path $PWD 'Utils\FilmGrain_Universal_HEVC_AV1_StudioBridge.bat'
+          $bytes = [IO.File]::ReadAllBytes($bridge)
+          if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) { throw 'StudioBridge BAT has UTF-8 BOM' }
+          $text = [IO.File]::ReadAllText($bridge)
+          if ($text -notmatch '(?m)^:RUN_LUT_AV1_DONE\s*$') { throw 'RUN_LUT_AV1_DONE label missing' }
+          if ($text -notmatch '(?m)^goto RUN_LUT_AV1_DONE\s*$') { throw 'goto RUN_LUT_AV1_DONE missing' }
+          $lf = 0; $crlf = 0
+          for ($i = 0; $i -lt $bytes.Length; $i++) { if ($bytes[$i] -eq 0x0A) { $lf++; if ($i -gt 0 -and $bytes[$i-1] -eq 0x0D) { $crlf++ } } }
+          if ($lf -ne $crlf) { throw "StudioBridge contains non-CRLF line endings: LF=$lf CRLF=$crlf" }
+          Write-Host "StudioBridge validation OK: LF=$lf CRLF=$crlf"
+
+      - name: Remove runtime state and package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Remove-Item -LiteralPath 'Utils\_HardwareCaps.json' -Force -ErrorAction SilentlyContinue
+          Remove-Item -LiteralPath '_LUT_Tools\LUT_Reference_Current.jpg' -Force -ErrorAction SilentlyContinue
+          Remove-Item -LiteralPath '_OpenSVPFlow\_PluginBackup' -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -LiteralPath '_OpenSVPFlow\Plugins\open-svpflow-version.txt' -Force -ErrorAction SilentlyContinue
+          Remove-Item -LiteralPath '.git' -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -LiteralPath '.github' -Recurse -Force -ErrorAction SilentlyContinue
+          $out = Join-Path $env:RUNNER_TEMP 'FilmGrain_Studio_v4.6.3_CRLF_TEST_M8Q4X.zip'
+          Compress-Archive -Path * -DestinationPath $out -CompressionLevel Optimal
+          Copy-Item $out (Join-Path $PWD 'FilmGrain_Studio_v4.6.3_CRLF_TEST_M8Q4X.zip')
+
+      - name: Upload test package
+        uses: actions/upload-artifact@v4
+        with:
+          name: FilmGrain_Studio_v4.6.3_CRLF_TEST_M8Q4X
+          path: FilmGrain_Studio_v4.6.3_CRLF_TEST_M8Q4X.zip
+          if-no-files-found: error
