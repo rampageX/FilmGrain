@@ -35,6 +35,13 @@ jobs:
           # Windows PowerShell 5 requires a BOM for reliable UTF-8 parsing of Chinese literals.
           $scriptPath = Join-Path $payload 'release-v470.ps1'
           $scriptText = [System.IO.File]::ReadAllText($scriptPath,[System.Text.Encoding]::UTF8)
+
+          # v4.7.0 Stable uses GRAIN_ENGINE=PROCEDURAL for Digital Grain; there is no literal DIGITAL_GRAIN token in StudioBridge.
+          $oldMarkerList = "'HDR_TO_SDR','Hable','Mobius','Reinhard','Gamma','Linear','Clip','DIGITAL_GRAIN'"
+          $newMarkerList = "'HDR_TO_SDR','Hable','Mobius','Reinhard','Gamma','Linear','Clip','GRAIN_ENGINE'"
+          if (-not $scriptText.Contains($oldMarkerList)) { throw 'Expected v4.7.0 marker validation list not found in release payload.' }
+          $scriptText = $scriptText.Replace($oldMarkerList,$newMarkerList)
+
           [System.IO.File]::WriteAllText($scriptPath,$scriptText,(New-Object System.Text.UTF8Encoding($true)))
 
           # Remove the diagnostic file from the previous failed attempt before the formal commit.
