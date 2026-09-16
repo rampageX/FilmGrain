@@ -1,0 +1,34 @@
+name: Release Film Grain Studio v4.7.0
+
+on:
+  push:
+    branches: [master]
+    paths: ['.github/release/v470-trigger.txt']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run v4.7.0 Windows release payload
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $parts = Get-ChildItem -LiteralPath '.github\release' -File -Filter 'v470_payload_*.b64' | Sort-Object Name
+          if (-not $parts) { throw 'v4.7.0 payload chunks not found.' }
+          $b64 = ($parts | ForEach-Object { (Get-Content -LiteralPath $_.FullName -Raw).Trim() }) -join ''
+          $temp = Join-Path $env:RUNNER_TEMP ('fgs470_' + [guid]::NewGuid().ToString('N'))
+          New-Item -ItemType Directory -Path $temp -Force | Out-Null
+          $zip = Join-Path $temp 'payload.zip'
+          $payload = Join-Path $temp 'payload'
+          [System.IO.File]::WriteAllBytes($zip,[Convert]::FromBase64String($b64))
+          Expand-Archive -LiteralPath $zip -DestinationPath $payload -Force
+          & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $payload 'release-v470.ps1') -PayloadRoot $payload
+          if ($LASTEXITCODE -ne 0) { throw "v4.7.0 release payload failed with exit code $LASTEXITCODE." }
