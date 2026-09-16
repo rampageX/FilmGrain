@@ -1,7 +1,7 @@
 ﻿Film Grain Studio - 使用说明
 ============================
 
-当前正式稳定版：v4.6.3.1
+当前正式稳定版：v4.7.0
 
 这是 Universal Film Grain Toolkit 的图形前端。
 CLI 与 GUI Bridge 共享同一套编码逻辑，并分别提供交互菜单和图形界面。
@@ -20,8 +20,9 @@ Studio 打开后会自动加入文件列表。
 - 选中单个输入视频时显示视频/音频编码、码率、分辨率、帧率与时长。
 - v4.6.2 新增 HDR Preserve：HEVC Main10 / AV1 Main10 对 HDR 输入保持 10-bit、BT.2020、PQ/HLG 与源本来存在的 HDR10 静态元数据；HEVC 显式强制 P010 10-bit，并在最终输出检查 HDR Primaries / Transfer / Matrix / Range。
 - 源文件没有 Mastering Display / MaxCLL / MaxFALL 时不会伪造；YouTube 等只有 BT.2020 + PQ + 10-bit 的 HDR 输入可正常保持现有信号。
-- 当前 HDR 输入自动旁路 OpenSVPFlow YUV420P8、H.264 x264 HDR 主输出、H.264 上传版和现有 SDR/BT.709 LUT；GUI 选中单个 HDR 文件后会同步灰显这些不兼容区域，切回 SDR 自动恢复。
+- v4.7.0 新增 HDR 处理策略：自动（默认）/ 保持 HDR / 强制 SDR。自动模式遇到 x264、BT.709 LUT、OpenSVPFlow 或 H.264 上传版时，先用 Hable（可选 Mobius / Reinhard / Gamma / Linear / Clip）Tone Mapping 到 BT.709 SDR，再继续原有 SDR 流程。
 - 编码方式：AV1 · grav1synth 胶片颗粒（默认）、HEVC · 扫描胶片颗粒、H.264 · x264 Grain（CPU / VBR 单次）；单个 AV1 还可选择不重编码添加/替换胶片颗粒。
+- v4.7.0 新增三线共用“数字颗粒 · Fast Noise”：AV1 / HEVC / x264 均可直接像素烘焙，强度滑杆 0.10–1.00，默认 0.55；参考 0.30 轻微、0.40 轻、0.55 中等、0.68 约接近 HEVC CT35 85%、0.75+ 明显/偏重。AV1 / HEVC HDR Preserve 使用 10-bit 亮度颗粒路径。
 - MP4（默认）与 MKV。
 - FAST（默认）、Standard；硬件探测通过时 AV1 还可选 UHQ。
 - AV1 / HEVC / H.264 共用自动码率策略：按分辨率 + 最终 FPS + 高动态实时推荐并直接显示具体 kbps；取消“自动”后可手动输入且不被覆盖。

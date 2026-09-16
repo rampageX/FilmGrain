@@ -1,7 +1,7 @@
 ﻿Universal Film Grain Toolkit
 =============================
 
-当前正式稳定版：v4.6.3.1
+当前正式稳定版：v4.7.0
 
 版本与命名
 ----------
@@ -73,9 +73,10 @@ FilmGrain_Universal_HEVC_AV1_CLI.bat
 - v4.6.2 包内整理的公开 Grain Table 主要来自 Boulder08/chunknorris 与 nekotrix/AV1-Photon-Noise-Tables；具体来源记录在 `_AV1_Grain_Tables\README.txt`。
 - HEVC Main10：使用扫描 Grain plate、Vulkan overlay 和 NVENC 编码。
 - H.264 x264 Grain：与 HEVC 共用扫描 Grain / LUT / 画幅 / 反交错 / OpenSVPFlow 前处理，默认使用 libx264 faster + tune grain + VBR 单次；高级设置可选 Medium / Slow 与 VBR 2-Pass；默认最终输出 High 8-bit，也可启用 High10 实验模式。
+- v4.7.0 新增数字颗粒 Fast Noise：AV1 / HEVC / x264 三线共用，像素烘焙，强度 0.10–1.00，默认 0.55；0.68 约接近 HEVC CT35 85% 的颗粒存在感。AV1 / HEVC HDR Preserve 下使用 10-bit 亮度颗粒。
 - v4.6.2 HDR Preserve 覆盖 HEVC Main10 / AV1 Main10：保持实际 10-bit、BT.2020、PQ/HLG、Matrix/Range 与源本来存在的 HDR10 Mastering Display / MaxCLL / MaxFALL；源缺失时不伪造。
 - HEVC HDR 显式强制 P010 10-bit；最终输出通过 FFprobe 校验 HDR Primaries / Transfer / Matrix / Range。
-- 当前 HDR 自动旁路 OpenSVPFlow YUV420P8、H.264 x264 HDR 主输出、H.264 上传版及现有 SDR/BT.709 LUT；GUI 对单个 HDR 文件同步灰显这些区域。
+- v4.7.0 新增 HDR 自动兼容：AV1/HEVC 可保持 HDR 时继续 HDR Preserve；遇到 x264、BT.709 LUT、OpenSVPFlow 或 H.264 上传版时，可自动先 Tone Mapping 为 BT.709 SDR。
 - 共享速度、画幅、反交错、帧率、容器、LUT Gallery、码率和批量处理菜单。
 - 默认编码方式：AV1。
 - 默认输出容器：MP4（音频转 AAC 256k，不兼容的字幕、附件和数据流不写入）。
@@ -127,7 +128,7 @@ _OpenSVPFlow\01_Update_OpenSVPFlow.bat
 
 更新器会在替换插件前后执行 CPU / GPU/OpenCL smoke test，备份当前 DLL，
 安装后验证失败则自动回滚。正式发布包不携带用户本机安装后的 DLL、version state
-或 _PluginBackup。当前 HDR 输入因 OpenSVPFlow 集成为 YUV420P8 而自动旁路插帧。
+或 _PluginBackup。OpenSVPFlow 集成仍为 YUV420P8 SDR 路线；v4.7.0 的 HDR 自动兼容可先 Tone Mapping 到 BT.709 SDR，再进入 OpenSVPFlow。
 
 2. 社交网站转码工具
 -------------------
@@ -181,6 +182,6 @@ GUI 以非交互模式调用同一 BAT，单独双击 BAT 时仍保留 1 / 2 / 3
   为 RTX 4080 / T600 Laptop 手工切换 B-frame 或 Temporal AQ。
 - 输出文件已存在时，脚本会跳过，避免覆盖现有结果。
 - AV1 免重编码工具失败时默认保留临时目录，便于查看日志。
-- HDR Preserve 当前不包含 HDR→SDR Tone Mapping、Dolby Vision RPU、HDR10+ 动态 metadata 或 HDR OpenSVPFlow 插帧。
+- v4.7.0 已提供 HDR→SDR Tone Mapping fallback；OpenSVPFlow 仍是 SDR/YUV420P8 路线，因此 HDR 输入需要先转 SDR。仍不处理 Dolby Vision RPU 或 HDR10+ 动态 metadata。
 - LUT 智能过滤是保守初筛；无法高置信确认的 LUT 优先保留。
-- 正式 v4.6.2.1 不携带 `_HardwareCaps.json`、`LUT_Reference_Current.jpg`、OpenSVPFlow 用户 DLL/备份、Smart Filter CSV 等机器/用户运行状态。
+- 正式 v4.7.0 不携带 `_HardwareCaps.json`、`LUT_Reference_Current.jpg`、OpenSVPFlow 用户 DLL/备份、Smart Filter CSV 等机器/用户运行状态。

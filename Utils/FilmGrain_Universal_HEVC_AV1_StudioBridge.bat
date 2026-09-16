@@ -3,6 +3,7 @@ setlocal DisableDelayedExpansion
 
 rem ============================================================
 rem  Universal Film Grain pipeline - Studio bridge
+rem  v4.7.0 Stable - Digital Grain + HDR-to-SDR
 rem
 rem  HEVC backend baseline:
 rem    HEVC - scanned Grain plate + Vulkan overlay + NVENC
@@ -81,6 +82,17 @@ set "LAST_ERROR_LOG="
 set "STUDIO_FFMPEG_PROGRESS_ARGS="
 set "SFE_ARGS="
 set "SFE_LABEL=Disabled"
+set "GRAIN_ENGINE=NATIVE"
+set "PROC_STRENGTH=55"
+set "PROC_MASK=0.55"
+set "PROC_LABEL=Medium"
+set "HDR_POLICY=AUTO"
+set "TONEMAP_ALGO=hable"
+set "TONEMAP_LABEL=Hable"
+set "HDR_SDR_WORKFILE="
+set "HDR_SDR_ORIGINAL_INPUT="
+set "HDR_TONEMAPPED=0"
+set "HDR_FILE_SUFFIX="
 
 rem Film Grain Studio only supplies validated values through FG_* variables.
 rem With FG_STUDIO_MODE unset this BAT keeps the original interactive flow.
@@ -121,13 +133,19 @@ set "REQUESTED_FPS_MODE=%FPS_MODE%"
 if /i "%FPS_MODE%"=="SVP60" call :CHECK_OPEN_SVP_TOOLS
 if errorlevel 1 goto FATAL_END
 call :SELECT_CONTAINER
+call :SELECT_HDR_POLICY
+if errorlevel 1 goto FATAL_END
 call :SELECT_FILM_LUT
 
-if /i "%MODE%"=="HEVC" call :SELECT_HEVC_GRAIN
-if /i "%MODE%"=="X264" call :SELECT_HEVC_GRAIN
+call :SELECT_GRAIN_ENGINE
 if errorlevel 1 goto FATAL_END
-
-if /i "%MODE%"=="AV1" call :SELECT_AV1_GRAIN
+if /i "%GRAIN_ENGINE%"=="PROCEDURAL" (
+    call :SELECT_PROCEDURAL_GRAIN
+) else (
+    if /i "%MODE%"=="HEVC" call :SELECT_HEVC_GRAIN
+    if /i "%MODE%"=="X264" call :SELECT_HEVC_GRAIN
+    if /i "%MODE%"=="AV1" call :SELECT_AV1_GRAIN
+)
 if errorlevel 1 goto FATAL_END
 
 call :SELECT_MAIN_BITRATE
@@ -1061,6 +1079,163 @@ if "%LUT_STRENGTH_SEL%"=="4" (
 set "LUT_ENABLED=1"
 set "LUT_LABEL=%LUT_RELATIVE% @ %LUT_STRENGTH_PCT%%%"
 set "LUT_FILE_SUFFIX=_LUT_%LUT_NAME%_%LUT_STRENGTH_PCT%"
+exit /b 0
+
+
+rem ============================================================
+rem Shared Grain engine selector - native or procedural pixels
+rem ============================================================
+
+:SELECT_HDR_POLICY
+set "HDR_POLICY=AUTO"
+set "TONEMAP_ALGO=hable"
+set "TONEMAP_LABEL=Hable"
+if "%FG_STUDIO_MODE%"=="1" goto SELECT_HDR_POLICY_STUDIO
+
+echo.
+echo HDR input handling:
+echo.
+echo   [1] Auto fallback ^(default / recommended^)
+echo       Preserve HDR unless the selected workflow needs SDR.
+echo   [2] Preserve HDR / None
+echo   [3] Force HDR to SDR for every PQ / HLG input
+echo.
+set "HDR_POLICY_SEL=1"
+set /p "HDR_POLICY_SEL=Select [1-3, default 1]: "
+if "%HDR_POLICY_SEL%"=="2" set "HDR_POLICY=PRESERVE"
+if "%HDR_POLICY_SEL%"=="3" set "HDR_POLICY=SDR"
+if /i "%HDR_POLICY%"=="PRESERVE" exit /b 0
+
+echo.
+echo HDR to SDR Tone Mapping:
+echo.
+echo   [1] Hable ^(default^)
+echo   [2] Mobius
+echo   [3] Reinhard
+echo   [4] Gamma
+echo   [5] Linear
+echo   [6] Clip
+echo.
+set "TONEMAP_SEL=1"
+set /p "TONEMAP_SEL=Select [1-6, default 1]: "
+if "%TONEMAP_SEL%"=="2" set "TONEMAP_ALGO=mobius"
+if "%TONEMAP_SEL%"=="3" set "TONEMAP_ALGO=reinhard"
+if "%TONEMAP_SEL%"=="4" set "TONEMAP_ALGO=gamma"
+if "%TONEMAP_SEL%"=="5" set "TONEMAP_ALGO=linear"
+if "%TONEMAP_SEL%"=="6" set "TONEMAP_ALGO=clip"
+goto SELECT_HDR_POLICY_LABEL
+
+:SELECT_HDR_POLICY_STUDIO
+if /i "%FG_HDR_POLICY%"=="PRESERVE" set "HDR_POLICY=PRESERVE"
+if /i "%FG_HDR_POLICY%"=="SDR" set "HDR_POLICY=SDR"
+if /i "%FG_HDR_POLICY%"=="AUTO" set "HDR_POLICY=AUTO"
+if /i "%FG_TONEMAP_ALGO%"=="mobius" set "TONEMAP_ALGO=mobius"
+if /i "%FG_TONEMAP_ALGO%"=="reinhard" set "TONEMAP_ALGO=reinhard"
+if /i "%FG_TONEMAP_ALGO%"=="gamma" set "TONEMAP_ALGO=gamma"
+if /i "%FG_TONEMAP_ALGO%"=="linear" set "TONEMAP_ALGO=linear"
+if /i "%FG_TONEMAP_ALGO%"=="clip" set "TONEMAP_ALGO=clip"
+if /i "%FG_TONEMAP_ALGO%"=="hable" set "TONEMAP_ALGO=hable"
+
+:SELECT_HDR_POLICY_LABEL
+set "TONEMAP_LABEL=Hable"
+if /i "%TONEMAP_ALGO%"=="mobius" set "TONEMAP_LABEL=Mobius"
+if /i "%TONEMAP_ALGO%"=="reinhard" set "TONEMAP_LABEL=Reinhard"
+if /i "%TONEMAP_ALGO%"=="gamma" set "TONEMAP_LABEL=Gamma"
+if /i "%TONEMAP_ALGO%"=="linear" set "TONEMAP_LABEL=Linear"
+if /i "%TONEMAP_ALGO%"=="clip" set "TONEMAP_LABEL=Clip"
+exit /b 0
+
+
+:SELECT_GRAIN_ENGINE
+set "GRAIN_ENGINE=NATIVE"
+if "%FG_STUDIO_MODE%"=="1" (
+    if /i "%FG_GRAIN_ENGINE%"=="PROCEDURAL" set "GRAIN_ENGINE=PROCEDURAL"
+    exit /b 0
+)
+
+echo.
+echo Grain engine:
+echo.
+echo   [1] Native codec Grain path ^(default^)
+echo   [2] Digital Fast Noise Grain ^(pixel-baked / SDR + HDR10/HLG beta^)
+echo.
+set "GRAIN_ENGINE_SEL=1"
+set /p "GRAIN_ENGINE_SEL=Select [1-2, default 1]: "
+if "%GRAIN_ENGINE_SEL%"=="2" set "GRAIN_ENGINE=PROCEDURAL"
+exit /b 0
+
+
+:SELECT_PROCEDURAL_GRAIN
+set "PROC_STRENGTH=55"
+if "%FG_STUDIO_MODE%"=="1" goto SELECT_PROCEDURAL_GRAIN_STUDIO
+
+echo.
+echo Digital Grain strength:
+echo.
+echo   [1] Subtle preset  0.30
+echo   [2] Medium preset  0.55
+echo   [3] Custom slider-equivalent value 0.10 - 1.00
+echo       Reference: 0.40 Light / 0.68 near CT35 85%% / 0.75+ Heavy
+echo.
+set "PROC_SEL=2"
+set /p "PROC_SEL=Select [1-3, default 2]: "
+if "%PROC_SEL%"=="1" set "PROC_STRENGTH=30"
+if "%PROC_SEL%"=="2" set "PROC_STRENGTH=55"
+if not "%PROC_SEL%"=="3" goto SELECT_PROCEDURAL_GRAIN_READY
+set "PROC_CUSTOM="
+set /p "PROC_CUSTOM=Enter integer strength [10-100, e.g. 55 = 0.55]: "
+set "PROC_INVALID="
+for /f "delims=0123456789" %%A in ("%PROC_CUSTOM%") do set "PROC_INVALID=1"
+if defined PROC_INVALID (
+    echo Invalid custom strength. Falling back to 55.
+    set "PROC_STRENGTH=55"
+    goto SELECT_PROCEDURAL_GRAIN_READY
+)
+if not defined PROC_CUSTOM (
+    set "PROC_STRENGTH=55"
+    goto SELECT_PROCEDURAL_GRAIN_READY
+)
+if "%PROC_CUSTOM:~0,1%"=="0" (
+    echo Leading zero is not allowed. Falling back to 55.
+    set "PROC_STRENGTH=55"
+    goto SELECT_PROCEDURAL_GRAIN_READY
+)
+set /a PROC_CUSTOM_NUM=%PROC_CUSTOM% >nul 2>&1
+if %PROC_CUSTOM_NUM% LSS 10 set "PROC_CUSTOM_NUM=10"
+if %PROC_CUSTOM_NUM% GTR 100 set "PROC_CUSTOM_NUM=100"
+set "PROC_STRENGTH=%PROC_CUSTOM_NUM%"
+goto SELECT_PROCEDURAL_GRAIN_READY
+
+:SELECT_PROCEDURAL_GRAIN_STUDIO
+if defined FG_PROC_STRENGTH set "PROC_STRENGTH=%FG_PROC_STRENGTH%"
+
+:SELECT_PROCEDURAL_GRAIN_READY
+set "PROC_INVALID="
+for /f "delims=0123456789" %%A in ("%PROC_STRENGTH%") do set "PROC_INVALID=1"
+if defined PROC_INVALID set "PROC_STRENGTH=55"
+if not defined PROC_STRENGTH set "PROC_STRENGTH=55"
+if "%PROC_STRENGTH:~0,1%"=="0" set "PROC_STRENGTH=55"
+set /a PROC_STRENGTH_NUM=%PROC_STRENGTH% >nul 2>&1
+if %PROC_STRENGTH_NUM% LSS 10 set "PROC_STRENGTH_NUM=10"
+if %PROC_STRENGTH_NUM% GTR 100 set "PROC_STRENGTH_NUM=100"
+set "PROC_STRENGTH=%PROC_STRENGTH_NUM%"
+set "PROC_MASK=0.%PROC_STRENGTH%"
+if "%PROC_STRENGTH%"=="100" set "PROC_MASK=1.00"
+set "PROC_LABEL=Slider"
+if "%PROC_STRENGTH%"=="30" set "PROC_LABEL=Subtle"
+if "%PROC_STRENGTH%"=="40" set "PROC_LABEL=Light"
+if "%PROC_STRENGTH%"=="55" set "PROC_LABEL=Medium"
+if "%PROC_STRENGTH%"=="68" set "PROC_LABEL=CT35_85_Ref"
+set "GRAIN_MODE=PROCEDURAL"
+set "GRAIN_LABEL=Digital Fast Noise / %PROC_LABEL% %PROC_MASK%"
+set "GRAIN_FILE_TAG=DG%PROC_STRENGTH%"
+set "HEVC_SUFFIX=_FG_DG%PROC_STRENGTH%_HEVC"
+if /i "%SPEED_LABEL%"=="FAST" set "HEVC_SUFFIX=_FG_DG%PROC_STRENGTH%_FAST_HEVC"
+echo.
+echo Digital Grain   : %PROC_LABEL% / mask %PROC_MASK%
+echo Slider range     : 0.10 - 1.00 / step 0.01 in Studio GUI
+echo SDR path         : YUV420P8 calibrated synthesis
+echo HDR path         : YUV420P10 4x-scaled mask constants, luma-only merge
 exit /b 0
 
 
@@ -2367,21 +2542,26 @@ if "%HIGH_MOTION%"=="1" (
 ) else (
     echo High motion   : Disabled
 )
-echo Grain folder  : %GRAIN_ROOT%
-echo Grain plate   : %GRAIN_LABEL%
-echo Grain opacity : %GRAIN_OPACITY%
-echo Blend engine  : Vulkan GPU
-echo Pipeline      : shared 10-bit processing -^> x264 %X264_DEPTH_LABEL%
+echo Grain engine  : %GRAIN_ENGINE%
+echo Grain profile : %GRAIN_LABEL%
+if /i "%GRAIN_ENGINE%"=="NATIVE" echo Grain folder  : %GRAIN_ROOT%
+if /i "%GRAIN_ENGINE%"=="NATIVE" echo Grain opacity : %GRAIN_OPACITY%
+if /i "%GRAIN_ENGINE%"=="NATIVE" echo Blend engine  : Vulkan GPU
+if /i "%GRAIN_ENGINE%"=="PROCEDURAL" echo Blend engine  : CPU Digital Fast Noise / calibrated %PROC_MASK%
+echo Pipeline      : shared processing -^> x264 %X264_DEPTH_LABEL%
 echo Output        : H.264 / %CONTAINER_MODE%
+echo HDR handling  : %HDR_POLICY% / Tone Mapping %TONEMAP_LABEL%
 echo ============================================================
 echo.
 exit /b 0
 
 :SHOW_HEVC_SESSION
-echo Grain folder  : %GRAIN_ROOT%
-echo Grain plate   : %GRAIN_LABEL%
-echo Grain opacity : %GRAIN_OPACITY%
-echo Blend engine  : Vulkan GPU
+echo Grain engine  : %GRAIN_ENGINE%
+echo Grain profile : %GRAIN_LABEL%
+if /i "%GRAIN_ENGINE%"=="NATIVE" echo Grain folder  : %GRAIN_ROOT%
+if /i "%GRAIN_ENGINE%"=="NATIVE" echo Grain opacity : %GRAIN_OPACITY%
+if /i "%GRAIN_ENGINE%"=="NATIVE" echo Blend engine  : Vulkan GPU
+if /i "%GRAIN_ENGINE%"=="PROCEDURAL" echo Blend engine  : CPU Digital Fast Noise / calibrated %PROC_MASK%
 echo Vulkan device : %VULKAN_DEVICE%
 echo CUDA device   : %CUDA_DEVICE%
 if "%FG_CAP_NVDEC%"=="1" (
@@ -2390,6 +2570,7 @@ if "%FG_CAP_NVDEC%"=="1" (
     echo Main decode   : Software
 )
 echo Output        : HEVC Main10 / %CONTAINER_MODE%
+echo HDR handling  : %HDR_POLICY% / Tone Mapping %TONEMAP_LABEL%
 echo ============================================================
 echo.
 exit /b 0
@@ -2406,8 +2587,13 @@ if "%LUT_ENABLED%"=="1" (
         echo Main decode   : Software
     )
 )
-echo Pipeline      : AV1 NVENC -^> IVF -^> grav1synth -^> remux -^> verify
+if /i "%GRAIN_ENGINE%"=="PROCEDURAL" (
+    echo Pipeline      : Digital Grain pixels -^> AV1 NVENC -^> remux -^> verify
+) else (
+    echo Pipeline      : AV1 NVENC -^> IVF -^> grav1synth -^> remux -^> verify
+)
 echo Output        : AV1 Main10 / %CONTAINER_MODE%
+echo HDR handling  : %HDR_POLICY% / Tone Mapping %TONEMAP_LABEL%
 echo ============================================================
 echo.
 exit /b 0
@@ -2418,6 +2604,7 @@ rem Shared multi-file loop and probe
 rem ============================================================
 
 :PROCESS_NEXT
+call :CLEAN_HDR_TO_SDR_WORKFILE
 if "%~1"=="" goto FINISHED
 
 set "INPUT=%~f1"
@@ -2430,6 +2617,10 @@ set "LUT_ENABLED=%SESSION_LUT_ENABLED%"
 set "LUT_LABEL=%SESSION_LUT_LABEL%"
 set "LUT_FILE_SUFFIX=%SESSION_LUT_FILE_SUFFIX%"
 set "HDR_UPLOAD_SKIP=0"
+set "HDR_TONEMAPPED=0"
+set "HDR_FILE_SUFFIX="
+set "HDR_SOURCE_LABEL="
+set "HDR_CONVERT_TO_SDR=0"
 if /i "%MODE%"=="AV1" set "TOTAL_STAGES=4"
 if /i "%MODE%"=="AV1" if "%ENABLE_UPLOAD_BAKE%"=="1" set "TOTAL_STAGES=5"
 set "SVP_SYNC_GLOBAL_ARGS="
@@ -2450,6 +2641,44 @@ if errorlevel 1 (
     goto PROCESS_NEXT
 )
 
+if "%HDR_ACTIVE%"=="1" if /i "%HDR_POLICY%"=="SDR" set "HDR_CONVERT_TO_SDR=1"
+if "%HDR_ACTIVE%"=="1" if /i "%HDR_POLICY%"=="AUTO" if /i "%MODE%"=="X264" set "HDR_CONVERT_TO_SDR=1"
+if "%HDR_ACTIVE%"=="1" if /i "%HDR_POLICY%"=="AUTO" if "%LUT_ENABLED%"=="1" set "HDR_CONVERT_TO_SDR=1"
+if "%HDR_ACTIVE%"=="1" if /i "%HDR_POLICY%"=="AUTO" if "%ENABLE_UPLOAD_BAKE%"=="1" set "HDR_CONVERT_TO_SDR=1"
+if "%HDR_ACTIVE%"=="1" if /i "%HDR_POLICY%"=="AUTO" if /i "%REQUESTED_FPS_MODE%"=="SVP60" set "HDR_CONVERT_TO_SDR=1"
+
+if not "%HDR_CONVERT_TO_SDR%"=="1" goto HDR_TO_SDR_FLOW_DONE
+set "HDR_SOURCE_LABEL=%HDR_LABEL%"
+call :PREPARE_HDR_TO_SDR_WORKFILE
+if errorlevel 1 (
+    set /a FAIL_COUNT+=1
+    shift
+    goto PROCESS_NEXT
+)
+call :ACTIVATE_HDR_TO_SDR_WORKFILE
+if errorlevel 1 (
+    echo ERROR: Could not activate the HDR to SDR working file.
+    set "LAST_ERROR_STAGE=HDR to SDR working-file activation"
+    set /a FAIL_COUNT+=1
+    shift
+    goto PROCESS_NEXT
+)
+call :PROBE_INPUT
+if errorlevel 1 (
+    echo ERROR: Could not probe the HDR to SDR working file.
+    set "LAST_ERROR_STAGE=HDR to SDR working-file probe"
+    set /a FAIL_COUNT+=1
+    shift
+    goto PROCESS_NEXT
+)
+set "HDR_TONEMAPPED=1"
+set "HDR_FILE_SUFFIX=_SDR_%TONEMAP_LABEL%"
+echo.
+echo HDR to SDR : %HDR_SOURCE_LABEL% -^> BT.709 SDR / %TONEMAP_LABEL%
+if /i "%HDR_POLICY%"=="AUTO" echo Policy      : Auto fallback / selected workflow requires SDR
+echo Work file  : "%HDR_SDR_WORKFILE%"
+
+:HDR_TO_SDR_FLOW_DONE
 if "%HDR_ACTIVE%"=="1" (
     if /i "%MODE%"=="X264" (
         echo.
@@ -2477,6 +2706,11 @@ if "%HDR_ACTIVE%"=="1" (
 )
 
 call :CONFIGURE_INPUT_DECODE
+if /i "%GRAIN_ENGINE%"=="PROCEDURAL" (
+    rem CPU Digital Grain filters require software frames at the graph entrance.
+    set "ENABLE_MAIN_NVDEC=0"
+    set "MAIN_HWACCEL_ARGS="
+)
 
 set "FPS_MODE=%REQUESTED_FPS_MODE%"
 set "SVP_FILE_BYPASS=0"
@@ -2695,6 +2929,8 @@ if /i "%COLOR_RANGE%"=="N/A" set "COLOR_RANGE=tv"
 
 set "HDR_FRAME_FILTER=,setparams=range=%COLOR_RANGE%:color_primaries=%COLOR_PRIMARIES%:color_trc=%COLOR_TRANSFER%:colorspace=%COLOR_SPACE%"
 set "HDR_ENCODE_ARGS=-color_range %COLOR_RANGE% -color_primaries %COLOR_PRIMARIES% -color_trc %COLOR_TRANSFER% -colorspace %COLOR_SPACE%"
+set "PROC_HDR_BLACK=64"
+if /i "%COLOR_RANGE%"=="pc" set "PROC_HDR_BLACK=0"
 
 echo HDR        : %HDR_LABEL% / %COLOR_PRIMARIES% / %COLOR_TRANSFER% / %COLOR_SPACE% / %COLOR_RANGE%
 exit /b 0
@@ -2747,6 +2983,66 @@ if not "%FG_CAP_NVDEC%"=="1" exit /b 1
 exit /b %ERRORLEVEL%
 
 
+
+:ACTIVATE_HDR_TO_SDR_WORKFILE
+if not defined HDR_SDR_WORKFILE exit /b 1
+if not exist "%HDR_SDR_WORKFILE%" exit /b 1
+set "INPUT=%HDR_SDR_WORKFILE%"
+exit /b 0
+
+:PREPARE_HDR_TO_SDR_WORKFILE
+set "HDR_SDR_ORIGINAL_INPUT=%INPUT%"
+set "HDR_SDR_WORKFILE=%INDIR%__FGS_HDR2SDR_%RANDOM%_%RANDOM%.mkv"
+set "HDR_TONEMAP_FILTER=zscale=rin=%COLOR_RANGE%:pin=%COLOR_PRIMARIES%:tin=%COLOR_TRANSFER%:min=%COLOR_SPACE%:t=linear:npl=100,format=gbrpf32le,tonemap=tonemap=%TONEMAP_ALGO%:desat=2,zscale=p=bt709:t=bt709:m=bt709:r=tv,format=p010le,sidedata=mode=delete:type=MASTERING_DISPLAY_METADATA,sidedata=mode=delete:type=CONTENT_LIGHT_LEVEL,setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709"
+
+"%FFMPEG%" -hide_banner -h filter=zscale >nul 2>&1
+if errorlevel 1 goto HDR_TO_SDR_FILTER_MISSING
+"%FFMPEG%" -hide_banner -h filter=tonemap >nul 2>&1
+if errorlevel 1 goto HDR_TO_SDR_FILTER_MISSING
+"%FFMPEG%" -hide_banner -h encoder=hevc_nvenc 2>nul | findstr /i "lossless" >nul
+if errorlevel 1 goto HDR_TO_SDR_LOSSLESS_MISSING
+
+if exist "%HDR_SDR_WORKFILE%" del /q "%HDR_SDR_WORKFILE%" >nul 2>&1
+
+echo.
+echo Preparing HDR to SDR working file...
+echo Tone Mapping : %TONEMAP_LABEL%
+echo Output       : BT.709 / TV range / 10-bit lossless working video
+"%FFMPEG%" -hide_banner -stats -y -copyts -start_at_zero -i "%HDR_SDR_ORIGINAL_INPUT%" -map 0:v:0 -map 0:a? -map 0:s? -map 0:t? -map_metadata 0 -map_chapters 0 -vf "%HDR_TONEMAP_FILTER%" -c:v hevc_nvenc -profile:v main10 -pix_fmt p010le -preset p4 -tune lossless -fps_mode passthrough -color_range tv -color_primaries bt709 -color_trc bt709 -colorspace bt709 -c:a copy -c:s copy -c:t copy "%HDR_SDR_WORKFILE%"
+if errorlevel 1 goto HDR_TO_SDR_ENCODE_FAILED
+if not exist "%HDR_SDR_WORKFILE%" goto HDR_TO_SDR_ENCODE_FAILED
+exit /b 0
+
+:HDR_TO_SDR_FILTER_MISSING
+echo.
+echo ERROR: HDR to SDR requires the FFmpeg zscale and tonemap filters.
+set "LAST_ERROR_STAGE=HDR to SDR filter unavailable"
+exit /b 1
+
+:HDR_TO_SDR_LOSSLESS_MISSING
+echo.
+echo ERROR: HDR to SDR working-file mode requires HEVC NVENC lossless support.
+set "LAST_ERROR_STAGE=HDR to SDR lossless intermediate unavailable"
+exit /b 1
+
+:HDR_TO_SDR_ENCODE_FAILED
+echo.
+echo ERROR: HDR to SDR Tone Mapping failed.
+echo Source:
+echo "%HDR_SDR_ORIGINAL_INPUT%"
+echo Algorithm: %TONEMAP_LABEL%
+set "LAST_ERROR_STAGE=HDR to SDR Tone Mapping"
+if exist "%HDR_SDR_WORKFILE%" del /q "%HDR_SDR_WORKFILE%" >nul 2>&1
+set "HDR_SDR_WORKFILE="
+exit /b 1
+
+:CLEAN_HDR_TO_SDR_WORKFILE
+if defined HDR_SDR_WORKFILE if exist "%HDR_SDR_WORKFILE%" del /q "%HDR_SDR_WORKFILE%" >nul 2>&1
+set "HDR_SDR_WORKFILE="
+set "HDR_SDR_ORIGINAL_INPUT="
+exit /b 0
+
+
 :CONFIGURE_INPUT_DECODE
 set "ENABLE_MAIN_NVDEC=0"
 set "MAIN_HWACCEL_ARGS="
@@ -2780,7 +3076,7 @@ set "FRAME_POST_FILTER="
 if "%ENABLE_CROP%"=="1" set "FRAME_POST_FILTER=%CROP_POST_FILTER%"
 if "%ENABLE_LETTERBOX%"=="1" set "FRAME_POST_FILTER=%LETTERBOX_FILTER%"
 
-set "OUTPUT_BASE=%INDIR%%NAME%%HEVC_SUFFIX%%FRAME_SUFFIX%%LUT_FILE_SUFFIX%"
+set "OUTPUT_BASE=%INDIR%%NAME%%HEVC_SUFFIX%%FRAME_SUFFIX%%HDR_FILE_SUFFIX%%LUT_FILE_SUFFIX%"
 set "OUTPUT=%OUTPUT_BASE%%FPS_SUFFIX%%DEINT_FILE_SUFFIX%%SUB_FILE_SUFFIX%.%EXT%"
 set "UPLOAD_OUTPUT=%OUTPUT_BASE%%FPS_SUFFIX%%DEINT_FILE_SUFFIX%_UPLOAD_H264_GRAIN_%UPLOAD_FILE_TAG%%SUB_FILE_SUFFIX%.mp4"
 
@@ -2799,6 +3095,8 @@ if defined DURATION echo Duration   : %DURATION% sec
 
 if /i not "%FRAME_MODE%"=="OFF" echo Framing   : %FRAME_LABEL%
 if "%ENABLE_CROP%"=="1" echo Output size: %ACTIVE_WIDTH%x%ACTIVE_HEIGHT%
+
+if /i "%GRAIN_ENGINE%"=="PROCEDURAL" goto HEVC_PROCEDURAL_GRAIN
 
 rem Pick the fastest verified Grain source for this input size.
 set "GRAIN_INPUT=%GRAIN_SOURCE_MOV%"
@@ -2936,6 +3234,56 @@ if not "%HDR_UPLOAD_SKIP%"=="1" if "%ENABLE_UPLOAD_BAKE%"=="1" (
 exit /b 0
 
 
+:HEVC_PROCEDURAL_GRAIN
+echo Grain     : %GRAIN_LABEL%
+echo Engine    : Digital Fast Noise / 1.333x synthesis / mask %PROC_MASK%
+echo Film Look : %LUT_LABEL%
+echo Final file: "%OUTPUT%"
+if not "%HDR_UPLOAD_SKIP%"=="1" if "%ENABLE_UPLOAD_BAKE%"=="1" (
+    echo Upload MP4: "%UPLOAD_OUTPUT%"
+    echo Upload: %UPLOAD_LABEL%
+)
+echo.
+
+if exist "%OUTPUT%" (
+    echo SKIP: Main HEVC output already exists:
+    echo "%OUTPUT%"
+    if not "%HDR_UPLOAD_SKIP%"=="1" if "%ENABLE_UPLOAD_BAKE%"=="1" (
+        if exist "%UPLOAD_OUTPUT%" (
+            echo SKIP: H.264 upload copy already exists:
+            echo "%UPLOAD_OUTPUT%"
+            exit /b 2
+        )
+        call :RUN_HEVC_UPLOAD
+        if errorlevel 1 exit /b 1
+        exit /b 0
+    )
+    exit /b 2
+)
+
+call :PREPARE_UPLOAD_SUBTITLE "%INDIR%"
+if errorlevel 1 exit /b 1
+set /a PROC_W=(((WIDTH*4+2)/3)+1)/2*2
+set /a PROC_H=(((HEIGHT*4+2)/3)+1)/2*2
+set "PROC_BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%format=yuv420p[procbase]"
+if "%LUT_ENABLED%"=="1" set "PROC_BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%format=gbrp16le,setpts=PTS-STARTPTS,split=2[lutorig][lutsrc];[lutsrc]lut3d=file='%LUT_FILTER_PATH%':interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=yuv420p[procbase]"
+set "PROC_FILTER=%PROC_BASE_FILTER%;[procbase]split=4[seed][masksrc][base][blacksrc];[seed]scale=%PROC_W%:%PROC_H%,lutyuv=y=128:u=128:v=128,noise=c0s=100:c0f=t+u,deflate=threshold0=15,dilation=threshold0=10,eq=contrast=3,scale=%WIDTH%:%HEIGHT%[n];[masksrc]lutyuv=y='%PROC_MASK%*(182-abs(75-val))':u=128:v=128[o];[n][o]blend=c0_mode=multiply,negate[a];[base][a]alphamerge[c];[blacksrc]drawbox=color=black:t=fill[black];[black][c]overlay=shortest=1%FRAME_POST_FILTER%%MAIN_SUB_FILTER%,format=p010le[vout]"
+if "%HDR_ACTIVE%"=="1" set "PROC_BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%format=yuv420p10le[procbase]"
+if "%HDR_ACTIVE%"=="1" set "PROC_FILTER=%PROC_BASE_FILTER%;[procbase]split=3[seedsrc][masksrc][base];[seedsrc]format=yuv420p,scale=%PROC_W%:%PROC_H%,lutyuv=y=128:u=128:v=128,noise=c0s=100:c0f=t+u,deflate=threshold0=15,dilation=threshold0=10,eq=contrast=3,scale=%WIDTH%:%HEIGHT%[n8];[masksrc]scale=in_range=%COLOR_RANGE%:out_range=tv,format=yuv420p,lutyuv=y='%PROC_MASK%*(182-abs(75-val))':u=128:v=128[o8];[n8][o8]blend=c0_mode=multiply,negate,format=gray,format=gray10le[alpha10];[base]extractplanes=planes=y+u+v[yb][ub][vb];[yb][alpha10]lut2=c0='%PROC_HDR_BLACK%+(x-%PROC_HDR_BLACK%)*y/1023':d=10[yout];[yout][ub][vb]mergeplanes=map0s=0:map0p=0:map1s=1:map1p=0:map2s=2:map2p=0:format=yuv420p10le%FRAME_POST_FILTER%%MAIN_SUB_FILTER%%HDR_FRAME_FILTER%,format=p010le[vout]"
+if "%HDR_ACTIVE%"=="1" echo HDR Digital Grain: 10-bit luma-only path / slider %PROC_MASK% / scaled 8-bit mask model
+
+pushd "%INDIR%"
+if /i "%FPS_MODE%"=="SVP60" goto HEVC_PROC_OPEN_SVP
+"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %ACTIVE_DEINT_HW_ARGS% -i "%INPUT%" -filter_complex "%PROC_FILTER%" -map "[vout]" %HEVC_STREAM_MAP_ARGS% -map_metadata 0 -map_chapters 0 -c:v hevc_nvenc -pix_fmt p010le -gpu %CUDA_DEVICE% -profile:v main10 -preset %PRESET% -tune hq -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% %HDR_ENCODE_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %HEVC_AUDIO_MUX_ARGS% %HEVC_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
+set "MAIN_RUN_RC=%ERRORLEVEL%"
+goto HEVC_MAIN_DONE
+
+:HEVC_PROC_OPEN_SVP
+"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=60" --arg "target_den=1" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %SVP_SYNC_GLOBAL_ARGS% -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -filter_complex "%PROC_FILTER%" -map "[vout]" %SVP_HEVC_STREAM_MAP_ARGS% -map_metadata 1 -map_chapters 1 -c:v hevc_nvenc -pix_fmt p010le -gpu %CUDA_DEVICE% -profile:v main10 -preset %PRESET% -tune hq -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% %HDR_ENCODE_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %HEVC_AUDIO_MUX_ARGS% %HEVC_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
+set "MAIN_RUN_RC=%ERRORLEVEL%"
+goto HEVC_MAIN_DONE
+
+
 rem ============================================================
 rem H.264 x264 backend - scanned Grain + Vulkan overlay + selectable VBR pass mode
 rem ============================================================
@@ -2960,7 +3308,7 @@ if "%ENABLE_LETTERBOX%"=="1" set "FRAME_POST_FILTER=%LETTERBOX_FILTER%"
 set "X264_GRAIN_SUFFIX=%HEVC_SUFFIX:_HEVC=_X264%"
 set "X264_DEPTH_SUFFIX="
 if "%X264_HIGH10%"=="1" set "X264_DEPTH_SUFFIX=_HIGH10"
-set "OUTPUT_BASE=%INDIR%%NAME%%X264_GRAIN_SUFFIX%_%BITRATE_NUM%k%X264_FILE_SUFFIX%%X264_DEPTH_SUFFIX%%FRAME_SUFFIX%%LUT_FILE_SUFFIX%"
+set "OUTPUT_BASE=%INDIR%%NAME%%X264_GRAIN_SUFFIX%_%BITRATE_NUM%k%X264_FILE_SUFFIX%%X264_DEPTH_SUFFIX%%FRAME_SUFFIX%%HDR_FILE_SUFFIX%%LUT_FILE_SUFFIX%"
 set "OUTPUT=%OUTPUT_BASE%%FPS_SUFFIX%%DEINT_FILE_SUFFIX%%SUB_FILE_SUFFIX%.%EXT%"
 
 set "DURATION_ARGS="
@@ -2981,6 +3329,8 @@ echo Film Look    : %LUT_LABEL%
 echo Bitrate      : %BITRATE%
 echo Final file   : "%OUTPUT%"
 echo.
+
+if /i "%GRAIN_ENGINE%"=="PROCEDURAL" goto X264_PROCEDURAL_GRAIN
 
 set "GRAIN_INPUT=%GRAIN_SOURCE_MOV%"
 set "GRAIN_DECODE_LABEL=Original MOV / software decode"
@@ -3106,6 +3456,63 @@ echo "%OUTPUT%"
 exit /b 0
 
 
+:X264_PROCEDURAL_GRAIN
+echo Grain       : %GRAIN_LABEL%
+echo Engine      : Digital Fast Noise / 1.333x synthesis / mask %PROC_MASK%
+echo.
+if exist "%OUTPUT%" (
+    echo SKIP: Main H.264 x264 output already exists:
+    echo "%OUTPUT%"
+    exit /b 2
+)
+
+call :PREPARE_UPLOAD_SUBTITLE "%INDIR%"
+if errorlevel 1 exit /b 1
+set /a PROC_W=(((WIDTH*4+2)/3)+1)/2*2
+set /a PROC_H=(((HEIGHT*4+2)/3)+1)/2*2
+set "PROC_BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%format=yuv420p[procbase]"
+if "%LUT_ENABLED%"=="1" set "PROC_BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%format=gbrp16le,setpts=PTS-STARTPTS,split=2[lutorig][lutsrc];[lutsrc]lut3d=file='%LUT_FILTER_PATH%':interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=yuv420p[procbase]"
+set "PROC_FILTER=%PROC_BASE_FILTER%;[procbase]split=4[seed][masksrc][base][blacksrc];[seed]scale=%PROC_W%:%PROC_H%,lutyuv=y=128:u=128:v=128,noise=c0s=100:c0f=t+u,deflate=threshold0=15,dilation=threshold0=10,eq=contrast=3,scale=%WIDTH%:%HEIGHT%[n];[masksrc]lutyuv=y='%PROC_MASK%*(182-abs(75-val))':u=128:v=128[o];[n][o]blend=c0_mode=multiply,negate[a];[base][a]alphamerge[c];[blacksrc]drawbox=color=black:t=fill[black];[black][c]overlay=shortest=1%FRAME_POST_FILTER%%X264_SUB_FILTER%,%X264_DEPTH_FILTER%[vout]"
+
+pushd "%INDIR%"
+if /i "%FPS_MODE%"=="SVP60" goto X264_PROC_OPEN_SVP
+if /i "%X264_PASS_MODE%"=="2PASS" goto X264_PROC_2PASS
+
+echo x264 VBR single-pass: Digital Grain final encode...
+"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %ACTIVE_DEINT_HW_ARGS% -i "%INPUT%" -filter_complex "%PROC_FILTER%" -map "[vout]" %H264_STREAM_MAP_ARGS% -map_metadata 0 -map_chapters 0 -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %H264_AUDIO_MUX_ARGS% %H264_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
+set "X264_MAIN_RC=%ERRORLEVEL%"
+goto X264_MAIN_DONE
+
+:X264_PROC_2PASS
+set "X264_PASSLOG=%INDIR%.__FGS_X264_PROC_%RANDOM%_%RANDOM%"
+echo x264 pass 1/2: Digital Grain analysis...
+"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %ACTIVE_DEINT_HW_ARGS% -i "%INPUT%" -filter_complex "%PROC_FILTER%" -map "[vout]" -an -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -pass 1 -passlogfile "%X264_PASSLOG%" -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f null NUL
+set "X264_PASS1_RC=%ERRORLEVEL%"
+if not "%X264_PASS1_RC%"=="0" goto X264_MAIN_FAIL_PASS1
+echo x264 pass 2/2: Digital Grain final encode...
+"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %ACTIVE_DEINT_HW_ARGS% -i "%INPUT%" -filter_complex "%PROC_FILTER%" -map "[vout]" %H264_STREAM_MAP_ARGS% -map_metadata 0 -map_chapters 0 -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -pass 2 -passlogfile "%X264_PASSLOG%" -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %H264_AUDIO_MUX_ARGS% %H264_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
+set "X264_MAIN_RC=%ERRORLEVEL%"
+goto X264_MAIN_DONE
+
+:X264_PROC_OPEN_SVP
+if /i "%X264_PASS_MODE%"=="2PASS" goto X264_PROC_OPEN_SVP_2PASS
+echo x264 VBR single-pass: Digital Grain OpenSVPFlow final encode...
+"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=60" --arg "target_den=1" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %SVP_SYNC_GLOBAL_ARGS% -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -filter_complex "%PROC_FILTER%" -map "[vout]" %SVP_H264_STREAM_MAP_ARGS% -map_metadata 1 -map_chapters 1 -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %H264_AUDIO_MUX_ARGS% %H264_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
+set "X264_MAIN_RC=%ERRORLEVEL%"
+goto X264_MAIN_DONE
+
+:X264_PROC_OPEN_SVP_2PASS
+set "X264_PASSLOG=%INDIR%.__FGS_X264_PROC_%RANDOM%_%RANDOM%"
+echo x264 pass 1/2: Digital Grain OpenSVPFlow analysis...
+"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=60" --arg "target_den=1" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -filter_complex "%PROC_FILTER%" -map "[vout]" -an -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -pass 1 -passlogfile "%X264_PASSLOG%" -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f null NUL
+set "X264_PASS1_RC=%ERRORLEVEL%"
+if not "%X264_PASS1_RC%"=="0" goto X264_MAIN_FAIL_PASS1
+echo x264 pass 2/2: Digital Grain OpenSVPFlow final encode...
+"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=60" --arg "target_den=1" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %SVP_SYNC_GLOBAL_ARGS% -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -filter_complex "%PROC_FILTER%" -map "[vout]" %SVP_H264_STREAM_MAP_ARGS% -map_metadata 1 -map_chapters 1 -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -pass 2 -passlogfile "%X264_PASSLOG%" -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %H264_AUDIO_MUX_ARGS% %H264_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
+set "X264_MAIN_RC=%ERRORLEVEL%"
+goto X264_MAIN_DONE
+
+
 rem ============================================================
 rem AV1 backend - NVENC -> IVF -> grav1synth -> remux -> verify
 rem ============================================================
@@ -3126,8 +3533,8 @@ if errorlevel 1 exit /b 1
 if not "%HDR_UPLOAD_SKIP%"=="1" if "%ENABLE_UPLOAD_BAKE%"=="1" if /i "%UPLOAD_MODE%"=="X264" call :RESOLVE_X264_UPLOAD_RATE
 if errorlevel 1 exit /b 1
 
-set "OUTPUT=%INDIR%%NAME%_AV1GS_%GRAIN_FILE_TAG%_%SPEED_SUFFIX%_%BITRATE_NUM%k%FRAME_SUFFIX%%FPS_SUFFIX%%DEINT_FILE_SUFFIX%%LUT_FILE_SUFFIX%%SUB_FILE_SUFFIX%.%EXT%"
-set "UPLOAD_OUTPUT=%INDIR%%NAME%_AV1GS_%GRAIN_FILE_TAG%_%SPEED_SUFFIX%_%BITRATE_NUM%k%FRAME_SUFFIX%%FPS_SUFFIX%%DEINT_FILE_SUFFIX%%LUT_FILE_SUFFIX%_UPLOAD_H264_GRAIN_%UPLOAD_FILE_TAG%%SUB_FILE_SUFFIX%.mp4"
+set "OUTPUT=%INDIR%%NAME%_AV1GS_%GRAIN_FILE_TAG%_%SPEED_SUFFIX%_%BITRATE_NUM%k%FRAME_SUFFIX%%HDR_FILE_SUFFIX%%FPS_SUFFIX%%DEINT_FILE_SUFFIX%%LUT_FILE_SUFFIX%%SUB_FILE_SUFFIX%.%EXT%"
+set "UPLOAD_OUTPUT=%INDIR%%NAME%_AV1GS_%GRAIN_FILE_TAG%_%SPEED_SUFFIX%_%BITRATE_NUM%k%FRAME_SUFFIX%%HDR_FILE_SUFFIX%%FPS_SUFFIX%%DEINT_FILE_SUFFIX%%LUT_FILE_SUFFIX%_UPLOAD_H264_GRAIN_%UPLOAD_FILE_TAG%%SUB_FILE_SUFFIX%.mp4"
 
 if exist "%OUTPUT%" (
     echo SKIP: Main AV1 output already exists:
@@ -3215,7 +3622,9 @@ rem Stage 1 - clean AV1 Main10 video-only encode to IVF
 rem ------------------------------------------------------------
 echo [1/%TOTAL_STAGES%] Encoding clean AV1 Main10 with NVENC...
 
-if "%LUT_ENABLED%"=="1" (
+if /i "%GRAIN_ENGINE%"=="PROCEDURAL" (
+    call :PREPARE_UPLOAD_SUBTITLE "%JOBDIR%"
+) else if "%LUT_ENABLED%"=="1" (
     call :PREPARE_UPLOAD_SUBTITLE "%JOBDIR%"
 ) else (
     call :PREPARE_UPLOAD_SUBTITLE "%INDIR%"
@@ -3226,6 +3635,7 @@ if errorlevel 1 (
     exit /b 1
 )
 
+if /i "%GRAIN_ENGINE%"=="PROCEDURAL" goto AV1_STAGE1_PROCEDURAL
 if "%LUT_ENABLED%"=="1" goto AV1_STAGE1_LUT
 pushd "%INDIR%"
 if /i "%FPS_MODE%"=="SVP60" goto AV1_STAGE1_OPEN_SVP
@@ -3238,6 +3648,29 @@ goto AV1_STAGE1_DONE_NO_LUT
 set "STAGE_RC=%ERRORLEVEL%"
 
 :AV1_STAGE1_DONE_NO_LUT
+popd
+goto AV1_STAGE1_DONE
+
+:AV1_STAGE1_PROCEDURAL
+set /a PROC_W=(((ACTIVE_WIDTH*4+2)/3)+1)/2*2
+set /a PROC_H=(((ACTIVE_HEIGHT*4+2)/3)+1)/2*2
+set "PROC_AV1_BASE=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%CROP_FILTER%format=yuv420p%LETTERBOX_FILTER%%MAIN_SUB_FILTER%[procbase]"
+if "%LUT_ENABLED%"=="1" set "PROC_AV1_BASE=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%CROP_FILTER%format=gbrp16le,split=2[lutorig][lutsrc];[lutsrc]lut3d=file=filmlook.cube:interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=yuv420p%LETTERBOX_FILTER%%MAIN_SUB_FILTER%[procbase]"
+set "PROC_AV1_FILTER=%PROC_AV1_BASE%;[procbase]split=4[seed][masksrc][base][blacksrc];[seed]scale=%PROC_W%:%PROC_H%,lutyuv=y=128:u=128:v=128,noise=c0s=100:c0f=t+u,deflate=threshold0=15,dilation=threshold0=10,eq=contrast=3,scale=%ACTIVE_WIDTH%:%ACTIVE_HEIGHT%[n];[masksrc]lutyuv=y='%PROC_MASK%*(182-abs(75-val))':u=128:v=128[o];[n][o]blend=c0_mode=multiply,negate[a];[base][a]alphamerge[c];[blacksrc]drawbox=color=black:t=fill[black];[black][c]overlay=shortest=1,format=p010le[vout]"
+if "%HDR_ACTIVE%"=="1" set "PROC_AV1_BASE=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%CROP_FILTER%format=yuv420p10le%LETTERBOX_FILTER%%MAIN_SUB_FILTER%[procbase]"
+if "%HDR_ACTIVE%"=="1" set "PROC_AV1_FILTER=%PROC_AV1_BASE%;[procbase]split=3[seedsrc][masksrc][base];[seedsrc]format=yuv420p,scale=%PROC_W%:%PROC_H%,lutyuv=y=128:u=128:v=128,noise=c0s=100:c0f=t+u,deflate=threshold0=15,dilation=threshold0=10,eq=contrast=3,scale=%ACTIVE_WIDTH%:%ACTIVE_HEIGHT%[n8];[masksrc]scale=in_range=%COLOR_RANGE%:out_range=tv,format=yuv420p,lutyuv=y='%PROC_MASK%*(182-abs(75-val))':u=128:v=128[o8];[n8][o8]blend=c0_mode=multiply,negate,format=gray,format=gray10le[alpha10];[base]extractplanes=planes=y+u+v[yb][ub][vb];[yb][alpha10]lut2=c0='%PROC_HDR_BLACK%+(x-%PROC_HDR_BLACK%)*y/1023':d=10[yout];[yout][ub][vb]mergeplanes=map0s=0:map0p=0:map1s=1:map1p=0:map2s=2:map2p=0:format=yuv420p10le%HDR_FRAME_FILTER%,format=p010le[vout]"
+if "%HDR_ACTIVE%"=="1" echo HDR Digital Grain: 10-bit luma-only path / slider %PROC_MASK% / scaled 8-bit mask model
+pushd "%JOBDIR%"
+if /i "%FPS_MODE%"=="SVP60" goto AV1_PROC_OPEN_SVP
+"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %ACTIVE_DEINT_HW_ARGS% -i "%INPUT%" -filter_complex "%PROC_AV1_FILTER%" -map "[vout]" -an -sn -dn -c:v av1_nvenc -gpu %CUDA_DEVICE% -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune %ENCODER_TUNE% -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% %HDR_ENCODE_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
+set "STAGE_RC=%ERRORLEVEL%"
+goto AV1_PROC_DONE
+
+:AV1_PROC_OPEN_SVP
+"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=60" --arg "target_den=1" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -f yuv4mpegpipe -i pipe:0 -filter_complex "%PROC_AV1_FILTER%" -map "[vout]" -an -sn -dn -c:v av1_nvenc -gpu %CUDA_DEVICE% -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune %ENCODER_TUNE% -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% %HDR_ENCODE_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
+set "STAGE_RC=%ERRORLEVEL%"
+
+:AV1_PROC_DONE
 popd
 goto AV1_STAGE1_DONE
 
@@ -3279,6 +3712,8 @@ rem ------------------------------------------------------------
 rem Stage 2 - inject AV1 Film Grain metadata
 rem ------------------------------------------------------------
 echo.
+if /i "%GRAIN_ENGINE%"=="PROCEDURAL" goto AV1_STAGE2_PROCEDURAL
+
 echo [2/%TOTAL_STAGES%] Injecting AV1 Film Grain with grav1synth...
 
 pushd "%JOBDIR%"
@@ -3289,7 +3724,14 @@ if /i "%GRAIN_MODE%"=="TABLE" (
 )
 set "GRAIN_RC=%ERRORLEVEL%"
 popd
+goto AV1_STAGE2_RESULT
 
+:AV1_STAGE2_PROCEDURAL
+echo [2/%TOTAL_STAGES%] Digital Grain already baked into pixels - copying AV1 intermediate...
+copy /b /y "%TMP_BASE%" "%TMP_GRAIN%" >nul
+set "GRAIN_RC=%ERRORLEVEL%"
+
+:AV1_STAGE2_RESULT
 if not "%GRAIN_RC%"=="0" (
     echo.
     echo ============================================================
@@ -3353,6 +3795,8 @@ rem ------------------------------------------------------------
 rem Stage 4 - end-to-end final-file verification
 rem ------------------------------------------------------------
 echo.
+if /i "%GRAIN_ENGINE%"=="PROCEDURAL" goto AV1_STAGE4_PROCEDURAL
+
 echo [4/%TOTAL_STAGES%] Verifying Film Grain headers in FINAL file...
 
 del /q "%VERIFY_TABLE%" "%VERIFY_LOG%" >nul 2>&1
@@ -3401,7 +3845,22 @@ for %%Z in ("%VERIFY_TABLE%") do if %%~zZ LEQ 16 (
 if exist "%VERIFY_LOG%" type "%VERIFY_LOG%"
 echo.
 echo VERIFIED: AV1 Film Grain headers are present.
+goto AV1_STAGE4_DONE
 
+:AV1_STAGE4_PROCEDURAL
+echo [4/%TOTAL_STAGES%] Verifying final AV1 Digital Grain pixel output...
+"%FFPROBE%" -v error -select_streams v:0 -show_entries stream=codec_name -of csv=p=0 "%OUTPUT%" >nul 2>&1
+if errorlevel 1 (
+    echo.
+    echo ERROR: Final AV1 Digital Grain output verification failed.
+    set "LAST_ERROR_STAGE=Stage 4 - Digital Grain AV1 output verify"
+    call :HANDLE_AV1_FAILED_JOB
+    exit /b 1
+)
+echo.
+echo VERIFIED: AV1 output is readable; Digital Grain is baked into pixels.
+
+:AV1_STAGE4_DONE
 rem ------------------------------------------------------------
 rem Stage 5 - optional Film Grain Bake-to-Pixels upload master
 rem ------------------------------------------------------------
@@ -3503,6 +3962,7 @@ if exist "%UPLOAD_OUTPUT%" (
     exit /b 0
 )
 
+if /i "%GRAIN_ENGINE%"=="PROCEDURAL" goto RUN_HEVC_UPLOAD_SVP_MAIN
 if /i "%FPS_MODE%"=="SVP60" goto RUN_HEVC_UPLOAD_SVP_MAIN
 
 call :PREPARE_UPLOAD_SUBTITLE "%INDIR%"
@@ -3537,13 +3997,13 @@ exit /b 0
 
 :RUN_HEVC_UPLOAD_SVP_MAIN
 echo.
-echo OpenSVPFlow upload path: reuse the completed 60 fps HEVC main output.
-echo Interpolation, Grain, LUT, framing and hard subtitles are not rendered again.
+echo HEVC main-output reuse path: encode upload copy from the completed main output.
+echo Grain, LUT, framing, interpolation and hard subtitles are not rendered again.
 echo Source       : "%OUTPUT%"
 echo.
 if not exist "%OUTPUT%" (
-    echo ERROR: Interpolated HEVC main output is missing.
-    set "LAST_ERROR_STAGE=OpenSVPFlow HEVC upload source missing"
+    echo ERROR: Completed HEVC main output is missing.
+    set "LAST_ERROR_STAGE=HEVC upload source missing"
     exit /b 1
 )
 if /i "%UPLOAD_MODE%"=="X264" goto RUN_HEVC_UPLOAD_SVP_MAIN_X264
@@ -4193,6 +4653,7 @@ set /a BATCH_ELAPSED_SECONDS=BATCH_FALLBACK_DIFF_CS/100
 exit /b 0
 
 :FINISHED
+call :CLEAN_HDR_TO_SDR_WORKFILE
 call :STOP_BATCH_TIMER
 if defined LUT_COMPAT_FILE del /q "%LUT_COMPAT_FILE%" >nul 2>&1
 if "%FAIL_COUNT%"=="0" if not "%FG_STUDIO_MODE%"=="1" cls
@@ -4306,6 +4767,7 @@ exit /b 1
 
 
 :FATAL_END
+call :CLEAN_HDR_TO_SDR_WORKFILE
 if defined LUT_COMPAT_FILE del /q "%LUT_COMPAT_FILE%" >nul 2>&1
 echo.
 if "%FG_STUDIO_MODE%"=="1" goto FATAL_END_STUDIO

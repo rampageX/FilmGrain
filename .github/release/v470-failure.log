@@ -1,7 +1,0 @@
-Missing StudioBridge v4.7 marker: DIGITAL_GRAIN
-At D:\a\_temp\fgs470_ff12c2949853472eb604d366acecb8c4\payload\release-v470.ps1:60 char:45
-+ ... s($required)) { throw "Missing StudioBridge v4.7 marker: $required" }
-+                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    + CategoryInfo          : OperationStopped: (Missing StudioB...: DIGITAL_GRAIN:String) [], RuntimeException
-    + FullyQualifiedErrorId : Missing StudioBridge v4.7 marker: DIGITAL_GRAIN
- 

@@ -1,5 +1,19 @@
 # Film Grain Studio — CHANGELOG
 
+## v4.7.0 — 2026-09-16
+
+- 正式加入 **数字颗粒 · Fast Noise**，作为 AV1 / HEVC / H.264 x264 三条主编码线共用的像素颗粒引擎；不依赖外部 Grain Plate，也不替换既有 AV1 Film Grain metadata 或真实扫描 Grain 路线。
+- 数字颗粒强度改为连续滑杆 `0.10–1.00`，默认 `0.55`；实测参考为 `0.30` 轻微、`0.40` 轻、`0.55` 中等、`0.68` 约接近 HEVC CT35 85%、`0.75+` 明显/偏重。
+- SDR 数字颗粒采用 Fast Noise + 亮度相关 Mask 的约 1.333× 合成路线；1080p / 1440p 实测相对早期 GEQ 参考实现约有 3× 滤镜性能优势。
+- AV1 / HEVC HDR Preserve 下新增 10-bit 数字颗粒路径：只修改 Y 亮度平面，U/V 色度保持不变；修复测试期 `alphamerge/overlay` 导致 HDR 主画面被协商到 8-bit、画面变暗且颗粒失效的问题。
+- 高级设置新增 **HDR 处理策略**：`自动：仅不兼容流程转 SDR`（默认）、`保持 HDR`、`强制转换为 SDR`。
+- 新增 HDR→SDR Tone Mapping fallback，默认使用 Hable，可选 Mobius / Reinhard / Gamma / Linear / Clip；自动模式在 x264、BT.709 LUT、OpenSVPFlow 或 H.264 上传版等 SDR-only 流程出现时，先将 PQ/HLG 输入转换为 BT.709 SDR，再进入原有处理链。
+- HDR→SDR 使用源目录随机后缀的 10-bit HEVC Main10 无损工作文件，避免缓存冲突；完成或失败后统一清理。修复测试期工作文件路径在 CMD 括号块中提前展开、激活子程序标签缺失/结构错误等问题。
+- AV1 HDR 数字颗粒已完成用户侧实际验证；HDR→SDR + LUT 场景完成用户侧实际验证。
+- GUI 右下角正式版本号更新为 `v4.7.0`；用户界面统一使用“数字颗粒”命名，不再显示 Beta / TEST 构建标识。
+- 正式包移除 v4.7.0 Beta/HDR2SDR 测试说明与临时构建标签；README / CHANGELOG / README_FilmGrain_Studio / README_Toolkit / STABLE_BASELINE 同步更新。
+- 延续 AAC 256k、GUI/CLI 共用 StudioBridge、HDR Preserve、LUT Gallery、AV1 SFE、OpenSVPFlow、字幕、Cinematic Style、Batch Summary 与其它已验证编码参数。
+
 ## v4.6.3.1 — 2026-09-12
 
 - 修复 v4.6.3 正式 ZIP 由 Linux/Ubuntu runner 打包后，Windows 脚本换行格式不稳定的问题；该问题可导致 CMD 出现标签明明存在却提示 `The system cannot find the batch label specified`。

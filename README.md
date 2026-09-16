@@ -8,10 +8,10 @@
 - **HEVC Main10 + 真实扫描 Grain Plate**：将真实胶片颗粒合成到视频像素中，由 NVENC Main10 编码。
 - **H.264 x264 Grain + 真实扫描 Grain Plate**：与 HEVC 共用扫描 Grain / LUT / 画幅 / 反交错 / OpenSVPFlow 前处理，使用 `libx264 + preset faster + tune grain + VBR 单次` 作为默认日常路线；高级设置可选择 Medium / Slow 与 VBR 2-Pass。默认在编码边界高质量降为 8-bit High Profile，也可启用实验性 High10。
 
-当前正式稳定版为 **v4.6.3.1**，发布包名称：
+当前正式稳定版为 **v4.7.0**，发布包名称：
 
 ```text
-FilmGrain_Studio_v4.6.3.1_Stable.zip
+FilmGrain_Studio_v4.7.0_Stable.zip
 ```
 
 所有独立脚本使用固定文件名，不再包含组件版本号；版本号只体现在整个项目的发布压缩包上。升级时建议完整替换工具包，避免新旧脚本混用。
@@ -32,7 +32,9 @@ v4.6.3 在 v4.6.2.1 稳定基线上完善 **LUT Gallery 预览同步**：图库�
 
 v4.6.3.1 为 Windows 打包兼容性修正版：v4.6.3 功能与编码参数完全不变；正式发布固定使用 Windows runner。发布包中的 BAT/VBS/CMD 统一为 CRLF + 无 BOM，PS1 统一为 UTF-8 BOM + CRLF，并在最终 ZIP 解压后再次全量验证。该修复解决 Linux runner 打包后 Windows CMD 可能出现 BAT 标签实际存在却无法 `goto/call` 的问题。
 
-默认配置仍为 **AV1 Main10 + MP4 + AAC 256k**，并集成 HDR Preserve、LUT Gallery（含智能过滤）、自动 Field-rate 反交错、自动电影帧率、可选 OpenSVPFlow GPU 60 fps 插帧、Cinematic Style、多文件处理、NVENC / OpenSVPFlow 硬件能力自动探测、AV1 UHQ、AV1 SFE 及 AV1 Film Grain 最终验证。
+v4.7.0 正式加入 **数字颗粒（Fast Noise）** 与 **HDR→SDR Tone Mapping fallback**。数字颗粒可作为 AV1 / HEVC / x264 三条主线的通用像素颗粒引擎，不依赖外部 Grain Plate；强度使用连续滑杆 `0.10–1.00`，默认 `0.55`。实测参考：`0.30` 轻微、`0.40` 轻、`0.55` 中等、`0.68` 约接近 HEVC CT35 85%、`0.75+` 明显/偏重。SDR 路径使用约 1.333× Fast Noise 合成；AV1 / HEVC HDR Preserve 下使用 10-bit 亮度颗粒路径，只修改 Y 平面并保持 U/V 色度。HDR 输入还可在“高级 → HDR”选择自动兼容、保持 HDR 或强制 SDR；自动模式在 x264、BT.709 LUT、OpenSVPFlow 或 H.264 上传版等 SDR-only 流程出现时，先通过 Hable（默认，可选 Mobius / Reinhard / Gamma / Linear / Clip）Tone Mapping 到 BT.709 SDR，再进入原有 SDR 处理链。
+
+默认配置仍为 **AV1 Main10 + MP4 + AAC 256k**，并集成 HDR Preserve、HDR→SDR 自动兼容、数字颗粒、LUT Gallery（含智能过滤）、自动 Field-rate 反交错、自动电影帧率、可选 OpenSVPFlow GPU 60 fps 插帧、Cinematic Style、多文件处理、NVENC / OpenSVPFlow 硬件能力自动探测、AV1 UHQ、AV1 SFE 及 AV1 Film Grain 最终验证。
 
 历史版本变更请参阅 [`CHANGELOG.md`](CHANGELOG.md)。
 
@@ -76,6 +78,8 @@ GUI 与 CLI 共用 `Utils\FilmGrain_Universal_HEVC_AV1_StudioBridge.bat` 编码�
 | 典型用途 | 高效率压缩、AV1 Film Grain | 收藏、真实扫描颗粒、GPU 高速编码 | 高兼容上传/播放、强调真实像素颗粒保留 |
 
 三条主线共用尽可能一致的画幅、字幕、LUT、反交错、OpenSVPFlow 与码率策略；差异主要集中在 Film Grain 机制和最终编码后端。
+
+v4.7.0 另外提供三条主线共用的 **数字颗粒 · Fast Noise**。它是像素烘焙方案：AV1 / HEVC / x264 都可使用，不依赖外部扫描 Grain Plate；AV1 选择数字颗粒时不使用 grav1synth Film Grain metadata。
 
 ---
 
@@ -324,7 +328,23 @@ bufsize = 平均码率 × 6
 ---
 
 
-## HDR Preserve（v4.6.2）
+## 数字颗粒（v4.7.0）
+
+v4.7.0 新增 **数字颗粒 · Fast Noise**，作为 AV1 / HEVC / x264 三条主线都可调用的通用像素颗粒引擎。它与 AV1 Film Grain metadata、HEVC/x264 扫描 Grain Plate 并列存在，不替换原有颗粒路线。数字颗粒直接烘焙进像素，因此 AV1 选择数字颗粒时同样属于重编码路径，不能用于“不重编码添加/替换 Film Grain metadata”。
+
+数字颗粒强度为连续滑杆 `0.10–1.00`，默认 `0.55`。当前实测参考：
+
+- `0.30`：轻微；
+- `0.40`：轻；
+- `0.55`：中等；
+- `0.68`：约接近 HEVC CT35 85% 的颗粒存在感；
+- `0.75+`：明显 / 偏重。
+
+SDR 路径使用约 1.333× 分辨率的 Fast Noise 生成、形态学整形、亮度相关 Mask 后回缩到输出分辨率；相比早期 GEQ 随机颗粒参考实现，在 1080p / 1440p 实测可获得约 3× 的滤镜性能，同时通过滑杆补偿后可得到接近的颗粒存在感。HDR Preserve 下，AV1 / HEVC 使用 10-bit 亮度颗粒路径，只修改 Y 平面，U/V 色度保持不变；HDR 强度不要求与 SDR 数值严格等效，仍以滑杆做最终观感微调。
+
+---
+
+## HDR Preserve / HDR→SDR（v4.7.0）
 
 v4.6.2 正式加入 HDR Preserve，当前覆盖 **HEVC Main10 + 扫描 Grain** 与 **AV1 Main10 + grav1synth Film Grain** 两条主线。FGS 会根据 FFprobe 结果识别 HDR10/PQ 或 HLG，并在完成需要的画幅、Grain 等处理后重新明确输出的 HDR 色彩信号。
 
@@ -341,13 +361,14 @@ HEVC NVENC 会显式使用 `p010le`，避免仅 Profile 显示 Main 10、实际�
 
 FGS 的原则是 **保留源已有的 HDR 信息，而不是伪造源不存在的 mastering metadata**。因此某些 YouTube HDR 文件只有 BT.2020 + PQ + 10-bit、没有 Mastering Display / MaxCLL / MaxFALL 时，输出同样不会人为补写虚构值。
 
-当前 HDR 安全边界：
+v4.7.0 将 HDR 处理扩展为两条明确路线：
 
-- OpenSVPFlow 集成仍以 YUV420P8 为已验证基线，HDR 输入自动旁路插帧；接近 59.94 VFR 的 HDR 输入可能仍因 FGS 最终 CFR 归一化表现为约 60 CFR，这不代表运行了运动补偿插帧；
-- H.264 x264 主输出当前不作为 HDR Preserve 路线；
-- H.264 上传版没有 HDR→SDR Tone Mapping，HDR 输入自动跳过；
-- 当前 LUT 工作流主要面向 SDR/BT.709 与 Log→709，HDR 输入先安全旁路；未来确认 HDR→HDR LUT 的 Input / Output Color Space 后再单独开放；
-- 本版不处理 Dolby Vision RPU、HDR10+ 动态元数据，也不提供 HDR→SDR Tone Mapping。
+- **保持 HDR**：AV1 Main10 / HEVC Main10 继续使用 HDR Preserve；数字颗粒使用 10-bit 亮度路径。
+- **HDR→SDR fallback**：在“高级 → HDR”选择“自动：仅不兼容流程转 SDR”（默认）、“保持 HDR”或“强制转换为 SDR”。自动模式下，若当前任务需要 x264 主输出、BT.709 LUT、OpenSVPFlow 或 H.264 上传版，HDR 输入会先 Tone Mapping 为 BT.709 SDR，再进入原有 SDR 流程。
+
+Tone Mapping 默认使用 **Hable**，还可选择 Mobius、Reinhard、Gamma、Linear 与 Clip。转换过程先建立随机后缀的 10-bit HEVC Main10 无损工作文件，任务结束或失败后清理；工作文件仅作为内部中间层，不改变正式输出命名策略。OpenSVPFlow 本身仍是 YUV420P8 SDR 工作流，因此“自动”模式是先 HDR→SDR 后再插帧，而不是 HDR 原生插帧。
+
+当前仍不处理 Dolby Vision RPU 或 HDR10+ 动态 metadata；特殊 HDR、非常规 mastering metadata 与 Dolby Vision 素材建议先用短片验证。
 
 HEVC HDR10/PQ 与 AV1 HDR 均已完成用户侧实际测试；HEVC 另外确认实际 Bit depth 为 10-bit，BT.2020 / PQ、画面色彩及源本来存在的 HDR10 静态元数据均正常保持。
 
@@ -849,10 +870,10 @@ ffmpeg -hide_banner -h decoder=libdav1d
 - 启用 LUT 时，部分处理链会转为软件滤镜路径，速度可能下降；
 - 自动反交错依赖 FFprobe `field_order`；实际为隔行但被标记为 progressive / unknown 的异常素材需要人工确认；
 - OpenSVPFlow 当前只支持逐行输入，并固定接管为 60 fps；与自动反交错、普通电影帧率选择互斥；
-- OpenSVPFlow 当前验证链内部使用 YUV420P8，不适用于 HDR / 端到端 10-bit 保真；启用插帧时可继续生成 H.264 上传副本；v4.5.0 上传副本固定使用 x264 Grain 8-bit；
+- OpenSVPFlow 当前验证链内部使用 YUV420P8，不是端到端 HDR / 10-bit 路线；v4.7.0 可先把 HDR Tone Mapping 到 SDR 后再插帧，并可继续生成 H.264 上传副本；
 - H.264 High10 为实验功能，播放器、浏览器、电视与硬件解码兼容性明显低于标准 H.264 High 8-bit；
-- HDR Preserve 当前仅正式覆盖 HEVC Main10 / AV1 Main10；OpenSVPFlow 仍为 YUV420P8，不提供 HDR 插帧；
-- HDR 输入当前不生成 H.264 上传版，也不套用现有 SDR/BT.709 LUT；本版没有 HDR→SDR Tone Mapping、Dolby Vision RPU 或 HDR10+ 动态 metadata 工作流；
+- HDR Preserve 仍只覆盖 HEVC Main10 / AV1 Main10；OpenSVPFlow 本身仍为 YUV420P8 SDR 路线，但 v4.7.0 可先 HDR→SDR 再执行插帧；
+- HDR 输入若使用 H.264 上传版、x264 主线、BT.709 LUT 或 OpenSVPFlow，可由 v4.7.0 自动先 Tone Mapping 到 SDR；仍不处理 Dolby Vision RPU 或 HDR10+ 动态 metadata；
 - LUT 智能过滤是保守的启发式分类，不声称能从任意 `.cube` 数值表 100% 推断创作者意图；Unknown/Combined 优先保留；
 - 特殊 HDR、VFR、多视频流或非常规容器建议先使用短片测试；
 - 强制取消任务可能留下未完成输出或 `__AV1GS_TMP_*` 临时目录；

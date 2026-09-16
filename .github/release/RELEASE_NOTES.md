@@ -1,40 +1,29 @@
-# Film Grain Studio v4.6.2
+# Film Grain Studio v4.7.0
 
-Based on the user-validated v4.6.1 stable line.
+v4.7.0 adds a universal **Digital Grain / Fast Noise** engine and a new **HDR to SDR Tone Mapping fallback** while keeping the existing AV1 Film Grain metadata and scanned-grain workflows intact.
 
-## Highlights
+## Added
 
-- Adds **HDR Preserve** for HEVC Main10 and AV1 Main10.
-- Preserves BT.2020 + PQ/HLG + 10-bit signaling, and preserves source HDR10 static metadata such as Mastering Display / MaxCLL / MaxFALL when it is present in the source.
-- Forces HEVC NVENC to actual P010 10-bit output; Main10 profile is no longer allowed to fall back to an 8-bit bitstream.
-- Adds final-output HDR signaling verification for color primaries, transfer characteristics, matrix coefficients, and range.
-- HDR Preserve safely bypasses paths that are not HDR-safe in the current implementation: OpenSVPFlow YUV420P8 interpolation, x264 main output, H.264 upload copy, and the existing LUT processing path.
-- Studio now reflects those HDR compatibility limits visually by disabling incompatible controls for the selected HDR source and restoring them for SDR sources.
-- Adds **LUT Gallery Smart Filter**. It conservatively classifies LUTs as Technical / Combined / Creative / Keep and hides only high-confidence pure Technical LUTs.
-- Adds cross-file creative-family recognition so multi-input creative LUT families remain visible instead of being mistaken for pure utility transforms.
-- Smart Filter never moves, deletes, or renames LUT files; it also writes a CSV classification report for review.
-- Refines the LUT Gallery layout so filter counts remain visible and shortens the Disable LUT button.
+- Digital Grain is available on all three main lines: **AV1, HEVC, and H.264 x264**.
+- Continuous Digital Grain strength slider: **0.10–1.00**, default **0.55**.
+- Practical strength references from testing: `0.30` subtle, `0.40` light, `0.55` medium, `0.68` approximately HEVC CT35 85%, `0.75+` pronounced/heavy.
+- SDR Digital Grain uses the faster ~1.333x Fast Noise pipeline; 1080p/1440p testing showed roughly a 3x filter-speed advantage over the early GEQ reference implementation.
+- AV1/HEVC HDR Preserve now supports a **10-bit luma-only Digital Grain path**; U/V chroma planes are preserved.
+- Advanced HDR policy: **Auto / Keep HDR / Force SDR**.
+- HDR to SDR Tone Mapping algorithms: **Hable** (default), Mobius, Reinhard, Gamma, Linear, and Clip.
+- Auto mode Tone Maps HDR to BT.709 SDR when an SDR-only path is required, including x264, BT.709 LUT, OpenSVPFlow, or the H.264 upload copy.
 
-## HDR validation
+## Fixed
 
-HEVC HDR10/PQ and AV1 HDR were both user-tested successfully. HEVC was additionally verified to output a true 10-bit P010 bitstream. BT.2020 / PQ signaling, correct visual color, and source Mastering Display / MaxCLL / MaxFALL preservation were confirmed on test material where those metadata fields existed.
+- Fixed the early HDR Digital Grain path where `alphamerge/overlay` could negotiate the HDR image down to 8-bit, causing a dark picture and ineffective grain.
+- Fixed HDR-to-SDR working-file activation issues caused by CMD block expansion and a missing/misplaced batch label.
+- HDR-to-SDR temporary files use randomized suffixes to avoid cache collisions and are cleaned up after completion/failure.
 
-Source files that do not contain HDR10 static mastering metadata are not given fabricated values.
+## Validation
 
-Dolby Vision RPU, HDR10+ dynamic metadata, HDR-to-SDR tone mapping, and HDR OpenSVPFlow interpolation are not added by this release.
+- AV1 HDR Digital Grain was user-tested successfully.
+- HDR-to-SDR + LUT was user-tested successfully.
+- A full workflow test completed successfully with AV1 UHQ + Digital Grain + HDR-to-SDR Hable + OpenSVPFlow 60 fps + LUT.
+- Formal package is built on a **Windows Server 2022 runner**. BAT/VBS/CMD are normalized to CRLF with no BOM; PS1 files are normalized to UTF-8 BOM + CRLF and checked for forbidden curly quotes and missing BAT labels.
 
-## LUT Smart Filter
-
-The accepted filter logic was tested against large real-world LUT libraries. Combined creative families such as camera-log-specific variants of the same creative look are retained, while high-confidence utility/technical transforms can be hidden from the Gallery. The filter is display-only and fully reversible.
-
-## Compatibility
-
-- Existing AV1 / HEVC / x264 encoding behavior outside HDR routing remains unchanged.
-- AAC remains standardized at 256k.
-- v4.6.1 FGS application icon and OpenSVPFlow updater / backup flow are preserved.
-- GUI and CLI continue to share the same StudioBridge encoding core.
-- AV1 SFE continues to require **grav1synth 0.2.2+**.
-
-https://github.com/rampageX/grav1synth/releases/latest
-
-The Film Grain Studio release package does not bundle grav1synth.
+AAC remains standardized at **256 kbps**, and existing AV1 SFE, HDR Preserve, LUT Gallery, OpenSVPFlow, subtitles, Cinematic Style, Batch Summary, bitrate logic, and other validated behavior are retained.

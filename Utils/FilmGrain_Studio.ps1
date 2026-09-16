@@ -247,6 +247,8 @@ $script:CinematicCropPerSide = 0
 $script:H264High10 = $false
 $script:X264RateMode = 'VBR1'
 $script:X264Preset = 'faster'
+$script:HdrPolicy = 'AUTO'
+$script:ToneMapAlgo = 'hable'
 $script:UpdatingFramingUi = $false
 $script:UploadSubtitle = [ordered]@{
     Enabled = $false
@@ -374,6 +376,10 @@ function Show-AdvancedSettingsDialog {
     $tabInterp.Text = '插帧'
     [void]$tabs.TabPages.Add($tabInterp)
 
+    $tabHdr = New-Object System.Windows.Forms.TabPage
+    $tabHdr.Text = 'HDR'
+    [void]$tabs.TabPages.Add($tabHdr)
+
     $tabOther = New-Object System.Windows.Forms.TabPage
     $tabOther.Text = '其他'
     [void]$tabs.TabPages.Add($tabOther)
@@ -490,6 +496,53 @@ function Show-AdvancedSettingsDialog {
     $btnRecommended.Size = New-Object System.Drawing.Size -ArgumentList 112, 30
     [void]$tabInterp.Controls.Add($btnRecommended)
 
+    $lblHdrPolicy = New-Object System.Windows.Forms.Label
+    $lblHdrPolicy.Text = 'HDR 输入处理'
+    $lblHdrPolicy.Location = New-Object System.Drawing.Point -ArgumentList 28, 34
+    $lblHdrPolicy.Size = New-Object System.Drawing.Size -ArgumentList 150, 24
+    [void]$tabHdr.Controls.Add($lblHdrPolicy)
+
+    $cmbAdvHdrPolicy = New-Object System.Windows.Forms.ComboBox
+    $cmbAdvHdrPolicy.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
+    $cmbAdvHdrPolicy.Location = New-Object System.Drawing.Point -ArgumentList 190, 30
+    $cmbAdvHdrPolicy.Size = New-Object System.Drawing.Size -ArgumentList 330, 26
+    [void]$cmbAdvHdrPolicy.Items.Add('自动：仅不兼容流程转 SDR（默认 / 推荐）')
+    [void]$cmbAdvHdrPolicy.Items.Add('保持 HDR（None）')
+    [void]$cmbAdvHdrPolicy.Items.Add('强制转换为 SDR')
+    $cmbAdvHdrPolicy.SelectedIndex = switch ($script:HdrPolicy) { 'PRESERVE' { 1 } 'SDR' { 2 } default { 0 } }
+    [void]$tabHdr.Controls.Add($cmbAdvHdrPolicy)
+
+    $lblToneMap = New-Object System.Windows.Forms.Label
+    $lblToneMap.Text = 'Tone Mapping'
+    $lblToneMap.Location = New-Object System.Drawing.Point -ArgumentList 28, 82
+    $lblToneMap.Size = New-Object System.Drawing.Size -ArgumentList 150, 24
+    [void]$tabHdr.Controls.Add($lblToneMap)
+
+    $cmbAdvToneMap = New-Object System.Windows.Forms.ComboBox
+    $cmbAdvToneMap.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
+    $cmbAdvToneMap.Location = New-Object System.Drawing.Point -ArgumentList 190, 78
+    $cmbAdvToneMap.Size = New-Object System.Drawing.Size -ArgumentList 220, 26
+    foreach ($item in @('Hable（默认 / 推荐）','Mobius','Reinhard','Gamma','Linear','Clip')) { [void]$cmbAdvToneMap.Items.Add($item) }
+    $toneIndex = switch ($script:ToneMapAlgo) { 'mobius' { 1 } 'reinhard' { 2 } 'gamma' { 3 } 'linear' { 4 } 'clip' { 5 } default { 0 } }
+    $cmbAdvToneMap.SelectedIndex = $toneIndex
+    [void]$tabHdr.Controls.Add($cmbAdvToneMap)
+
+    $lblHdrInfo = New-Object System.Windows.Forms.Label
+    $lblHdrInfo.AutoSize = $false
+    $lblHdrInfo.Location = New-Object System.Drawing.Point -ArgumentList 28, 132
+    $lblHdrInfo.Size = New-Object System.Drawing.Size -ArgumentList 620, 150
+    $lblHdrInfo.ForeColor = $ColorMuted
+    $lblHdrInfo.Text = "自动：AV1 / HEVC 可保持 HDR 时继续 HDR Preserve；一旦选择 x264、BT.709 LUT、OpenSVPFlow 或 H.264 上传版，HDR 文件先 Tone Mapping 到 SDR 再处理。`r`n`r`n保持 HDR：不自动降级，不兼容功能继续旁路。强制 SDR：所有 PQ / HLG 输入都先转成 BT.709 SDR。SDR 输入不受此选项影响。"
+    [void]$tabHdr.Controls.Add($lblHdrInfo)
+
+    $updateHdrAdvancedUi = {
+        $enabled = ($cmbAdvHdrPolicy.SelectedIndex -ne 1)
+        $cmbAdvToneMap.Enabled = $enabled
+        $lblToneMap.Enabled = $enabled
+    }
+    $cmbAdvHdrPolicy.Add_SelectedIndexChanged($updateHdrAdvancedUi)
+    & $updateHdrAdvancedUi
+
     $lblCropTitle = New-Object System.Windows.Forms.Label
     $lblCropTitle.Text = 'Cinematic Style 自定义画幅'
     $lblCropTitle.Location = New-Object System.Drawing.Point -ArgumentList 28, 30
@@ -558,6 +611,10 @@ function Show-AdvancedSettingsDialog {
         $script:H264High10 = ([bool]$chkAdvH264High10.Checked -and $script:H264High10Available)
         $script:X264RateMode = if ($cmbAdvX264RateMode.SelectedIndex -eq 1) { '2PASS' } else { 'VBR1' }
         $script:X264Preset = switch ($cmbAdvX264Preset.SelectedIndex) { 1 { 'medium' } 2 { 'slow' } default { 'faster' } }
+        $script:HdrPolicy = switch ($cmbAdvHdrPolicy.SelectedIndex) { 1 { 'PRESERVE' } 2 { 'SDR' } default { 'AUTO' } }
+        $script:ToneMapAlgo = switch ($cmbAdvToneMap.SelectedIndex) { 1 { 'mobius' } 2 { 'reinhard' } 3 { 'gamma' } 4 { 'linear' } 5 { 'clip' } default { 'hable' } }
+        Update-HdrCompatibilityUi
+        Update-InterpolationUi
         Update-SpeedChoices
         Update-FramingUi
         Update-BitrateDisplays
@@ -723,7 +780,7 @@ $statusVersion = New-Object System.Windows.Forms.ToolStripStatusLabel
 $statusVersion.Spring = $false
 $statusVersion.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
 $statusVersion.ForeColor = $ColorMuted
-$statusVersion.Text = 'v4.6.3.1'
+$statusVersion.Text = 'v4.7.0'
 $statusVersion.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 12, 0, 0, 0
 [void]$statusStrip.Items.Add($statusVersion)
 
@@ -1144,7 +1201,7 @@ $av1ValueCol.Width = 100
 [void]$pnlAv1.ColumnStyles.Add($av1ValueCol)
 for ($i = 0; $i -lt 6; $i++) { Add-RowPercent $pnlAv1 (100 / 6) }
 
-$cmbAv1Method = New-ComboBox @('胶片预设（推荐）', '感光度 ISO（高级）', '现成 Grain Table（影视 / Photon）') 0
+$cmbAv1Method = New-ComboBox @('胶片预设（推荐）', '感光度 ISO（高级）', '现成 Grain Table（影视 / Photon）', '数字颗粒 · Fast Noise（滑杆，初始 0.30）', '数字颗粒 · Fast Noise（滑杆，初始 0.55）') 0
 $cmbAv1Format = New-ComboBox @('Classic35 · Super 35', 'Modern35 · Full-frame', '16mm · Coarser', 'Super8 · Heavy', 'MaxMid · Synthetic') 0
 $cmbAv1Stock = New-ComboBox @('Fujifilm Eterna 250D', 'Fujifilm Eterna 500T', 'Kodak Vision3 250D', 'Kodak Vision3 200T') 0
 
@@ -1195,6 +1252,37 @@ $chkShowAllAv1Tables.Margin = New-Object System.Windows.Forms.Padding -ArgumentL
 [void]$av1TablePanel.Controls.Add($btnRefreshAv1Table, 1, 0)
 [void]$av1TablePanel.Controls.Add($chkShowAllAv1Tables, 2, 0)
 
+$av1ProcStrengthPanel = New-Object System.Windows.Forms.TableLayoutPanel
+$av1ProcStrengthPanel.Dock = 'Fill'
+$av1ProcStrengthPanel.ColumnCount = 2
+$av1ProcStrengthPanel.RowCount = 1
+$av1ProcStrengthPanel.Visible = $false
+$av1ProcTrackCol = New-Object System.Windows.Forms.ColumnStyle
+$av1ProcTrackCol.SizeType = [System.Windows.Forms.SizeType]::Percent
+$av1ProcTrackCol.Width = 100
+[void]$av1ProcStrengthPanel.ColumnStyles.Add($av1ProcTrackCol)
+$av1ProcLabelCol = New-Object System.Windows.Forms.ColumnStyle
+$av1ProcLabelCol.SizeType = [System.Windows.Forms.SizeType]::Absolute
+$av1ProcLabelCol.Width = 72
+[void]$av1ProcStrengthPanel.ColumnStyles.Add($av1ProcLabelCol)
+
+$trackAv1ProcStrength = New-Object System.Windows.Forms.TrackBar
+$trackAv1ProcStrength.Minimum = 10
+$trackAv1ProcStrength.Maximum = 100
+$trackAv1ProcStrength.Value = 55
+$trackAv1ProcStrength.TickFrequency = 10
+$trackAv1ProcStrength.SmallChange = 1
+$trackAv1ProcStrength.LargeChange = 5
+$trackAv1ProcStrength.TickStyle = [System.Windows.Forms.TickStyle]::BottomRight
+$trackAv1ProcStrength.Dock = 'Fill'
+$trackAv1ProcStrength.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0, 1, 0, 0
+$lblAv1ProcStrength = New-Object System.Windows.Forms.Label
+$lblAv1ProcStrength.Text = '0.55'
+$lblAv1ProcStrength.Dock = 'Fill'
+$lblAv1ProcStrength.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+[void]$av1ProcStrengthPanel.Controls.Add($trackAv1ProcStrength, 0, 0)
+[void]$av1ProcStrengthPanel.Controls.Add($lblAv1ProcStrength, 1, 0)
+
 Add-LabeledRow $pnlAv1 0 '颗粒方式' $cmbAv1Method
 Add-LabeledRow $pnlAv1 1 '胶片格式' $cmbAv1Format
 Add-LabeledRow $pnlAv1 2 '胶片型号' $cmbAv1Stock
@@ -1202,6 +1290,8 @@ Add-LabeledRow $pnlAv1 3 '感光度 ISO' $numIso
 Add-LabeledRow $pnlAv1 4 'Grain Table' $av1TablePanel
 [void]$pnlAv1.Controls.Add($chkChroma, 0, 5)
 $pnlAv1.SetColumnSpan($chkChroma, 2)
+[void]$pnlAv1.Controls.Add($av1ProcStrengthPanel, 0, 5)
+$pnlAv1.SetColumnSpan($av1ProcStrengthPanel, 2)
 [void]$grainHost.Controls.Add($pnlAv1)
 
 # HEVC Grain panel
@@ -1285,6 +1375,37 @@ $lblHevcStrength.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
 [void]$hevcStrengthPanel.Controls.Add($trackHevcStrength, 0, 0)
 [void]$hevcStrengthPanel.Controls.Add($lblHevcStrength, 1, 0)
 
+$hevcProcStrengthPanel = New-Object System.Windows.Forms.TableLayoutPanel
+$hevcProcStrengthPanel.Dock = 'Fill'
+$hevcProcStrengthPanel.ColumnCount = 2
+$hevcProcStrengthPanel.RowCount = 1
+$hevcProcStrengthPanel.Visible = $false
+$hevcProcTrackCol = New-Object System.Windows.Forms.ColumnStyle
+$hevcProcTrackCol.SizeType = [System.Windows.Forms.SizeType]::Percent
+$hevcProcTrackCol.Width = 100
+[void]$hevcProcStrengthPanel.ColumnStyles.Add($hevcProcTrackCol)
+$hevcProcLabelCol = New-Object System.Windows.Forms.ColumnStyle
+$hevcProcLabelCol.SizeType = [System.Windows.Forms.SizeType]::Absolute
+$hevcProcLabelCol.Width = 72
+[void]$hevcProcStrengthPanel.ColumnStyles.Add($hevcProcLabelCol)
+
+$trackHevcProcStrength = New-Object System.Windows.Forms.TrackBar
+$trackHevcProcStrength.Minimum = 10
+$trackHevcProcStrength.Maximum = 100
+$trackHevcProcStrength.Value = 55
+$trackHevcProcStrength.TickFrequency = 10
+$trackHevcProcStrength.SmallChange = 1
+$trackHevcProcStrength.LargeChange = 5
+$trackHevcProcStrength.TickStyle = [System.Windows.Forms.TickStyle]::BottomRight
+$trackHevcProcStrength.Dock = 'Fill'
+$trackHevcProcStrength.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0, 1, 0, 0
+$lblHevcProcStrength = New-Object System.Windows.Forms.Label
+$lblHevcProcStrength.Text = '0.55'
+$lblHevcProcStrength.Dock = 'Fill'
+$lblHevcProcStrength.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+[void]$hevcProcStrengthPanel.Controls.Add($trackHevcProcStrength, 0, 0)
+[void]$hevcProcStrengthPanel.Controls.Add($lblHevcProcStrength, 1, 0)
+
 $cacheNote = New-Object System.Windows.Forms.Label
 $cacheNote.Text = '将递归扫描根目录中的原始 MOV；缓存自动匹配，缺失时回退 MOV。'
 $cacheNote.ForeColor = $ColorMuted
@@ -1295,6 +1416,7 @@ $cacheNote.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 8, 0,
 Add-LabeledRow $pnlHevc 0 '颗粒根目录' $grainRootPanel
 Add-LabeledRow $pnlHevc 1 '扫描颗粒片' $cmbHevcPlate
 Add-LabeledRow $pnlHevc 2 '颗粒强度' $hevcStrengthPanel
+[void]$pnlHevc.Controls.Add($hevcProcStrengthPanel, 1, 2)
 [void]$pnlHevc.Controls.Add($cacheNote, 0, 3)
 $pnlHevc.SetColumnSpan($cacheNote, 2)
 [void]$grainHost.Controls.Add($pnlHevc)
@@ -1431,6 +1553,9 @@ $lblLutStrength.Enabled = $false
 [void]$lutTable.Controls.Add($lblLutStrength, 2, 4)
 
 $toolTip = New-Object System.Windows.Forms.ToolTip
+$digitalGrainTip = '数字颗粒强度参考：0.30 轻微；0.40 轻；0.55 中等；0.68 接近 HEVC CT35 85%；0.75+ 明显/偏重。HDR 自动切换 10-bit 亮度颗粒路径，仍可用滑杆微调。'
+$toolTip.SetToolTip($trackAv1ProcStrength, $digitalGrainTip)
+$toolTip.SetToolTip($trackHevcProcStrength, $digitalGrainTip)
 $toolTip.SetToolTip($btnGrainRoot, '选择颗粒根目录')
 $toolTip.SetToolTip($btnRefreshGrain, '重新扫描根目录中的 .mov 颗粒片')
 $toolTip.SetToolTip($cmbAv1GrainTable, '默认仅显示与源视频分辨率最接近的 Grain Table 档位。')
@@ -2280,6 +2405,25 @@ function Get-InputPaths {
     return $paths
 }
 
+$script:UpdatingProcStrengthUi = $false
+
+function Set-ProceduralStrength {
+    param([int]$Value, [string]$Source = '')
+    if ($Value -lt 10) { $Value = 10 }
+    if ($Value -gt 100) { $Value = 100 }
+    if ($script:UpdatingProcStrengthUi) { return }
+    $script:UpdatingProcStrengthUi = $true
+    try {
+        if ($trackAv1ProcStrength.Value -ne $Value) { $trackAv1ProcStrength.Value = $Value }
+        if ($trackHevcProcStrength.Value -ne $Value) { $trackHevcProcStrength.Value = $Value }
+        $display = [string]::Format([System.Globalization.CultureInfo]::InvariantCulture, '{0:0.00}', ($Value / 100.0))
+        $lblAv1ProcStrength.Text = $display
+        $lblHevcProcStrength.Text = $display
+    } finally {
+        $script:UpdatingProcStrengthUi = $false
+    }
+}
+
 function Refresh-HevcGrainPlates {
     $rootText = $txtGrainRoot.Text.Trim()
     $previousPath = $null
@@ -2287,17 +2431,21 @@ function Refresh-HevcGrainPlates {
         $previousPath = [string]$script:HevcGrainFiles[$cmbHevcPlate.SelectedIndex]
     }
 
-    $script:HevcGrainFiles = @()
+    $proc30 = '::PROC30::'
+    $proc55 = '::PROC55::'
+    $script:HevcGrainFiles = @($proc30, $proc55)
     $script:LastScannedGrainRoot = $rootText
     $cmbHevcPlate.BeginUpdate()
     try {
         $cmbHevcPlate.Items.Clear()
-        $cmbHevcPlate.Enabled = $false
+        [void]$cmbHevcPlate.Items.Add('【数字颗粒】Fast Noise · 滑杆（初始 0.30）')
+        [void]$cmbHevcPlate.Items.Add('【数字颗粒】Fast Noise · 滑杆（初始 0.55）')
+        $cmbHevcPlate.Enabled = $true
 
         if (-not $rootText -or -not (Test-Path -LiteralPath $rootText -PathType Container)) {
-            [void]$cmbHevcPlate.Items.Add('颗粒根目录不存在')
-            $cmbHevcPlate.SelectedIndex = 0
-            $cacheNote.Text = '请选择有效的颗粒根目录，然后点击 ↻ 刷新。'
+            $selectIndex = if ($previousPath -eq $proc30) { 0 } else { 1 }
+            $cmbHevcPlate.SelectedIndex = $selectIndex
+            $cacheNote.Text = '数字颗粒可直接使用；扫描颗粒根目录不存在，外部 MOV 暂不可用。'
             return
         }
 
@@ -2318,14 +2466,7 @@ function Refresh-HevcGrainPlates {
             [void]$cmbHevcPlate.Items.Add($relative)
         }
 
-        if ($script:HevcGrainFiles.Count -eq 0) {
-            [void]$cmbHevcPlate.Items.Add('未找到 .mov 扫描颗粒片')
-            $cmbHevcPlate.SelectedIndex = 0
-            $cacheNote.Text = '当前根目录及其子目录中没有找到原始 .mov 颗粒片。'
-            return
-        }
-
-        $selectedIndex = 0
+        $selectedIndex = if ($files.Count -gt 0) { 2 } else { 1 }
         if ($previousPath) {
             for ($i = 0; $i -lt $script:HevcGrainFiles.Count; $i++) {
                 if ([string]::Equals([string]$script:HevcGrainFiles[$i], $previousPath, [System.StringComparison]::OrdinalIgnoreCase)) {
@@ -2334,17 +2475,42 @@ function Refresh-HevcGrainPlates {
                 }
             }
         }
-        $cmbHevcPlate.Enabled = $true
         $cmbHevcPlate.SelectedIndex = $selectedIndex
-        $cacheNote.Text = '已扫描到 ' + $script:HevcGrainFiles.Count + ' 个原始 MOV；缓存自动匹配，缺失时回退 MOV。'
+        if ($files.Count -gt 0) {
+            $cacheNote.Text = '数字颗粒可直接使用；另扫描到 ' + $files.Count + ' 个原始 MOV，缓存规则保持不变。'
+        } else {
+            $cacheNote.Text = '数字颗粒可直接使用；当前根目录未扫描到原始 MOV。'
+        }
     } catch {
-        $script:HevcGrainFiles = @()
+        $script:HevcGrainFiles = @($proc30, $proc55)
         $cmbHevcPlate.Items.Clear()
-        [void]$cmbHevcPlate.Items.Add('扫描颗粒根目录失败')
-        $cmbHevcPlate.SelectedIndex = 0
-        $cacheNote.Text = '扫描失败：' + $_.Exception.Message
+        [void]$cmbHevcPlate.Items.Add('【数字颗粒】Fast Noise · 滑杆（初始 0.30）')
+        [void]$cmbHevcPlate.Items.Add('【数字颗粒】Fast Noise · 滑杆（初始 0.55）')
+        $cmbHevcPlate.SelectedIndex = 1
+        $cmbHevcPlate.Enabled = $true
+        $cacheNote.Text = '扫描 MOV 失败，但数字颗粒仍可使用：' + $_.Exception.Message
     } finally {
         $cmbHevcPlate.EndUpdate()
+        Update-HevcGrainControls
+    }
+}
+
+function Update-HevcGrainControls {
+    $selected = ''
+    if ($cmbHevcPlate.SelectedIndex -ge 0 -and $cmbHevcPlate.SelectedIndex -lt $script:HevcGrainFiles.Count) {
+        $selected = [string]$script:HevcGrainFiles[$cmbHevcPlate.SelectedIndex]
+    }
+    $isProc = ($selected -eq '::PROC30::' -or $selected -eq '::PROC55::')
+    $trackHevcStrength.Enabled = -not $isProc
+    $hevcStrengthPanel.Visible = -not $isProc
+    $hevcProcStrengthPanel.Visible = $isProc
+    $hevcProcStrengthPanel.Enabled = $isProc
+    if ($isProc) {
+        $hevcProcStrengthPanel.BringToFront()
+    } else {
+        $hevcStrengthPanel.BringToFront()
+        $names = @('Light · 65%', 'Natural · 75%', 'Strong · 85%', 'Full · 100%')
+        $lblHevcStrength.Text = $names[$trackHevcStrength.Value]
     }
 }
 
@@ -2767,13 +2933,22 @@ function Update-Av1Controls {
     $presetMode = ($cmbAv1Method.SelectedIndex -eq 0)
     $isoMode = ($cmbAv1Method.SelectedIndex -eq 1)
     $tableMode = ($cmbAv1Method.SelectedIndex -eq 2)
+    $procMode = ($cmbAv1Method.SelectedIndex -ge 3)
     $cmbAv1Format.Enabled = $presetMode
     $cmbAv1Stock.Enabled = $presetMode -and ($cmbAv1Format.SelectedIndex -lt 3)
     $numIso.Enabled = $isoMode
     $chkChroma.Enabled = $isoMode
+    $chkChroma.Visible = -not $procMode
+    $av1ProcStrengthPanel.Visible = $procMode
+    $av1ProcStrengthPanel.Enabled = $procMode
+    if ($procMode) { $av1ProcStrengthPanel.BringToFront() } else { $chkChroma.BringToFront() }
     $cmbAv1GrainTable.Enabled = $tableMode -and ($script:Av1GrainTableFiles.Count -gt 0)
     $btnRefreshAv1Table.Enabled = $tableMode
     $chkShowAllAv1Tables.Enabled = $tableMode
+    if ($cmbCodec.SelectedIndex -eq 0) {
+        if ($procMode) { $grpGrain.Text = 'AV1 · 数字颗粒（像素烘焙 / SDR+HDR）' }
+        else { $grpGrain.Text = 'AV1 · 胶片颗粒元数据' }
+    }
 }
 
 function Update-SfeUi {
@@ -2924,19 +3099,19 @@ function Update-HdrCompatibilityUi {
     $isHdr = Test-SelectedMediaIsHdr
     if ($cmbCodec.SelectedIndex -eq 3) { return }
 
-    if ($isHdr) {
+    if ($isHdr -and $script:HdrPolicy -eq 'PRESERVE') {
         $chkInterpolation.Enabled = $false
         $cmbInterpolationMode.Enabled = $false
         $chkUpload.Enabled = $false
         $cmbUploadBitrate.Enabled = $false
         $chkUploadBitrateAuto.Enabled = $false
         $grpLut.Enabled = $false
-        $toolTip.SetToolTip($chkInterpolation, 'HDR Preserve：当前 OpenSVPFlow 集成使用 YUV420P8，HDR 文件由核心自动旁路插帧。')
-        $toolTip.SetToolTip($chkUpload, 'HDR Preserve：当前 H.264 上传版没有 HDR->SDR Tone Mapping，HDR 文件由核心自动跳过。')
-        $toolTip.SetToolTip($grpLut, 'HDR Preserve：当前 LUT 工作流按 SDR / BT.709 路线验证，HDR 文件由核心自动旁路 LUT。')
+        $toolTip.SetToolTip($chkInterpolation, 'HDR Preserve：当前 OpenSVPFlow 集成使用 YUV420P8，HDR 文件由核心自动旁路插帧。可在 高级 > HDR 选择先转换为 SDR。')
+        $toolTip.SetToolTip($chkUpload, 'HDR Preserve：H.264 上传版会跳过。可在 高级 > HDR 选择先转换为 SDR。')
+        $toolTip.SetToolTip($grpLut, 'HDR Preserve：BT.709 LUT 会旁路。可在 高级 > HDR 选择先转换为 SDR。')
         if ($cmbCodec.SelectedIndex -eq 2) {
             $btnStart.Enabled = $false
-            $toolTip.SetToolTip($cmbCodec, 'HDR Preserve 主输出请使用 AV1 Main10 或 HEVC Main10；当前 H.264 x264 主线不支持 HDR Preserve。')
+            $toolTip.SetToolTip($cmbCodec, 'HDR Preserve 主输出请使用 AV1 Main10 或 HEVC Main10；如需 x264，请在 高级 > HDR 选择转换为 SDR。')
         } else {
             $btnStart.Enabled = $true
         }
@@ -2951,7 +3126,14 @@ function Update-HdrCompatibilityUi {
     }
     $chkInterpolation.Enabled = $true
     $btnStart.Enabled = $true
-    $toolTip.SetToolTip($chkUpload, '附加 H.264 上传版固定使用 x264 Grain 8-bit 兼容输出；与主输出共用最终分辨率 / FPS / 高动态状态，但拥有独立码率。')
+    if ($isHdr -and $script:HdrPolicy -ne 'PRESERVE') {
+        $toneLabel = switch ($script:ToneMapAlgo) { 'mobius' { 'Mobius' } 'reinhard' { 'Reinhard' } 'gamma' { 'Gamma' } 'linear' { 'Linear' } 'clip' { 'Clip' } default { 'Hable' } }
+        $toolTip.SetToolTip($chkInterpolation, "需要时 HDR 将先通过 $toneLabel Tone Mapping 转成 BT.709 SDR，再进入 OpenSVPFlow。")
+        $toolTip.SetToolTip($chkUpload, "需要时 HDR 将先通过 $toneLabel Tone Mapping 转成 BT.709 SDR，因此可生成 H.264 上传版。")
+        $toolTip.SetToolTip($grpLut, "需要时 HDR 将先通过 $toneLabel Tone Mapping 转成 BT.709 SDR，然后正常应用 LUT。")
+    } else {
+        $toolTip.SetToolTip($chkUpload, '附加 H.264 上传版固定使用 x264 Grain 8-bit 兼容输出；与主输出共用最终分辨率 / FPS / 高动态状态，但拥有独立码率。')
+    }
 }
 
 function Update-InterpolationUi {
@@ -3159,17 +3341,17 @@ function Update-CodecUi {
         $pnlHevc.Visible = $false
         $pnlAv1.Visible = $true
         $pnlAv1.BringToFront()
-        $grpGrain.Text = 'AV1 · 胶片颗粒元数据'
+        Update-Av1Controls
         $chkUpload.Enabled = (-not $script:HardwareCapsReady -or $script:X264Available)
     } else {
         $pnlAv1.Visible = $false
         $pnlHevc.Visible = $true
         $pnlHevc.BringToFront()
         if ($newIndex -eq 2) {
-            $grpGrain.Text = 'H.264 x264 · 扫描胶片颗粒'
+            $grpGrain.Text = 'H.264 x264 · 胶片颗粒'
             $chkUpload.Enabled = $false
         } else {
-            $grpGrain.Text = 'HEVC · 扫描胶片颗粒'
+            $grpGrain.Text = 'HEVC · 胶片颗粒'
             $chkUpload.Enabled = (-not $script:HardwareCapsReady -or $script:X264Available)
         }
         if ($script:LastScannedGrainRoot -ne $txtGrainRoot.Text.Trim() -or $script:HevcGrainFiles.Count -eq 0) {
@@ -3916,6 +4098,11 @@ function Quote-CmdArgument {
 }
 
 function Start-NoReencodeProcessing {
+    if ($cmbAv1Method.SelectedIndex -ge 3) {
+        Show-Error '数字颗粒属于像素烘焙，需要重编码；AV1 不重编码模式仅支持原有元数据颗粒。'
+        return
+    }
+
     $paths = @(Get-InputPaths)
     if ($paths.Count -ne 1) {
         Show-Error '「AV1 不重编码 · 添加/替换胶片颗粒」当前仅支持单个 AV1 输入文件。'
@@ -4127,24 +4314,25 @@ function Start-Encoding {
     }
 
     $selectedGrainPath = $null
+    $selectedProcStrength = ''
     if ($mode -eq 'HEVC' -or $mode -eq 'X264') {
         $grainRoot = $txtGrainRoot.Text.Trim()
-        if (-not (Test-Path -LiteralPath $grainRoot -PathType Container)) {
-            Show-Error "HEVC 颗粒根目录不存在：`r`n$grainRoot"
-            return
-        }
-        if ($script:LastScannedGrainRoot -ne $grainRoot -or $script:HevcGrainFiles.Count -eq 0) {
+        if ($script:LastScannedGrainRoot -ne $grainRoot -or $script:HevcGrainFiles.Count -lt 2) {
             Refresh-HevcGrainPlates
         }
-        if ($script:HevcGrainFiles.Count -eq 0 -or $cmbHevcPlate.SelectedIndex -lt 0 -or $cmbHevcPlate.SelectedIndex -ge $script:HevcGrainFiles.Count) {
-            Show-Error "所选根目录中没有可用的 .mov 扫描颗粒片：`r`n$grainRoot"
+        if ($script:HevcGrainFiles.Count -lt 2 -or $cmbHevcPlate.SelectedIndex -lt 0 -or $cmbHevcPlate.SelectedIndex -ge $script:HevcGrainFiles.Count) {
+            Show-Error '当前没有可用的颗粒选项。'
             return
         }
         $selectedGrainPath = [string]$script:HevcGrainFiles[$cmbHevcPlate.SelectedIndex]
-        if (-not (Test-Path -LiteralPath $selectedGrainPath -PathType Leaf)) {
-            Refresh-HevcGrainPlates
-            Show-Error "所选扫描颗粒片已不存在，请刷新后重新选择。"
-            return
+        if ($selectedGrainPath -eq '::PROC30::' -or $selectedGrainPath -eq '::PROC55::') {
+            $selectedProcStrength = [string]$trackHevcProcStrength.Value
+        } else {
+            if (-not (Test-Path -LiteralPath $selectedGrainPath -PathType Leaf)) {
+                Refresh-HevcGrainPlates
+                Show-Error '所选扫描颗粒片已不存在，请刷新后重新选择。'
+                return
+            }
         }
     }
 
@@ -4184,6 +4372,15 @@ function Start-Encoding {
     } else {
         Append-LogText ("GUI 手动码率：b:v ${bitrate}k  ·  maxrate ${maxrate}k  ·  bufsize ${bufsize}k`r`n")
     }
+    $toneLabel = switch ($script:ToneMapAlgo) { 'mobius' { 'Mobius' } 'reinhard' { 'Reinhard' } 'gamma' { 'Gamma' } 'linear' { 'Linear' } 'clip' { 'Clip' } default { 'Hable' } }
+    if ($script:HdrPolicy -eq 'SDR') {
+        Append-LogText ("HDR 输入：强制 Tone Mapping 到 BT.709 SDR · $toneLabel · 10-bit 无损工作文件`r`n")
+    } elseif ($script:HdrPolicy -eq 'PRESERVE') {
+        Append-LogText "HDR 输入：保持 HDR Preserve；不兼容的 SDR 功能继续按现有规则旁路`r`n"
+    } else {
+        Append-LogText ("HDR 输入：自动兼容 · 可保持时 HDR Preserve；遇到 x264 / LUT / OpenSVPFlow / H.264 上传版时自动 Tone Mapping 到 SDR · $toneLabel`r`n")
+    }
+
     $x264PresetLabel = switch ($script:X264Preset) { 'medium' { 'Medium' } 'slow' { 'Slow' } default { 'Faster' } }
     $x264PassLabel = if ($script:X264RateMode -eq '2PASS') { 'VBR 2-Pass' } else { 'VBR 单次' }
     if ($mode -eq 'X264') {
@@ -4192,6 +4389,13 @@ function Start-Encoding {
     if ($mode -ne 'X264' -and $chkUpload.Checked) {
         $uploadRateModeLabel = if ($uploadBitrateAuto) { '自动推荐' } else { '手动' }
         Append-LogText ("H.264 上传版：x264 $x264PresetLabel + tune grain + $x264PassLabel · $uploadRateModeLabel / 当前显示 ${uploadBitrate} kbps · 与全局 $motionLabel 同步；Bridge 将按每个文件实际输出确认。`r`n")
+    }
+    if ($mode -eq 'AV1' -and $cmbAv1Method.SelectedIndex -ge 3) {
+        $procUiStrength = [string]::Format([System.Globalization.CultureInfo]::InvariantCulture, '{0:0.00}', ($trackAv1ProcStrength.Value / 100.0))
+        Append-LogText ("数字颗粒：Fast Noise · 滑杆 $procUiStrength · SDR/HDR 自适应路径 · HDR 使用 10-bit 亮度颗粒 · 直接烘焙到像素`r`n")
+    } elseif (($mode -eq 'HEVC' -or $mode -eq 'X264') -and $selectedProcStrength) {
+        $procUiStrength = [string]::Format([System.Globalization.CultureInfo]::InvariantCulture, '{0:0.00}', ([int]$selectedProcStrength / 100.0))
+        Append-LogText ("数字颗粒：Fast Noise · 滑杆 $procUiStrength · SDR/HDR 自适应路径 · HDR 使用 10-bit 亮度颗粒 · 直接烘焙到像素`r`n")
     }
     Append-LogText "`r`n"
 
@@ -4237,6 +4441,8 @@ function Start-Encoding {
     $envs['FG_STUDIO_MODE'] = '1'
     $envs['FG_MODE'] = $mode
     $envs['FG_CONTAINER'] = if ($cmbContainer.SelectedIndex -eq 0) { 'MP4' } else { 'MKV' }
+    $envs['FG_HDR_POLICY'] = [string]$script:HdrPolicy
+    $envs['FG_TONEMAP_ALGO'] = [string]$script:ToneMapAlgo
     $speedModes = @('FAST', 'STANDARD', 'UHQ')
     $envs['FG_SPEED'] = if ($mode -eq 'X264') { 'X264' } else { $speedModes[$cmbSpeed.SelectedIndex] }
     $sfeEngines = 0
@@ -4299,23 +4505,38 @@ function Start-Encoding {
     }
 
     if ($mode -eq 'AV1') {
-        $av1Modes = @('PRESET', 'ISO', 'TABLE')
-        $envs['FG_AV1_GRAIN_MODE'] = $av1Modes[$cmbAv1Method.SelectedIndex]
-        $envs['FG_AV1_FORMAT'] = [string]($cmbAv1Format.SelectedIndex + 1)
-        $envs['FG_AV1_STOCK'] = [string]($cmbAv1Stock.SelectedIndex + 1)
-        $envs['FG_AV1_ISO'] = [string][int]$numIso.Value
-        $envs['FG_AV1_CHROMA'] = if ($chkChroma.Checked) { '1' } else { '0' }
-        if ($selectedAv1GrainTable) { $envs['FG_AV1_GRAIN_TABLE'] = $selectedAv1GrainTable }
-        else { [void]$envs.Remove('FG_AV1_GRAIN_TABLE') }
+        if ($cmbAv1Method.SelectedIndex -ge 3) {
+            $envs['FG_GRAIN_ENGINE'] = 'PROCEDURAL'
+            $envs['FG_PROC_STRENGTH'] = [string]$trackAv1ProcStrength.Value
+            [void]$envs.Remove('FG_AV1_GRAIN_TABLE')
+        } else {
+            $envs['FG_GRAIN_ENGINE'] = 'NATIVE'
+            $av1Modes = @('PRESET', 'ISO', 'TABLE')
+            $envs['FG_AV1_GRAIN_MODE'] = $av1Modes[$cmbAv1Method.SelectedIndex]
+            $envs['FG_AV1_FORMAT'] = [string]($cmbAv1Format.SelectedIndex + 1)
+            $envs['FG_AV1_STOCK'] = [string]($cmbAv1Stock.SelectedIndex + 1)
+            $envs['FG_AV1_ISO'] = [string][int]$numIso.Value
+            $envs['FG_AV1_CHROMA'] = if ($chkChroma.Checked) { '1' } else { '0' }
+            if ($selectedAv1GrainTable) { $envs['FG_AV1_GRAIN_TABLE'] = $selectedAv1GrainTable }
+            else { [void]$envs.Remove('FG_AV1_GRAIN_TABLE') }
+        }
     } else {
-        $envs['FG_GRAIN_ROOT'] = $txtGrainRoot.Text.Trim()
-        $envs['FG_HEVC_GRAIN_PATH'] = $selectedGrainPath
-        $grainTag = [System.IO.Path]::GetFileNameWithoutExtension($selectedGrainPath)
-        $grainTag = [System.Text.RegularExpressions.Regex]::Replace($grainTag, '[^\p{L}\p{Nd}]+', '_').Trim('_')
-        if (-not $grainTag) { $grainTag = 'SCAN' }
-        if ($grainTag.Length -gt 48) { $grainTag = $grainTag.Substring(0, 48).TrimEnd('_') }
-        $envs['FG_HEVC_GRAIN_TAG'] = $grainTag
-        $envs['FG_HEVC_STRENGTH_SEL'] = [string]($trackHevcStrength.Value + 1)
+        if ($selectedProcStrength) {
+            $envs['FG_GRAIN_ENGINE'] = 'PROCEDURAL'
+            $envs['FG_PROC_STRENGTH'] = $selectedProcStrength
+            [void]$envs.Remove('FG_HEVC_GRAIN_PATH')
+            [void]$envs.Remove('FG_HEVC_GRAIN_TAG')
+        } else {
+            $envs['FG_GRAIN_ENGINE'] = 'NATIVE'
+            $envs['FG_GRAIN_ROOT'] = $txtGrainRoot.Text.Trim()
+            $envs['FG_HEVC_GRAIN_PATH'] = $selectedGrainPath
+            $grainTag = [System.IO.Path]::GetFileNameWithoutExtension($selectedGrainPath)
+            $grainTag = [System.Text.RegularExpressions.Regex]::Replace($grainTag, '[^\p{L}\p{Nd}]+', '_').Trim('_')
+            if (-not $grainTag) { $grainTag = 'SCAN' }
+            if ($grainTag.Length -gt 48) { $grainTag = $grainTag.Substring(0, 48).TrimEnd('_') }
+            $envs['FG_HEVC_GRAIN_TAG'] = $grainTag
+            $envs['FG_HEVC_STRENGTH_SEL'] = [string]($trackHevcStrength.Value + 1)
+        }
     }
 
     try {
@@ -5104,6 +5325,10 @@ $chkBitrateAuto.Add_CheckedChanged({
 $chkUploadHighMotion.Add_CheckedChanged({ Update-BitrateDisplays })
 $cmbFps.Add_SelectedIndexChanged({ Update-BitrateDisplays })
 $cmbAv1Method.Add_SelectedIndexChanged({
+    if (-not $script:UpdatingProcStrengthUi) {
+        if ($cmbAv1Method.SelectedIndex -eq 3) { Set-ProceduralStrength 30 'AV1' }
+        elseif ($cmbAv1Method.SelectedIndex -eq 4) { Set-ProceduralStrength 55 'AV1' }
+    }
     Update-Av1Controls
     if ($cmbAv1Method.SelectedIndex -eq 2) { Refresh-Av1GrainTables }
 })
@@ -5111,9 +5336,22 @@ $cmbAv1Format.Add_SelectedIndexChanged({ Update-Av1Controls })
 $btnRefreshAv1Table.Add_Click({ Refresh-Av1GrainTables })
 $chkShowAllAv1Tables.Add_CheckedChanged({ Refresh-Av1GrainTables })
 
-$trackHevcStrength.Add_ValueChanged({
-    $names = @('Light · 65%', 'Natural · 75%', 'Strong · 85%', 'Full · 100%')
-    $lblHevcStrength.Text = $names[$trackHevcStrength.Value]
+$cmbHevcPlate.Add_SelectedIndexChanged({
+    if (-not $script:UpdatingProcStrengthUi) {
+        if ($cmbHevcPlate.SelectedIndex -ge 0 -and $cmbHevcPlate.SelectedIndex -lt $script:HevcGrainFiles.Count) {
+            $procSel = [string]$script:HevcGrainFiles[$cmbHevcPlate.SelectedIndex]
+            if ($procSel -eq '::PROC30::') { Set-ProceduralStrength 30 'HEVC' }
+            elseif ($procSel -eq '::PROC55::') { Set-ProceduralStrength 55 'HEVC' }
+        }
+    }
+    Update-HevcGrainControls
+})
+$trackHevcStrength.Add_ValueChanged({ Update-HevcGrainControls })
+$trackAv1ProcStrength.Add_ValueChanged({
+    if (-not $script:UpdatingProcStrengthUi) { Set-ProceduralStrength $trackAv1ProcStrength.Value 'AV1' }
+})
+$trackHevcProcStrength.Add_ValueChanged({
+    if (-not $script:UpdatingProcStrengthUi) { Set-ProceduralStrength $trackHevcProcStrength.Value 'HEVC'; Update-HevcGrainControls }
 })
 
 $trackLutStrength.Add_ValueChanged({

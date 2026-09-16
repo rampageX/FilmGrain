@@ -1,30 +1,29 @@
 ﻿Film Grain Studio formal stable baseline
 
 Baseline:
-v4.6.3.1
+v4.7.0
 
 Supersedes:
-v4.6.3
+v4.6.3.1
 
 Formal release:
-FilmGrain_Studio_v4.6.3.1_Stable.zip
+FilmGrain_Studio_v4.7.0_Stable.zip
 
-v4.6.3.1 packaging compatibility fix:
-- Functional source and encoding behavior are unchanged from user-validated v4.6.3.
-- Formal FGS release packaging is fixed to a Windows runner.
-- BAT / VBS / CMD are normalized to CRLF with no BOM in the release package.
-- PS1 is normalized to UTF-8 BOM + CRLF in the release package.
-- Final ZIP is unpacked and revalidated before release creation.
-- AV1 + LUT path was user-tested successfully with Windows CRLF package M8Q4X.
+v4.7.0 major additions:
+- Digital Grain / Fast Noise is available across AV1, HEVC and x264 main lines.
+- Digital Grain strength slider: 0.10-1.00, default 0.55.
+- AV1 / HEVC HDR Preserve supports a 10-bit luma-only Digital Grain path.
+- HDR handling offers Auto / Keep HDR / Force SDR.
+- HDR-to-SDR Tone Mapping supports Hable (default), Mobius, Reinhard, Gamma, Linear and Clip.
+- Auto mode Tone Maps HDR to BT.709 SDR when x264, BT.709 LUT, OpenSVPFlow or H.264 upload requires an SDR workflow.
+- HDR-to-SDR uses a random-suffix 10-bit HEVC Main10 lossless working file and cleans it after the job.
+- AV1 HDR Digital Grain and HDR-to-SDR + LUT were user-tested successfully before v4.7.0 packaging.
 
-Inherited v4.6.3:
+Inherited from v4.6.3.1:
+- Windows packaging compatibility rules and release validation.
 - LUT Gallery Update Preview synchronization and safe stale-preview cleanup.
-- Added / deleted / current LUT counts refresh immediately.
-- Final R6T2B Gallery layout and Smart Filter count display.
-- v4.6.2.1 H.264 upload manual bitrate fix.
-- v4.6.2 HDR Preserve and LUT Smart Filter.
-- v4.6.1 FGS icon and OpenSVPFlow updater.
-- v4.6.0 AV1 SFE and interlaced/OpenSVPFlow routing.
+- HDR Preserve for AV1 Main10 / HEVC Main10.
+- AV1 SFE, OpenSVPFlow updater, H.264 upload bitrate fix, Batch Summary and all prior stable functionality.
 
 Release cleanup:
 - No temporary patch / hotfix / test files.
@@ -32,3 +31,4 @@ Release cleanup:
 - No _LUT_Tools\LUT_Reference_Current.jpg.
 - No user OpenSVPFlow DLL/version state or _PluginBackup.
 - No Recent / Favorites / Smart Filter CSV user state.
+- GUI status version is v4.7.0 with no Beta / TEST suffix.
