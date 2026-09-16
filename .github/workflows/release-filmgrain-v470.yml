@@ -31,9 +31,18 @@ jobs:
           $log = Join-Path $env:RUNNER_TEMP 'v470-release.log'
           [System.IO.File]::WriteAllBytes($zip,[Convert]::FromBase64String($b64))
           Expand-Archive -LiteralPath $zip -DestinationPath $payload -Force
+
+          # Windows PowerShell 5 requires a BOM for reliable UTF-8 parsing of Chinese literals.
+          $scriptPath = Join-Path $payload 'release-v470.ps1'
+          $scriptText = [System.IO.File]::ReadAllText($scriptPath,[System.Text.Encoding]::UTF8)
+          [System.IO.File]::WriteAllText($scriptPath,$scriptText,(New-Object System.Text.UTF8Encoding($true)))
+
+          # Remove the diagnostic file from the previous failed attempt before the formal commit.
+          Remove-Item -LiteralPath '.github\release\v470-failure.log' -Force -ErrorAction SilentlyContinue
+
           $oldPreference = $ErrorActionPreference
           $ErrorActionPreference = 'Continue'
-          & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $payload 'release-v470.ps1') -PayloadRoot $payload 2>&1 | Tee-Object -FilePath $log
+          & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -ExecutionPolicy Bypass -File $scriptPath -PayloadRoot $payload 2>&1 | Tee-Object -FilePath $log
           $code = $LASTEXITCODE
           $ErrorActionPreference = $oldPreference
           if ($code -ne 0) {
