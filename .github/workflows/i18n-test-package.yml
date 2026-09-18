@@ -58,7 +58,7 @@ jobs:
           if ($badQuotes.Count -gt 0) { throw ('Curly quotes found: ' + ($badQuotes -join ', ')) }
 
           $badCaret = @()
-          Get-ChildItem -LiteralPath $stage -Recurse -Include '*.bat','*.cmd' -File | ForEach-Object {
+          Get-ChildItem -LiteralPath $stage -Recurse -File | Where-Object { $_.Extension.ToLowerInvariant() -in @('.bat','.cmd') } | ForEach-Object {
             $lines = [System.IO.File]::ReadAllLines($_.FullName)
             for ($i = 0; $i -lt $lines.Length; $i++) {
               if ($lines[$i] -match '\^\s+$') { $badCaret += ($_.FullName + ':' + ($i + 1)) }
@@ -79,7 +79,7 @@ jobs:
           }
 
           if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
-          Compress-Archive -LiteralPath (Join-Path $stage '*') -DestinationPath $zip -CompressionLevel Optimal
+          Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip -CompressionLevel Optimal
 
           $hash = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
           [System.IO.File]::WriteAllText(($zip + '.sha256'), ($hash + '  ' + [IO.Path]::GetFileName($zip) + "`r`n"), $utf8NoBom)
