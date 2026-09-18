@@ -40,7 +40,7 @@ jobs:
           New-Item -ItemType Directory -Path $stage | Out-Null
 
           Get-ChildItem -LiteralPath $env:GITHUB_WORKSPACE -Force |
-            Where-Object { $_.Name -notin @('.git','.github') } |
+            Where-Object { $_.Name -notin @('.git','.github','benchmark') } |
             ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $stage -Recurse -Force }
 
           # Remove runtime/user state from the formal package.
@@ -81,6 +81,8 @@ jobs:
             'FilmGrain_Universal_HEVC_AV1_GUI.bat',
             'FilmGrain_Universal_HEVC_AV1_CLI.bat',
             'Utils\FilmGrain_Studio.ps1',
+            'Utils\FGS_Benchmark.cmd',
+            'Utils\FGS_Benchmark.ps1',
             'Utils\FilmGrain_Language.ps1',
             'Lang\zh-CN.ini',
             'Lang\en-US.ini',
@@ -92,6 +94,8 @@ jobs:
               throw "Required file missing: $rel"
             }
           }
+
+          if (Test-Path -LiteralPath (Join-Path $stage 'benchmark')) { throw 'benchmark must not be included in the formal package.' }
 
           # WinPS 5.1 language smoke test.
           . (Join-Path $stage 'Utils\FilmGrain_Language.ps1')
@@ -159,6 +163,15 @@ jobs:
 
           if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
           Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip -CompressionLevel Optimal
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $archive = [IO.Compression.ZipFile]::OpenRead($zip)
+          try {
+            $entries = @($archive.Entries | ForEach-Object { $_.FullName.Replace('\','/') })
+            if (@($entries | Where-Object { $_ -match '(^|/)benchmark/' }).Count) { throw 'benchmark found in final ZIP.' }
+            foreach ($requiredScript in @('Utils/FGS_Benchmark.cmd','Utils/FGS_Benchmark.ps1')) {
+              if ($entries -notcontains $requiredScript) { throw "Benchmark script missing from ZIP: $requiredScript" }
+            }
+          } finally { $archive.Dispose() }
           $hash = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
           [System.IO.File]::WriteAllText($shaFile, ($hash + '  ' + [IO.Path]::GetFileName($zip) + "`r`n"), $utf8NoBom)
 

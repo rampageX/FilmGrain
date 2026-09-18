@@ -17,6 +17,15 @@ Taylor Swift 片段用于观察肤色、暗部渐变及颗粒与压缩伪影；L
 
 截图是特定场景的比较样本，尤其适合暴露瑕疵，**不代表整段视频的平均画质**。正常播放中的颗粒运动、闪烁和连续性，需要结合视频判断。
 
+## 运行方法
+
+将一个视频拖到 `Utils/FGS_Benchmark.cmd`，保持配套 PS1 与 CMD 同目录，并先在 FGS 中配置好 FFmpeg 等工具路径。
+
+- 输入逗号分隔的截图帧号，留空跳过截图。
+- Grain Plate 输入原始 `.mov` 的完整路径（含文件名），例如 `D:\Film_Grain\CT 35mm Grain 4K DCI\CT 35mm Grain 4K DCI.mov`；不要直接输入 `_HEVC_Lossless.mkv`，由 StudioBridge 自动复用缓存。
+- Grain Plate 路径留空时，B03/B09 保留结果行并标为 SKIPPED。
+- 完整结果在源视频目录的 `FGS_Benchmark_随机数_随机数` 中。截图超出片段帧数时会记录问题，其它测试继续。
+
 ## 测试矩阵
 
 | 编号 | 编码器 | 颗粒路线 / 质量设置 |

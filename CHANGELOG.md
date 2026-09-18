@@ -1,5 +1,15 @@
 # Film Grain Studio — CHANGELOG
 
+## v4.8.2 — 2026-09-18
+
+- 正式集成 FGS Benchmark v1.0：`Utils/FGS_Benchmark.cmd` 与配套 PS1 调用既有 StudioBridge，提供 B01–B09、Q01–Q03 完整 12 项测试矩阵。
+- 自动采集环境、源信息、完整流程耗时、输出帧数、处理 FPS、MPix/s、文件大小、平均码率和实时倍速，生成 CSV 与 Markdown 报告；按指定的 0 起始帧号生成同帧 PNG，AV1 截图启用原生颗粒解码。
+- 仓库新增两组实测记录：Taylor Swift - Look What You Made Me Do 片段第 313 帧、LG OLED DAYDREAMS 片段第 543 帧。两组均在用户 RTX 4080 / FGS v4.8.1 环境下完成 12/12 测试；这些记录保留原始测试版本，不改写为 v4.8.2。
+- Benchmark 使用说明并入主 README 和 `benchmark/README.md`，变更记录统一由本 CHANGELOG 维护，不另行维护独立 Benchmark README/CHANGELOG。
+- Windows 发布流程排除整个 `benchmark/` 目录，并校验 Benchmark CMD/PS1 必须入包、实测目录不得入包；截图、报告及测试视频不增加正式包体积。
+- 保留已验证 Benchmark 脚本原样，不修改 StudioBridge、GUI/CLI 编码核心或 AV1 / HEVC / x264 参数；AAC 仍为 256k。
+- GUI 状态版本与正式发布包更新为 `v4.8.2` / `FilmGrain_Studio_v4.8.2_Stable.zip`。
+
 ## v4.8.1 — 2026-09-18
 
 - 重新整理 `README.md`：README 只维护当前版本的功能说明、工作原理、设置方式、使用建议与已知限制，不再重复记录逐版本更新流水；历史版本变化统一由 `CHANGELOG.md` 维护。
