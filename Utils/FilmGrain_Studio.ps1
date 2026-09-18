@@ -165,6 +165,9 @@ $LutPreviewCurrentReference = Join-Path $PackageRoot '_LUT_Tools\LUT_Reference_C
 $ConfigScript = Join-Path $ScriptRoot 'FilmGrain_Config.ps1'
 if (-not (Test-Path -LiteralPath $ConfigScript -PathType Leaf)) { throw "Film Grain configuration helper not found: $ConfigScript" }
 . $ConfigScript
+$LanguageScript = Join-Path $ScriptRoot 'FilmGrain_Language.ps1'
+if (-not (Test-Path -LiteralPath $LanguageScript -PathType Leaf)) { throw "Film Grain language helper not found: $LanguageScript" }
+. $LanguageScript
 $script:PathConfig = Get-FilmGrainConfig
 $Ffmpeg = [string]$script:PathConfig.FFMPEG
 $Ffprobe = [string]$script:PathConfig.FFPROBE
@@ -220,7 +223,7 @@ $script:Av1InspectOutputTask = $null
 $script:Av1InspectErrorTask = $null
 $script:Av1InspectTargetPath = ''
 $script:Av1InspectTempTable = ''
-$script:NoReencodeItemText = 'AV1 不重编码 · 添加/替换胶片颗粒'
+$script:NoReencodeItemText = L 'codec.no_reencode'
 $script:NoReencodeUiActive = $false
 $script:RecentLuts = @()
 $script:LoadingRecentLuts = $false
@@ -233,7 +236,7 @@ $script:FFmpegVersionOverride = ''
 $script:Av1Available = $true
 $script:Av1UhqAvailable = $false
 $script:SfeMaxEngines = 1
-$script:Grav1synthVersion = '未检测'
+$script:Grav1synthVersion = L 'hardware.not_detected'
 $script:Grav1synthSfeCompatible = $false
 $script:UpdatingSpeedChoices = $false
 $script:HevcAvailable = $true
@@ -353,7 +356,7 @@ function Show-Info {
 
 function Show-AdvancedSettingsDialog {
     $dlg = New-Object System.Windows.Forms.Form
-    $dlg.Text = 'Film Grain Studio - 高级设置'
+    $dlg.Text = L 'advanced.title'
     $dlg.StartPosition = 'CenterParent'
     $dlg.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedDialog
     $dlg.MaximizeBox = $false
@@ -369,11 +372,11 @@ function Show-AdvancedSettingsDialog {
     [void]$dlg.Controls.Add($tabs)
 
     $tabEncode = New-Object System.Windows.Forms.TabPage
-    $tabEncode.Text = '编码'
+    $tabEncode.Text = L 'advanced.tab.encode'
     [void]$tabs.TabPages.Add($tabEncode)
 
     $tabInterp = New-Object System.Windows.Forms.TabPage
-    $tabInterp.Text = '插帧'
+    $tabInterp.Text = L 'advanced.tab.interp'
     [void]$tabs.TabPages.Add($tabInterp)
 
     $tabHdr = New-Object System.Windows.Forms.TabPage
@@ -381,11 +384,11 @@ function Show-AdvancedSettingsDialog {
     [void]$tabs.TabPages.Add($tabHdr)
 
     $tabOther = New-Object System.Windows.Forms.TabPage
-    $tabOther.Text = '其他'
+    $tabOther.Text = L 'advanced.tab.other'
     [void]$tabs.TabPages.Add($tabOther)
 
     $chkAdvH264High10 = New-Object System.Windows.Forms.CheckBox
-    $chkAdvH264High10.Text = 'H.264 High10（实验）'
+    $chkAdvH264High10.Text = L 'advanced.high10'
     $chkAdvH264High10.Checked = ($script:H264High10 -and $script:H264High10Available)
     $chkAdvH264High10.Enabled = (-not $script:HardwareCapsReady -or $script:H264High10Available)
     $chkAdvH264High10.Location = New-Object System.Drawing.Point -ArgumentList 28, 32
@@ -393,7 +396,7 @@ function Show-AdvancedSettingsDialog {
     [void]$tabEncode.Controls.Add($chkAdvH264High10)
 
     $lblX264RateMode = New-Object System.Windows.Forms.Label
-    $lblX264RateMode.Text = 'x264 码率模式'
+    $lblX264RateMode.Text = L 'advanced.x264_rate'
     $lblX264RateMode.Location = New-Object System.Drawing.Point -ArgumentList 28, 78
     $lblX264RateMode.Size = New-Object System.Drawing.Size -ArgumentList 150, 24
     [void]$tabEncode.Controls.Add($lblX264RateMode)
@@ -402,8 +405,8 @@ function Show-AdvancedSettingsDialog {
     $cmbAdvX264RateMode.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
     $cmbAdvX264RateMode.Location = New-Object System.Drawing.Point -ArgumentList 190, 74
     $cmbAdvX264RateMode.Size = New-Object System.Drawing.Size -ArgumentList 260, 26
-    [void]$cmbAdvX264RateMode.Items.Add('VBR 单次（默认 / 推荐）')
-    [void]$cmbAdvX264RateMode.Items.Add('VBR 2-Pass')
+    [void]$cmbAdvX264RateMode.Items.Add((L 'advanced.vbr1'))
+    [void]$cmbAdvX264RateMode.Items.Add((L 'advanced.vbr2'))
     $cmbAdvX264RateMode.SelectedIndex = if ($script:X264RateMode -eq '2PASS') { 1 } else { 0 }
     [void]$tabEncode.Controls.Add($cmbAdvX264RateMode)
 
@@ -417,7 +420,7 @@ function Show-AdvancedSettingsDialog {
     $cmbAdvX264Preset.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
     $cmbAdvX264Preset.Location = New-Object System.Drawing.Point -ArgumentList 190, 118
     $cmbAdvX264Preset.Size = New-Object System.Drawing.Size -ArgumentList 260, 26
-    [void]$cmbAdvX264Preset.Items.Add('Faster（默认 / 推荐）')
+    [void]$cmbAdvX264Preset.Items.Add((L 'advanced.preset_faster'))
     [void]$cmbAdvX264Preset.Items.Add('Medium')
     [void]$cmbAdvX264Preset.Items.Add('Slow')
     $presetIndex = switch ($script:X264Preset) { 'medium' { 1 } 'slow' { 2 } default { 0 } }
@@ -458,8 +461,8 @@ function Show-AdvancedSettingsDialog {
     $cmbAdvAnalyse.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
     $cmbAdvAnalyse.Location = New-Object System.Drawing.Point -ArgumentList 190, 78
     $cmbAdvAnalyse.Size = New-Object System.Drawing.Size -ArgumentList 360, 26
-    [void]$cmbAdvAnalyse.Items.Add('EncodeGUI Analyse（推荐）')
-    [void]$cmbAdvAnalyse.Items.Add('Baseline Analyse {}（对照）')
+    [void]$cmbAdvAnalyse.Items.Add((L 'advanced.analyse_recommended'))
+    [void]$cmbAdvAnalyse.Items.Add((L 'advanced.analyse_baseline'))
     if ($script:SvpAnalyse -eq 'BASE') {
         $cmbAdvAnalyse.SelectedIndex = 1
     } else {
@@ -487,17 +490,17 @@ function Show-AdvancedSettingsDialog {
     $lblInterpInfo.Location = New-Object System.Drawing.Point -ArgumentList 28, 182
     $lblInterpInfo.Size = New-Object System.Drawing.Size -ArgumentList 610, 92
     $lblInterpInfo.ForeColor = $ColorMuted
-    $lblInterpInfo.Text = "主界面的「平滑 / 自动平衡」控制 Uniform / Adaptive。`r`nSuper 固定保留已验证基线：pel=1 / GPU / full=true。"
+    $lblInterpInfo.Text = L 'advanced.interp_info'
     [void]$tabInterp.Controls.Add($lblInterpInfo)
 
     $btnRecommended = New-Object System.Windows.Forms.Button
-    $btnRecommended.Text = '恢复推荐值'
+    $btnRecommended.Text = L 'advanced.restore_recommended'
     $btnRecommended.Location = New-Object System.Drawing.Point -ArgumentList 190, 292
     $btnRecommended.Size = New-Object System.Drawing.Size -ArgumentList 112, 30
     [void]$tabInterp.Controls.Add($btnRecommended)
 
     $lblHdrPolicy = New-Object System.Windows.Forms.Label
-    $lblHdrPolicy.Text = 'HDR 输入处理'
+    $lblHdrPolicy.Text = L 'advanced.hdr_policy'
     $lblHdrPolicy.Location = New-Object System.Drawing.Point -ArgumentList 28, 34
     $lblHdrPolicy.Size = New-Object System.Drawing.Size -ArgumentList 150, 24
     [void]$tabHdr.Controls.Add($lblHdrPolicy)
@@ -506,9 +509,9 @@ function Show-AdvancedSettingsDialog {
     $cmbAdvHdrPolicy.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
     $cmbAdvHdrPolicy.Location = New-Object System.Drawing.Point -ArgumentList 190, 30
     $cmbAdvHdrPolicy.Size = New-Object System.Drawing.Size -ArgumentList 330, 26
-    [void]$cmbAdvHdrPolicy.Items.Add('自动：仅不兼容流程转 SDR（默认 / 推荐）')
-    [void]$cmbAdvHdrPolicy.Items.Add('保持 HDR（None）')
-    [void]$cmbAdvHdrPolicy.Items.Add('强制转换为 SDR')
+    [void]$cmbAdvHdrPolicy.Items.Add((L 'advanced.hdr_auto'))
+    [void]$cmbAdvHdrPolicy.Items.Add((L 'advanced.hdr_preserve'))
+    [void]$cmbAdvHdrPolicy.Items.Add((L 'advanced.hdr_force_sdr'))
     $cmbAdvHdrPolicy.SelectedIndex = switch ($script:HdrPolicy) { 'PRESERVE' { 1 } 'SDR' { 2 } default { 0 } }
     [void]$tabHdr.Controls.Add($cmbAdvHdrPolicy)
 
@@ -522,7 +525,7 @@ function Show-AdvancedSettingsDialog {
     $cmbAdvToneMap.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
     $cmbAdvToneMap.Location = New-Object System.Drawing.Point -ArgumentList 190, 78
     $cmbAdvToneMap.Size = New-Object System.Drawing.Size -ArgumentList 220, 26
-    foreach ($item in @('Hable（默认 / 推荐）','Mobius','Reinhard','Gamma','Linear','Clip')) { [void]$cmbAdvToneMap.Items.Add($item) }
+    foreach ($item in @((L 'advanced.hable'),'Mobius','Reinhard','Gamma','Linear','Clip')) { [void]$cmbAdvToneMap.Items.Add($item) }
     $toneIndex = switch ($script:ToneMapAlgo) { 'mobius' { 1 } 'reinhard' { 2 } 'gamma' { 3 } 'linear' { 4 } 'clip' { 5 } default { 0 } }
     $cmbAdvToneMap.SelectedIndex = $toneIndex
     [void]$tabHdr.Controls.Add($cmbAdvToneMap)
@@ -544,14 +547,14 @@ function Show-AdvancedSettingsDialog {
     & $updateHdrAdvancedUi
 
     $lblCropTitle = New-Object System.Windows.Forms.Label
-    $lblCropTitle.Text = 'Cinematic Style 自定义画幅'
+    $lblCropTitle.Text = L 'advanced.crop_title'
     $lblCropTitle.Location = New-Object System.Drawing.Point -ArgumentList 28, 30
     $lblCropTitle.Size = New-Object System.Drawing.Size -ArgumentList 260, 26
     $lblCropTitle.Font = New-UiFont 9 ([System.Drawing.FontStyle]::Bold)
     [void]$tabOther.Controls.Add($lblCropTitle)
 
     $lblCropValue = New-Object System.Windows.Forms.Label
-    $lblCropValue.Text = '上下各 (px)'
+    $lblCropValue.Text = L 'advanced.crop_value'
     $lblCropValue.Location = New-Object System.Drawing.Point -ArgumentList 28, 82
     $lblCropValue.Size = New-Object System.Drawing.Size -ArgumentList 150, 24
     [void]$tabOther.Controls.Add($lblCropValue)
@@ -574,14 +577,14 @@ function Show-AdvancedSettingsDialog {
     [void]$tabOther.Controls.Add($lblCropInfo)
 
     $btnOk = New-Object System.Windows.Forms.Button
-    $btnOk.Text = '确定'
+    $btnOk.Text = L 'advanced.ok'
     $btnOk.Location = New-Object System.Drawing.Point -ArgumentList 514, 406
     $btnOk.Size = New-Object System.Drawing.Size -ArgumentList 88, 30
     $btnOk.DialogResult = [System.Windows.Forms.DialogResult]::OK
     [void]$dlg.Controls.Add($btnOk)
 
     $btnCancelAdv = New-Object System.Windows.Forms.Button
-    $btnCancelAdv.Text = '取消'
+    $btnCancelAdv.Text = L 'advanced.cancel'
     $btnCancelAdv.Location = New-Object System.Drawing.Point -ArgumentList 610, 406
     $btnCancelAdv.Size = New-Object System.Drawing.Size -ArgumentList 88, 30
     $btnCancelAdv.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
@@ -699,14 +702,14 @@ function Get-FFmpegVersionLabel {
             if ($line -match '^ffmpeg version\s+([^\s]+)') { return $matches[1] }
         } catch {}
     }
-    return '未检测'
+    return (L 'hardware.not_detected')
 }
 
 function Update-HardwareProfileUi {
     if (-not $statusHardware -or -not $cmbGpu) { return }
     $ffmpegVersion = Get-FFmpegVersionLabel
     if ($script:HardwareCapsReady) {
-        $yesNo = @('不可用', '可用')
+        $yesNo = @((L 'hardware.unavailable'), (L 'hardware.available'))
         $av1Text = $yesNo[[int]$script:Av1Available]
         $av1UhqText = $yesNo[[int]$script:Av1UhqAvailable]
         $hevcText = $yesNo[[int]$script:HevcAvailable]
@@ -714,18 +717,18 @@ function Update-HardwareProfileUi {
         $x264High10Text = $yesNo[[int]$script:H264High10Available]
         $svpText = $yesNo[[int]$script:OpenSvpAvailable]
         $cacheStateText = switch ([string]$script:HardwareCaps.cacheState) {
-            'Detected' { '已适配' }
-            'Cached'   { '已缓存' }
+            'Detected' { L 'hardware.cache_detected' }
+            'Cached'   { L 'hardware.cache_cached' }
             default    { [string]$script:HardwareCaps.cacheState }
         }
         $statusHardware.Text = "GPU $($script:HardwareCaps.gpu.name) · 驱动 $($script:HardwareCaps.gpu.driverVersion) · FFmpeg $ffmpegVersion · 配置 $cacheStateText · AV1 $av1Text · UHQ $av1UhqText · HEVC/Vulkan $hevcText · x264 Grain $x264Text · High10 $x264High10Text · SVPFlow $svpText"
         $cmbGpu.Items.Clear()
-        [void]$cmbGpu.Items.Add(([string]$script:HardwareCaps.gpu.name + '（自动检测）'))
+        [void]$cmbGpu.Items.Add(([string]$script:HardwareCaps.gpu.name + (L 'gpu.auto_detected')))
         $cmbGpu.SelectedIndex = 0
     } else {
-        $statusHardware.Text = "FFmpeg $ffmpegVersion · 硬件检测尚未完成 · 编码启动时会自动重试"
+        $statusHardware.Text = "FFmpeg $ffmpegVersion · $(L 'hardware.pending')"
         $cmbGpu.Items.Clear()
-        [void]$cmbGpu.Items.Add('自动检测（编码启动时再次校验）')
+        [void]$cmbGpu.Items.Add((L 'gpu.auto_retry'))
         $cmbGpu.SelectedIndex = 0
     }
 }
@@ -773,14 +776,14 @@ $statusHardware = New-Object System.Windows.Forms.ToolStripStatusLabel
 $statusHardware.Spring = $true
 $statusHardware.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
 $statusHardware.ForeColor = $ColorMuted
-$statusHardware.Text = '硬件能力检测中…'
+$statusHardware.Text = L 'hardware.detecting'
 [void]$statusStrip.Items.Add($statusHardware)
 
 $statusVersion = New-Object System.Windows.Forms.ToolStripStatusLabel
 $statusVersion.Spring = $false
 $statusVersion.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
 $statusVersion.ForeColor = $ColorMuted
-$statusVersion.Text = 'v4.7.5'
+$statusVersion.Text = 'v4.7.5 I18N TEST K7M2Q'
 $statusVersion.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 12, 0, 0, 0
 [void]$statusStrip.Items.Add($statusVersion)
 
@@ -800,15 +803,48 @@ $title.Location = New-Object System.Drawing.Point -ArgumentList 20, 10
 [void]$header.Controls.Add($title)
 
 $subtitle = New-Object System.Windows.Forms.Label
-$subtitle.Text = 'AV1 grav1synth  ·  HEVC / H.264 扫描胶片颗粒  ·  LUT 图库'
+$subtitle.Text = L 'app.subtitle'
 $subtitle.ForeColor = [System.Drawing.Color]::FromArgb(205, 214, 224)
 $subtitle.Font = New-UiFont 9
 $subtitle.AutoSize = $true
 $subtitle.Location = New-Object System.Drawing.Point -ArgumentList 22, 43
 [void]$header.Controls.Add($subtitle)
 
+$script:LanguageChoices = @(Get-FgAvailableLanguages)
+$cmbLanguage = New-Object System.Windows.Forms.ComboBox
+$cmbLanguage.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
+$cmbLanguage.Size = New-Object System.Drawing.Size -ArgumentList 116, 28
+$cmbLanguage.Anchor = 'Top,Right'
+$cmbLanguage.Location = New-Object System.Drawing.Point -ArgumentList 950, 20
+foreach ($choice in $script:LanguageChoices) { [void]$cmbLanguage.Items.Add([string]$choice.DisplayName) }
+$languageIndex = 0
+for ($i = 0; $i -lt $script:LanguageChoices.Count; $i++) {
+    if ([string]$script:LanguageChoices[$i].Code -eq [string]$script:FgLanguageCode) { $languageIndex = $i; break }
+}
+if ($cmbLanguage.Items.Count -gt 0) { $cmbLanguage.SelectedIndex = $languageIndex }
+$languageTip = New-Object System.Windows.Forms.ToolTip
+$languageTip.SetToolTip($cmbLanguage, (L 'language.tooltip'))
+$cmbLanguage.Add_SelectedIndexChanged({
+    if ($cmbLanguage.SelectedIndex -lt 0 -or $cmbLanguage.SelectedIndex -ge $script:LanguageChoices.Count) { return }
+    $newLanguage = [string]$script:LanguageChoices[$cmbLanguage.SelectedIndex].Code
+    if ($newLanguage -eq [string]$script:FgLanguageCode) { return }
+    try {
+        Set-FgLanguagePreference -Language $newLanguage
+        [void][System.Windows.Forms.MessageBox]::Show(
+            $form,
+            (L 'language.restart_required'),
+            (L 'language.title'),
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Information
+        )
+    } catch {
+        Show-Error $_.Exception.Message (L 'language.title')
+    }
+})
+[void]$header.Controls.Add($cmbLanguage)
+
 $btnConfig = New-Object System.Windows.Forms.Button
-$btnConfig.Text = '配置…'
+$btnConfig.Text = L 'button.config'
 $btnConfig.Size = New-Object System.Drawing.Size -ArgumentList 76, 30
 $btnConfig.Anchor = 'Top,Right'
 $btnConfig.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
@@ -819,7 +855,7 @@ $btnConfig.Location = New-Object System.Drawing.Point -ArgumentList 1158, 19
 [void]$header.Controls.Add($btnConfig)
 
 $btnAdvanced = New-Object System.Windows.Forms.Button
-$btnAdvanced.Text = '高级…'
+$btnAdvanced.Text = L 'button.advanced'
 $btnAdvanced.Size = New-Object System.Drawing.Size -ArgumentList 76, 30
 $btnAdvanced.Anchor = 'Top,Right'
 $btnAdvanced.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
@@ -830,7 +866,7 @@ $btnAdvanced.Location = New-Object System.Drawing.Point -ArgumentList 1074, 19
 [void]$header.Controls.Add($btnAdvanced)
 
 $baseline = New-Object System.Windows.Forms.Label
-$baseline.Text = '核心：Universal AV1 / HEVC / x264 Grain'
+$baseline.Text = L 'app.core'
 $baseline.ForeColor = [System.Drawing.Color]::FromArgb(205, 214, 224)
 $baseline.AutoSize = $true
 $baseline.Anchor = 'Top,Right'
@@ -838,7 +874,8 @@ $baseline.Location = New-Object System.Drawing.Point -ArgumentList 955, 27
 $header.Add_Resize({
     $btnConfig.Left = $header.ClientSize.Width - $btnConfig.Width - 20
     $btnAdvanced.Left = $btnConfig.Left - $btnAdvanced.Width - 8
-    $baseline.Left = $btnAdvanced.Left - $baseline.Width - 18
+    $cmbLanguage.Left = $btnAdvanced.Left - $cmbLanguage.Width - 8
+    $baseline.Left = $cmbLanguage.Left - $baseline.Width - 18
 })
 [void]$header.Controls.Add($baseline)
 [void]$root.Controls.Add($header, 0, 0)
@@ -857,7 +894,7 @@ Add-ColumnPercent $main 33
 
 # Input group
 $grpInput = New-Object System.Windows.Forms.GroupBox
-$grpInput.Text = '输入视频'
+$grpInput.Text = L 'input.group'
 $grpInput.Dock = 'Fill'
 $grpInput.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0, 0, 6, 0
 
@@ -878,13 +915,13 @@ $inputButtons.FlowDirection = 'LeftToRight'
 $inputButtons.WrapContents = $false
 
 $btnAdd = New-Object System.Windows.Forms.Button
-$btnAdd.Text = '添加文件…'
+$btnAdd.Text = L 'button.add'
 $btnAdd.Size = New-Object System.Drawing.Size -ArgumentList 92, 29
 $btnRemove = New-Object System.Windows.Forms.Button
-$btnRemove.Text = '移除所选'
+$btnRemove.Text = L 'button.remove'
 $btnRemove.Size = New-Object System.Drawing.Size -ArgumentList 82, 29
 $btnClear = New-Object System.Windows.Forms.Button
-$btnClear.Text = '清空'
+$btnClear.Text = L 'button.clear'
 $btnClear.Size = New-Object System.Drawing.Size -ArgumentList 62, 29
 [void]$inputButtons.Controls.Add($btnAdd)
 [void]$inputButtons.Controls.Add($btnRemove)
@@ -899,13 +936,13 @@ $listFiles.GridLines = $true
 $listFiles.HideSelection = $false
 $listFiles.AllowDrop = $true
 $listFiles.ShowItemToolTips = $true
-[void]$listFiles.Columns.Add('文件名', 178)
-[void]$listFiles.Columns.Add('大小', 72)
-[void]$listFiles.Columns.Add('目录', 260)
+[void]$listFiles.Columns.Add((L 'input.column.filename'), 178)
+[void]$listFiles.Columns.Add((L 'input.column.size'), 72)
+[void]$listFiles.Columns.Add((L 'input.column.directory'), 260)
 [void]$inputLayout.Controls.Add($listFiles, 0, 1)
 
 $grpMediaInfo = New-Object System.Windows.Forms.GroupBox
-$grpMediaInfo.Text = '所选视频信息'
+$grpMediaInfo.Text = L 'input.info_group'
 $grpMediaInfo.Dock = 'Fill'
 $grpMediaInfo.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0, 5, 0, 3
 
@@ -916,7 +953,7 @@ $lblMediaInfo.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
 $lblMediaInfo.ForeColor = $ColorMuted
 $lblMediaInfo.Font = New-UiFont 8.5
 $lblMediaInfo.AutoEllipsis = $true
-$lblMediaInfo.Text = "选择一个视频，可查看编码、码率、分辨率与时长。"
+$lblMediaInfo.Text = L 'input.info_prompt'
 [void]$grpMediaInfo.Controls.Add($lblMediaInfo)
 [void]$inputLayout.Controls.Add($grpMediaInfo, 0, 2)
 
@@ -924,13 +961,13 @@ $inputNote = New-Object System.Windows.Forms.Label
 $inputNote.Dock = 'Fill'
 $inputNote.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
 $inputNote.ForeColor = $ColorMuted
-$inputNote.Text = "可拖入多个视频。输出位于源目录；已有输出会跳过。"
+$inputNote.Text = L 'input.note'
 [void]$inputLayout.Controls.Add($inputNote, 0, 3)
 [void]$main.Controls.Add($grpInput, 0, 0)
 
 # Shared encoding group
 $grpEncode = New-Object System.Windows.Forms.GroupBox
-$grpEncode.Text = '编码与画幅'
+$grpEncode.Text = L 'encode.group'
 $grpEncode.Dock = 'Fill'
 $grpEncode.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 6, 0, 6, 0
 
@@ -952,22 +989,22 @@ for ($i = 0; $i -lt 15; $i++) { Add-RowAbsolute $encodeTable 34 }
 Add-RowPercent $encodeTable 100
 [void]$grpEncode.Controls.Add($encodeTable)
 
-$codecItems = @('AV1 · grav1synth 胶片颗粒（默认）', 'HEVC · 扫描胶片颗粒', 'H.264 · x264 Grain（CPU / VBR 单次）')
+$codecItems = @((L 'codec.av1_default'), (L 'codec.hevc_scan'), (L 'codec.x264_default'))
 $initialCodecIndex = 0
 if ($script:HardwareCapsReady -and -not $script:Av1Available) {
-    $codecItems[0] = 'AV1 · grav1synth 胶片颗粒（当前硬件不可用）'
+    $codecItems[0] = L 'codec.av1_unavailable'
     if ($script:HevcAvailable) { $initialCodecIndex = 1 } else { $initialCodecIndex = 2 }
 }
 if ($script:HardwareCapsReady -and -not $script:X264Available) {
-    $codecItems[2] = 'H.264 · x264 Grain（当前 x264 Grain 路径不可用）'
+    $codecItems[2] = L 'codec.x264_unavailable'
 }
 $cmbCodec = New-ComboBox $codecItems $initialCodecIndex
 $script:LastCodecIndex = $initialCodecIndex
-$cmbContainer = New-ComboBox @('MP4 · AAC 256k（默认）', 'MKV · 保留原始流') 0
-$cmbSpeed = New-ComboBox @('FAST · p5 / qres（默认）', 'Standard · p6 / fullres') 0
+$cmbContainer = New-ComboBox @((L 'container.mp4'), (L 'container.mkv')) 0
+$cmbSpeed = New-ComboBox @((L 'speed.fast'), (L 'speed.standard')) 0
 
 $chkSfe = New-Object System.Windows.Forms.CheckBox
-$chkSfe.Text = '多引擎并行 ×1'
+$chkSfe.Text = L 'encode.sfe'
 $chkSfe.Checked = $false
 $chkSfe.Enabled = $false
 $chkSfe.AutoSize = $true
@@ -983,14 +1020,14 @@ $cmbBitrate.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDown
 $cmbBitrate.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 4, 5, 3, 5
 
 $chkBitrateAuto = New-Object System.Windows.Forms.CheckBox
-$chkBitrateAuto.Text = '自动'
+$chkBitrateAuto.Text = L 'encode.auto'
 $chkBitrateAuto.Checked = $true
 $chkBitrateAuto.AutoSize = $true
 $chkBitrateAuto.Dock = 'Fill'
 $chkBitrateAuto.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 3, 7, 3, 3
 
 $chkUploadHighMotion = New-Object System.Windows.Forms.CheckBox
-$chkUploadHighMotion.Text = '高动态'
+$chkUploadHighMotion.Text = L 'encode.high_motion'
 $chkUploadHighMotion.Checked = $false
 $chkUploadHighMotion.AutoSize = $true
 $chkUploadHighMotion.Dock = 'Fill'
@@ -1017,10 +1054,10 @@ $bitrateColMotion.Width = 82
 [void]$bitratePanel.Controls.Add($chkBitrateAuto, 1, 0)
 [void]$bitratePanel.Controls.Add($chkUploadHighMotion, 2, 0)
 
-$cmbFps = New-ComboBox @('自动（隔行→双帧率，如 29.97i → 59.94p）', '保持源帧率') 0
+$cmbFps = New-ComboBox @((L 'fps.auto_interlaced'), (L 'fps.keep_source')) 0
 
 $chkInterpolation = New-Object System.Windows.Forms.CheckBox
-$chkInterpolation.Text = '启用'
+$chkInterpolation.Text = L 'encode.enable'
 $chkInterpolation.Checked = $false
 $chkInterpolation.AutoSize = $true
 $chkInterpolation.Dock = 'None'
@@ -1028,8 +1065,8 @@ $chkInterpolation.Margin = New-Object System.Windows.Forms.Padding -ArgumentList
 
 $cmbInterpolationMode = New-Object System.Windows.Forms.ComboBox
 $cmbInterpolationMode.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
-$cmbInterpolationMode.Items.Add('平滑') | Out-Null
-$cmbInterpolationMode.Items.Add('自动平衡') | Out-Null
+$cmbInterpolationMode.Items.Add((L 'interp.smooth')) | Out-Null
+$cmbInterpolationMode.Items.Add((L 'interp.adaptive')) | Out-Null
 $cmbInterpolationMode.SelectedIndex = 0
 $cmbInterpolationMode.Width = 150
 $cmbInterpolationMode.Enabled = $false
@@ -1044,23 +1081,23 @@ $interpolationPanel.Padding = New-Object System.Windows.Forms.Padding -ArgumentL
 [void]$interpolationPanel.Controls.Add($chkInterpolation)
 [void]$interpolationPanel.Controls.Add($cmbInterpolationMode)
 
-$cmbDeint = New-ComboBox @('自动（仅对隔行素材启用）', '关闭') 0
-$cmbDeintMethod = New-ComboBox @('BWDIF Vulkan（默认）', 'BWDIF CUDA（备选）', 'W3FDIF Complex（高质量对照）') 0
+$cmbDeint = New-ComboBox @((L 'deint.auto'), (L 'deint.off')) 0
+$cmbDeintMethod = New-ComboBox @((L 'deint.vulkan'), (L 'deint.cuda'), (L 'deint.w3fdif')) 0
 
-$gpuDisplay = '自动检测（编码启动时再次校验）'
-if ($script:HardwareCapsReady) { $gpuDisplay = [string]$script:HardwareCaps.gpu.name + '（自动检测）' }
+$gpuDisplay = L 'gpu.auto_retry'
+if ($script:HardwareCapsReady) { $gpuDisplay = [string]$script:HardwareCaps.gpu.name + (L 'gpu.auto_detected') }
 $cmbGpu = New-ComboBox @($gpuDisplay) 0
 $cmbGpu.Enabled = $false
 
 $chkCinematic = New-Object System.Windows.Forms.CheckBox
-$chkCinematic.Text = '启用 Cinematic Style（约 2.39:1）'
+$chkCinematic.Text = L 'cinematic.enable'
 $chkCinematic.Checked = $true
 $chkCinematic.Dock = 'Fill'
 $chkCinematic.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 7, 7, 3, 3
 
 $cmbFrameMode = New-ComboBox @(
-    '加黑边 · 保留原分辨率（推荐后期字幕）',
-    '裁剪 · 输出有效 2.39:1 画面'
+    (L 'cinematic.letterbox'),
+    (L 'cinematic.crop')
 ) 0
 
 $cinematicPanel = New-Object System.Windows.Forms.TableLayoutPanel
@@ -1075,7 +1112,7 @@ $cinematicCheckCol.Width = 100
 [void]$cinematicPanel.Controls.Add($chkCinematic, 0, 0)
 
 $btnUploadSubtitle = New-Object System.Windows.Forms.Button
-$btnUploadSubtitle.Text = '字幕…'
+$btnUploadSubtitle.Text = L 'button.subtitle'
 $btnUploadSubtitle.Dock = 'Fill'
 $btnUploadSubtitle.Enabled = $true
 $btnUploadSubtitle.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 3, 4, 8, 4
@@ -1110,7 +1147,7 @@ $uploadAutoCol.Width = 62
 [void]$uploadPanel.ColumnStyles.Add($uploadAutoCol)
 
 $chkUpload = New-Object System.Windows.Forms.CheckBox
-$chkUpload.Text = '同时生成 H.264 上传版'
+$chkUpload.Text = L 'encode.upload_h264'
 $chkUpload.Dock = 'Fill'
 $chkUpload.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 7, 4, 3, 3
 
@@ -1123,7 +1160,7 @@ $cmbUploadBitrate.Text = $script:UploadBitrate
 $cmbUploadBitrate.Enabled = $false
 
 $chkUploadBitrateAuto = New-Object System.Windows.Forms.CheckBox
-$chkUploadBitrateAuto.Text = '自动'
+$chkUploadBitrateAuto.Text = L 'encode.auto'
 $chkUploadBitrateAuto.Checked = $true
 $chkUploadBitrateAuto.AutoSize = $true
 $chkUploadBitrateAuto.Dock = 'Fill'
@@ -1140,21 +1177,21 @@ $frameHelp.AutoEllipsis = $true
 $frameHelp.ForeColor = $ColorMuted
 $frameHelp.TextAlign = [System.Drawing.ContentAlignment]::TopLeft
 $frameHelp.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 8, 6, 8, 0
-$frameHelp.Text = 'AV1 / HEVC / H.264 均可选择烘焙黑边或裁剪有效画面。'
+$frameHelp.Text = L 'encode.frame_help'
 
-Add-LabeledRow $encodeTable 0 '编码方式' $cmbCodec
-Add-LabeledRow $encodeTable 1 '输出容器' $cmbContainer
-Add-LabeledRow $encodeTable 2 '速度 / 质量' $cmbSpeed
+Add-LabeledRow $encodeTable 0 (L 'encode.method') $cmbCodec
+Add-LabeledRow $encodeTable 1 (L 'encode.container') $cmbContainer
+Add-LabeledRow $encodeTable 2 (L 'encode.speed') $cmbSpeed
 [void]$encodeTable.Controls.Add($chkSfe, 1, 3)
-Add-LabeledRow $encodeTable 4 '视频码率' $bitratePanel
-Add-LabeledRow $encodeTable 5 '输出帧率' $cmbFps
-Add-LabeledRow $encodeTable 6 '插帧' $interpolationPanel
-Add-LabeledRow $encodeTable 7 '反交错' $cmbDeint
-Add-LabeledRow $encodeTable 8 '反交错算法' $cmbDeintMethod
-Add-LabeledRow $encodeTable 9 'GPU 配置' $cmbGpu
+Add-LabeledRow $encodeTable 4 (L 'encode.bitrate') $bitratePanel
+Add-LabeledRow $encodeTable 5 (L 'encode.fps') $cmbFps
+Add-LabeledRow $encodeTable 6 (L 'encode.interpolation') $interpolationPanel
+Add-LabeledRow $encodeTable 7 (L 'encode.deinterlace') $cmbDeint
+Add-LabeledRow $encodeTable 8 (L 'encode.deinterlace_method') $cmbDeintMethod
+Add-LabeledRow $encodeTable 9 (L 'encode.gpu') $cmbGpu
 [void]$encodeTable.Controls.Add($cinematicPanel, 0, 10)
 $encodeTable.SetColumnSpan($cinematicPanel, 2)
-Add-LabeledRow $encodeTable 11 '画幅处理' $cmbFrameMode
+Add-LabeledRow $encodeTable 11 (L 'encode.framing') $cmbFrameMode
 [void]$encodeTable.Controls.Add($uploadPanel, 0, 12)
 $encodeTable.SetColumnSpan($uploadPanel, 2)
 [void]$encodeTable.Controls.Add($uploadExtraPanel, 0, 13)
@@ -1176,7 +1213,7 @@ Add-RowPercent $rightLayout 62
 [void]$main.Controls.Add($rightLayout, 2, 0)
 
 $grpGrain = New-Object System.Windows.Forms.GroupBox
-$grpGrain.Text = 'AV1 · 胶片颗粒元数据'
+$grpGrain.Text = L 'grain.av1_metadata'
 $grpGrain.Dock = 'Fill'
 $grpGrain.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0, 0, 0, 5
 [void]$rightLayout.Controls.Add($grpGrain, 0, 0)
@@ -1503,7 +1540,7 @@ $lblHevcGrainHint = New-Object System.Windows.Forms.Label
 $lblHevcGrainHint.Dock = 'Top'
 $lblHevcGrainHint.Height = 62
 $lblHevcGrainHint.ForeColor = $ColorMuted
-$lblHevcGrainHint.Text = 'HEVC+FGSIM 模式下, 若画面出现色带，请在视频码率中尝试 Standard CQ27 或 High Quality CQ23 方案。'
+$lblHevcGrainHint.Text = L 'grain.fgsim_hint'
 [void]$pixelOptions.Controls.Add($lblHevcGrainHint,0,3)
 
 function Get-VisibleGrainKind {
@@ -1617,7 +1654,7 @@ $cmbGrainPlateFile.Add_SelectedIndexChanged({
 
 # LUT group
 $grpLut = New-Object System.Windows.Forms.GroupBox
-$grpLut.Text = '电影风格 / LUT 图库'
+$grpLut.Text = L 'lut.group'
 $grpLut.Dock = 'Fill'
 $grpLut.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0, 5, 0, 0
 [void]$rightLayout.Controls.Add($grpLut, 0, 1)
@@ -1647,15 +1684,15 @@ Add-RowAbsolute $lutTable 42
 [void]$grpLut.Controls.Add($lutTable)
 
 $chkLut = New-Object System.Windows.Forms.CheckBox
-$chkLut.Text = '启用 LUT'
+$chkLut.Text = L 'lut.enable'
 $chkLut.Dock = 'Fill'
 $chkLut.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 4, 3, 3, 3
 $btnLutGallery = New-Object System.Windows.Forms.Button
-$btnLutGallery.Text = '打开 LUT 图库…'
+$btnLutGallery.Text = L 'button.open_lut_gallery'
 $btnLutGallery.Dock = 'Fill'
 $btnLutGallery.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 3
 $btnLutClear = New-Object System.Windows.Forms.Button
-$btnLutClear.Text = '清除'
+$btnLutClear.Text = L 'button.clear_lut'
 $btnLutClear.Dock = 'Fill'
 $btnLutClear.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 3
 [void]$lutTable.Controls.Add($chkLut, 0, 0)
@@ -1663,7 +1700,7 @@ $btnLutClear.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 3
 [void]$lutTable.Controls.Add($btnLutClear, 2, 0)
 
 $lblRecentLut = New-Object System.Windows.Forms.Label
-$lblRecentLut.Text = '最近使用'
+$lblRecentLut.Text = L 'lut.recent'
 $lblRecentLut.Dock = 'Fill'
 $lblRecentLut.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
 $lblRecentLut.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 4, 0, 0, 0
@@ -1679,7 +1716,7 @@ $cmbRecentLut.MaxDropDownItems = 25
 $lutTable.SetColumnSpan($cmbRecentLut, 2)
 
 $lblFavoriteLut = New-Object System.Windows.Forms.Label
-$lblFavoriteLut.Text = '我的最爱'
+$lblFavoriteLut.Text = L 'lut.favorite'
 $lblFavoriteLut.Dock = 'Fill'
 $lblFavoriteLut.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
 $lblFavoriteLut.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 4, 0, 0, 0
@@ -1713,7 +1750,7 @@ $picLutPreview.TabStop = $false
 [void]$lutPreviewPanel.Controls.Add($picLutPreview, 0, 0)
 
 $lblSelectedLut = New-Object System.Windows.Forms.Label
-$lblSelectedLut.Text = '未选择 LUT'
+$lblSelectedLut.Text = L 'lut.none'
 $lblSelectedLut.Dock = 'Fill'
 $lblSelectedLut.AutoEllipsis = $true
 $lblSelectedLut.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
@@ -1724,7 +1761,7 @@ $lblSelectedLut.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 
 $lutTable.SetColumnSpan($lutPreviewPanel, 3)
 
 $lblLutStrengthTitle = New-Object System.Windows.Forms.Label
-$lblLutStrengthTitle.Text = 'LUT 强度'
+$lblLutStrengthTitle.Text = L 'lut.strength'
 $lblLutStrengthTitle.Dock = 'Fill'
 $lblLutStrengthTitle.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
 
@@ -1766,7 +1803,7 @@ $toolTip.SetToolTip($cmbBitrate, '单位 kbps。自动模式下这里直接显�
 
 # Log area
 $grpLog = New-Object System.Windows.Forms.GroupBox
-$grpLog.Text = '任务日志'
+$grpLog.Text = L 'log.group'
 $grpLog.Dock = 'Fill'
 $grpLog.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 10, 2, 10, 4
 
@@ -1802,7 +1839,7 @@ $logClearColumn.Width = 84
 [void]$logToolbar.ColumnStyles.Add($logClearColumn)
 
 $lblRunStage = New-Object System.Windows.Forms.Label
-$lblRunStage.Text = '等待任务'
+$lblRunStage.Text = L 'log.waiting'
 $lblRunStage.AutoSize = $false
 $lblRunStage.Dock = 'Fill'
 $lblRunStage.Height = 23
@@ -1817,11 +1854,11 @@ $lblRunMetric.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
 $lblRunMetric.ForeColor = $ColorMuted
 $lblRunMetric.AutoEllipsis = $true
 $btnCopyLog = New-Object System.Windows.Forms.Button
-$btnCopyLog.Text = '复制日志'
+$btnCopyLog.Text = L 'button.copy_log'
 $btnCopyLog.Size = New-Object System.Drawing.Size -ArgumentList 78, 24
 $btnCopyLog.Anchor = 'Top,Right'
 $btnClearLog = New-Object System.Windows.Forms.Button
-$btnClearLog.Text = '清空日志'
+$btnClearLog.Text = L 'button.clear_log'
 $btnClearLog.Size = New-Object System.Drawing.Size -ArgumentList 78, 24
 $btnClearLog.Anchor = 'Top,Right'
 [void]$logToolbar.Controls.Add($lblRunStage, 0, 0)
@@ -1849,7 +1886,7 @@ $footer.BackColor = $ColorSubtle
 [void]$root.Controls.Add($footer, 0, 3)
 
 $lblStatus = New-Object System.Windows.Forms.Label
-$lblStatus.Text = '就绪 · 请添加视频'
+$lblStatus.Text = L 'log.ready'
 $lblStatus.AutoSize = $false
 $lblStatus.Size = New-Object System.Drawing.Size -ArgumentList 560, 30
 $lblStatus.Location = New-Object System.Drawing.Point -ArgumentList 14, 14
@@ -1864,7 +1901,7 @@ $progress.Location = New-Object System.Drawing.Point -ArgumentList 765, 19
 [void]$footer.Controls.Add($progress)
 
 $btnCancel = New-Object System.Windows.Forms.Button
-$btnCancel.Text = '取消任务'
+$btnCancel.Text = L 'button.cancel_task'
 $btnCancel.Enabled = $false
 $btnCancel.Size = New-Object System.Drawing.Size -ArgumentList 94, 34
 $btnCancel.Anchor = 'Top,Right'
@@ -1872,7 +1909,7 @@ $btnCancel.Location = New-Object System.Drawing.Point -ArgumentList 995, 11
 [void]$footer.Controls.Add($btnCancel)
 
 $btnStart = New-Object System.Windows.Forms.Button
-$btnStart.Text = '开始编码'
+$btnStart.Text = L 'button.start_encode'
 $btnStart.ForeColor = [System.Drawing.Color]::White
 $btnStart.BackColor = $ColorAccent
 $btnStart.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
@@ -5049,7 +5086,7 @@ function Show-PathConfigurationDialog {
     $oldLutRoot = [string]$cfg.LUT_ROOT
 
     $dlg = New-Object System.Windows.Forms.Form
-    $dlg.Text = 'Film Grain Studio · 路径配置'
+    $dlg.Text = L 'config.title'
     $dlg.StartPosition = 'CenterParent'
     $dlg.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedDialog
     $dlg.MaximizeBox = $false
@@ -5091,7 +5128,7 @@ function Show-PathConfigurationDialog {
     }
     function New-ConfigBrowseButton {
         $b=New-Object System.Windows.Forms.Button
-        $b.Text='浏览…'; $b.Dock='Fill'; $b.Margin=New-Object System.Windows.Forms.Padding -ArgumentList 4,5,4,5
+        $b.Text=(L 'config.browse'); $b.Dock='Fill'; $b.Margin=New-Object System.Windows.Forms.Padding -ArgumentList 4,5,4,5
         return $b
     }
     function New-ConfigRefreshButton {
@@ -5120,39 +5157,39 @@ function Show-PathConfigurationDialog {
     $btnRefreshGrain = New-ConfigRefreshButton
     $btnRefreshLut = New-ConfigRefreshButton
     $btnBuildGrainCache = New-Object System.Windows.Forms.Button
-    $btnBuildGrainCache.Text='生成高速缓存'; $btnBuildGrainCache.Dock='Fill'; $btnBuildGrainCache.Enabled=$false
+    $btnBuildGrainCache.Text=(L 'config.build_cache'); $btnBuildGrainCache.Dock='Fill'; $btnBuildGrainCache.Enabled=$false
     $btnBuildGrainCache.Margin=New-Object System.Windows.Forms.Padding -ArgumentList 4,3,2,3
     $btnBuildLutPreviews = New-Object System.Windows.Forms.Button
-    $btnBuildLutPreviews.Text='创建缩略图'; $btnBuildLutPreviews.Dock='Fill'; $btnBuildLutPreviews.Enabled=$false
+    $btnBuildLutPreviews.Text=(L 'config.build_thumbs'); $btnBuildLutPreviews.Dock='Fill'; $btnBuildLutPreviews.Enabled=$false
     $btnBuildLutPreviews.Margin=New-Object System.Windows.Forms.Padding -ArgumentList 4,3,2,3
 
-    Add-ConfigLabel 0 'FFmpeg 目录'
+    Add-ConfigLabel 0 (L 'config.ffmpeg_dir')
     [void]$table.Controls.Add($txtCfgFfmpegDir,1,0)
     [void]$table.Controls.Add($btnCfgFfmpegDir,2,0)
     [void]$table.Controls.Add($btnRefreshFfmpeg,3,0)
-    $lblFfmpegDetect = New-ConfigStatusLabel '尚未检测，点击 ↻。'
+    $lblFfmpegDetect = New-ConfigStatusLabel (L 'config.not_checked')
     [void]$table.Controls.Add($lblFfmpegDetect,1,1); $table.SetColumnSpan($lblFfmpegDetect,3)
 
     Add-ConfigLabel 2 'grav1synth'
     [void]$table.Controls.Add($txtCfgGrav,1,2)
     [void]$table.Controls.Add($btnCfgGrav,2,2)
     [void]$table.Controls.Add($btnRefreshGrav,3,2)
-    $lblGravDetect = New-ConfigStatusLabel '尚未检测，点击 ↻。'
+    $lblGravDetect = New-ConfigStatusLabel (L 'config.not_checked')
     [void]$table.Controls.Add($lblGravDetect,1,3); $table.SetColumnSpan($lblGravDetect,3)
 
-    Add-ConfigLabel 4 '颗粒根目录'
+    Add-ConfigLabel 4 (L 'config.grain_root')
     [void]$table.Controls.Add($txtCfgGrain,1,4)
     [void]$table.Controls.Add($btnCfgGrain,2,4)
     [void]$table.Controls.Add($btnRefreshGrain,3,4)
-    $lblGrainDetect = New-ConfigStatusLabel '尚未检测，点击 ↻。'
+    $lblGrainDetect = New-ConfigStatusLabel (L 'config.not_checked')
     [void]$table.Controls.Add($lblGrainDetect,1,5)
     [void]$table.Controls.Add($btnBuildGrainCache,2,5); $table.SetColumnSpan($btnBuildGrainCache,2)
 
-    Add-ConfigLabel 6 'LUT 根目录'
+    Add-ConfigLabel 6 (L 'config.lut_root')
     [void]$table.Controls.Add($txtCfgLut,1,6)
     [void]$table.Controls.Add($btnCfgLut,2,6)
     [void]$table.Controls.Add($btnRefreshLut,3,6)
-    $lblLutDetect = New-ConfigStatusLabel '尚未检测，点击 ↻。'
+    $lblLutDetect = New-ConfigStatusLabel (L 'config.not_checked')
     [void]$table.Controls.Add($lblLutDetect,1,7)
     [void]$table.Controls.Add($btnBuildLutPreviews,2,7); $table.SetColumnSpan($btnBuildLutPreviews,2)
 
@@ -5163,9 +5200,9 @@ function Show-PathConfigurationDialog {
 
     $buttonPanel=New-Object System.Windows.Forms.FlowLayoutPanel
     $buttonPanel.Dock='Fill'; $buttonPanel.FlowDirection='RightToLeft'; $buttonPanel.WrapContents=$false
-    $btnOk=New-Object System.Windows.Forms.Button; $btnOk.Text='保存'; $btnOk.Width=82
-    $btnCancelCfg=New-Object System.Windows.Forms.Button; $btnCancelCfg.Text='取消'; $btnCancelCfg.Width=82; $btnCancelCfg.DialogResult=[System.Windows.Forms.DialogResult]::Cancel
-    $btnDefaults=New-Object System.Windows.Forms.Button; $btnDefaults.Text='恢复默认'; $btnDefaults.Width=92
+    $btnOk=New-Object System.Windows.Forms.Button; $btnOk.Text=(L 'config.save'); $btnOk.Width=82
+    $btnCancelCfg=New-Object System.Windows.Forms.Button; $btnCancelCfg.Text=(L 'config.cancel'); $btnCancelCfg.Width=82; $btnCancelCfg.DialogResult=[System.Windows.Forms.DialogResult]::Cancel
+    $btnDefaults=New-Object System.Windows.Forms.Button; $btnDefaults.Text=(L 'config.defaults'); $btnDefaults.Width=104
     [void]$buttonPanel.Controls.Add($btnOk); [void]$buttonPanel.Controls.Add($btnCancelCfg); [void]$buttonPanel.Controls.Add($btnDefaults)
     [void]$table.Controls.Add($buttonPanel,0,9); $table.SetColumnSpan($buttonPanel,4)
     $dlg.CancelButton=$btnCancelCfg
