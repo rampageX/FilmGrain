@@ -118,7 +118,7 @@ function L {
 }
 
 function Get-FgAvailableLanguages {
-    $items = New-Object System.Collections.Generic.List[object]
+    $items = @()
     $files = @(Get-ChildItem -LiteralPath $script:FgLanguageRoot -Filter '*.ini' -File -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -ne 'FilmGrain_Language.ini' } |
         Sort-Object Name)
@@ -128,13 +128,13 @@ function Get-FgAvailableLanguages {
             $dict = Import-FgLanguageFile -Path $file.FullName
             $displayName = [string]$dict['meta.display_name']
             if (-not $displayName) { $displayName = $file.BaseName }
-            $items.Add([pscustomobject]@{
+            $items += [pscustomobject]@{
                 Code = $file.BaseName
                 DisplayName = $displayName
-            })
+            }
         } catch {}
     }
-    return @($items)
+    return $items
 }
 
 Initialize-FgLanguage
