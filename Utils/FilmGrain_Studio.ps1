@@ -2403,6 +2403,24 @@ function Get-Av1GrainTableSummary {
     }
 }
 
+function Get-Av1GrainDisplayText {
+    param([string]$State)
+    switch ($State) {
+        'AV1 胶片颗粒：无' { return (L 'av1grain.none') }
+        'AV1 胶片颗粒：无法识别参数表' { return (L 'av1grain.table_invalid') }
+        'AV1 胶片颗粒：亮度' { return (L 'av1grain.luma') }
+        'AV1 胶片颗粒：亮度 + 色度' { return (L 'av1grain.luma_chroma') }
+        'AV1 胶片颗粒：参数表读取失败' { return (L 'av1grain.table_read_failed') }
+        default {
+            if ($State -like 'AV1 胶片颗粒：检测失败 · *') {
+                $detail = $State.Substring('AV1 胶片颗粒：检测失败 · '.Length)
+                return ((L 'av1grain.detect_failed_detail') -f $detail)
+            }
+            return $State
+        }
+    }
+}
+
 function Update-NoReencodeAvailability {
     $eligible = $false
     if ($listFiles.Items.Count -eq 1) {
@@ -2435,16 +2453,16 @@ function Start-Av1GrainInspect {
 
     $key = $Path.ToLowerInvariant()
     if ($script:Av1GrainCache.ContainsKey($key)) {
-        Set-MediaInfoText ($BaseSummary + "`r`n" + [string]$script:Av1GrainCache[$key])
+        Set-MediaInfoText ($BaseSummary + "`r`n" + (Get-Av1GrainDisplayText ([string]$script:Av1GrainCache[$key])))
         return
     }
     if (-not $Grav1synth -or -not (Test-Path -LiteralPath $Grav1synth -PathType Leaf)) {
-        Set-MediaInfoText ($BaseSummary + "`r`nAV1 胶片颗粒：grav1synth 未找到")
+        Set-MediaInfoText ($BaseSummary + "`r`n" + (L 'av1grain.grav_missing'))
         return
     }
 
     $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ('FilmGrainStudio_Inspect_' + [guid]::NewGuid().ToString('N') + '.txt')
-    Set-MediaInfoText ($BaseSummary + "`r`nAV1 胶片颗粒：正在检测…")
+    Set-MediaInfoText ($BaseSummary + "`r`n" + (L 'av1grain.detecting'))
     try {
         $psi = New-Object System.Diagnostics.ProcessStartInfo
         $psi.FileName = $Grav1synth
@@ -2466,7 +2484,7 @@ function Start-Av1GrainInspect {
         if ($proc) { try { $proc.Dispose() } catch {} }
         Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
         $script:Av1InspectProcess = $null
-        Set-MediaInfoText ($BaseSummary + "`r`nAV1 胶片颗粒：检测失败")
+        Set-MediaInfoText ($BaseSummary + "`r`n" + (L 'av1grain.detect_failed'))
     }
 }
 
@@ -2475,11 +2493,11 @@ function Update-SelectedMediaInfo {
     if ($selected.Count -eq 0) {
         Stop-VideoProbe
         Stop-Av1GrainInspect
-        Set-MediaInfoText '选择一个视频，可查看编码、码率、分辨率、时长与 AV1 胶片颗粒状态。' $true
+        Set-MediaInfoText (L 'media.select_prompt') $true
     } elseif ($selected.Count -gt 1) {
         Stop-VideoProbe
         Stop-Av1GrainInspect
-        Set-MediaInfoText "已选择 $($selected.Count) 个视频；请选择单个视频查看信息。" $true
+        Set-MediaInfoText ((L 'media.multi_selected') -f $selected.Count) $true
     } else {
         Start-VideoProbe ([string]$selected[0].Tag)
     }
@@ -2506,8 +2524,8 @@ $probeTimer.Add_Tick({
         $script:ProbeTargetPath = ''
 
         if ($exitCode -ne 0 -or -not $json) {
-            $detail = if ($errorText) { ([System.Text.RegularExpressions.Regex]::Split(([string]$errorText).Trim(), '\r?\n'))[0] } else { "FFprobe 返回代码 $exitCode" }
-            Set-MediaInfoText ('读取失败：' + $detail) $true
+            $detail = if ($errorText) { ([System.Text.RegularExpressions.Regex]::Split(([string]$errorText).Trim(), '\r?\n'))[0] } else { ((L 'media.ffprobe_code') -f $exitCode) }
+            Set-MediaInfoText ((L 'media.read_failed') -f $detail) $true
             return
         }
         $data = $json | ConvertFrom-Json
@@ -2529,7 +2547,7 @@ $probeTimer.Add_Tick({
         }
     } catch {
         Stop-VideoProbe
-        Set-MediaInfoText ('读取失败：' + $_.Exception.Message) $true
+        Set-MediaInfoText ((L 'media.read_failed') -f $_.Exception.Message) $true
     }
 })
 
@@ -2558,7 +2576,7 @@ $av1InspectTimer.Add_Tick({
             $grainSummary = Get-Av1GrainTableSummary $tmp
         } else {
             $detail = ([System.Text.RegularExpressions.Regex]::Split($errorText.Trim(), '\r?\n') | Where-Object { $_ } | Select-Object -First 1)
-            if (-not $detail) { $detail = "返回代码 $exitCode" }
+            if (-not $detail) { $detail = ((L 'media.return_code') -f $exitCode) }
             $grainSummary = "AV1 胶片颗粒：检测失败 · $detail"
         }
         Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
@@ -2568,7 +2586,7 @@ $av1InspectTimer.Add_Tick({
         $selected = @($listFiles.SelectedItems)
         if ($selected.Count -eq 1 -and [string]::Equals([string]$selected[0].Tag,$targetPath,[System.StringComparison]::OrdinalIgnoreCase)) {
             $base = if ($script:ProbeCache.ContainsKey($key)) { [string]$script:ProbeCache[$key] } else { '' }
-            if ($base) { Set-MediaInfoText ($base + "`r`n" + $grainSummary) }
+            if ($base) { Set-MediaInfoText ($base + "`r`n" + (Get-Av1GrainDisplayText $grainSummary)) }
         }
     } catch {
         Stop-Av1GrainInspect
