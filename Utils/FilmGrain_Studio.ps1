@@ -2229,7 +2229,7 @@ function Format-MediaFps {
 function Format-CodecName {
     param($Stream)
     if ($null -eq $Stream) { return '—' }
-    $codec = if ($Stream.codec_name) { ([string]$Stream.codec_name).ToUpperInvariant() } else { '未知' }
+    $codec = if ($Stream.codec_name) { ([string]$Stream.codec_name).ToUpperInvariant() } else { L 'media.unknown' }
     $profile = [string]$Stream.profile
     if ($profile -and $profile -ne 'unknown' -and $profile -notmatch '^N/A$') { return "$codec · $profile" }
     return $codec
@@ -2245,8 +2245,8 @@ function Format-ProbeResult {
         $resolution = if ($video.width -and $video.height) { "$($video.width)×$($video.height)" } else { '—' }
         $fps = Format-MediaFps $video.avg_frame_rate
         $fieldOrder = ([string]$video.field_order).ToLowerInvariant()
-        $scanText = if ($fieldOrder -in @('tt', 'bb', 'tb', 'bt')) { "隔行 $fieldOrder" } elseif ($fieldOrder -eq 'progressive') { '逐行' } elseif ($fieldOrder) { "扫描标记 $fieldOrder" } else { '扫描标记 —' }
-        $videoLine = '视频  ' + (Format-CodecName $video) + " · $resolution · $fps fps · $scanText · " + (Format-MediaBitrate $video.bit_rate)
+        $scanText = if ($fieldOrder -in @('tt', 'bb', 'tb', 'bt')) { ((L 'media.scan_interlaced') -f $fieldOrder) } elseif ($fieldOrder -eq 'progressive') { L 'media.scan_progressive' } elseif ($fieldOrder) { ((L 'media.scan_flag') -f $fieldOrder) } else { L 'media.scan_unknown' }
+        $videoLine = (L 'media.video_prefix') + '  ' + (Format-CodecName $video) + " · $resolution · $fps fps · $scanText · " + (Format-MediaBitrate $video.bit_rate)
         $transfer = ([string]$video.color_transfer).ToLowerInvariant()
         $isHdr = ($transfer -eq 'smpte2084' -or $transfer -eq 'arib-std-b67')
         if ($isHdr) {
@@ -2262,25 +2262,25 @@ function Format-ProbeResult {
             $videoLine += "`r`nHDR   $hdrName · $bitDepth · $prim · $matrix"
         }
     } else {
-        $videoLine = '视频  未找到视频流'
+        $videoLine = L 'media.video_missing'
     }
 
     if ($audio) {
-        $channelText = if ($audio.channel_layout) { [string]$audio.channel_layout } elseif ($audio.channels) { "$($audio.channels) 声道" } else { '声道 —' }
+        $channelText = if ($audio.channel_layout) { [string]$audio.channel_layout } elseif ($audio.channels) { ((L 'media.channel_count') -f $audio.channels) } else { L 'media.channel_unknown' }
         $sampleText = '—'
         $sampleRate = 0.0
         if ($audio.sample_rate -and [double]::TryParse([string]$audio.sample_rate, [ref]$sampleRate) -and $sampleRate -gt 0) {
             $sampleText = ('{0:0.###} kHz' -f ($sampleRate / 1000.0))
         }
-        $audioLine = '音频  ' + (Format-CodecName $audio) + " · $channelText · $sampleText · " + (Format-MediaBitrate $audio.bit_rate)
+        $audioLine = (L 'media.audio_prefix') + '  ' + (Format-CodecName $audio) + " · $channelText · $sampleText · " + (Format-MediaBitrate $audio.bit_rate)
     } else {
-        $audioLine = '音频  无音频流'
+        $audioLine = L 'media.audio_missing'
     }
 
     $format = $Data.format
     $duration = Format-MediaDuration $format.duration
     $totalRate = Format-MediaBitrate $format.bit_rate
-    $formatLine = "时长  $duration · 总码率 $totalRate"
+    $formatLine = ((L 'media.duration_line') -f $duration,$totalRate)
     return $videoLine + "`r`n" + $audioLine + "`r`n" + $formatLine
 }
 
@@ -2305,7 +2305,7 @@ function Start-VideoProbe {
     param([string]$Path)
     Stop-VideoProbe
     if (-not $Path -or -not [System.IO.File]::Exists($Path)) {
-        Set-MediaInfoText '文件不存在或已经被移动。' $true
+        Set-MediaInfoText (L 'media.file_missing') $true
         return
     }
 
@@ -2328,11 +2328,11 @@ function Start-VideoProbe {
 
     $probeExe = $Ffprobe
     if (-not $probeExe -or (-not (Test-Path -LiteralPath $probeExe -PathType Leaf))) {
-        Set-MediaInfoText "找不到 FFprobe：$Ffprobe" $true
+        Set-MediaInfoText ((L 'media.ffprobe_missing') -f $Ffprobe) $true
         return
     }
 
-    Set-MediaInfoText '正在读取媒体信息…' $true
+    Set-MediaInfoText (L 'media.reading') $true
     try {
         $psi = New-Object System.Diagnostics.ProcessStartInfo
         $psi.FileName = $probeExe
@@ -2344,7 +2344,7 @@ function Start-VideoProbe {
 
         $process = New-Object System.Diagnostics.Process
         $process.StartInfo = $psi
-        if (-not $process.Start()) { throw '无法启动 FFprobe。' }
+        if (-not $process.Start()) { throw (L 'media.ffprobe_start_failed') }
         $script:ProbeProcess = $process
         $script:ProbeOutputTask = $process.StandardOutput.ReadToEndAsync()
         $script:ProbeErrorTask = $process.StandardError.ReadToEndAsync()
@@ -2353,7 +2353,7 @@ function Start-VideoProbe {
     } catch {
         if ($process) { try { $process.Dispose() } catch {} }
         $script:ProbeProcess = $null
-        Set-MediaInfoText ('读取失败：' + $_.Exception.Message) $true
+        Set-MediaInfoText ((L 'media.read_failed') -f $_.Exception.Message) $true
     }
 }
 
