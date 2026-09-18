@@ -25,7 +25,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
 
-          $name = 'FilmGrain_Studio_v4.7.5_I18N_TEST_M5Q8T'
+          $name = 'FilmGrain_Studio_v4.7.5_I18N_TEST_P7L4N'
           $baseZip = Join-Path $env:RUNNER_TEMP 'FilmGrain_Studio_v4.7.5_Stable.zip'
           $stage = Join-Path $env:RUNNER_TEMP $name
           $zip = Join-Path $env:GITHUB_WORKSPACE ($name + '.zip')
@@ -163,8 +163,8 @@ jobs:
       - name: Upload test package
         uses: actions/upload-artifact@v4
         with:
-          name: FilmGrain_Studio_v4.7.5_I18N_TEST_M5Q8T
+          name: FilmGrain_Studio_v4.7.5_I18N_TEST_P7L4N
           path: |
-            FilmGrain_Studio_v4.7.5_I18N_TEST_M5Q8T.zip
-            FilmGrain_Studio_v4.7.5_I18N_TEST_M5Q8T.zip.sha256
+            FilmGrain_Studio_v4.7.5_I18N_TEST_P7L4N.zip
+            FilmGrain_Studio_v4.7.5_I18N_TEST_P7L4N.zip.sha256
           if-no-files-found: error
