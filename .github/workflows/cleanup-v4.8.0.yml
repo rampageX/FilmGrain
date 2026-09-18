@@ -1,0 +1,22 @@
+name: Cleanup v4.8.0 Release Branch
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - '.github/workflows/cleanup-v4.8.0.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: windows-2022
+    steps:
+      - name: Delete release branch
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method DELETE "repos/$env:GITHUB_REPOSITORY/git/refs/heads/release/v4.8.0"
