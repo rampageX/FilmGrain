@@ -13,83 +13,112 @@ jobs:
   package:
     runs-on: windows-2022
     steps:
-      - name: Checkout
+      - name: Checkout i18n changes
         uses: actions/checkout@v4
 
-      - name: Build test package
+      - name: Build test package from v4.7.5 Stable
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $name = 'FilmGrain_Studio_v4.7.5_I18N_TEST_R4N8C'
+
+          $name = 'FilmGrain_Studio_v4.7.5_I18N_TEST_M5Q8T'
+          $baseZip = Join-Path $env:RUNNER_TEMP 'FilmGrain_Studio_v4.7.5_Stable.zip'
           $stage = Join-Path $env:RUNNER_TEMP $name
           $zip = Join-Path $env:GITHUB_WORKSPACE ($name + '.zip')
+          $releaseUrl = 'https://github.com/rampageX/FilmGrain/releases/download/v4.7.5/FilmGrain_Studio_v4.7.5_Stable.zip'
+
+          Invoke-WebRequest -UseBasicParsing -Uri $releaseUrl -OutFile $baseZip
+          if (-not (Test-Path -LiteralPath $baseZip -PathType Leaf)) { throw 'v4.7.5 Stable release asset download failed.' }
 
           if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
           New-Item -ItemType Directory -Path $stage | Out-Null
+          Expand-Archive -LiteralPath $baseZip -DestinationPath $stage -Force
 
-          Get-ChildItem -LiteralPath $env:GITHUB_WORKSPACE -Force |
-            Where-Object { $_.Name -notin @('.git','.github') } |
-            ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $stage -Recurse -Force }
+          # If the release ZIP contains one top-level package folder, use it as the package root.
+          $stageItems = @(Get-ChildItem -LiteralPath $stage -Force)
+          if ($stageItems.Count -eq 1 -and $stageItems[0].PSIsContainer) {
+            $packageRoot = $stageItems[0].FullName
+          } else {
+            $packageRoot = $stage
+          }
 
+          $utilsDir = Join-Path $packageRoot 'Utils'
+          $langDir = Join-Path $packageRoot 'Lang'
+          if (-not (Test-Path -LiteralPath $utilsDir -PathType Container)) { throw 'Stable package Utils folder not found.' }
+          if (-not (Test-Path -LiteralPath $langDir -PathType Container)) { New-Item -ItemType Directory -Path $langDir | Out-Null }
+
+          Copy-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'Utils\FilmGrain_Studio.ps1') -Destination (Join-Path $utilsDir 'FilmGrain_Studio.ps1') -Force
+          Copy-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'Utils\FilmGrain_Language.ps1') -Destination (Join-Path $utilsDir 'FilmGrain_Language.ps1') -Force
+          Copy-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'Lang\zh-CN.ini') -Destination (Join-Path $langDir 'zh-CN.ini') -Force
+          Copy-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'Lang\en-US.ini') -Destination (Join-Path $langDir 'en-US.ini') -Force
+          Copy-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'Lang\FilmGrain_Language.ini') -Destination (Join-Path $langDir 'FilmGrain_Language.ini') -Force
+
+          # Normalize only files introduced/modified by the i18n test.
           $utf8Bom = New-Object System.Text.UTF8Encoding($true)
           $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-
-          Get-ChildItem -LiteralPath $stage -Recurse -File | ForEach-Object {
-            $ext = $_.Extension.ToLowerInvariant()
-            if ($ext -in @('.ps1','.bat','.cmd','.vbs','.ini')) {
-              $bytes = [System.IO.File]::ReadAllBytes($_.FullName)
-              $offset = 0
-              if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) { $offset = 3 }
-              $text = [System.Text.Encoding]::UTF8.GetString($bytes, $offset, $bytes.Length - $offset)
-              $text = $text -replace "\r?\n", "`r`n"
-              if ($ext -eq '.ps1') {
-                [System.IO.File]::WriteAllText($_.FullName, $text, $utf8Bom)
-              } else {
-                [System.IO.File]::WriteAllText($_.FullName, $text, $utf8NoBom)
-              }
-            }
+          foreach ($ps1 in @(
+            (Join-Path $utilsDir 'FilmGrain_Studio.ps1'),
+            (Join-Path $utilsDir 'FilmGrain_Language.ps1')
+          )) {
+            $text = [System.IO.File]::ReadAllText($ps1, [System.Text.Encoding]::UTF8)
+            $text = $text -replace "\r?\n", "`r`n"
+            [System.IO.File]::WriteAllText($ps1, $text, $utf8Bom)
+          }
+          foreach ($ini in @(
+            (Join-Path $langDir 'zh-CN.ini'),
+            (Join-Path $langDir 'en-US.ini'),
+            (Join-Path $langDir 'FilmGrain_Language.ini')
+          )) {
+            $text = [System.IO.File]::ReadAllText($ini, [System.Text.Encoding]::UTF8)
+            $text = $text -replace "\r?\n", "`r`n"
+            [System.IO.File]::WriteAllText($ini, $text, $utf8NoBom)
           }
 
-          $badQuotes = @()
-          Get-ChildItem -LiteralPath $stage -Recurse -Filter '*.ps1' -File | ForEach-Object {
-            $text = [System.IO.File]::ReadAllText($_.FullName)
-            if ($text -match '[“”‘’]') { $badQuotes += $_.FullName }
-          }
-          if ($badQuotes.Count -gt 0) { throw ('Curly quotes found: ' + ($badQuotes -join ', ')) }
-
-          $badCaret = @()
-          Get-ChildItem -LiteralPath $stage -Recurse -File | Where-Object { $_.Extension.ToLowerInvariant() -in @('.bat','.cmd') } | ForEach-Object {
-            $lines = [System.IO.File]::ReadAllLines($_.FullName)
-            for ($i = 0; $i -lt $lines.Length; $i++) {
-              if ($lines[$i] -match '\^\s+$') { $badCaret += ($_.FullName + ':' + ($i + 1)) }
-            }
-          }
-          if ($badCaret.Count -gt 0) { throw ('Caret trailing whitespace: ' + ($badCaret -join ', ')) }
-
+          # Required package files.
           $required = @(
             'FilmGrain_Universal_HEVC_AV1_GUI.bat',
             'Utils\FilmGrain_Studio.ps1',
             'Utils\FilmGrain_Language.ps1',
             'Lang\zh-CN.ini',
             'Lang\en-US.ini',
+            'Lang\FilmGrain_Language.ini',
             'Utils\_FilmGrainSimplified\NoiseFallback_512x512_RGBA8.rgba'
           )
           foreach ($rel in $required) {
-            if (-not (Test-Path -LiteralPath (Join-Path $stage $rel) -PathType Leaf)) { throw "Required file missing: $rel" }
+            if (-not (Test-Path -LiteralPath (Join-Path $packageRoot $rel) -PathType Leaf)) { throw "Required file missing: $rel" }
           }
 
-          # Windows PowerShell 5.1 smoke test for the language loader.
-          $languageLoader = Join-Path $stage 'Utils\FilmGrain_Language.ps1'
-          . $languageLoader
+          # WinPS 5.1 smoke test for the language loader.
+          . (Join-Path $utilsDir 'FilmGrain_Language.ps1')
           $languages = @(Get-FgAvailableLanguages)
-          if ($languages.Count -lt 2) { throw "Language enumeration returned fewer than 2 languages." }
+          if ($languages.Count -lt 2) { throw 'Language enumeration returned fewer than 2 languages.' }
           $languageCodes = @($languages | ForEach-Object { [string]$_.Code })
           if ($languageCodes -notcontains 'zh-CN' -or $languageCodes -notcontains 'en-US') {
             throw ('Language enumeration missing required locale: ' + ($languageCodes -join ', '))
           }
 
-          # Parse all staged PS1 files with Windows PowerShell before packaging.
-          Get-ChildItem -LiteralPath $stage -Recurse -Filter '*.ps1' -File | ForEach-Object {
+          # Ensure every L 'key' used by Studio exists in both language files.
+          $studioText = [System.IO.File]::ReadAllText((Join-Path $utilsDir 'FilmGrain_Studio.ps1'))
+          $usedKeys = @([regex]::Matches($studioText, "\bL\s+'([^']+)'") | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
+          function Read-LangKeys([string]$Path) {
+            $keys = @{}
+            foreach ($line in [System.IO.File]::ReadAllLines($Path, [System.Text.Encoding]::UTF8)) {
+              $trim = $line.Trim()
+              if (-not $trim -or $trim.StartsWith('#') -or $trim.StartsWith(';')) { continue }
+              $eq = $line.IndexOf('=')
+              if ($eq -gt 0) { $keys[$line.Substring(0,$eq).Trim()] = $true }
+            }
+            return $keys
+          }
+          $zhKeys = Read-LangKeys (Join-Path $langDir 'zh-CN.ini')
+          $enKeys = Read-LangKeys (Join-Path $langDir 'en-US.ini')
+          $missingZh = @($usedKeys | Where-Object { -not $zhKeys.ContainsKey($_) })
+          $missingEn = @($usedKeys | Where-Object { -not $enKeys.ContainsKey($_) })
+          if ($missingZh.Count -gt 0) { throw ('Missing zh-CN keys: ' + ($missingZh -join ', ')) }
+          if ($missingEn.Count -gt 0) { throw ('Missing en-US keys: ' + ($missingEn -join ', ')) }
+
+          # Parse all PS1 files with Windows PowerShell 5.1.
+          Get-ChildItem -LiteralPath $packageRoot -Recurse -Filter '*.ps1' -File | ForEach-Object {
             $tokens = $null
             $errors = $null
             [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors)
@@ -98,8 +127,31 @@ jobs:
             }
           }
 
+          # Project text-safety checks. Do not rewrite already validated BAT/VBS files.
+          $badQuotes = @()
+          Get-ChildItem -LiteralPath $packageRoot -Recurse -Filter '*.ps1' -File | ForEach-Object {
+            $text = [System.IO.File]::ReadAllText($_.FullName)
+            if ($text -match '[“”‘’]') { $badQuotes += $_.FullName }
+          }
+          if ($badQuotes.Count -gt 0) { throw ('Curly quotes found: ' + ($badQuotes -join ', ')) }
+
+          $badCaret = @()
+          Get-ChildItem -LiteralPath $packageRoot -Recurse -File |
+            Where-Object { $_.Extension.ToLowerInvariant() -in @('.bat','.cmd') } |
+            ForEach-Object {
+              $lines = [System.IO.File]::ReadAllLines($_.FullName)
+              for ($i = 0; $i -lt $lines.Length; $i++) {
+                if ($lines[$i] -match '\^\s+$') { $badCaret += ($_.FullName + ':' + ($i + 1)) }
+              }
+            }
+          if ($badCaret.Count -gt 0) { throw ('Caret trailing whitespace: ' + ($badCaret -join ', ')) }
+
           if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
-          Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip -CompressionLevel Optimal
+          if ($packageRoot -eq $stage) {
+            Compress-Archive -Path (Join-Path $packageRoot '*') -DestinationPath $zip -CompressionLevel Optimal
+          } else {
+            Compress-Archive -Path (Join-Path $packageRoot '*') -DestinationPath $zip -CompressionLevel Optimal
+          }
 
           $hash = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
           [System.IO.File]::WriteAllText(($zip + '.sha256'), ($hash + '  ' + [IO.Path]::GetFileName($zip) + "`r`n"), $utf8NoBom)
@@ -107,8 +159,8 @@ jobs:
       - name: Upload test package
         uses: actions/upload-artifact@v4
         with:
-          name: FilmGrain_Studio_v4.7.5_I18N_TEST_R4N8C
+          name: FilmGrain_Studio_v4.7.5_I18N_TEST_M5Q8T
           path: |
-            FilmGrain_Studio_v4.7.5_I18N_TEST_R4N8C.zip
-            FilmGrain_Studio_v4.7.5_I18N_TEST_R4N8C.zip.sha256
+            FilmGrain_Studio_v4.7.5_I18N_TEST_M5Q8T.zip
+            FilmGrain_Studio_v4.7.5_I18N_TEST_M5Q8T.zip.sha256
           if-no-files-found: error
