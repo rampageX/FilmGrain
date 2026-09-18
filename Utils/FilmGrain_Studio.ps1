@@ -2947,7 +2947,7 @@ function Update-AutoBitrateDisplay {
         $chkBitrateAuto.Checked = $true
     } finally { $script:UpdatingBitrateUi = $false }
     if ($toolTip) {
-        $motionText = if ($chkUploadHighMotion.Checked) { '高动态' } else { '普通动态' }
+        $motionText = if ($chkUploadHighMotion.Checked) { L 'motion.high' } else { L 'motion.normal' }
         $toolTip.SetToolTip($cmbBitrate, ((L 'tooltip.bitrate_recommend') -f $rec.Bitrate,$rec.Tier,$rec.Base,$rec.Fps,$rec.FpsFactor,$motionText))
     }
 }
@@ -2968,7 +2968,7 @@ function Update-UploadAutoBitrateDisplay {
         $chkUploadBitrateAuto.Checked = $true
     } finally { $script:UpdatingUploadBitrateUi = $false }
     if ($toolTip) {
-        $motionText = if ($chkUploadHighMotion.Checked) { '高动态' } else { '普通动态' }
+        $motionText = if ($chkUploadHighMotion.Checked) { L 'motion.high' } else { L 'motion.normal' }
         $toolTip.SetToolTip($cmbUploadBitrate, ((L 'tooltip.upload_recommend') -f $rec.Bitrate,$rec.Tier,$rec.Base,$rec.Fps,$rec.FpsFactor,$motionText))
     }
 }
@@ -3166,9 +3166,9 @@ function Refresh-Av1GrainTables {
 
     if ($toolTip) {
         $tip = if ($preferredTier) {
-            "显示全部分辨率 Grain Table；当前源视频自动匹配：$preferredTier。"
+            ((L 'tooltip.table_current') -f $preferredTier)
         } else {
-            '显示全部分辨率 Grain Table；读取到源视频分辨率后会自动匹配档位。'
+            (L 'tooltip.table_wait')
         }
         $toolTip.SetToolTip($chkShowAllAv1Tables, $tip)
     }
@@ -3622,7 +3622,7 @@ function Update-CodecUi {
         $script:ChangingCodec = $true
         try { $cmbCodec.SelectedIndex = $fallback }
         finally { $script:ChangingCodec = $false }
-        $fallbackMessage = if ($fallback -eq 1) { '当前 GPU / 驱动不支持 AV1 Main10 NVENC，已自动切换到 HEVC。' } else { '当前 GPU / 驱动不支持 AV1 Main10 NVENC，已自动切换到 H.264 x264 Grain。' }
+        $fallbackMessage = if ($fallback -eq 1) { L 'message.av1_fallback_hevc' } else { L 'message.av1_fallback_x264' }
         Show-Info $fallbackMessage
         return
     }
@@ -3633,7 +3633,7 @@ function Update-CodecUi {
             $script:ChangingCodec = $true
             try { $cmbCodec.SelectedIndex = $fallback }
             finally { $script:ChangingCodec = $false }
-            $fallbackMessage = if ($fallback -eq 1) { '当前环境不支持 H.264 x264 Grain 主线，已自动切换到 HEVC。' } else { '当前环境不支持 H.264 x264 Grain 主线，已自动切换到 AV1。' }
+            $fallbackMessage = if ($fallback -eq 1) { L 'message.x264_fallback_hevc' } else { L 'message.x264_fallback_av1' }
             Show-Info $fallbackMessage
             return
         }
@@ -5575,8 +5575,8 @@ function Show-PathConfigurationDialog {
     Update-SfeUi
     Update-NoReencodeAvailability
     if ($cmbCodec.Items.Count -ge 3) {
-        $cmbCodec.Items[0] = if ($script:HardwareCapsReady -and -not $script:Av1Available) { 'AV1 · grav1synth 胶片颗粒（当前硬件不可用）' } else { 'AV1 · grav1synth 胶片颗粒（默认）' }
-        $cmbCodec.Items[2] = if ($script:HardwareCapsReady -and -not $script:X264Available) { 'H.264 · x264 Grain（当前 x264 Grain 路径不可用）' } else { 'H.264 · x264 Grain（CPU / VBR 单次）' }
+        $cmbCodec.Items[0] = if ($script:HardwareCapsReady -and -not $script:Av1Available) { L 'codec.av1_unavailable' } else { L 'codec.av1_default' }
+        $cmbCodec.Items[2] = if ($script:HardwareCapsReady -and -not $script:X264Available) { L 'codec.x264_unavailable' } else { L 'codec.x264_default' }
     }
     Update-CodecUi
     if ($grainRootChanged) {
