@@ -5244,7 +5244,7 @@ function Show-PathConfigurationDialog {
 
     function Get-ConfigToolVersion([string]$ExePath,[string]$ToolName,[string]$Arguments) {
         if (-not (Test-Path -LiteralPath $ExePath -PathType Leaf)) {
-            return [pscustomobject]@{ Ok=$false; Version='未找到' }
+            return [pscustomobject]@{ Ok=$false; Version=(L 'config.version_not_found') }
         }
         try {
             $psi=New-Object System.Diagnostics.ProcessStartInfo
@@ -5256,13 +5256,13 @@ function Show-PathConfigurationDialog {
             $psi.RedirectStandardError=$true
             $p=New-Object System.Diagnostics.Process
             $p.StartInfo=$psi
-            if (-not $p.Start()) { return [pscustomobject]@{ Ok=$false; Version='无法运行' } }
+            if (-not $p.Start()) { return [pscustomobject]@{ Ok=$false; Version=(L 'config.version_cannot_run') } }
             $stdout=$p.StandardOutput.ReadToEnd()
             $stderr=$p.StandardError.ReadToEnd()
             $p.WaitForExit()
             $exitCode=$p.ExitCode
             $p.Dispose()
-            if ($exitCode -ne 0) { return [pscustomobject]@{ Ok=$false; Version='无法运行' } }
+            if ($exitCode -ne 0) { return [pscustomobject]@{ Ok=$false; Version=(L 'config.version_cannot_run') } }
             $allText=($stdout + "`n" + $stderr)
             $lines=@($allText -split "`r?`n" | Where-Object { $_.Trim() } | Select-Object -First 8)
             foreach ($line in $lines) {
@@ -5278,9 +5278,9 @@ function Show-PathConfigurationDialog {
                     return [pscustomobject]@{ Ok=$true; Version=$matches[1] }
                 }
             }
-            return [pscustomobject]@{ Ok=$true; Version='版本未知' }
+            return [pscustomobject]@{ Ok=$true; Version=(L 'config.version_unknown') }
         } catch {
-            return [pscustomobject]@{ Ok=$false; Version='无法运行' }
+            return [pscustomobject]@{ Ok=$false; Version=(L 'config.version_cannot_run') }
         }
     }
 
@@ -5316,7 +5316,7 @@ function Show-PathConfigurationDialog {
         if ($result.Ok -and [string]$result.Version -match '(\d+)\.(\d+)\.(\d+)') {
             try {
                 $v=[version]("$($matches[1]).$($matches[2]).$($matches[3])")
-                $sfeText=if ($v -ge [version]'0.2.2') { ' · SFE 兼容' } else { ' · SFE 需要 0.2.2+' }
+                $sfeText=if ($v -ge [version]'0.2.2') { L 'config.sfe_compatible' } else { L 'config.sfe_requires' }
             } catch {}
         }
         $lblGravDetect.Text="grav1synth.exe  $mark $($result.Version)$sfeText"
@@ -5395,7 +5395,7 @@ function Show-PathConfigurationDialog {
     $pickExe = {
         param($target,$title,$fileName)
         $ofd=New-Object System.Windows.Forms.OpenFileDialog
-        $ofd.Title=$title; $ofd.Filter='可执行文件 (*.exe)|*.exe|所有文件|*.*'; $ofd.FileName=$fileName
+        $ofd.Title=$title; $ofd.Filter=(L 'dialog.exe_filter'); $ofd.FileName=$fileName
         try { if (Test-Path -LiteralPath $target.Text -PathType Leaf) { $ofd.InitialDirectory=Split-Path -Parent $target.Text } } catch {}
         $changed=$false
         if ($ofd.ShowDialog($dlg) -eq [System.Windows.Forms.DialogResult]::OK) { $target.Text=$ofd.FileName; $changed=$true }
@@ -5428,7 +5428,7 @@ function Show-PathConfigurationDialog {
 
     $btnCfgFfmpegDir.Add_Click({
         $fbd=New-Object System.Windows.Forms.FolderBrowserDialog
-        $fbd.Description='选择同时包含 ffmpeg.exe 与 ffprobe.exe 的目录'
+        $fbd.Description=(L 'dialog.ffmpeg_folder')
         $fbd.ShowNewFolderButton=$false
         try { if (Test-Path -LiteralPath $txtCfgFfmpegDir.Text -PathType Container) { $fbd.SelectedPath=$txtCfgFfmpegDir.Text } } catch {}
         if ($fbd.ShowDialog($dlg) -eq [System.Windows.Forms.DialogResult]::OK) {
@@ -5437,9 +5437,9 @@ function Show-PathConfigurationDialog {
         }
         $fbd.Dispose()
     })
-    $btnCfgGrav.Add_Click({ if (& $pickExe $txtCfgGrav '选择 grav1synth.exe' 'grav1synth.exe') { Update-GravStatus } })
-    $btnCfgGrain.Add_Click({ if (& $pickFolder $txtCfgGrain '选择胶片颗粒根目录') { Update-GrainStatus } })
-    $btnCfgLut.Add_Click({ if (& $pickFolder $txtCfgLut '选择 LUT 根目录') { Update-LutStatus } })
+    $btnCfgGrav.Add_Click({ if (& $pickExe $txtCfgGrav (L 'dialog.grav_exe') 'grav1synth.exe') { Update-GravStatus } })
+    $btnCfgGrain.Add_Click({ if (& $pickFolder $txtCfgGrain (L 'dialog.grain_root')) { Update-GrainStatus } })
+    $btnCfgLut.Add_Click({ if (& $pickFolder $txtCfgLut (L 'dialog.lut_root')) { Update-LutStatus } })
 
     $btnBuildGrainCache.Add_Click({
         Update-GrainStatus
@@ -5459,7 +5459,7 @@ function Show-PathConfigurationDialog {
             FG_CACHE_NO_PAUSE='1'; FG_GRAIN_ROOT_OVERRIDE=$txtCfgGrain.Text.Trim();
             FG_FFMPEG_OVERRIDE=(Join-Path $ffdir 'ffmpeg.exe'); FG_FFPROBE_OVERRIDE=(Join-Path $ffdir 'ffprobe.exe')
         }
-        [void](Show-UtilityProcessDialog $dlg '生成 Grain 高速缓存' $cmdPath ('/d /s /c "'+$inner+'"') $envMap $ScriptRoot)
+        [void](Show-UtilityProcessDialog $dlg (L 'config.utility_cache') $cmdPath ('/d /s /c "'+$inner+'"') $envMap $ScriptRoot)
         Update-GrainStatus
     })
 
@@ -5467,7 +5467,7 @@ function Show-PathConfigurationDialog {
         Update-LutStatus
         if ($lutPreviewState.LutCount -le 0 -or $lutPreviewState.Missing -le 0) { return }
         $lutReference = if (Test-Path -LiteralPath $LutPreviewCurrentReference -PathType Leaf) { $LutPreviewCurrentReference } else { $LutPreviewDefaultReference }
-        $lutReferenceLabel = if ([string]::Equals($lutReference,$LutPreviewCurrentReference,[System.StringComparison]::OrdinalIgnoreCase)) { '当前参考图' } else { '项目默认参考图' }
+        $lutReferenceLabel = if ([string]::Equals($lutReference,$LutPreviewCurrentReference,[System.StringComparison]::OrdinalIgnoreCase)) { L 'config.reference_current' } else { L 'config.reference_default' }
         if (-not (Test-Path -LiteralPath $LutPreviewGenerator -PathType Leaf) -or -not (Test-Path -LiteralPath $lutReference -PathType Leaf)) {
             [void][System.Windows.Forms.MessageBox]::Show($dlg,(L 'config.lut_tool_missing'),(L 'config.lut_thumb_title'),[System.Windows.Forms.MessageBoxButtons]::OK,[System.Windows.Forms.MessageBoxIcon]::Error)
             return
@@ -5477,7 +5477,7 @@ function Show-PathConfigurationDialog {
         $ffmpegPath=Join-Path $txtCfgFfmpegDir.Text.Trim().TrimEnd('\') 'ffmpeg.exe'
         $outRoot=Join-Path $txtCfgLut.Text.Trim() '_LUT_PREVIEWS'
         $args='-NoLogo -NoProfile -ExecutionPolicy Bypass -File "'+$LutPreviewGenerator+'" -LutRoot "'+$txtCfgLut.Text.Trim()+'" -ReferencePath "'+$lutReference+'" -OutputRoot "'+$outRoot+'" -FFmpegPath "'+$ffmpegPath+'" -NonInteractive -NoPause'
-        [void](Show-UtilityProcessDialog $dlg '创建 LUT Gallery 缩略图' 'powershell.exe' $args @{} $PackageRoot)
+        [void](Show-UtilityProcessDialog $dlg (L 'config.utility_lut') 'powershell.exe' $args @{} $PackageRoot)
         Update-LutStatus
     })
 
@@ -5506,8 +5506,8 @@ function Show-PathConfigurationDialog {
             return
         }
         foreach ($item in @(
-            @('颗粒根目录',$txtCfgGrain.Text.Trim()),
-            @('LUT 根目录',$txtCfgLut.Text.Trim())
+            @((L 'config.item_grain_root'),$txtCfgGrain.Text.Trim()),
+            @((L 'config.item_lut_root'),$txtCfgLut.Text.Trim())
         )) {
             if (-not (Test-Path -LiteralPath $item[1] -PathType Container)) {
                 [void][System.Windows.Forms.MessageBox]::Show($dlg,((L 'config.item_missing') -f $item[0],$item[1]),(L 'config.path_title'),[System.Windows.Forms.MessageBoxButtons]::OK,[System.Windows.Forms.MessageBoxIcon]::Warning)
@@ -5565,7 +5565,7 @@ function Show-PathConfigurationDialog {
         if ($ffmpegState.Valid -and $ffmpegState.LastDir -eq [string]$script:PathConfig.FFMPEG_DIR) {
             $script:FFmpegVersionOverride = [string]$ffmpegState.FfmpegVersion
         } else {
-            $script:FFmpegVersionOverride = '未检测'
+            $script:FFmpegVersionOverride = L 'hardware.not_detected'
         }
     }
     if ($gravPathChanged -and $oldFfmpegDir -eq [string]$script:PathConfig.FFMPEG_DIR) {
@@ -5598,7 +5598,7 @@ function Show-PathConfigurationDialog {
         Refresh-FavoriteLuts
     }
     Set-LutUi
-    Show-Info '路径配置已保存并重新载入。' '路径配置'
+    Show-Info (L 'config.saved') (L 'config.path_title')
 }
 # Events
 $btnConfig.Add_Click({ Show-PathConfigurationDialog })
@@ -5834,8 +5834,8 @@ $form.Add_FormClosing({
             if (-not $script:RunningProcess.HasExited) {
                 $answer = [System.Windows.Forms.MessageBox]::Show(
                     $form,
-                    '编码任务仍在运行。关闭 Studio 将强制停止当前任务，是否继续？',
-                    '关闭 Film Grain Studio',
+                    (L 'close.running_confirm'),
+                    (L 'close.running_title'),
                     [System.Windows.Forms.MessageBoxButtons]::YesNo,
                     [System.Windows.Forms.MessageBoxIcon]::Warning
                 )
