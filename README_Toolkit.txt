@@ -1,7 +1,7 @@
 ﻿Universal Film Grain Toolkit
 =============================
 
-当前正式稳定版：v4.7.0
+当前正式稳定版：v4.7.5
 
 版本与命名
 ----------
@@ -68,6 +68,9 @@ GPU：NVIDIA GPU 自动探测（已验证 RTX 4080 与 T600 Laptop）
 FilmGrain_Universal_HEVC_AV1_CLI.bat
 
 功能：
+- v4.7.5 统一 Digital Grain / Grain Plate / GPU Film Grain (FGSIM) 的 Film Grain Strength 交互；FGSIM 内部仍映射已经验证的 Light / Medium / Heavy 三档。
+- HEVC + FGSIM 的视频码率可选 Standard CQ27 / QP18-26 或 High Quality CQ23 / QP18-24，默认仍按原逻辑使用自动或手动 VBR。若画面出现色带，可按界面提示尝试 CQ 方案。
+- FGSIM + BWDIF Vulkan 统一复用 vk filter device，修复双设备冲突；其它编码路线与已验证流程保持不变。
 - AV1 Main10：NVENC 编码后由 grav1synth 写入 Film Grain metadata。
 - AV1 Grain 可使用内置 Film Preset / Photon ISO，也可加载 _AV1_Grain_Tables 中现成 .tbl / .txt；GUI 默认按源视频分辨率档位过滤。
 - v4.6.2 包内整理的公开 Grain Table 主要来自 Boulder08/chunknorris 与 nekotrix/AV1-Photon-Noise-Tables；具体来源记录在 `_AV1_Grain_Tables\README.txt`。

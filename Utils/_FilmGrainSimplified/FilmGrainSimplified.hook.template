@@ -1,0 +1,72 @@
+//!TEXTURE FGS_NOISE
+//!SIZE 512 512
+//!FORMAT rgba8
+//!FILTER NEAREST
+//!BORDER REPEAT
+@@NOISE_HEX@@
+
+//!HOOK MAIN
+//!BIND HOOKED
+//!BIND FGS_NOISE
+//!DESC filmgrain-simplified video adaptation, Tile @@TILE_SIZE@@, Strength @@STRENGTH@@, HLReduce @@HL_REDUCE@@
+
+const int FG_TILE = @@TILE_SIZE@@;
+const float FG_INV_GAMMA = 1.0 / 2.2;
+const float FG_OUT_GAMMA = 2.2;
+const float FG_STRENGTH = @@STRENGTH@@;
+const float FG_HL_START = @@HL_START@@;
+const float FG_HL_END = @@HL_END@@;
+const float FG_HL_REDUCE = @@HL_REDUCE@@;
+
+ivec2 fg_wrap(ivec2 p)
+{
+    return ivec2(p.x % 512, p.y % 512);
+}
+
+vec4 fg_noise(ivec2 p)
+{
+    vec4 n = texelFetch(FGS_NOISE, fg_wrap(p), 0);
+    return pow(max(n, vec4(0.0)), vec4(FG_INV_GAMMA));
+}
+
+float fg_render_channel(float value, ivec2 p)
+{
+    vec4 n = fg_noise(p);
+    float hit = step(n.r, value * 1.00);
+    hit = max(hit, step(n.g, value * 0.90));
+    hit = max(hit, step(n.b, value * 0.75));
+    hit = max(hit, step(n.a, value * 0.50));
+    return hit;
+}
+
+vec4 hook()
+{
+    vec4 src = HOOKED_tex(HOOKED_pos);
+    vec3 rgb = pow(max(src.rgb, vec3(0.0)), vec3(FG_INV_GAMMA));
+
+    ivec2 px = ivec2(floor(HOOKED_pos * HOOKED_size));
+    ivec2 temporal = ivec2((frame * 73) % 512, (frame * 151) % 512);
+    ivec2 off_r = temporal + ivec2(0, 0);
+    ivec2 off_g = temporal + ivec2(6, 3);
+    ivec2 off_b = temporal + ivec2(1, 7);
+
+    vec3 grain_count = vec3(0.0);
+    for (int y = 0; y < FG_TILE; ++y) {
+        for (int x = 0; x < FG_TILE; ++x) {
+            ivec2 q = px * FG_TILE + ivec2(x, y);
+            grain_count.r += fg_render_channel(rgb.r, q + off_r);
+            grain_count.g += fg_render_channel(rgb.g, q + off_g);
+            grain_count.b += fg_render_channel(rgb.b, q + off_b);
+        }
+    }
+
+    vec3 reconstructed = grain_count / float(FG_TILE * FG_TILE);
+    vec3 grain_rgb = pow(clamp(reconstructed, vec3(0.0), vec3(1.0)), vec3(FG_OUT_GAMMA));
+
+    float luma = dot(clamp(src.rgb, vec3(0.0), vec3(1.0)), vec3(0.2627, 0.6780, 0.0593));
+    float highlight_mask = smoothstep(FG_HL_START, FG_HL_END, luma);
+    float local_strength = FG_STRENGTH * (1.0 - FG_HL_REDUCE * highlight_mask);
+
+    vec3 out_rgb = mix(src.rgb, grain_rgb, clamp(local_strength, 0.0, 1.0));
+    return vec4(out_rgb, src.a);
+}

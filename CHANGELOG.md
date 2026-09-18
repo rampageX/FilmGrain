@@ -1,5 +1,15 @@
 # Film Grain Studio — CHANGELOG
 
+## v4.7.5 — 2026-09-18
+
+- 颗粒模式统一为单一的 **GPU Film Grain (FGSIM)** 项，界面不再分别显示 Light / Medium / Heavy；FGSIM 内部仍映射已经验证的 Light `0.10`、Medium `0.20`、Heavy `0.30` 三档，不调整核心算法、shader、filter graph 或颗粒效果。
+- Digital Grain、Grain Plate 与 GPU Film Grain (FGSIM) 统一使用 **Film Grain Strength** 滑杆；Digital Grain 继续控制 Fast Noise 强度，Grain Plate 继续控制混合比例，FGSIM 根据滑杆映射 Light / Medium / Heavy。
+- HEVC + FGSIM 的“视频码率”下拉框新增 `Standard CQ27 / QP18-26` 与 `High Quality CQ23 / QP18-24`；默认仍按原逻辑选择自动或手动 VBR，用户可按需切换 CQ 方案。
+- HEVC + FGSIM 提示精简为：`HEVC+FGSIM 模式下, 若画面出现色带，请在视频码率中尝试 Standard CQ27 或 High Quality CQ23 方案。`
+- 修复 FGSIM 与 BWDIF Vulkan 同时启用时的 `Only one filter device can be used` 错误；BWDIF Vulkan 与 libplacebo 统一复用 FGSIM 已创建的 `vk` filter device，不再创建 `deintvk` 或追加第二个 `-filter_hw_device`。
+- 仅调整 UI 参数传递与 HEVC + FGSIM 的编码参数选择；AV1、x264 Grain、普通 HEVC VBR、Digital Grain、Grain Plate、输出容器、AAC 256k、插帧、LUT、HDR 及已验证 FGSIM pipeline 保持原样。
+- 正式包版本号统一为 `v4.7.5`，清理测试构建标识与测试说明文件。
+
 ## v4.7.0 — 2026-09-16
 
 - 正式加入 **数字颗粒 · Fast Noise**，作为 AV1 / HEVC / H.264 x264 三条主编码线共用的像素颗粒引擎；不依赖外部 Grain Plate，也不替换既有 AV1 Film Grain metadata 或真实扫描 Grain 路线。

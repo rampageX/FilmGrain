@@ -1,29 +1,35 @@
-# Film Grain Studio v4.7.0
+# Film Grain Studio v4.7.5
 
-v4.7.0 adds a universal **Digital Grain / Fast Noise** engine and a new **HDR to SDR Tone Mapping fallback** while keeping the existing AV1 Film Grain metadata and scanned-grain workflows intact.
+v4.7.5 formalizes the user-tested **GPU Film Grain (FGSIM)** workflow while preserving the validated shader, Vulkan/libplacebo pipeline, and existing AV1/HEVC/x264 behavior.
 
-## Added
+## Added and unified
 
-- Digital Grain is available on all three main lines: **AV1, HEVC, and H.264 x264**.
-- Continuous Digital Grain strength slider: **0.10–1.00**, default **0.55**.
-- Practical strength references from testing: `0.30` subtle, `0.40` light, `0.55` medium, `0.68` approximately HEVC CT35 85%, `0.75+` pronounced/heavy.
-- SDR Digital Grain uses the faster ~1.333x Fast Noise pipeline; 1080p/1440p testing showed roughly a 3x filter-speed advantage over the early GEQ reference implementation.
-- AV1/HEVC HDR Preserve now supports a **10-bit luma-only Digital Grain path**; U/V chroma planes are preserved.
-- Advanced HDR policy: **Auto / Keep HDR / Force SDR**.
-- HDR to SDR Tone Mapping algorithms: **Hable** (default), Mobius, Reinhard, Gamma, Linear, and Clip.
-- Auto mode Tone Maps HDR to BT.709 SDR when an SDR-only path is required, including x264, BT.709 LUT, OpenSVPFlow, or the H.264 upload copy.
+- The UI now exposes one **GPU Film Grain (FGSIM)** mode instead of separate Light, Medium, and Heavy entries.
+- **Film Grain Strength** is the shared control for Digital Grain, Grain Plate, and FGSIM.
+- Internal FGSIM mapping remains unchanged: Light `0.10`, Medium `0.20`, and Heavy `0.30`.
+- In **HEVC + FGSIM**, the Video Bitrate selector adds two optional grain-oriented choices:
+  - Standard CQ27 / QP18-26
+  - High Quality CQ23 / QP18-24
+- Original automatic or manual **VBR remains the default**. CQ is intended as an optional remedy for clips that show banding.
+- The UI guidance is: `HEVC+FGSIM 模式下, 若画面出现色带，请在视频码率中尝试 Standard CQ27 或 High Quality CQ23 方案。`
 
 ## Fixed
 
-- Fixed the early HDR Digital Grain path where `alphamerge/overlay` could negotiate the HDR image down to 8-bit, causing a dark picture and ineffective grain.
-- Fixed HDR-to-SDR working-file activation issues caused by CMD block expansion and a missing/misplaced batch label.
-- HDR-to-SDR temporary files use randomized suffixes to avoid cache collisions and are cleaned up after completion/failure.
+- Fixed `Only one filter device can be used` when FGSIM and BWDIF Vulkan are enabled together.
+- BWDIF Vulkan and libplacebo now reuse the same `vk` filter device; no second `deintvk` device or `-filter_hw_device` is appended.
+- The fix covers the direct FGSIM HEVC, x264, and AV1 paths without rebuilding the validated filter chain.
+
+## Unchanged
+
+- AV1 routes and x264 Grain routes.
+- Normal HEVC VBR behavior.
+- Digital Grain and Grain Plate algorithms.
+- Output containers, AAC 256k, interpolation, LUT, HDR, subtitles, Cinematic Style, AV1 SFE, and Batch Summary behavior.
 
 ## Validation
 
-- AV1 HDR Digital Grain was user-tested successfully.
-- HDR-to-SDR + LUT was user-tested successfully.
-- A full workflow test completed successfully with AV1 UHQ + Digital Grain + HDR-to-SDR Hable + OpenSVPFlow 60 fps + LUT.
-- Formal package is built on a **Windows Server 2022 runner**. BAT/VBS/CMD are normalized to CRLF with no BOM; PS1 files are normalized to UTF-8 BOM + CRLF and checked for forbidden curly quotes and missing BAT labels.
+- The final v4.7.5 build was tested successfully by the user.
+- The FGSIM shader, preparation script, and fallback-noise resource are preserved from the validated build.
+- The formal package is built on a **Windows Server 2022 runner** and rechecked after ZIP extraction.
+- BAT/VBS/CMD are CRLF with no BOM; PS1 files are UTF-8 BOM + CRLF. Curly quotes, full-width square brackets, caret trailing whitespace, and missing BAT labels are rejected.
 
-AAC remains standardized at **256 kbps**, and existing AV1 SFE, HDR Preserve, LUT Gallery, OpenSVPFlow, subtitles, Cinematic Style, Batch Summary, bitrate logic, and other validated behavior are retained.

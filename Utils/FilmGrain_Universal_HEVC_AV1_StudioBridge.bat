@@ -3,7 +3,7 @@ setlocal DisableDelayedExpansion
 
 rem ============================================================
 rem  Universal Film Grain pipeline - Studio bridge
-rem  v4.7.0 Stable - Digital Grain + HDR-to-SDR
+rem  v4.7.5 Stable
 rem
 rem  HEVC backend baseline:
 rem    HEVC - scanned Grain plate + Vulkan overlay + NVENC
@@ -83,6 +83,10 @@ set "STUDIO_FFMPEG_PROGRESS_ARGS="
 set "SFE_ARGS="
 set "SFE_LABEL=Disabled"
 set "GRAIN_ENGINE=NATIVE"
+set "FGSIM_PRESET=MEDIUM"
+set "FGSIM_LABEL=Medium"
+set "FGSIM_HOOK_PATH="
+set "FGSIM_HOOK_FILTER_PATH="
 set "PROC_STRENGTH=55"
 set "PROC_MASK=0.55"
 set "PROC_LABEL=Medium"
@@ -141,6 +145,8 @@ call :SELECT_GRAIN_ENGINE
 if errorlevel 1 goto FATAL_END
 if /i "%GRAIN_ENGINE%"=="PROCEDURAL" (
     call :SELECT_PROCEDURAL_GRAIN
+) else if /i "%GRAIN_ENGINE%"=="FGSIM" (
+    call :SELECT_FGSIM_GRAIN
 ) else (
     if /i "%MODE%"=="HEVC" call :SELECT_HEVC_GRAIN
     if /i "%MODE%"=="X264" call :SELECT_HEVC_GRAIN
@@ -1150,6 +1156,7 @@ exit /b 0
 set "GRAIN_ENGINE=NATIVE"
 if "%FG_STUDIO_MODE%"=="1" (
     if /i "%FG_GRAIN_ENGINE%"=="PROCEDURAL" set "GRAIN_ENGINE=PROCEDURAL"
+    if /i "%FG_GRAIN_ENGINE%"=="FGSIM" set "GRAIN_ENGINE=FGSIM"
     exit /b 0
 )
 
@@ -1158,10 +1165,12 @@ echo Grain engine:
 echo.
 echo   [1] Native codec Grain path ^(default^)
 echo   [2] Digital Fast Noise Grain ^(pixel-baked / SDR + HDR10/HLG beta^)
+echo   [3] GPU Film Grain ^(FGSIM^) ^(libplacebo / pixel-baked / SDR^)
 echo.
 set "GRAIN_ENGINE_SEL=1"
-set /p "GRAIN_ENGINE_SEL=Select [1-2, default 1]: "
+set /p "GRAIN_ENGINE_SEL=Select [1-3, default 1]: "
 if "%GRAIN_ENGINE_SEL%"=="2" set "GRAIN_ENGINE=PROCEDURAL"
+if "%GRAIN_ENGINE_SEL%"=="3" set "GRAIN_ENGINE=FGSIM"
 exit /b 0
 
 
@@ -1237,6 +1246,127 @@ echo Slider range     : 0.10 - 1.00 / step 0.01 in Studio GUI
 echo SDR path         : YUV420P8 calibrated synthesis
 echo HDR path         : YUV420P10 4x-scaled mask constants, luma-only merge
 exit /b 0
+
+
+:SELECT_FGSIM_GRAIN
+set "FGSIM_PRESET=MEDIUM"
+if "%FG_STUDIO_MODE%"=="1" goto SELECT_FGSIM_GRAIN_STUDIO
+
+echo.
+echo GPU Film Grain ^(FGSIM^) preset:
+echo.
+echo   [1] Light   - Strength 0.10 + Highlight Protect 50%%
+echo   [2] Medium  - Strength 0.20 + Highlight Protect 50%% ^(default / recommended^)
+echo   [3] Heavy   - Strength 0.30 + Highlight Protect 50%%
+echo.
+set "FGSIM_SEL=2"
+set /p "FGSIM_SEL=Select [1-3, default 2]: "
+if "%FGSIM_SEL%"=="1" set "FGSIM_PRESET=LIGHT"
+if "%FGSIM_SEL%"=="3" set "FGSIM_PRESET=HEAVY"
+goto SELECT_FGSIM_GRAIN_READY
+
+:SELECT_FGSIM_GRAIN_STUDIO
+if /i "%FG_FGSIM_PRESET%"=="LIGHT" set "FGSIM_PRESET=LIGHT"
+if /i "%FG_FGSIM_PRESET%"=="MEDIUM" set "FGSIM_PRESET=MEDIUM"
+if /i "%FG_FGSIM_PRESET%"=="HEAVY" set "FGSIM_PRESET=HEAVY"
+
+:SELECT_FGSIM_GRAIN_READY
+call :SELECT_FGSIM_QUALITY
+set "FGSIM_LABEL=Medium"
+set "FGSIM_TAG=M"
+if /i "%FGSIM_PRESET%"=="LIGHT" set "FGSIM_LABEL=Light"
+if /i "%FGSIM_PRESET%"=="LIGHT" set "FGSIM_TAG=L"
+if /i "%FGSIM_PRESET%"=="HEAVY" set "FGSIM_LABEL=Heavy"
+if /i "%FGSIM_PRESET%"=="HEAVY" set "FGSIM_TAG=H"
+set "FGSIM_ROOT=%~dp0_FilmGrainSimplified"
+set "FGSIM_HOOK_PATH=%FGSIM_ROOT%\Generated\FilmGrainSimplified_%FGSIM_PRESET%.hook"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%FGSIM_ROOT%\Prepare_FGSIM.ps1" -Preset "%FGSIM_PRESET%" -FFmpegPath "%FFMPEG%"
+if errorlevel 1 (
+    echo ERROR: FilmGrainSimplified hook preparation failed.
+    exit /b 1
+)
+if not exist "%FGSIM_HOOK_PATH%" (
+    echo ERROR: FilmGrainSimplified hook not found: "%FGSIM_HOOK_PATH%"
+    exit /b 1
+)
+set "FGSIM_HOOK_FILTER_PATH="
+for /f "usebackq delims=" %%P in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$p=$env:FGSIM_HOOK_PATH; $p=$p.Replace([char]92,'/').Replace(':','\:'); [Console]::Out.Write($p)"`) do set "FGSIM_HOOK_FILTER_PATH=%%P"
+if not defined FGSIM_HOOK_FILTER_PATH (
+    echo ERROR: Could not prepare FilmGrainSimplified FFmpeg filter path.
+    exit /b 1
+)
+call :VALIDATE_FGSIM_HOOK
+if errorlevel 1 exit /b 1
+set "GRAIN_MODE=FGSIM"
+set "GRAIN_LABEL=GPU Film Grain (FGSIM) / %FGSIM_LABEL% / Tile2 + HL50"
+set "GRAIN_FILE_TAG=FGSIM%FGSIM_TAG%"
+set "HEVC_SUFFIX=_FG_FGSIM_%FGSIM_TAG%_%FGSIM_RC_TAG%_HEVC"
+if /i "%SPEED_LABEL%"=="FAST" set "HEVC_SUFFIX=_FG_FGSIM_%FGSIM_TAG%_%FGSIM_RC_TAG%_FAST_HEVC"
+echo.
+echo FilmGrainSimplified: %FGSIM_LABEL% / Tile2 / Highlight Protect 50%%
+echo GPU filter         : libplacebo / Vulkan
+echo HDR                : SDR-only; HDR inputs are Tone Mapped to BT.709 SDR
+exit /b 0
+
+
+:SELECT_FGSIM_QUALITY
+set "FGSIM_QUALITY=Original VBR"
+set "FGSIM_CQ="
+set "FGSIM_QMAX="
+set "FGSIM_RC_ARGS="
+set "FGSIM_RC_TAG=VBR"
+if /i not "%MODE%"=="HEVC" exit /b 0
+if "%FG_STUDIO_MODE%"=="1" goto FGSIM_QUALITY_STUDIO
+echo.
+echo HEVC GPU Film Grain quality:
+echo   [1] Original VBR - automatic or manual bitrate (default / recommended)
+echo   [2] Standard - CQ27 / QP18-26 (banding fix)
+echo   [3] High Quality - CQ23 / QP18-24 (banding fix)
+echo NOTE: Try CQ only if banding appears; CQ output is usually much larger.
+set "FGSIM_QUALITY_SEL=1"
+set /p "FGSIM_QUALITY_SEL=Select [1-3, default 1]: "
+if "%FGSIM_QUALITY_SEL%"=="2" goto FGSIM_QUALITY_STANDARD
+if "%FGSIM_QUALITY_SEL%"=="3" goto FGSIM_QUALITY_HIGH
+exit /b 0
+:FGSIM_QUALITY_STUDIO
+if /i "%FG_FGSIM_QUALITY%"=="HIGH" goto FGSIM_QUALITY_HIGH
+if /i "%FG_FGSIM_QUALITY%"=="STANDARD" goto FGSIM_QUALITY_STANDARD
+exit /b 0
+:FGSIM_QUALITY_HIGH
+set "FGSIM_QUALITY=High Quality"
+set "FGSIM_CQ=23"
+set "FGSIM_QMAX=24"
+set "FGSIM_RC_ARGS=-cq 23 -qmin 18 -qmax 24"
+set "FGSIM_RC_TAG=CQ23"
+exit /b 0
+
+
+:FGSIM_QUALITY_STANDARD
+set "FGSIM_QUALITY=Standard"
+set "FGSIM_CQ=27"
+set "FGSIM_QMAX=26"
+set "FGSIM_RC_ARGS=-cq 27 -qmin 18 -qmax 26"
+set "FGSIM_RC_TAG=CQ27"
+exit /b 0
+
+:VALIDATE_FGSIM_HOOK
+set "FGSIM_TEST_LOG=%TEMP%\FGSIM_PRECHECK_%RANDOM%_%RANDOM%.log"
+"%FFMPEG%" -hide_banner -loglevel warning -y -init_hw_device vulkan=fgsimvk:%VULKAN_DEVICE% -filter_hw_device fgsimvk -f lavfi -i "color=c=gray:s=32x32:d=0.04" -vf "format=yuv420p,hwupload,libplacebo=format=yuv420p:custom_shader_path='%FGSIM_HOOK_FILTER_PATH%',hwdownload,format=yuv420p" -frames:v 1 -f null NUL >"%FGSIM_TEST_LOG%" 2>&1
+set "FGSIM_TEST_RC=%ERRORLEVEL%"
+if not "%FGSIM_TEST_RC%"=="0" goto FGSIM_PRECHECK_FAIL
+findstr /i /c:"shaderc compile status 'error'" /c:"Failed executing hook" /c:"Failed creating render pass" "%FGSIM_TEST_LOG%" >nul 2>&1
+if not errorlevel 1 goto FGSIM_PRECHECK_FAIL
+del /q "%FGSIM_TEST_LOG%" >nul 2>&1
+set "FGSIM_TEST_LOG="
+exit /b 0
+
+:FGSIM_PRECHECK_FAIL
+echo.
+echo ERROR: FilmGrainSimplified shader preflight failed.
+if exist "%FGSIM_TEST_LOG%" type "%FGSIM_TEST_LOG%"
+if exist "%FGSIM_TEST_LOG%" del /q "%FGSIM_TEST_LOG%" >nul 2>&1
+set "FGSIM_TEST_LOG="
+exit /b 1
 
 
 rem ============================================================
@@ -2548,6 +2678,7 @@ if /i "%GRAIN_ENGINE%"=="NATIVE" echo Grain folder  : %GRAIN_ROOT%
 if /i "%GRAIN_ENGINE%"=="NATIVE" echo Grain opacity : %GRAIN_OPACITY%
 if /i "%GRAIN_ENGINE%"=="NATIVE" echo Blend engine  : Vulkan GPU
 if /i "%GRAIN_ENGINE%"=="PROCEDURAL" echo Blend engine  : CPU Digital Fast Noise / calibrated %PROC_MASK%
+if /i "%GRAIN_ENGINE%"=="FGSIM" echo Blend engine  : Vulkan libplacebo / FilmGrainSimplified %FGSIM_LABEL%
 echo Pipeline      : shared processing -^> x264 %X264_DEPTH_LABEL%
 echo Output        : H.264 / %CONTAINER_MODE%
 echo HDR handling  : %HDR_POLICY% / Tone Mapping %TONEMAP_LABEL%
@@ -2562,6 +2693,7 @@ if /i "%GRAIN_ENGINE%"=="NATIVE" echo Grain folder  : %GRAIN_ROOT%
 if /i "%GRAIN_ENGINE%"=="NATIVE" echo Grain opacity : %GRAIN_OPACITY%
 if /i "%GRAIN_ENGINE%"=="NATIVE" echo Blend engine  : Vulkan GPU
 if /i "%GRAIN_ENGINE%"=="PROCEDURAL" echo Blend engine  : CPU Digital Fast Noise / calibrated %PROC_MASK%
+if /i "%GRAIN_ENGINE%"=="FGSIM" echo Blend engine  : Vulkan libplacebo / FilmGrainSimplified %FGSIM_LABEL%
 echo Vulkan device : %VULKAN_DEVICE%
 echo CUDA device   : %CUDA_DEVICE%
 if "%FG_CAP_NVDEC%"=="1" (
@@ -2589,6 +2721,8 @@ if "%LUT_ENABLED%"=="1" (
 )
 if /i "%GRAIN_ENGINE%"=="PROCEDURAL" (
     echo Pipeline      : Digital Grain pixels -^> AV1 NVENC -^> remux -^> verify
+) else if /i "%GRAIN_ENGINE%"=="FGSIM" (
+    echo Pipeline      : GPU Film Grain ^(FGSIM^) pixels -^> AV1 NVENC -^> remux -^> verify
 ) else (
     echo Pipeline      : AV1 NVENC -^> IVF -^> grav1synth -^> remux -^> verify
 )
@@ -2642,6 +2776,7 @@ if errorlevel 1 (
 )
 
 if "%HDR_ACTIVE%"=="1" if /i "%HDR_POLICY%"=="SDR" set "HDR_CONVERT_TO_SDR=1"
+if "%HDR_ACTIVE%"=="1" if /i "%GRAIN_ENGINE%"=="FGSIM" set "HDR_CONVERT_TO_SDR=1"
 if "%HDR_ACTIVE%"=="1" if /i "%HDR_POLICY%"=="AUTO" if /i "%MODE%"=="X264" set "HDR_CONVERT_TO_SDR=1"
 if "%HDR_ACTIVE%"=="1" if /i "%HDR_POLICY%"=="AUTO" if "%LUT_ENABLED%"=="1" set "HDR_CONVERT_TO_SDR=1"
 if "%HDR_ACTIVE%"=="1" if /i "%HDR_POLICY%"=="AUTO" if "%ENABLE_UPLOAD_BAKE%"=="1" set "HDR_CONVERT_TO_SDR=1"
@@ -2708,6 +2843,11 @@ if "%HDR_ACTIVE%"=="1" (
 call :CONFIGURE_INPUT_DECODE
 if /i "%GRAIN_ENGINE%"=="PROCEDURAL" (
     rem CPU Digital Grain filters require software frames at the graph entrance.
+    set "ENABLE_MAIN_NVDEC=0"
+    set "MAIN_HWACCEL_ARGS="
+)
+if /i "%GRAIN_ENGINE%"=="FGSIM" (
+    rem FilmGrainSimplified compatibility path uploads software frames to Vulkan/libplacebo.
     set "ENABLE_MAIN_NVDEC=0"
     set "MAIN_HWACCEL_ARGS="
 )
@@ -3096,6 +3236,7 @@ if defined DURATION echo Duration   : %DURATION% sec
 if /i not "%FRAME_MODE%"=="OFF" echo Framing   : %FRAME_LABEL%
 if "%ENABLE_CROP%"=="1" echo Output size: %ACTIVE_WIDTH%x%ACTIVE_HEIGHT%
 
+if /i "%GRAIN_ENGINE%"=="FGSIM" goto HEVC_FGSIM_GRAIN
 if /i "%GRAIN_ENGINE%"=="PROCEDURAL" goto HEVC_PROCEDURAL_GRAIN
 
 rem Pick the fastest verified Grain source for this input size.
@@ -3234,6 +3375,47 @@ if not "%HDR_UPLOAD_SKIP%"=="1" if "%ENABLE_UPLOAD_BAKE%"=="1" (
 exit /b 0
 
 
+:HEVC_FGSIM_GRAIN
+echo Grain     : %GRAIN_LABEL%
+echo Quality   : %FGSIM_QUALITY% / %FGSIM_RC_TAG%
+if defined FGSIM_RC_ARGS echo Grain RC  : %FGSIM_RC_ARGS%
+if not defined FGSIM_RC_ARGS echo NOTE: Original VBR selected; some videos may show banding in grain regions.
+echo Engine    : GPU Film Grain ^(FGSIM^) / libplacebo / %FGSIM_LABEL%
+echo Film Look : %LUT_LABEL%
+echo Final file: "%OUTPUT%"
+if not "%HDR_UPLOAD_SKIP%"=="1" if "%ENABLE_UPLOAD_BAKE%"=="1" (
+    echo Upload MP4: "%UPLOAD_OUTPUT%"
+    echo Upload: %UPLOAD_LABEL%
+)
+echo.
+
+if exist "%OUTPUT%" (
+    echo SKIP: Main HEVC output already exists:
+    echo "%OUTPUT%"
+    if not "%HDR_UPLOAD_SKIP%"=="1" if "%ENABLE_UPLOAD_BAKE%"=="1" (
+        if exist "%UPLOAD_OUTPUT%" exit /b 2
+        call :RUN_HEVC_UPLOAD
+        if errorlevel 1 exit /b 1
+    )
+    exit /b 2
+)
+call :PREPARE_UPLOAD_SUBTITLE "%INDIR%"
+if errorlevel 1 exit /b 1
+set "FGSIM_BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%format=yuv420p[fgsimbase]"
+if "%LUT_ENABLED%"=="1" set "FGSIM_BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%format=gbrp16le,setpts=PTS-STARTPTS,split=2[lutorig][lutsrc];[lutsrc]lut3d=file='%LUT_FILTER_PATH%':interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=yuv420p[fgsimbase]"
+set "FGSIM_FILTER=%FGSIM_BASE_FILTER%;[fgsimbase]hwupload,libplacebo=format=yuv420p:custom_shader_path='%FGSIM_HOOK_FILTER_PATH%',hwdownload,format=yuv420p%FRAME_POST_FILTER%%MAIN_SUB_FILTER%,format=p010le[vout]"
+pushd "%INDIR%"
+if /i "%FPS_MODE%"=="SVP60" goto HEVC_FGSIM_OPEN_SVP
+"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -i "%INPUT%" -filter_complex "%FGSIM_FILTER%" -map "[vout]" %HEVC_STREAM_MAP_ARGS% -map_metadata 0 -map_chapters 0 -c:v hevc_nvenc -pix_fmt p010le -gpu %CUDA_DEVICE% -profile:v main10 -preset %PRESET% -tune hq -rc vbr %FGSIM_RC_ARGS% -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %HEVC_AUDIO_MUX_ARGS% %HEVC_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
+set "MAIN_RUN_RC=%ERRORLEVEL%"
+goto HEVC_MAIN_DONE
+
+:HEVC_FGSIM_OPEN_SVP
+"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=60" --arg "target_den=1" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %SVP_SYNC_GLOBAL_ARGS% -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -filter_complex "%FGSIM_FILTER%" -map "[vout]" %SVP_HEVC_STREAM_MAP_ARGS% -map_metadata 1 -map_chapters 1 -c:v hevc_nvenc -pix_fmt p010le -gpu %CUDA_DEVICE% -profile:v main10 -preset %PRESET% -tune hq -rc vbr %FGSIM_RC_ARGS% -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %HEVC_AUDIO_MUX_ARGS% %HEVC_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
+set "MAIN_RUN_RC=%ERRORLEVEL%"
+goto HEVC_MAIN_DONE
+
+
 :HEVC_PROCEDURAL_GRAIN
 echo Grain     : %GRAIN_LABEL%
 echo Engine    : Digital Fast Noise / 1.333x synthesis / mask %PROC_MASK%
@@ -3330,6 +3512,7 @@ echo Bitrate      : %BITRATE%
 echo Final file   : "%OUTPUT%"
 echo.
 
+if /i "%GRAIN_ENGINE%"=="FGSIM" goto X264_FGSIM_GRAIN
 if /i "%GRAIN_ENGINE%"=="PROCEDURAL" goto X264_PROCEDURAL_GRAIN
 
 set "GRAIN_INPUT=%GRAIN_SOURCE_MOV%"
@@ -3454,6 +3637,47 @@ echo.
 echo DONE:
 echo "%OUTPUT%"
 exit /b 0
+
+
+:X264_FGSIM_GRAIN
+echo Grain       : %GRAIN_LABEL%
+echo Engine      : GPU Film Grain ^(FGSIM^) / libplacebo / %FGSIM_LABEL%
+echo.
+if exist "%OUTPUT%" (
+    echo SKIP: Main H.264 x264 output already exists:
+    echo "%OUTPUT%"
+    exit /b 2
+)
+call :PREPARE_UPLOAD_SUBTITLE "%INDIR%"
+if errorlevel 1 exit /b 1
+set "FGSIM_BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%format=yuv420p[fgsimbase]"
+if "%LUT_ENABLED%"=="1" set "FGSIM_BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%format=gbrp16le,setpts=PTS-STARTPTS,split=2[lutorig][lutsrc];[lutsrc]lut3d=file='%LUT_FILTER_PATH%':interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=yuv420p[fgsimbase]"
+set "FGSIM_FILTER=%FGSIM_BASE_FILTER%;[fgsimbase]hwupload,libplacebo=format=yuv420p:custom_shader_path='%FGSIM_HOOK_FILTER_PATH%',hwdownload,format=yuv420p%FRAME_POST_FILTER%%X264_SUB_FILTER%,%X264_DEPTH_FILTER%[vout]"
+pushd "%INDIR%"
+if /i "%FPS_MODE%"=="SVP60" goto X264_FGSIM_OPEN_SVP
+if /i "%X264_PASS_MODE%"=="2PASS" goto X264_FGSIM_2PASS
+"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -i "%INPUT%" -filter_complex "%FGSIM_FILTER%" -map "[vout]" %H264_STREAM_MAP_ARGS% -map_metadata 0 -map_chapters 0 -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %H264_AUDIO_MUX_ARGS% %H264_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
+set "X264_MAIN_RC=%ERRORLEVEL%"
+goto X264_MAIN_DONE
+:X264_FGSIM_2PASS
+set "X264_PASSLOG=%INDIR%.__FGS_X264_FGSIM_%RANDOM%_%RANDOM%"
+"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -i "%INPUT%" -filter_complex "%FGSIM_FILTER%" -map "[vout]" -an -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -pass 1 -passlogfile "%X264_PASSLOG%" -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f null NUL
+if errorlevel 1 goto X264_MAIN_FAIL_PASS1
+"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -i "%INPUT%" -filter_complex "%FGSIM_FILTER%" -map "[vout]" %H264_STREAM_MAP_ARGS% -map_metadata 0 -map_chapters 0 -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -pass 2 -passlogfile "%X264_PASSLOG%" -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %H264_AUDIO_MUX_ARGS% %H264_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
+set "X264_MAIN_RC=%ERRORLEVEL%"
+goto X264_MAIN_DONE
+:X264_FGSIM_OPEN_SVP
+if /i "%X264_PASS_MODE%"=="2PASS" goto X264_FGSIM_OPEN_SVP_2PASS
+"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=60" --arg "target_den=1" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %SVP_SYNC_GLOBAL_ARGS% -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -filter_complex "%FGSIM_FILTER%" -map "[vout]" %SVP_H264_STREAM_MAP_ARGS% -map_metadata 1 -map_chapters 1 -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %H264_AUDIO_MUX_ARGS% %H264_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
+set "X264_MAIN_RC=%ERRORLEVEL%"
+goto X264_MAIN_DONE
+:X264_FGSIM_OPEN_SVP_2PASS
+set "X264_PASSLOG=%INDIR%.__FGS_X264_FGSIM_%RANDOM%_%RANDOM%"
+"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=60" --arg "target_den=1" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -filter_complex "%FGSIM_FILTER%" -map "[vout]" -an -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -pass 1 -passlogfile "%X264_PASSLOG%" -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f null NUL
+if errorlevel 1 goto X264_MAIN_FAIL_PASS1
+"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=60" --arg "target_den=1" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %SVP_SYNC_GLOBAL_ARGS% -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -filter_complex "%FGSIM_FILTER%" -map "[vout]" %SVP_H264_STREAM_MAP_ARGS% -map_metadata 1 -map_chapters 1 -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -pass 2 -passlogfile "%X264_PASSLOG%" -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %H264_AUDIO_MUX_ARGS% %H264_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
+set "X264_MAIN_RC=%ERRORLEVEL%"
+goto X264_MAIN_DONE
 
 
 :X264_PROCEDURAL_GRAIN
@@ -3635,6 +3859,7 @@ if errorlevel 1 (
     exit /b 1
 )
 
+if /i "%GRAIN_ENGINE%"=="FGSIM" goto AV1_STAGE1_FGSIM
 if /i "%GRAIN_ENGINE%"=="PROCEDURAL" goto AV1_STAGE1_PROCEDURAL
 if "%LUT_ENABLED%"=="1" goto AV1_STAGE1_LUT
 pushd "%INDIR%"
@@ -3650,6 +3875,23 @@ set "STAGE_RC=%ERRORLEVEL%"
 :AV1_STAGE1_DONE_NO_LUT
 popd
 goto AV1_STAGE1_DONE
+
+:AV1_STAGE1_FGSIM
+set "FGSIM_AV1_BASE=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%CROP_FILTER%format=yuv420p%LETTERBOX_FILTER%%MAIN_SUB_FILTER%[fgsimbase]"
+if "%LUT_ENABLED%"=="1" set "FGSIM_AV1_BASE=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%CROP_FILTER%format=gbrp16le,split=2[lutorig][lutsrc];[lutsrc]lut3d=file=filmlook.cube:interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=yuv420p%LETTERBOX_FILTER%%MAIN_SUB_FILTER%[fgsimbase]"
+set "FGSIM_AV1_FILTER=%FGSIM_AV1_BASE%;[fgsimbase]hwupload,libplacebo=format=yuv420p:custom_shader_path='%FGSIM_HOOK_FILTER_PATH%',hwdownload,format=yuv420p,format=p010le[vout]"
+pushd "%JOBDIR%"
+if /i "%FPS_MODE%"=="SVP60" goto AV1_FGSIM_OPEN_SVP
+"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -i "%INPUT%" -filter_complex "%FGSIM_AV1_FILTER%" -map "[vout]" -an -sn -dn -c:v av1_nvenc -gpu %CUDA_DEVICE% -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune %ENCODER_TUNE% -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
+set "STAGE_RC=%ERRORLEVEL%"
+goto AV1_FGSIM_DONE
+:AV1_FGSIM_OPEN_SVP
+"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=60" --arg "target_den=1" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -f yuv4mpegpipe -i pipe:0 -filter_complex "%FGSIM_AV1_FILTER%" -map "[vout]" -an -sn -dn -c:v av1_nvenc -gpu %CUDA_DEVICE% -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune %ENCODER_TUNE% -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
+set "STAGE_RC=%ERRORLEVEL%"
+:AV1_FGSIM_DONE
+popd
+goto AV1_STAGE1_DONE
+
 
 :AV1_STAGE1_PROCEDURAL
 set /a PROC_W=(((ACTIVE_WIDTH*4+2)/3)+1)/2*2
@@ -3712,6 +3954,7 @@ rem ------------------------------------------------------------
 rem Stage 2 - inject AV1 Film Grain metadata
 rem ------------------------------------------------------------
 echo.
+if /i "%GRAIN_ENGINE%"=="FGSIM" goto AV1_STAGE2_PROCEDURAL
 if /i "%GRAIN_ENGINE%"=="PROCEDURAL" goto AV1_STAGE2_PROCEDURAL
 
 echo [2/%TOTAL_STAGES%] Injecting AV1 Film Grain with grav1synth...
@@ -3795,6 +4038,7 @@ rem ------------------------------------------------------------
 rem Stage 4 - end-to-end final-file verification
 rem ------------------------------------------------------------
 echo.
+if /i "%GRAIN_ENGINE%"=="FGSIM" goto AV1_STAGE4_PROCEDURAL
 if /i "%GRAIN_ENGINE%"=="PROCEDURAL" goto AV1_STAGE4_PROCEDURAL
 
 echo [4/%TOTAL_STAGES%] Verifying Film Grain headers in FINAL file...
@@ -3962,6 +4206,7 @@ if exist "%UPLOAD_OUTPUT%" (
     exit /b 0
 )
 
+if /i "%GRAIN_ENGINE%"=="FGSIM" goto RUN_HEVC_UPLOAD_SVP_MAIN
 if /i "%GRAIN_ENGINE%"=="PROCEDURAL" goto RUN_HEVC_UPLOAD_SVP_MAIN
 if /i "%FPS_MODE%"=="SVP60" goto RUN_HEVC_UPLOAD_SVP_MAIN
 

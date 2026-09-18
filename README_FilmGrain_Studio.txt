@@ -1,7 +1,7 @@
 ﻿Film Grain Studio - 使用说明
 ============================
 
-当前正式稳定版：v4.7.0
+当前正式稳定版：v4.7.5
 
 这是 Universal Film Grain Toolkit 的图形前端。
 CLI 与 GUI Bridge 共享同一套编码逻辑，并分别提供交互菜单和图形界面。
@@ -17,6 +17,9 @@ Studio 打开后会自动加入文件列表。
 初版已实现
 ----------
 - 多视频添加、拖放、移除和清空。
+- v4.7.5 将 Digital Grain、Grain Plate 与 GPU Film Grain (FGSIM) 统一使用 Film Grain Strength 滑杆；FGSIM 内部继续映射已经验证的 Light / Medium / Heavy 三档，不调整核心算法与颗粒效果。
+- HEVC + FGSIM 的“视频码率”下拉框提供 Standard CQ27 / QP18-26 与 High Quality CQ23 / QP18-24；默认仍沿用原有自动或手动 VBR。提示：HEVC+FGSIM 模式下, 若画面出现色带，请在视频码率中尝试 Standard CQ27 或 High Quality CQ23 方案。
+- v4.7.5 修复 FGSIM + BWDIF Vulkan 重复指定 filter device 的错误，两者统一复用 vk；AV1、x264 Grain、普通 HEVC VBR、输出容器、AAC 256k、插帧、LUT 与 HDR 流程不变。
 - 选中单个输入视频时显示视频/音频编码、码率、分辨率、帧率与时长。
 - v4.6.2 新增 HDR Preserve：HEVC Main10 / AV1 Main10 对 HDR 输入保持 10-bit、BT.2020、PQ/HLG 与源本来存在的 HDR10 静态元数据；HEVC 显式强制 P010 10-bit，并在最终输出检查 HDR Primaries / Transfer / Matrix / Range。
 - 源文件没有 Mastering Display / MaxCLL / MaxFALL 时不会伪造；YouTube 等只有 BT.2020 + PQ + 10-bit 的 HDR 输入可正常保持现有信号。

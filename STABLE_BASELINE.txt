@@ -1,29 +1,27 @@
 ﻿Film Grain Studio formal stable baseline
 
 Baseline:
-v4.7.0
+v4.7.5
 
 Supersedes:
-v4.6.3.1
+v4.7.0
 
 Formal release:
-FilmGrain_Studio_v4.7.0_Stable.zip
+FilmGrain_Studio_v4.7.5_Stable.zip
 
-v4.7.0 major additions:
-- Digital Grain / Fast Noise is available across AV1, HEVC and x264 main lines.
-- Digital Grain strength slider: 0.10-1.00, default 0.55.
-- AV1 / HEVC HDR Preserve supports a 10-bit luma-only Digital Grain path.
-- HDR handling offers Auto / Keep HDR / Force SDR.
-- HDR-to-SDR Tone Mapping supports Hable (default), Mobius, Reinhard, Gamma, Linear and Clip.
-- Auto mode Tone Maps HDR to BT.709 SDR when x264, BT.709 LUT, OpenSVPFlow or H.264 upload requires an SDR workflow.
-- HDR-to-SDR uses a random-suffix 10-bit HEVC Main10 lossless working file and cleans it after the job.
-- AV1 HDR Digital Grain and HDR-to-SDR + LUT were user-tested successfully before v4.7.0 packaging.
+v4.7.5 major additions:
+- Digital Grain, Grain Plate and GPU Film Grain (FGSIM) share the Film Grain Strength control.
+- FGSIM retains its validated Light / Medium / Heavy preset mapping and unchanged shader/filter pipeline.
+- HEVC + FGSIM adds optional Standard CQ27 / QP18-26 and High Quality CQ23 / QP18-24 entries to the video bitrate selector.
+- Original automatic or manual VBR remains the default; CQ is an optional remedy when banding appears.
+- FGSIM and BWDIF Vulkan reuse the same vk filter device, fixing the duplicate filter device failure.
+- AV1, x264 Grain, normal HEVC VBR, Digital Grain, Grain Plate, containers, AAC 256k, interpolation, LUT and HDR workflows remain unchanged.
 
-Inherited from v4.6.3.1:
+Inherited from v4.7.0:
+- Digital Grain / Fast Noise across AV1, HEVC and x264 main lines.
+- AV1 / HEVC HDR Preserve and HDR-to-SDR Tone Mapping fallback.
 - Windows packaging compatibility rules and release validation.
-- LUT Gallery Update Preview synchronization and safe stale-preview cleanup.
-- HDR Preserve for AV1 Main10 / HEVC Main10.
-- AV1 SFE, OpenSVPFlow updater, H.264 upload bitrate fix, Batch Summary and all prior stable functionality.
+- LUT Gallery, AV1 SFE, OpenSVPFlow updater, H.264 upload bitrate fix, Batch Summary and all prior stable functionality.
 
 Release cleanup:
 - No temporary patch / hotfix / test files.
@@ -31,4 +29,4 @@ Release cleanup:
 - No _LUT_Tools\LUT_Reference_Current.jpg.
 - No user OpenSVPFlow DLL/version state or _PluginBackup.
 - No Recent / Favorites / Smart Filter CSV user state.
-- GUI status version is v4.7.0 with no Beta / TEST suffix.
+- GUI status version is v4.7.5 with no Beta / TEST suffix.

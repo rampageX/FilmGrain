@@ -8,10 +8,10 @@
 - **HEVC Main10 + 真实扫描 Grain Plate**：将真实胶片颗粒合成到视频像素中，由 NVENC Main10 编码。
 - **H.264 x264 Grain + 真实扫描 Grain Plate**：与 HEVC 共用扫描 Grain / LUT / 画幅 / 反交错 / OpenSVPFlow 前处理，使用 `libx264 + preset faster + tune grain + VBR 单次` 作为默认日常路线；高级设置可选择 Medium / Slow 与 VBR 2-Pass。默认在编码边界高质量降为 8-bit High Profile，也可启用实验性 High10。
 
-当前正式稳定版为 **v4.7.0**，发布包名称：
+当前正式稳定版为 **v4.7.5**，发布包名称：
 
 ```text
-FilmGrain_Studio_v4.7.0_Stable.zip
+FilmGrain_Studio_v4.7.5_Stable.zip
 ```
 
 所有独立脚本使用固定文件名，不再包含组件版本号；版本号只体现在整个项目的发布压缩包上。升级时建议完整替换工具包，避免新旧脚本混用。
@@ -33,6 +33,8 @@ v4.6.3 在 v4.6.2.1 稳定基线上完善 **LUT Gallery 预览同步**：图库�
 v4.6.3.1 为 Windows 打包兼容性修正版：v4.6.3 功能与编码参数完全不变；正式发布固定使用 Windows runner。发布包中的 BAT/VBS/CMD 统一为 CRLF + 无 BOM，PS1 统一为 UTF-8 BOM + CRLF，并在最终 ZIP 解压后再次全量验证。该修复解决 Linux runner 打包后 Windows CMD 可能出现 BAT 标签实际存在却无法 `goto/call` 的问题。
 
 v4.7.0 正式加入 **数字颗粒（Fast Noise）** 与 **HDR→SDR Tone Mapping fallback**。数字颗粒可作为 AV1 / HEVC / x264 三条主线的通用像素颗粒引擎，不依赖外部 Grain Plate；强度使用连续滑杆 `0.10–1.00`，默认 `0.55`。实测参考：`0.30` 轻微、`0.40` 轻、`0.55` 中等、`0.68` 约接近 HEVC CT35 85%、`0.75+` 明显/偏重。SDR 路径使用约 1.333× Fast Noise 合成；AV1 / HEVC HDR Preserve 下使用 10-bit 亮度颗粒路径，只修改 Y 平面并保持 U/V 色度。HDR 输入还可在“高级 → HDR”选择自动兼容、保持 HDR 或强制 SDR；自动模式在 x264、BT.709 LUT、OpenSVPFlow 或 H.264 上传版等 SDR-only 流程出现时，先通过 Hable（默认，可选 Mobius / Reinhard / Gamma / Linear / Clip）Tone Mapping 到 BT.709 SDR，再进入原有 SDR 处理链。
+
+v4.7.5 将三种像素颗粒模式统一到 **Film Grain Strength** 强度滑杆，并加入单一的 **GPU Film Grain (FGSIM)** 模式；FGSIM 内部继续映射已经验证的 Light / Medium / Heavy 三档，不调整 shader、Vulkan/libplacebo 初始化或颗粒效果。HEVC + FGSIM 的视频码率下拉框新增 `Standard CQ27 / QP18-26` 与 `High Quality CQ23 / QP18-24` 两个可选方案，默认仍沿用原有自动或手动 VBR。界面提示为：`HEVC+FGSIM 模式下, 若画面出现色带，请在视频码率中尝试 Standard CQ27 或 High Quality CQ23 方案。` 同时修复 FGSIM 与 BWDIF Vulkan 并用时重复指定 filter device 的错误；二者统一复用 `vk` 设备。AV1、x264 Grain、普通 HEVC VBR、Digital Grain、Grain Plate、输出容器、AAC 256k、插帧、LUT 与 HDR 流程保持原样。
 
 默认配置仍为 **AV1 Main10 + MP4 + AAC 256k**，并集成 HDR Preserve、HDR→SDR 自动兼容、数字颗粒、LUT Gallery（含智能过滤）、自动 Field-rate 反交错、自动电影帧率、可选 OpenSVPFlow GPU 60 fps 插帧、Cinematic Style、多文件处理、NVENC / OpenSVPFlow 硬件能力自动探测、AV1 UHQ、AV1 SFE 及 AV1 Film Grain 最终验证。
 

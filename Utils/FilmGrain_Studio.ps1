@@ -780,7 +780,7 @@ $statusVersion = New-Object System.Windows.Forms.ToolStripStatusLabel
 $statusVersion.Spring = $false
 $statusVersion.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
 $statusVersion.ForeColor = $ColorMuted
-$statusVersion.Text = 'v4.7.0'
+$statusVersion.Text = 'v4.7.5'
 $statusVersion.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 12, 0, 0, 0
 [void]$statusStrip.Items.Add($statusVersion)
 
@@ -1201,7 +1201,7 @@ $av1ValueCol.Width = 100
 [void]$pnlAv1.ColumnStyles.Add($av1ValueCol)
 for ($i = 0; $i -lt 6; $i++) { Add-RowPercent $pnlAv1 (100 / 6) }
 
-$cmbAv1Method = New-ComboBox @('胶片预设（推荐）', '感光度 ISO（高级）', '现成 Grain Table（影视 / Photon）', '数字颗粒 · Fast Noise（滑杆，初始 0.30）', '数字颗粒 · Fast Noise（滑杆，初始 0.55）') 0
+$cmbAv1Method = New-ComboBox @('胶片预设（推荐）', '感光度 ISO（高级）', '现成 Grain Table（影视 / Photon）', 'Digital Grain · Fast Noise（滑杆，初始 0.30）', 'Digital Grain · Fast Noise（滑杆，初始 0.55）', 'GPU Film Grain (FGSIM) · Light（0.10 + HL50）', 'GPU Film Grain (FGSIM) · Medium（0.20 + HL50，推荐）', 'GPU Film Grain (FGSIM) · Heavy（0.30 + HL50）') 0
 $cmbAv1Format = New-ComboBox @('Classic35 · Super 35', 'Modern35 · Full-frame', '16mm · Coarser', 'Super8 · Heavy', 'MaxMid · Synthetic') 0
 $cmbAv1Stock = New-ComboBox @('Fujifilm Eterna 250D', 'Fujifilm Eterna 500T', 'Kodak Vision3 250D', 'Kodak Vision3 200T') 0
 
@@ -1414,12 +1414,206 @@ $cacheNote.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
 $cacheNote.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 8, 0, 2, 0
 
 Add-LabeledRow $pnlHevc 0 '颗粒根目录' $grainRootPanel
-Add-LabeledRow $pnlHevc 1 '扫描颗粒片' $cmbHevcPlate
+Add-LabeledRow $pnlHevc 1 '颗粒方式' $cmbHevcPlate
 Add-LabeledRow $pnlHevc 2 '颗粒强度' $hevcStrengthPanel
 [void]$pnlHevc.Controls.Add($hevcProcStrengthPanel, 1, 2)
 [void]$pnlHevc.Controls.Add($cacheNote, 0, 3)
 $pnlHevc.SetColumnSpan($cacheNote, 2)
 [void]$grainHost.Controls.Add($pnlHevc)
+
+
+# Unified presentation; existing controls remain the parameter model used by the encoder.
+$script:UpdatingGrainUi = $false
+$script:UnifiedFgsimIndex = 1
+$script:GrainFileSignature = ''
+$grainHost.Controls.Clear()
+$grainUi = New-Object System.Windows.Forms.TableLayoutPanel
+$grainUi.Dock = 'Fill'
+$grainUi.ColumnCount = 1
+$grainUi.RowCount = 2
+Add-RowAbsolute $grainUi 34
+Add-RowPercent $grainUi 100
+[void]$grainHost.Controls.Add($grainUi)
+$cmbGrainMode = New-ComboBox @('胶片预设（推荐）','感光度 ISO（高级）','现成 Grain Table（影视 / Photon）','Digital Grain','GPU Film Grain (FGSIM)') 0
+$cmbGrainMode.DropDownWidth = 390
+[void]$grainUi.Controls.Add($cmbGrainMode,0,0)
+$grainContent = New-Object System.Windows.Forms.Panel
+$grainContent.Dock = 'Fill'
+[void]$grainUi.Controls.Add($grainContent,0,1)
+# Preserve the native AV1 controls and only suppress their duplicate method selector.
+$pnlAv1.RowStyles[0].SizeType = [System.Windows.Forms.SizeType]::Absolute
+$pnlAv1.RowStyles[0].Height = 0
+foreach ($control in $pnlAv1.Controls) {
+    if ($pnlAv1.GetRow($control) -eq 0) { $control.Visible = $false }
+}
+[void]$grainContent.Controls.Add($pnlAv1)
+$pixelScroll = New-Object System.Windows.Forms.Panel
+$pixelScroll.Dock = 'Fill'
+$pixelScroll.AutoScroll = $true
+[void]$grainContent.Controls.Add($pixelScroll)
+$pixelOptions = New-Object System.Windows.Forms.TableLayoutPanel
+$pixelOptions.Dock = 'Top'
+$pixelOptions.AutoSize = $true
+$pixelOptions.AutoSizeMode = 'GrowAndShrink'
+$pixelOptions.ColumnCount = 1
+$pixelOptions.RowCount = 4
+for ($i=0; $i -lt 4; $i++) {
+    [void]$pixelOptions.RowStyles.Add((New-Object System.Windows.Forms.RowStyle -ArgumentList ([System.Windows.Forms.SizeType]::AutoSize)))
+}
+[void]$pixelScroll.Controls.Add($pixelOptions)
+$plateOptions = New-Object System.Windows.Forms.TableLayoutPanel
+$plateOptions.Dock = 'Top'
+$plateOptions.Height = 68
+$plateOptions.ColumnCount = 1
+$plateOptions.RowCount = 2
+Add-RowAbsolute $plateOptions 34
+Add-RowAbsolute $plateOptions 34
+[void]$plateOptions.Controls.Add($grainRootPanel,0,0)
+$cmbGrainPlateFile = New-ComboBox @('未找到 Grain Plate') 0
+$cmbGrainPlateFile.DropDownWidth = 560
+[void]$plateOptions.Controls.Add($cmbGrainPlateFile,0,1)
+[void]$pixelOptions.Controls.Add($plateOptions,0,0)
+$strengthUi = New-Object System.Windows.Forms.TableLayoutPanel
+$strengthUi.Dock = 'Top'
+$strengthUi.Height = 58
+$strengthUi.ColumnCount = 2
+$strengthUi.RowCount = 2
+Add-ColumnPercent $strengthUi 65
+Add-ColumnPercent $strengthUi 35
+Add-RowAbsolute $strengthUi 22
+Add-RowAbsolute $strengthUi 36
+$lblFilmGrainStrength = New-Object System.Windows.Forms.Label
+$lblFilmGrainStrength.Text = 'Film Grain Strength'
+$lblFilmGrainStrength.Dock = 'Fill'
+[void]$strengthUi.Controls.Add($lblFilmGrainStrength,0,0)
+$strengthUi.SetColumnSpan($lblFilmGrainStrength,2)
+$trackFilmGrainStrength = New-Object System.Windows.Forms.TrackBar
+$trackFilmGrainStrength.Minimum = 0
+$trackFilmGrainStrength.Maximum = 100
+$trackFilmGrainStrength.Dock = 'Fill'
+$trackFilmGrainStrength.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0
+$trackFilmGrainStrength.SmallChange = 1
+$lblFilmGrainValue = New-Object System.Windows.Forms.Label
+$lblFilmGrainValue.Dock = 'Fill'
+$lblFilmGrainValue.TextAlign = 'MiddleLeft'
+[void]$strengthUi.Controls.Add($trackFilmGrainStrength,0,1)
+[void]$strengthUi.Controls.Add($lblFilmGrainValue,1,1)
+[void]$pixelOptions.Controls.Add($strengthUi,0,1)
+$lblHevcGrainHint = New-Object System.Windows.Forms.Label
+$lblHevcGrainHint.Dock = 'Top'
+$lblHevcGrainHint.Height = 62
+$lblHevcGrainHint.ForeColor = $ColorMuted
+$lblHevcGrainHint.Text = 'HEVC+FGSIM 模式下, 若画面出现色带，请在视频码率中尝试 Standard CQ27 或 High Quality CQ23 方案。'
+[void]$pixelOptions.Controls.Add($lblHevcGrainHint,0,3)
+
+function Get-VisibleGrainKind {
+    if ($cmbCodec.SelectedIndex -eq 0 -or $cmbCodec.SelectedIndex -eq 3) {
+        if ($cmbAv1Method.SelectedIndex -lt 3) { return 'NATIVE' }
+        if ($cmbAv1Method.SelectedIndex -lt 5) { return 'DIGITAL' }
+        return 'FGSIM'
+    }
+    if ($cmbHevcPlate.SelectedIndex -lt 2) { return 'DIGITAL' }
+    if ($cmbHevcPlate.SelectedIndex -lt 5) { return 'FGSIM' }
+    return 'PLATE'
+}
+function Update-FgsimControls {
+    if ($script:UpdatingGrainUi) { return }
+    $script:UpdatingGrainUi = $true
+    try {
+        $av1 = ($cmbCodec.SelectedIndex -eq 0 -or $cmbCodec.SelectedIndex -eq 3)
+        $kind = Get-VisibleGrainKind
+        $modeItems = if ($av1) { @('胶片预设（推荐）','感光度 ISO（高级）','现成 Grain Table（影视 / Photon）','Digital Grain','GPU Film Grain (FGSIM)') } else { @('Digital Grain','Grain Plate','GPU Film Grain (FGSIM)') }
+        if (($cmbGrainMode.Items -join '|') -ne ($modeItems -join '|')) {
+            $cmbGrainMode.Items.Clear()
+            $cmbGrainMode.Items.AddRange([object[]]$modeItems)
+        }
+        $cmbGrainMode.SelectedIndex = if ($av1) {
+            if ($kind -eq 'NATIVE') { $cmbAv1Method.SelectedIndex } elseif ($kind -eq 'DIGITAL') { 3 } else { 4 }
+        } else { if ($kind -eq 'DIGITAL') { 0 } elseif ($kind -eq 'PLATE') { 1 } else { 2 } }
+        $pnlAv1.Visible = ($kind -eq 'NATIVE')
+        $pixelScroll.Visible = ($kind -ne 'NATIVE')
+        $plateOptions.Visible = ($kind -eq 'PLATE')
+        $hevcFgsim = ($cmbCodec.SelectedIndex -eq 1 -and $kind -eq 'FGSIM')
+        Update-FgsimBitrateUi
+        $lblHevcGrainHint.Visible = $hevcFgsim
+        $rightLayout.RowStyles[0].Height = 38
+        $rightLayout.RowStyles[1].Height = 62
+        if ($kind -eq 'NATIVE') { $pnlAv1.BringToFront(); return }
+        $pixelScroll.BringToFront()
+        # Temporarily expand the range before setting the mode-specific range/value.
+        $trackFilmGrainStrength.Minimum = 0
+        $trackFilmGrainStrength.Maximum = 100
+        if ($kind -eq 'DIGITAL') {
+            $trackFilmGrainStrength.Value = $trackHevcProcStrength.Value
+            $trackFilmGrainStrength.Minimum = 10
+            $trackFilmGrainStrength.TickFrequency = 10
+            $trackFilmGrainStrength.LargeChange = 5
+            $lblFilmGrainValue.Text = [string]::Format([Globalization.CultureInfo]::InvariantCulture,'{0:0.00}',($trackHevcProcStrength.Value/100.0))
+        } elseif ($kind -eq 'FGSIM') {
+            $script:UnifiedFgsimIndex = if ($av1) { $cmbAv1Method.SelectedIndex - 5 } else { $cmbHevcPlate.SelectedIndex - 2 }
+            $trackFilmGrainStrength.Value = $script:UnifiedFgsimIndex
+            $trackFilmGrainStrength.Maximum = 2
+            $trackFilmGrainStrength.TickFrequency = 1
+            $trackFilmGrainStrength.LargeChange = 1
+            $lblFilmGrainValue.Text = @('Light / 0.10','Medium / 0.20','Heavy / 0.30')[$script:UnifiedFgsimIndex]
+        } else {
+            $trackFilmGrainStrength.Value = $trackHevcStrength.Value
+            $trackFilmGrainStrength.Maximum = 3
+            $trackFilmGrainStrength.TickFrequency = 1
+            $trackFilmGrainStrength.LargeChange = 1
+            $lblFilmGrainValue.Text = @('65%','75%','85%','100%')[$trackHevcStrength.Value]
+            $signature = $script:HevcGrainFiles -join '|'
+            if ($script:GrainFileSignature -ne $signature) {
+                $cmbGrainPlateFile.Items.Clear()
+                for ($i=5; $i -lt $script:HevcGrainFiles.Count; $i++) {
+                    [void]$cmbGrainPlateFile.Items.Add([string]$cmbHevcPlate.Items[$i])
+                }
+                $script:GrainFileSignature = $signature
+            }
+            $cmbGrainPlateFile.SelectedIndex = $cmbHevcPlate.SelectedIndex - 5
+        }
+    } finally { $script:UpdatingGrainUi = $false }
+}
+$cmbGrainMode.Add_SelectedIndexChanged({
+    if ($script:UpdatingGrainUi) { return }
+    $av1 = ($cmbCodec.SelectedIndex -eq 0 -or $cmbCodec.SelectedIndex -eq 3)
+    $selection = $cmbGrainMode.SelectedIndex
+    # Changing the visible mode must not reset an already adjusted Fast Noise strength.
+    $script:UpdatingProcStrengthUi = $true
+    try {
+        if ($av1) {
+            $cmbAv1Method.SelectedIndex = if ($selection -lt 3) { $selection } elseif ($selection -eq 3) { 4 } else { 5 + $script:UnifiedFgsimIndex }
+        } elseif ($selection -eq 0) { $cmbHevcPlate.SelectedIndex = 1 }
+        elseif ($selection -eq 2) { $cmbHevcPlate.SelectedIndex = 2 + $script:UnifiedFgsimIndex }
+        elseif ($selection -eq 1) {
+            if ($script:HevcGrainFiles.Count -gt 5) {
+                $plateIndex = if ($cmbGrainPlateFile.SelectedIndex -ge 0) { $cmbGrainPlateFile.SelectedIndex + 5 } else { 5 }
+                if ($plateIndex -ge $script:HevcGrainFiles.Count) { $plateIndex = 5 }
+                $cmbHevcPlate.SelectedIndex = $plateIndex
+            } else { Show-Error '未找到 Grain Plate，请先在配置中设置颗粒根目录。' }
+        }
+    } finally { $script:UpdatingProcStrengthUi = $false }
+    Update-FgsimControls
+})
+$trackFilmGrainStrength.Add_ValueChanged({
+    if ($script:UpdatingGrainUi) { return }
+    $value = $trackFilmGrainStrength.Value
+    switch (Get-VisibleGrainKind) {
+        'DIGITAL' { Set-ProceduralStrength $value 'Unified' }
+        'PLATE' { $trackHevcStrength.Value = $value }
+        'FGSIM' {
+            $script:UnifiedFgsimIndex = $value
+            if ($cmbCodec.SelectedIndex -eq 0) { $cmbAv1Method.SelectedIndex = 5 + $value }
+            else { $cmbHevcPlate.SelectedIndex = 2 + $value }
+        }
+    }
+    Update-FgsimControls
+})
+$cmbGrainPlateFile.Add_SelectedIndexChanged({
+    if (-not $script:UpdatingGrainUi -and $cmbGrainPlateFile.SelectedIndex -ge 0) {
+        $cmbHevcPlate.SelectedIndex = 5 + $cmbGrainPlateFile.SelectedIndex
+    }
+})
 
 # LUT group
 $grpLut = New-Object System.Windows.Forms.GroupBox
@@ -2433,13 +2627,19 @@ function Refresh-HevcGrainPlates {
 
     $proc30 = '::PROC30::'
     $proc55 = '::PROC55::'
-    $script:HevcGrainFiles = @($proc30, $proc55)
+    $fgsimLight = '::FGSIM_LIGHT::'
+    $fgsimMedium = '::FGSIM_MEDIUM::'
+    $fgsimHeavy = '::FGSIM_HEAVY::'
+    $script:HevcGrainFiles = @($proc30, $proc55, $fgsimLight, $fgsimMedium, $fgsimHeavy)
     $script:LastScannedGrainRoot = $rootText
     $cmbHevcPlate.BeginUpdate()
     try {
         $cmbHevcPlate.Items.Clear()
-        [void]$cmbHevcPlate.Items.Add('【数字颗粒】Fast Noise · 滑杆（初始 0.30）')
-        [void]$cmbHevcPlate.Items.Add('【数字颗粒】Fast Noise · 滑杆（初始 0.55）')
+        [void]$cmbHevcPlate.Items.Add('Digital Grain · Fast Noise · 滑杆（初始 0.30）')
+        [void]$cmbHevcPlate.Items.Add('Digital Grain · Fast Noise · 滑杆（初始 0.55）')
+        [void]$cmbHevcPlate.Items.Add('GPU Film Grain (FGSIM) · Light · 0.10 + HL50')
+        [void]$cmbHevcPlate.Items.Add('GPU Film Grain (FGSIM) · Medium · 0.20 + HL50（推荐）')
+        [void]$cmbHevcPlate.Items.Add('GPU Film Grain (FGSIM) · Heavy · 0.30 + HL50')
         $cmbHevcPlate.Enabled = $true
 
         if (-not $rootText -or -not (Test-Path -LiteralPath $rootText -PathType Container)) {
@@ -2466,7 +2666,7 @@ function Refresh-HevcGrainPlates {
             [void]$cmbHevcPlate.Items.Add($relative)
         }
 
-        $selectedIndex = if ($files.Count -gt 0) { 2 } else { 1 }
+        $selectedIndex = if ($files.Count -gt 0) { 5 } else { 1 }
         if ($previousPath) {
             for ($i = 0; $i -lt $script:HevcGrainFiles.Count; $i++) {
                 if ([string]::Equals([string]$script:HevcGrainFiles[$i], $previousPath, [System.StringComparison]::OrdinalIgnoreCase)) {
@@ -2482,10 +2682,13 @@ function Refresh-HevcGrainPlates {
             $cacheNote.Text = '数字颗粒可直接使用；当前根目录未扫描到原始 MOV。'
         }
     } catch {
-        $script:HevcGrainFiles = @($proc30, $proc55)
+        $script:HevcGrainFiles = @($proc30, $proc55, $fgsimLight, $fgsimMedium, $fgsimHeavy)
         $cmbHevcPlate.Items.Clear()
-        [void]$cmbHevcPlate.Items.Add('【数字颗粒】Fast Noise · 滑杆（初始 0.30）')
-        [void]$cmbHevcPlate.Items.Add('【数字颗粒】Fast Noise · 滑杆（初始 0.55）')
+        [void]$cmbHevcPlate.Items.Add('Digital Grain · Fast Noise · 滑杆（初始 0.30）')
+        [void]$cmbHevcPlate.Items.Add('Digital Grain · Fast Noise · 滑杆（初始 0.55）')
+        [void]$cmbHevcPlate.Items.Add('GPU Film Grain (FGSIM) · Light · 0.10 + HL50')
+        [void]$cmbHevcPlate.Items.Add('GPU Film Grain (FGSIM) · Medium · 0.20 + HL50（推荐）')
+        [void]$cmbHevcPlate.Items.Add('GPU Film Grain (FGSIM) · Heavy · 0.30 + HL50')
         $cmbHevcPlate.SelectedIndex = 1
         $cmbHevcPlate.Enabled = $true
         $cacheNote.Text = '扫描 MOV 失败，但数字颗粒仍可使用：' + $_.Exception.Message
@@ -2501,17 +2704,22 @@ function Update-HevcGrainControls {
         $selected = [string]$script:HevcGrainFiles[$cmbHevcPlate.SelectedIndex]
     }
     $isProc = ($selected -eq '::PROC30::' -or $selected -eq '::PROC55::')
-    $trackHevcStrength.Enabled = -not $isProc
-    $hevcStrengthPanel.Visible = -not $isProc
+    $isFgsim = $selected.StartsWith('::FGSIM_')
+    $trackHevcStrength.Enabled = (-not $isProc -and -not $isFgsim)
+    $hevcStrengthPanel.Visible = (-not $isProc -and -not $isFgsim)
     $hevcProcStrengthPanel.Visible = $isProc
     $hevcProcStrengthPanel.Enabled = $isProc
     if ($isProc) {
         $hevcProcStrengthPanel.BringToFront()
+    } elseif ($isFgsim) {
+        $hevcProcStrengthPanel.Visible = $false
+        $hevcStrengthPanel.Visible = $false
     } else {
         $hevcStrengthPanel.BringToFront()
         $names = @('Light · 65%', 'Natural · 75%', 'Strong · 85%', 'Full · 100%')
         $lblHevcStrength.Text = $names[$trackHevcStrength.Value]
     }
+    Update-FgsimControls
 }
 
 function Get-FpsNumber {
@@ -2622,6 +2830,51 @@ function Get-BitrateSourceContext {
     return [pscustomobject]@{ Meta=$meta; Path=$path }
 }
 
+$script:FgsimRcActive = $false
+$script:FgsimRcChoice = 'VBR'
+$script:FgsimStandardItem = 'Standard CQ27 / QP18-26'
+$script:FgsimHighItem = 'High Quality CQ23 / QP18-24'
+$cmbBitrate.DropDownWidth = 330
+
+function Test-HevcFgsim {
+    return ($cmbCodec.SelectedIndex -eq 1 -and (Get-VisibleGrainKind) -eq 'FGSIM')
+}
+function Test-FgsimCqSelected {
+    return ((Test-HevcFgsim) -and $script:FgsimRcActive -and $script:FgsimRcChoice -ne 'VBR')
+}
+function Get-EncodingBitrateText {
+    if (Test-FgsimCqSelected) { return [string]$script:ModeBitrate[1] }
+    return $cmbBitrate.Text.Trim()
+}
+function Update-FgsimBitrateUi {
+    if (-not $cmbBitrate -or $script:UpdatingBitrateUi) { return }
+    $active = Test-HevcFgsim
+    $entering = ($active -and -not $script:FgsimRcActive)
+    $leaving = (-not $active -and $script:FgsimRcActive)
+    if ($entering) { $script:FgsimRcChoice = 'VBR' }
+    $script:FgsimRcActive = $active
+    $script:UpdatingBitrateUi = $true
+    try {
+        if ($active) {
+            if (-not $cmbBitrate.Items.Contains($script:FgsimStandardItem)) {
+                $cmbBitrate.Items.Insert(0,$script:FgsimStandardItem)
+                $cmbBitrate.Items.Insert(1,$script:FgsimHighItem)
+            }
+            if ($script:FgsimRcChoice -eq 'STANDARD') { $cmbBitrate.SelectedItem = $script:FgsimStandardItem }
+            elseif ($script:FgsimRcChoice -eq 'HIGH') { $cmbBitrate.SelectedItem = $script:FgsimHighItem }
+            if ($toolTip) {
+                $toolTip.SetToolTip($cmbBitrate, $lblHevcGrainHint.Text)
+            }
+        } else {
+            $cmbBitrate.Items.Remove($script:FgsimStandardItem)
+            $cmbBitrate.Items.Remove($script:FgsimHighItem)
+            if ($leaving -and $cmbCodec.SelectedIndex -ge 0 -and $cmbCodec.SelectedIndex -le 2) {
+                $cmbBitrate.Text = [string]$script:ModeBitrate[$cmbCodec.SelectedIndex]
+            }
+        }
+    } finally { $script:UpdatingBitrateUi = $false }
+}
+
 function Update-AutoBitrateDisplay {
     if (-not $cmbBitrate -or -not $chkBitrateAuto -or $cmbCodec.SelectedIndex -lt 0 -or $cmbCodec.SelectedIndex -gt 2) { return }
     $codecIndex = $cmbCodec.SelectedIndex
@@ -2634,7 +2887,7 @@ function Update-AutoBitrateDisplay {
     $rec = Get-BitrateRecommendation $codecIndex $width $height $fps $chkUploadHighMotion.Checked
     $script:UpdatingBitrateUi = $true
     try {
-        $cmbBitrate.Text = [string]$rec.Bitrate
+        if (-not (Test-FgsimCqSelected)) { $cmbBitrate.Text = [string]$rec.Bitrate }
         $script:ModeBitrate[$codecIndex] = [string]$rec.Bitrate
         $chkBitrateAuto.Checked = $true
     } finally { $script:UpdatingBitrateUi = $false }
@@ -2668,19 +2921,25 @@ function Update-UploadAutoBitrateDisplay {
 function Update-BitrateDisplays {
     Update-AutoBitrateDisplay
     Update-UploadAutoBitrateDisplay
+    Update-FgsimBitrateUi
 }
 
 function Load-BitrateChoices {
     param([int]$CodecIndex)
+    $script:UpdatingBitrateUi = $true
     $cmbBitrate.BeginUpdate()
     try {
         $cmbBitrate.Items.Clear()
         foreach ($value in @('3000','3500','4000','5000','6000','7000','7500','8000','9000','10000','11000','12000','15000','18000','20000','22000','30000')) { [void]$cmbBitrate.Items.Add($value) }
-    } finally { $cmbBitrate.EndUpdate() }
+    } finally { $cmbBitrate.EndUpdate(); $script:UpdatingBitrateUi = $false }
     $script:UpdatingBitrateUi = $true
     try { $chkBitrateAuto.Checked = [bool]$script:ModeBitrateAuto[$CodecIndex] } finally { $script:UpdatingBitrateUi = $false }
     if ([bool]$script:ModeBitrateAuto[$CodecIndex]) { Update-AutoBitrateDisplay }
-    else { $cmbBitrate.Text = [string]$script:ModeBitrate[$CodecIndex] }
+    else {
+        $script:UpdatingBitrateUi = $true
+        try { $cmbBitrate.Text = [string]$script:ModeBitrate[$CodecIndex] } finally { $script:UpdatingBitrateUi = $false }
+    }
+    Update-FgsimBitrateUi
 }
 
 function Get-Av1GrainTierFromDimensions {
@@ -2933,7 +3192,8 @@ function Update-Av1Controls {
     $presetMode = ($cmbAv1Method.SelectedIndex -eq 0)
     $isoMode = ($cmbAv1Method.SelectedIndex -eq 1)
     $tableMode = ($cmbAv1Method.SelectedIndex -eq 2)
-    $procMode = ($cmbAv1Method.SelectedIndex -ge 3)
+    $procMode = ($cmbAv1Method.SelectedIndex -eq 3 -or $cmbAv1Method.SelectedIndex -eq 4)
+    $fgsimMode = ($cmbAv1Method.SelectedIndex -ge 5 -and $cmbAv1Method.SelectedIndex -le 7)
     $cmbAv1Format.Enabled = $presetMode
     $cmbAv1Stock.Enabled = $presetMode -and ($cmbAv1Format.SelectedIndex -lt 3)
     $numIso.Enabled = $isoMode
@@ -2947,8 +3207,10 @@ function Update-Av1Controls {
     $chkShowAllAv1Tables.Enabled = $tableMode
     if ($cmbCodec.SelectedIndex -eq 0) {
         if ($procMode) { $grpGrain.Text = 'AV1 · 数字颗粒（像素烘焙 / SDR+HDR）' }
+        elseif ($fgsimMode) { $grpGrain.Text = 'AV1 · GPU Film Grain (FGSIM)（像素烘焙 / SDR）' }
         else { $grpGrain.Text = 'AV1 · 胶片颗粒元数据' }
     }
+    Update-FgsimControls
 }
 
 function Update-SfeUi {
@@ -3326,7 +3588,7 @@ function Update-CodecUi {
         $script:ChangingCodec = $true
         try {
             if ($script:LastCodecIndex -ne $newIndex) {
-                if ($cmbBitrate.Text -and $script:LastCodecIndex -ge 0 -and $script:LastCodecIndex -le 2) { $script:ModeBitrate[$script:LastCodecIndex] = $cmbBitrate.Text.Trim() }
+                if ($cmbBitrate.Text -match '^\d+$' -and $script:LastCodecIndex -ge 0 -and $script:LastCodecIndex -le 2) { $script:ModeBitrate[$script:LastCodecIndex] = $cmbBitrate.Text.Trim() }
                 Load-BitrateChoices $newIndex
                 $script:LastCodecIndex = $newIndex
             }
@@ -3362,6 +3624,7 @@ function Update-CodecUi {
     $chkUploadBitrateAuto.Enabled = ($chkUpload.Enabled -and $chkUpload.Checked)
     Update-UploadHighMotionUi
     Update-BitrateDisplays
+    Update-FgsimControls
 }
 
 function Get-LutPathKey {
@@ -4254,7 +4517,7 @@ function Start-Encoding {
     }
 
     $bitrate = 0L
-    if (-not [long]::TryParse($cmbBitrate.Text.Trim(), [ref]$bitrate) -or $bitrate -le 10 -or $bitrate -gt 500000000) {
+    if (-not [long]::TryParse((Get-EncodingBitrateText), [ref]$bitrate) -or $bitrate -le 10 -or $bitrate -gt 500000000) {
         Show-Error '视频码率必须是大于 10 且不超过 500000000 的整数（单位 kbps）。'
         return
     }
@@ -4315,6 +4578,7 @@ function Start-Encoding {
 
     $selectedGrainPath = $null
     $selectedProcStrength = ''
+    $selectedFgsimPreset = ''
     if ($mode -eq 'HEVC' -or $mode -eq 'X264') {
         $grainRoot = $txtGrainRoot.Text.Trim()
         if ($script:LastScannedGrainRoot -ne $grainRoot -or $script:HevcGrainFiles.Count -lt 2) {
@@ -4327,6 +4591,12 @@ function Start-Encoding {
         $selectedGrainPath = [string]$script:HevcGrainFiles[$cmbHevcPlate.SelectedIndex]
         if ($selectedGrainPath -eq '::PROC30::' -or $selectedGrainPath -eq '::PROC55::') {
             $selectedProcStrength = [string]$trackHevcProcStrength.Value
+        } elseif ($selectedGrainPath -eq '::FGSIM_LIGHT::') {
+            $selectedFgsimPreset = 'LIGHT'
+        } elseif ($selectedGrainPath -eq '::FGSIM_MEDIUM::') {
+            $selectedFgsimPreset = 'MEDIUM'
+        } elseif ($selectedGrainPath -eq '::FGSIM_HEAVY::') {
+            $selectedFgsimPreset = 'HEAVY'
         } else {
             if (-not (Test-Path -LiteralPath $selectedGrainPath -PathType Leaf)) {
                 Refresh-HevcGrainPlates
@@ -4390,12 +4660,18 @@ function Start-Encoding {
         $uploadRateModeLabel = if ($uploadBitrateAuto) { '自动推荐' } else { '手动' }
         Append-LogText ("H.264 上传版：x264 $x264PresetLabel + tune grain + $x264PassLabel · $uploadRateModeLabel / 当前显示 ${uploadBitrate} kbps · 与全局 $motionLabel 同步；Bridge 将按每个文件实际输出确认。`r`n")
     }
-    if ($mode -eq 'AV1' -and $cmbAv1Method.SelectedIndex -ge 3) {
+    if ($mode -eq 'AV1' -and ($cmbAv1Method.SelectedIndex -eq 3 -or $cmbAv1Method.SelectedIndex -eq 4)) {
         $procUiStrength = [string]::Format([System.Globalization.CultureInfo]::InvariantCulture, '{0:0.00}', ($trackAv1ProcStrength.Value / 100.0))
         Append-LogText ("数字颗粒：Fast Noise · 滑杆 $procUiStrength · SDR/HDR 自适应路径 · HDR 使用 10-bit 亮度颗粒 · 直接烘焙到像素`r`n")
     } elseif (($mode -eq 'HEVC' -or $mode -eq 'X264') -and $selectedProcStrength) {
         $procUiStrength = [string]::Format([System.Globalization.CultureInfo]::InvariantCulture, '{0:0.00}', ([int]$selectedProcStrength / 100.0))
         Append-LogText ("数字颗粒：Fast Noise · 滑杆 $procUiStrength · SDR/HDR 自适应路径 · HDR 使用 10-bit 亮度颗粒 · 直接烘焙到像素`r`n")
+    } elseif ($mode -eq 'AV1' -and $cmbAv1Method.SelectedIndex -ge 5) {
+        $fgsimNames = @('LIGHT','MEDIUM','HEAVY')
+        $fgsimPresetLog = $fgsimNames[$cmbAv1Method.SelectedIndex - 5]
+        Append-LogText ("GPU Film Grain (FGSIM)：$fgsimPresetLog · Tile2 · Highlight Protect 50% · SDR 像素烘焙`r`n")
+    } elseif (($mode -eq 'HEVC' -or $mode -eq 'X264') -and $selectedFgsimPreset) {
+        Append-LogText ("GPU Film Grain (FGSIM)：$selectedFgsimPreset · Tile2 · Highlight Protect 50% · SDR 像素烘焙`r`n")
     }
     Append-LogText "`r`n"
 
@@ -4404,7 +4680,7 @@ function Start-Encoding {
     # when the user actually clicks Start Encoding.
     if ($chkLut.Checked -and $script:SelectedLutSource -eq 'Favorite') {
         if (Register-FavoriteLutRecentUse $script:SelectedLutPath) {
-            Append-LogText "[LUT Recent] 已由 LUT Gallery 登记本次【我的最爱】选择。`r`n"
+            Append-LogText "[LUT Recent] 已由 LUT Gallery 登记本次我的最爱选择。`r`n"
             $script:SelectedLutSource = 'Recent'
             Refresh-RecentLuts
         } else {
@@ -4444,6 +4720,7 @@ function Start-Encoding {
     $envs['FG_HDR_POLICY'] = [string]$script:HdrPolicy
     $envs['FG_TONEMAP_ALGO'] = [string]$script:ToneMapAlgo
     $speedModes = @('FAST', 'STANDARD', 'UHQ')
+    $envs['FG_FGSIM_QUALITY'] = if ($mode -eq 'HEVC' -and $selectedFgsimPreset) { $script:FgsimRcChoice } else { 'STANDARD' }
     $envs['FG_SPEED'] = if ($mode -eq 'X264') { 'X264' } else { $speedModes[$cmbSpeed.SelectedIndex] }
     $sfeEngines = 0
     if ($mode -eq 'AV1' -and $chkSfe.Checked -and $script:SfeMaxEngines -ge 2 -and $script:Grav1synthSfeCompatible -and ($cmbSpeed.SelectedIndex -eq 1 -or $cmbSpeed.SelectedIndex -eq 2)) {
@@ -4505,9 +4782,14 @@ function Start-Encoding {
     }
 
     if ($mode -eq 'AV1') {
-        if ($cmbAv1Method.SelectedIndex -ge 3) {
+        if ($cmbAv1Method.SelectedIndex -eq 3 -or $cmbAv1Method.SelectedIndex -eq 4) {
             $envs['FG_GRAIN_ENGINE'] = 'PROCEDURAL'
             $envs['FG_PROC_STRENGTH'] = [string]$trackAv1ProcStrength.Value
+            [void]$envs.Remove('FG_AV1_GRAIN_TABLE')
+        } elseif ($cmbAv1Method.SelectedIndex -ge 5 -and $cmbAv1Method.SelectedIndex -le 7) {
+            $envs['FG_GRAIN_ENGINE'] = 'FGSIM'
+            $fgsimPresets = @('LIGHT','MEDIUM','HEAVY')
+            $envs['FG_FGSIM_PRESET'] = $fgsimPresets[$cmbAv1Method.SelectedIndex - 5]
             [void]$envs.Remove('FG_AV1_GRAIN_TABLE')
         } else {
             $envs['FG_GRAIN_ENGINE'] = 'NATIVE'
@@ -4524,6 +4806,11 @@ function Start-Encoding {
         if ($selectedProcStrength) {
             $envs['FG_GRAIN_ENGINE'] = 'PROCEDURAL'
             $envs['FG_PROC_STRENGTH'] = $selectedProcStrength
+            [void]$envs.Remove('FG_HEVC_GRAIN_PATH')
+            [void]$envs.Remove('FG_HEVC_GRAIN_TAG')
+        } elseif ($selectedFgsimPreset) {
+            $envs['FG_GRAIN_ENGINE'] = 'FGSIM'
+            $envs['FG_FGSIM_PRESET'] = $selectedFgsimPreset
             [void]$envs.Remove('FG_HEVC_GRAIN_PATH')
             [void]$envs.Remove('FG_HEVC_GRAIN_TAG')
         } else {
@@ -5303,7 +5590,7 @@ $listFiles.Add_DragEnter($dragEnterHandler)
 $listFiles.Add_DragDrop($dragDropHandler)
 $listFiles.Add_SelectedIndexChanged({ Update-SelectedMediaInfo; Update-DeinterlaceUi; Update-NoReencodeAvailability; Update-BitrateDisplays; Update-HdrCompatibilityUi })
 
-$cmbCodec.Add_SelectedIndexChanged({ Update-CodecUi; Update-FramingUi; Update-BitrateDisplays; Update-HdrCompatibilityUi })
+$cmbCodec.Add_SelectedIndexChanged({ Update-CodecUi; Update-FgsimControls; Update-FramingUi; Update-BitrateDisplays; Update-HdrCompatibilityUi })
 $cmbSpeed.Add_SelectedIndexChanged({ if (-not $script:UpdatingSpeedChoices) { Update-SfeUi } })
 $cmbDeint.Add_SelectedIndexChanged({ Update-DeinterlaceUi; Update-BitrateDisplays })
 $chkInterpolation.Add_CheckedChanged({ Update-InterpolationUi; Update-BitrateDisplays })
@@ -5311,6 +5598,11 @@ $chkCinematic.Add_CheckedChanged({ Update-FramingUi; Update-BitrateDisplays })
 $cmbFrameMode.Add_SelectedIndexChanged({ Update-FramingUi; Update-BitrateDisplays })
 $cmbBitrate.Add_TextChanged({
     if (-not $script:ChangingCodec -and -not $script:UpdatingBitrateUi -and $cmbCodec.SelectedIndex -ge 0 -and $cmbCodec.SelectedIndex -le 2) {
+        if (Test-HevcFgsim) {
+            if ($cmbBitrate.Text -eq $script:FgsimStandardItem) { $script:FgsimRcChoice = 'STANDARD'; return }
+            if ($cmbBitrate.Text -eq $script:FgsimHighItem) { $script:FgsimRcChoice = 'HIGH'; return }
+            $script:FgsimRcChoice = 'VBR'
+        }
         $script:ModeBitrateAuto[$cmbCodec.SelectedIndex] = $false
         $script:ModeBitrate[$cmbCodec.SelectedIndex] = $cmbBitrate.Text.Trim()
         $script:UpdatingBitrateUi = $true
@@ -5321,6 +5613,7 @@ $chkBitrateAuto.Add_CheckedChanged({
     if ($script:UpdatingBitrateUi -or $cmbCodec.SelectedIndex -lt 0 -or $cmbCodec.SelectedIndex -gt 2) { return }
     $script:ModeBitrateAuto[$cmbCodec.SelectedIndex] = [bool]$chkBitrateAuto.Checked
     if ($chkBitrateAuto.Checked) { Update-AutoBitrateDisplay }
+    Update-FgsimBitrateUi
 })
 $chkUploadHighMotion.Add_CheckedChanged({ Update-BitrateDisplays })
 $cmbFps.Add_SelectedIndexChanged({ Update-BitrateDisplays })

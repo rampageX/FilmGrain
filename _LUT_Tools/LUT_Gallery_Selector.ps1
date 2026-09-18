@@ -473,7 +473,7 @@ $bottom.Dock = 'Bottom'; $bottom.Height = 48
 $form.Controls.Add($bottom); $bottom.BringToFront()
 
 $selectedLabel = New-Object System.Windows.Forms.Label
-$selectedLabel.Text = '双击缩略图，或选中后点击【使用选中的 LUT】。'
+$selectedLabel.Text = '双击缩略图，或选中后点击使用选中的 LUT。'
 $selectedLabel.AutoEllipsis = $true
 $selectedLabel.Location = New-Object System.Drawing.Point -ArgumentList 12,16
 $selectedLabel.Size = New-Object System.Drawing.Size -ArgumentList ($form.ClientSize.Width-730),22
@@ -897,7 +897,7 @@ function Commit-Entry($entry) {
     if (-not $recentSaved) {
         $detail = [string]$script:RecentWriteError
         if (-not $detail) { $detail = '没有返回具体错误。' }
-        [System.Windows.Forms.MessageBox]::Show("LUT 已选择，但无法更新【最近使用】：`r`n`r`n$detail", 'LUT 图库', 'OK', 'Warning') | Out-Null
+        [System.Windows.Forms.MessageBox]::Show("LUT 已选择，但无法更新最近使用：`r`n`r`n$detail", 'LUT 图库', 'OK', 'Warning') | Out-Null
     }
     [System.IO.File]::WriteAllText($OutputFile, [string]$entry.LutPath, (New-Object System.Text.UTF8Encoding($false)))
     $form.Tag = 'selected'; $form.Close()
