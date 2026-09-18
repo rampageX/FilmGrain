@@ -1792,14 +1792,14 @@ $toolTip.SetToolTip($btnRefreshGrain, (L 'tooltip.grain_refresh'))
 $toolTip.SetToolTip($cmbAv1GrainTable, (L 'tooltip.table_default'))
 $toolTip.SetToolTip($btnRefreshAv1Table, (L 'tooltip.table_refresh'))
 $toolTip.SetToolTip($chkShowAllAv1Tables, (L 'tooltip.table_all'))
-$toolTip.SetToolTip($btnUploadSubtitle, '硬字幕独立于 H.264 上传版；启用后烧写到主输出，若同时生成 H.264 上传版则副本也包含同一字幕。默认距最终输出画面下沿 5px、水平居中。')
-$toolTip.SetToolTip($chkInterpolation, '逐行 SDR 输入插值到 60 fps；使用 Algo 13 + EncodeGUI Analyse。与自动电影帧率互斥。')
-$toolTip.SetToolTip($chkUpload, '附加 H.264 上传版固定使用 x264 Grain 8-bit 兼容输出；与主输出共用最终分辨率 / FPS / 高动态状态，但拥有独立码率。')
-$toolTip.SetToolTip($cmbUploadBitrate, 'H.264 上传版使用与主线相同的 x264 设置：默认 Faster + tune grain + VBR 单次；高级设置可切换 Medium / Slow 与 2-Pass。自动模式共用分辨率 / 最终 FPS / 高动态推荐策略，并直接显示实际 kbps；也可手动输入。')
-$toolTip.SetToolTip($chkUploadBitrateAuto, '勾选：上传版按 x264 Grain 的分辨率 / 最终 FPS / 高动态策略自动推荐；取消后可在左侧直接输入自定义 kbps。')
-$toolTip.SetToolTip($chkUploadHighMotion, '统一高动态模式：自动码率提高到高速运动档；NVENC 在硬件支持时使用更深 Lookahead / Fullres Multipass / adaptive B / scene-cut；x264 保持当前 preset + tune grain + 当前 VBR 模式，并使用高动态码率。')
-$toolTip.SetToolTip($chkBitrateAuto, '勾选：码率框实时显示当前视频的自动推荐 kbps；分辨率、最终 FPS、编码器或高动态状态改变时自动刷新。取消勾选后可手动输入，程序不会偷偷覆盖。')
-$toolTip.SetToolTip($cmbBitrate, '单位 kbps。自动模式下这里直接显示计算结果；启动后日志会再次列出分辨率档位、FPS 系数、b:v、3× maxrate 与 6× bufsize。')
+$toolTip.SetToolTip($btnUploadSubtitle, (L 'tooltip.subtitle'))
+$toolTip.SetToolTip($chkInterpolation, (L 'tooltip.interpolation'))
+$toolTip.SetToolTip($chkUpload, (L 'tooltip.upload'))
+$toolTip.SetToolTip($cmbUploadBitrate, (L 'tooltip.upload_bitrate'))
+$toolTip.SetToolTip($chkUploadBitrateAuto, (L 'tooltip.upload_auto'))
+$toolTip.SetToolTip($chkUploadHighMotion, (L 'tooltip.high_motion'))
+$toolTip.SetToolTip($chkBitrateAuto, (L 'tooltip.bitrate_auto'))
+$toolTip.SetToolTip($cmbBitrate, (L 'tooltip.bitrate'))
 
 # Log area
 $grpLog = New-Object System.Windows.Forms.GroupBox
@@ -2714,17 +2714,17 @@ function Refresh-HevcGrainPlates {
         }
         $cmbHevcPlate.SelectedIndex = $selectedIndex
         if ($files.Count -gt 0) {
-            $cacheNote.Text = '数字颗粒可直接使用；另扫描到 ' + $files.Count + ' 个原始 MOV，缓存规则保持不变。'
+            $cacheNote.Text = ((L 'grain.root_count') -f $files.Count)
         } else {
             $cacheNote.Text = L 'grain.root_none'
         }
     } catch {
         $script:HevcGrainFiles = @($proc30, $proc55, $fgsimLight, $fgsimMedium, $fgsimHeavy)
         $cmbHevcPlate.Items.Clear()
-        [void]$cmbHevcPlate.Items.Add('Digital Grain · Fast Noise · 滑杆（初始 0.30）')
-        [void]$cmbHevcPlate.Items.Add('Digital Grain · Fast Noise · 滑杆（初始 0.55）')
+        [void]$cmbHevcPlate.Items.Add((L 'grain.method.digital30'))
+        [void]$cmbHevcPlate.Items.Add((L 'grain.method.digital55'))
         [void]$cmbHevcPlate.Items.Add('GPU Film Grain (FGSIM) · Light · 0.10 + HL50')
-        [void]$cmbHevcPlate.Items.Add('GPU Film Grain (FGSIM) · Medium · 0.20 + HL50（推荐）')
+        [void]$cmbHevcPlate.Items.Add((L 'grain.method.fgsim_medium'))
         [void]$cmbHevcPlate.Items.Add('GPU Film Grain (FGSIM) · Heavy · 0.30 + HL50')
         $cmbHevcPlate.SelectedIndex = 1
         $cmbHevcPlate.Enabled = $true
@@ -2930,7 +2930,7 @@ function Update-AutoBitrateDisplay {
     } finally { $script:UpdatingBitrateUi = $false }
     if ($toolTip) {
         $motionText = if ($chkUploadHighMotion.Checked) { '高动态' } else { '普通动态' }
-        $toolTip.SetToolTip($cmbBitrate, ('自动推荐：{0} kbps · {1} · 60fps基准 {2} kbps · 最终 {3:0.###} fps · FPS系数 {4:0.###} · {5}。启动任务后 Bridge 会按每个文件实际输出再次计算。' -f $rec.Bitrate,$rec.Tier,$rec.Base,$rec.Fps,$rec.FpsFactor,$motionText))
+        $toolTip.SetToolTip($cmbBitrate, ((L 'tooltip.bitrate_recommend') -f $rec.Bitrate,$rec.Tier,$rec.Base,$rec.Fps,$rec.FpsFactor,$motionText))
     }
 }
 
@@ -2951,7 +2951,7 @@ function Update-UploadAutoBitrateDisplay {
     } finally { $script:UpdatingUploadBitrateUi = $false }
     if ($toolTip) {
         $motionText = if ($chkUploadHighMotion.Checked) { '高动态' } else { '普通动态' }
-        $toolTip.SetToolTip($cmbUploadBitrate, ('H.264 上传版自动推荐：{0} kbps · x264 Grain · {1} · 60fps基准 {2} kbps · 最终 {3:0.###} fps · FPS系数 {4:0.###} · {5}。Bridge 会按每个文件实际输出再次计算。' -f $rec.Bitrate,$rec.Tier,$rec.Base,$rec.Fps,$rec.FpsFactor,$motionText))
+        $toolTip.SetToolTip($cmbUploadBitrate, ((L 'tooltip.upload_recommend') -f $rec.Bitrate,$rec.Tier,$rec.Base,$rec.Fps,$rec.FpsFactor,$motionText))
     }
 }
 
@@ -3159,7 +3159,7 @@ function Refresh-Av1GrainTables {
     try {
         $cmbAv1GrainTable.Items.Clear()
         if (-not (Test-Path -LiteralPath $DefaultAv1GrainTableRoot -PathType Container)) {
-            [void]$cmbAv1GrainTable.Items.Add('未找到 _AV1_Grain_Tables 目录')
+            [void]$cmbAv1GrainTable.Items.Add((L 'grain.table_dir_missing'))
             $cmbAv1GrainTable.SelectedIndex = 0
             return
         }
@@ -3199,11 +3199,11 @@ function Refresh-Av1GrainTables {
 
         if ($script:Av1GrainTableFiles.Count -eq 0) {
             if (-not $showAll -and $preferredTier) {
-                [void]$cmbAv1GrainTable.Items.Add("$preferredTier 目录未扫描到 Grain Table；勾选右侧方框可显示全部")
+                [void]$cmbAv1GrainTable.Items.Add(((L 'grain.table_tier_empty') -f $preferredTier))
             } elseif (-not $showAll -and -not $preferredTier) {
-                [void]$cmbAv1GrainTable.Items.Add('正在等待源视频分辨率；可勾选右侧方框显示全部')
+                [void]$cmbAv1GrainTable.Items.Add((L 'grain.table_wait_resolution'))
             } else {
-                [void]$cmbAv1GrainTable.Items.Add('未扫描到 .tbl / .txt')
+                [void]$cmbAv1GrainTable.Items.Add((L 'grain.table_empty'))
             }
             $cmbAv1GrainTable.SelectedIndex = 0
             return
@@ -3255,7 +3255,7 @@ function Update-SfeUi {
 
     $maxEngines = [int]$script:SfeMaxEngines
     if ($maxEngines -lt 1) { $maxEngines = 1 }
-    $chkSfe.Text = "多引擎并行 ×$maxEngines"
+    $chkSfe.Text = ((L 'sfe.engines') -f $maxEngines)
 
     $isAv1 = ($cmbCodec.SelectedIndex -eq 0)
     $isSupportedSpeed = ($cmbSpeed.SelectedIndex -eq 1 -or $cmbSpeed.SelectedIndex -eq 2)
@@ -3269,11 +3269,11 @@ function Update-SfeUi {
     }
 
     if ($maxEngines -lt 2) {
-        $sfeToolTip.SetToolTip($chkSfe, 'NVENC: Split Frame Encoding (SFE) - 当前 GPU 未检测到可用的多 NVENC 引擎。')
+        $sfeToolTip.SetToolTip($chkSfe, (L 'tooltip.sfe_unavailable'))
     } elseif (-not $script:Grav1synthSfeCompatible) {
-        $sfeToolTip.SetToolTip($chkSfe, "NVENC: Split Frame Encoding (SFE)`r`n需要 grav1synth 0.2.2+；当前版本：$($script:Grav1synthVersion)")
+        $sfeToolTip.SetToolTip($chkSfe, ((L 'tooltip.sfe_version') -f $script:Grav1synthVersion))
     } else {
-        $sfeToolTip.SetToolTip($chkSfe, "NVENC: Split Frame Encoding (SFE)`r`n硬件能力检测：最多 ×$maxEngines；grav1synth $($script:Grav1synthVersion)；仅 AV1 Standard / UHQ 可用。")
+        $sfeToolTip.SetToolTip($chkSfe, ((L 'tooltip.sfe_ready') -f $maxEngines,$script:Grav1synthVersion))
     }
 }
 
@@ -3405,12 +3405,12 @@ function Update-HdrCompatibilityUi {
         $cmbUploadBitrate.Enabled = $false
         $chkUploadBitrateAuto.Enabled = $false
         $grpLut.Enabled = $false
-        $toolTip.SetToolTip($chkInterpolation, 'HDR Preserve：当前 OpenSVPFlow 集成使用 YUV420P8，HDR 文件由核心自动旁路插帧。可在 高级 > HDR 选择先转换为 SDR。')
-        $toolTip.SetToolTip($chkUpload, 'HDR Preserve：H.264 上传版会跳过。可在 高级 > HDR 选择先转换为 SDR。')
-        $toolTip.SetToolTip($grpLut, 'HDR Preserve：BT.709 LUT 会旁路。可在 高级 > HDR 选择先转换为 SDR。')
+        $toolTip.SetToolTip($chkInterpolation, (L 'tooltip.hdr_interp_preserve'))
+        $toolTip.SetToolTip($chkUpload, (L 'tooltip.hdr_upload_preserve'))
+        $toolTip.SetToolTip($grpLut, (L 'tooltip.hdr_lut_preserve'))
         if ($cmbCodec.SelectedIndex -eq 2) {
             $btnStart.Enabled = $false
-            $toolTip.SetToolTip($cmbCodec, 'HDR Preserve 主输出请使用 AV1 Main10 或 HEVC Main10；如需 x264，请在 高级 > HDR 选择转换为 SDR。')
+            $toolTip.SetToolTip($cmbCodec, (L 'tooltip.hdr_codec_preserve'))
         } else {
             $btnStart.Enabled = $true
         }
@@ -3427,11 +3427,11 @@ function Update-HdrCompatibilityUi {
     $btnStart.Enabled = $true
     if ($isHdr -and $script:HdrPolicy -ne 'PRESERVE') {
         $toneLabel = switch ($script:ToneMapAlgo) { 'mobius' { 'Mobius' } 'reinhard' { 'Reinhard' } 'gamma' { 'Gamma' } 'linear' { 'Linear' } 'clip' { 'Clip' } default { 'Hable' } }
-        $toolTip.SetToolTip($chkInterpolation, "需要时 HDR 将先通过 $toneLabel Tone Mapping 转成 BT.709 SDR，再进入 OpenSVPFlow。")
-        $toolTip.SetToolTip($chkUpload, "需要时 HDR 将先通过 $toneLabel Tone Mapping 转成 BT.709 SDR，因此可生成 H.264 上传版。")
-        $toolTip.SetToolTip($grpLut, "需要时 HDR 将先通过 $toneLabel Tone Mapping 转成 BT.709 SDR，然后正常应用 LUT。")
+        $toolTip.SetToolTip($chkInterpolation, ((L 'tooltip.hdr_interp_sdr') -f $toneLabel))
+        $toolTip.SetToolTip($chkUpload, ((L 'tooltip.hdr_upload_sdr') -f $toneLabel))
+        $toolTip.SetToolTip($grpLut, ((L 'tooltip.hdr_lut_sdr') -f $toneLabel))
     } else {
-        $toolTip.SetToolTip($chkUpload, '附加 H.264 上传版固定使用 x264 Grain 8-bit 兼容输出；与主输出共用最终分辨率 / FPS / 高动态状态，但拥有独立码率。')
+        $toolTip.SetToolTip($chkUpload, (L 'tooltip.upload'))
     }
 }
 
@@ -5027,7 +5027,7 @@ function Show-UtilityProcessDialog {
 
     $runButton.Add_Click({
         if ($state.Process -and -not $state.Finished) {
-            $answer=[System.Windows.Forms.MessageBox]::Show($runDlg,'确定取消当前工具任务？','取消任务',[System.Windows.Forms.MessageBoxButtons]::YesNo,[System.Windows.Forms.MessageBoxIcon]::Warning)
+            $answer=[System.Windows.Forms.MessageBox]::Show($runDlg,(L 'task.cancel_confirm'),(L 'task.cancel_title'),[System.Windows.Forms.MessageBoxButtons]::YesNo,[System.Windows.Forms.MessageBoxIcon]::Warning)
             if ($answer -ne [System.Windows.Forms.DialogResult]::Yes) { return }
             $state.Cancelled=$true
             try {
@@ -5195,7 +5195,7 @@ function Show-PathConfigurationDialog {
 
     $note=New-Object System.Windows.Forms.Label
     $note.Dock='Fill'; $note.ForeColor=$ColorMuted; $note.TextAlign='TopLeft'; $note.Padding=New-Object System.Windows.Forms.Padding -ArgumentList 4,8,4,0
-    $note.Text="保存到：$($cfg.ConfigPath)`r`n浏览选择后会立即检测；手工修改路径后请点击右侧 ↻。Grain / LUT 检测会同时检查 Cache / Gallery 预览图，缺失时可直接在此生成。保存本身不会重新执行扫描。"
+    $note.Text=((L 'config.note') -f $cfg.ConfigPath)
     [void]$table.Controls.Add($note,0,8); $table.SetColumnSpan($note,4)
 
     $buttonPanel=New-Object System.Windows.Forms.FlowLayoutPanel
@@ -5208,12 +5208,12 @@ function Show-PathConfigurationDialog {
     $dlg.CancelButton=$btnCancelCfg
 
     $cfgTip=New-Object System.Windows.Forms.ToolTip
-    $cfgTip.SetToolTip($btnRefreshFfmpeg,'检测 ffmpeg.exe / ffprobe.exe 及版本')
-    $cfgTip.SetToolTip($btnRefreshGrav,'检测 grav1synth.exe 及版本')
-    $cfgTip.SetToolTip($btnRefreshGrain,'递归统计原始 .mov Grain 文件')
-    $cfgTip.SetToolTip($btnRefreshLut,'递归统计可用于 LUT Gallery 的 .cube 文件及预览图')
-    $cfgTip.SetToolTip($btnBuildGrainCache,'为缺失的 Grain MOV 创建原分辨率 + 1080p HEVC Main10 Lossless Cache；已有文件不会覆盖')
-    $cfgTip.SetToolTip($btnBuildLutPreviews,'使用当前参考图为缺失的 LUT 创建 Gallery 预览图；尚未更换参考图时使用项目默认图')
+    $cfgTip.SetToolTip($btnRefreshFfmpeg,(L 'config.tip.ffmpeg'))
+    $cfgTip.SetToolTip($btnRefreshGrav,(L 'config.tip.grav'))
+    $cfgTip.SetToolTip($btnRefreshGrain,(L 'config.tip.grain'))
+    $cfgTip.SetToolTip($btnRefreshLut,(L 'config.tip.lut'))
+    $cfgTip.SetToolTip($btnBuildGrainCache,(L 'config.tip.cache'))
+    $cfgTip.SetToolTip($btnBuildLutPreviews,(L 'config.tip.thumbs'))
 
     $ffmpegState = @{
         LastDir = ''
@@ -5270,11 +5270,11 @@ function Show-PathConfigurationDialog {
         $dir=$txtCfgFfmpegDir.Text.Trim().TrimEnd('\')
         $ffmpegState.LastDir=$dir
         $ffmpegState.Valid=$false
-        $lblFfmpegDetect.Text='正在检测 ffmpeg.exe / ffprobe.exe…'
+        $lblFfmpegDetect.Text=(L 'config.detect.ffmpeg')
         [System.Windows.Forms.Application]::DoEvents()
 
         if (-not $dir -or -not (Test-Path -LiteralPath $dir -PathType Container)) {
-            $lblFfmpegDetect.Text="ffmpeg.exe   ✘ 未找到`r`nffprobe.exe  ✘ 未找到"
+            $lblFfmpegDetect.Text=(L 'config.detect.ffmpeg_missing')
             return
         }
 
@@ -5290,7 +5290,7 @@ function Show-PathConfigurationDialog {
 
     function Update-GravStatus {
         $path=$txtCfgGrav.Text.Trim()
-        $lblGravDetect.Text='正在检测 grav1synth.exe…'
+        $lblGravDetect.Text=(L 'config.detect.grav')
         [System.Windows.Forms.Application]::DoEvents()
         $result=Get-ConfigToolVersion $path 'grav1synth' '--version'
         $mark=if ($result.Ok) { '✔' } else { '✘' }
@@ -5309,10 +5309,10 @@ function Show-PathConfigurationDialog {
         $btnBuildGrainCache.Enabled=$false
         $grainCacheState.MovCount=0; $grainCacheState.FullCount=0; $grainCacheState.Cache1080Count=0; $grainCacheState.Missing=0
         if (-not $root -or -not (Test-Path -LiteralPath $root -PathType Container)) {
-            $lblGrainDetect.Text='✘ 颗粒根目录不存在'
+            $lblGrainDetect.Text=(L 'config.detect.grain_missing')
             return
         }
-        $lblGrainDetect.Text='正在扫描 MOV / Cache…'
+        $lblGrainDetect.Text=(L 'config.detect.grain_scan')
         [System.Windows.Forms.Application]::DoEvents()
         try {
             $movs=@(Get-ChildItem -LiteralPath $root -Filter '*.mov' -File -Recurse -ErrorAction SilentlyContinue)
@@ -5326,13 +5326,13 @@ function Show-PathConfigurationDialog {
             $grainCacheState.MovCount=$count; $grainCacheState.FullCount=$full; $grainCacheState.Cache1080Count=$small
             $grainCacheState.Missing=($count-$full)+($count-$small)
             if ($count -eq 0) {
-                $lblGrainDetect.Text='✔ 原始 MOV 0 · 无可生成 Cache'
+                $lblGrainDetect.Text=(L 'config.detect.grain_zero')
             } else {
-                $lblGrainDetect.Text="✔ MOV $count · Cache 原尺寸 $full/$count · 1080p $small/$count"
+                $lblGrainDetect.Text=((L 'config.detect.grain_count') -f $count,$full,$small)
                 $btnBuildGrainCache.Enabled=($grainCacheState.Missing -gt 0)
             }
         } catch {
-            $lblGrainDetect.Text='✘ 扫描失败：' + $_.Exception.Message
+            $lblGrainDetect.Text=((L 'config.detect.grain_fail') -f $_.Exception.Message)
         }
     }
 
@@ -5341,10 +5341,10 @@ function Show-PathConfigurationDialog {
         $btnBuildLutPreviews.Enabled=$false
         $lutPreviewState.LutCount=0; $lutPreviewState.PreviewCount=0; $lutPreviewState.Missing=0
         if (-not $root -or -not (Test-Path -LiteralPath $root -PathType Container)) {
-            $lblLutDetect.Text='✘ LUT 根目录不存在'
+            $lblLutDetect.Text=(L 'config.detect.lut_missing')
             return
         }
-        $lblLutDetect.Text='正在扫描 LUT / 预览图…'
+        $lblLutDetect.Text=(L 'config.detect.lut_scan')
         [System.Windows.Forms.Application]::DoEvents()
         try {
             $rootFull=[System.IO.Path]::GetFullPath($root).TrimEnd('\')
@@ -5364,13 +5364,13 @@ function Show-PathConfigurationDialog {
             $count=$luts.Count
             $lutPreviewState.LutCount=$count; $lutPreviewState.PreviewCount=$previewCount; $lutPreviewState.Missing=$count-$previewCount
             if ($count -eq 0) {
-                $lblLutDetect.Text='✔ .cube LUT 0 · 无可创建预览图'
+                $lblLutDetect.Text=(L 'config.detect.lut_zero')
             } else {
-                $lblLutDetect.Text="✔ LUT $count · Gallery 预览图 $previewCount/$count"
+                $lblLutDetect.Text=((L 'config.detect.lut_count') -f $count,$previewCount)
                 $btnBuildLutPreviews.Enabled=($lutPreviewState.Missing -gt 0)
             }
         } catch {
-            $lblLutDetect.Text='✘ 扫描失败：' + $_.Exception.Message
+            $lblLutDetect.Text=((L 'config.detect.lut_fail') -f $_.Exception.Message)
         }
     }
 
@@ -5397,11 +5397,11 @@ function Show-PathConfigurationDialog {
 
     $txtCfgFfmpegDir.Add_TextChanged({
         $ffmpegState.LastDir=''; $ffmpegState.Valid=$false; $ffmpegState.FfmpegVersion=''; $ffmpegState.FfprobeVersion=''
-        $lblFfmpegDetect.Text='路径已修改，点击 ↻ 检测。'
+        $lblFfmpegDetect.Text=(L 'config.path_changed')
     })
-    $txtCfgGrav.Add_TextChanged({ $lblGravDetect.Text='路径已修改，点击 ↻ 检测。' })
-    $txtCfgGrain.Add_TextChanged({ $lblGrainDetect.Text='路径已修改，点击 ↻ 检测。'; $btnBuildGrainCache.Enabled=$false })
-    $txtCfgLut.Add_TextChanged({ $lblLutDetect.Text='路径已修改，点击 ↻ 检测。'; $btnBuildLutPreviews.Enabled=$false })
+    $txtCfgGrav.Add_TextChanged({ $lblGravDetect.Text=(L 'config.path_changed') })
+    $txtCfgGrain.Add_TextChanged({ $lblGrainDetect.Text=(L 'config.path_changed'); $btnBuildGrainCache.Enabled=$false })
+    $txtCfgLut.Add_TextChanged({ $lblLutDetect.Text=(L 'config.path_changed'); $btnBuildLutPreviews.Enabled=$false })
 
     $btnRefreshFfmpeg.Add_Click({ Update-FfmpegDirectoryStatus })
     $btnRefreshGrav.Add_Click({ Update-GravStatus })
@@ -5427,12 +5427,12 @@ function Show-PathConfigurationDialog {
         Update-GrainStatus
         if ($grainCacheState.MovCount -le 0 -or $grainCacheState.Missing -le 0) { return }
         if (-not (Test-Path -LiteralPath $GrainCacheBat -PathType Leaf)) {
-            [void][System.Windows.Forms.MessageBox]::Show($dlg,"找不到 Cache 工具：`r`n$GrainCacheBat",'Grain Cache',[System.Windows.Forms.MessageBoxButtons]::OK,[System.Windows.Forms.MessageBoxIcon]::Error)
+            [void][System.Windows.Forms.MessageBox]::Show($dlg,((L 'config.cache_tool_missing') -f $GrainCacheBat),'Grain Cache',[System.Windows.Forms.MessageBoxButtons]::OK,[System.Windows.Forms.MessageBoxIcon]::Error)
             return
         }
         $missingFull=$grainCacheState.MovCount-$grainCacheState.FullCount
         $missing1080=$grainCacheState.MovCount-$grainCacheState.Cache1080Count
-        $answer=[System.Windows.Forms.MessageBox]::Show($dlg,"将为缺失项创建 HEVC Main10 Lossless Cache：`r`n`r`n原分辨率：缺 $missingFull`r`n1080p：缺 $missing1080`r`n`r`n已有 Cache 不会覆盖。继续？",'生成高速缓存',[System.Windows.Forms.MessageBoxButtons]::YesNo,[System.Windows.Forms.MessageBoxIcon]::Question)
+        $answer=[System.Windows.Forms.MessageBox]::Show($dlg,((L 'config.cache_confirm') -f $missingFull,$missing1080),(L 'config.cache_title'),[System.Windows.Forms.MessageBoxButtons]::YesNo,[System.Windows.Forms.MessageBoxIcon]::Question)
         if ($answer -ne [System.Windows.Forms.DialogResult]::Yes) { return }
         $cmdPath=$env:ComSpec; if (-not $cmdPath) { $cmdPath=Join-Path $env:SystemRoot 'System32\cmd.exe' }
         $inner='call ' + (Quote-CmdArgument $GrainCacheBat) + ' 3 2>&1'
@@ -5451,10 +5451,10 @@ function Show-PathConfigurationDialog {
         $lutReference = if (Test-Path -LiteralPath $LutPreviewCurrentReference -PathType Leaf) { $LutPreviewCurrentReference } else { $LutPreviewDefaultReference }
         $lutReferenceLabel = if ([string]::Equals($lutReference,$LutPreviewCurrentReference,[System.StringComparison]::OrdinalIgnoreCase)) { '当前参考图' } else { '项目默认参考图' }
         if (-not (Test-Path -LiteralPath $LutPreviewGenerator -PathType Leaf) -or -not (Test-Path -LiteralPath $lutReference -PathType Leaf)) {
-            [void][System.Windows.Forms.MessageBox]::Show($dlg,'找不到 LUT 预览生成脚本或可用参考图。','LUT 缩略图',[System.Windows.Forms.MessageBoxButtons]::OK,[System.Windows.Forms.MessageBoxIcon]::Error)
+            [void][System.Windows.Forms.MessageBox]::Show($dlg,(L 'config.lut_tool_missing'),(L 'config.lut_thumb_title'),[System.Windows.Forms.MessageBoxButtons]::OK,[System.Windows.Forms.MessageBoxIcon]::Error)
             return
         }
-        $answer=[System.Windows.Forms.MessageBox]::Show($dlg,"将使用$lutReferenceLabel，为缺失的 $($lutPreviewState.Missing) 个 LUT 创建 Gallery 预览图。`r`n`r`n参考图：`r`n$lutReference`r`n`r`n已有预览不会覆盖；如需更换参考图并全部重建，仍请使用 LUT Gallery 的「更换参考图」。继续？",'创建 LUT 缩略图',[System.Windows.Forms.MessageBoxButtons]::YesNo,[System.Windows.Forms.MessageBoxIcon]::Question)
+        $answer=[System.Windows.Forms.MessageBox]::Show($dlg,((L 'config.lut_confirm') -f $lutReferenceLabel,$lutPreviewState.Missing,$lutReference),(L 'config.lut_create_title'),[System.Windows.Forms.MessageBoxButtons]::YesNo,[System.Windows.Forms.MessageBoxIcon]::Question)
         if ($answer -ne [System.Windows.Forms.DialogResult]::Yes) { return }
         $ffmpegPath=Join-Path $txtCfgFfmpegDir.Text.Trim().TrimEnd('\') 'ffmpeg.exe'
         $outRoot=Join-Path $txtCfgLut.Text.Trim() '_LUT_PREVIEWS'
@@ -5473,18 +5473,18 @@ function Show-PathConfigurationDialog {
     $btnOk.Add_Click({
         $ffmpegDir=$txtCfgFfmpegDir.Text.Trim().TrimEnd('\')
         if (-not (Test-Path -LiteralPath $ffmpegDir -PathType Container)) {
-            [void][System.Windows.Forms.MessageBox]::Show($dlg,"FFmpeg 目录不存在：`r`n$ffmpegDir",'路径配置',[System.Windows.Forms.MessageBoxButtons]::OK,[System.Windows.Forms.MessageBoxIcon]::Warning)
+            [void][System.Windows.Forms.MessageBox]::Show($dlg,((L 'config.ffmpeg_dir_missing') -f $ffmpegDir),(L 'config.path_title'),[System.Windows.Forms.MessageBoxButtons]::OK,[System.Windows.Forms.MessageBoxIcon]::Warning)
             return
         }
         foreach ($exeName in @('ffmpeg.exe','ffprobe.exe')) {
             $exePath=Join-Path $ffmpegDir $exeName
             if (-not (Test-Path -LiteralPath $exePath -PathType Leaf)) {
-                [void][System.Windows.Forms.MessageBox]::Show($dlg,"FFmpeg 目录中缺少：$exeName`r`n`r`n$ffmpegDir",'路径配置',[System.Windows.Forms.MessageBoxButtons]::OK,[System.Windows.Forms.MessageBoxIcon]::Warning)
+                [void][System.Windows.Forms.MessageBox]::Show($dlg,((L 'config.ffmpeg_exe_missing') -f $exeName,$ffmpegDir),(L 'config.path_title'),[System.Windows.Forms.MessageBoxButtons]::OK,[System.Windows.Forms.MessageBoxIcon]::Warning)
                 return
             }
         }
         if (-not (Test-Path -LiteralPath $txtCfgGrav.Text.Trim() -PathType Leaf)) {
-            [void][System.Windows.Forms.MessageBox]::Show($dlg,"grav1synth 路径不存在：`r`n$($txtCfgGrav.Text.Trim())",'路径配置',[System.Windows.Forms.MessageBoxButtons]::OK,[System.Windows.Forms.MessageBoxIcon]::Warning)
+            [void][System.Windows.Forms.MessageBox]::Show($dlg,((L 'config.grav_missing') -f $txtCfgGrav.Text.Trim()),(L 'config.path_title'),[System.Windows.Forms.MessageBoxButtons]::OK,[System.Windows.Forms.MessageBoxIcon]::Warning)
             return
         }
         foreach ($item in @(
@@ -5492,7 +5492,7 @@ function Show-PathConfigurationDialog {
             @('LUT 根目录',$txtCfgLut.Text.Trim())
         )) {
             if (-not (Test-Path -LiteralPath $item[1] -PathType Container)) {
-                [void][System.Windows.Forms.MessageBox]::Show($dlg,"$($item[0])不存在：`r`n$($item[1])",'路径配置',[System.Windows.Forms.MessageBoxButtons]::OK,[System.Windows.Forms.MessageBoxIcon]::Warning)
+                [void][System.Windows.Forms.MessageBox]::Show($dlg,((L 'config.item_missing') -f $item[0],$item[1]),(L 'config.path_title'),[System.Windows.Forms.MessageBoxButtons]::OK,[System.Windows.Forms.MessageBoxIcon]::Warning)
                 return
             }
         }
@@ -5503,7 +5503,7 @@ function Show-PathConfigurationDialog {
                 GRAIN_ROOT=$txtCfgGrain.Text.Trim(); LUT_ROOT=$txtCfgLut.Text.Trim()
             }
         } catch {
-            [void][System.Windows.Forms.MessageBox]::Show($dlg,"保存配置失败：`r`n$($_.Exception.Message)",'路径配置',[System.Windows.Forms.MessageBoxButtons]::OK,[System.Windows.Forms.MessageBoxIcon]::Error)
+            [void][System.Windows.Forms.MessageBox]::Show($dlg,((L 'config.save_failed') -f $_.Exception.Message),(L 'config.path_title'),[System.Windows.Forms.MessageBoxButtons]::OK,[System.Windows.Forms.MessageBoxIcon]::Error)
             return
         }
         $dlg.DialogResult=[System.Windows.Forms.DialogResult]::OK
