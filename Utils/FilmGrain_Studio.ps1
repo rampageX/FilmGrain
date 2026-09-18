@@ -432,7 +432,7 @@ function Show-AdvancedSettingsDialog {
     $lblEncodeInfo.Location = New-Object System.Drawing.Point -ArgumentList 28, 166
     $lblEncodeInfo.Size = New-Object System.Drawing.Size -ArgumentList 630, 150
     $lblEncodeInfo.ForeColor = $ColorMuted
-    $lblEncodeInfo.Text = "x264 Grain 默认使用 Faster + VBR 单次；tune grain、可见自动码率与 3x/6x VBV 保持不变。需要精确平均码率分配时可选 2-Pass；Medium / Slow 仅作为高计算量对照。`r`n`r`nHigh10 默认关闭：普通 LUT / Grain / 画幅链保持 10-bit，到编码边界才转换为 8-bit High Profile；开启后输出 yuv420p10le / High 10 Profile。"
+    $lblEncodeInfo.Text = L 'advanced.encode_info'
     [void]$tabEncode.Controls.Add($lblEncodeInfo)
 
     $lblAlgo = New-Object System.Windows.Forms.Label
@@ -535,7 +535,7 @@ function Show-AdvancedSettingsDialog {
     $lblHdrInfo.Location = New-Object System.Drawing.Point -ArgumentList 28, 132
     $lblHdrInfo.Size = New-Object System.Drawing.Size -ArgumentList 620, 150
     $lblHdrInfo.ForeColor = $ColorMuted
-    $lblHdrInfo.Text = "自动：AV1 / HEVC 可保持 HDR 时继续 HDR Preserve；一旦选择 x264、BT.709 LUT、OpenSVPFlow 或 H.264 上传版，HDR 文件先 Tone Mapping 到 SDR 再处理。`r`n`r`n保持 HDR：不自动降级，不兼容功能继续旁路。强制 SDR：所有 PQ / HLG 输入都先转成 BT.709 SDR。SDR 输入不受此选项影响。"
+    $lblHdrInfo.Text = L 'advanced.hdr_info'
     [void]$tabHdr.Controls.Add($lblHdrInfo)
 
     $updateHdrAdvancedUi = {
@@ -573,7 +573,7 @@ function Show-AdvancedSettingsDialog {
     $lblCropInfo.Location = New-Object System.Drawing.Point -ArgumentList 28, 128
     $lblCropInfo.Size = New-Object System.Drawing.Size -ArgumentList 620, 118
     $lblCropInfo.ForeColor = $ColorMuted
-    $lblCropInfo.Text = "0 = 保持原来的自动约 2.39:1 计算。`r`n大于 0 时同时作为「加黑边」和「裁剪」的上下单边尺寸。`r`n例如 50：加黑边时上下各覆盖 50 px；裁剪时上下各裁掉 50 px。"
+    $lblCropInfo.Text = L 'advanced.crop_info'
     [void]$tabOther.Controls.Add($lblCropInfo)
 
     $btnOk = New-Object System.Windows.Forms.Button
@@ -721,7 +721,7 @@ function Update-HardwareProfileUi {
             'Cached'   { L 'hardware.cache_cached' }
             default    { [string]$script:HardwareCaps.cacheState }
         }
-        $statusHardware.Text = "GPU $($script:HardwareCaps.gpu.name) · 驱动 $($script:HardwareCaps.gpu.driverVersion) · FFmpeg $ffmpegVersion · 配置 $cacheStateText · AV1 $av1Text · UHQ $av1UhqText · HEVC/Vulkan $hevcText · x264 Grain $x264Text · High10 $x264High10Text · SVPFlow $svpText"
+        $statusHardware.Text = "GPU $($script:HardwareCaps.gpu.name) · $(L 'hardware.driver') $($script:HardwareCaps.gpu.driverVersion) · FFmpeg $ffmpegVersion · $(L 'hardware.profile') $cacheStateText · AV1 $av1Text · UHQ $av1UhqText · HEVC/Vulkan $hevcText · x264 Grain $x264Text · High10 $x264High10Text · SVPFlow $svpText"
         $cmbGpu.Items.Clear()
         [void]$cmbGpu.Items.Add(([string]$script:HardwareCaps.gpu.name + (L 'gpu.auto_detected')))
         $cmbGpu.SelectedIndex = 0
@@ -1238,7 +1238,7 @@ $av1ValueCol.Width = 100
 [void]$pnlAv1.ColumnStyles.Add($av1ValueCol)
 for ($i = 0; $i -lt 6; $i++) { Add-RowPercent $pnlAv1 (100 / 6) }
 
-$cmbAv1Method = New-ComboBox @('胶片预设（推荐）', '感光度 ISO（高级）', '现成 Grain Table（影视 / Photon）', 'Digital Grain · Fast Noise（滑杆，初始 0.30）', 'Digital Grain · Fast Noise（滑杆，初始 0.55）', 'GPU Film Grain (FGSIM) · Light（0.10 + HL50）', 'GPU Film Grain (FGSIM) · Medium（0.20 + HL50，推荐）', 'GPU Film Grain (FGSIM) · Heavy（0.30 + HL50）') 0
+$cmbAv1Method = New-ComboBox @((L 'grain.method.film'), (L 'grain.method.iso'), (L 'grain.method.table'), (L 'grain.method.digital30'), (L 'grain.method.digital55'), (L 'grain.method.fgsim_light'), (L 'grain.method.fgsim_medium'), (L 'grain.method.fgsim_heavy')) 0
 $cmbAv1Format = New-ComboBox @('Classic35 · Super 35', 'Modern35 · Full-frame', '16mm · Coarser', 'Super8 · Heavy', 'MaxMid · Synthetic') 0
 $cmbAv1Stock = New-ComboBox @('Fujifilm Eterna 250D', 'Fujifilm Eterna 500T', 'Kodak Vision3 250D', 'Kodak Vision3 200T') 0
 
@@ -1251,7 +1251,7 @@ $numIso.ThousandsSeparator = $true
 $numIso.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 4, 5, 6, 5
 
 $chkChroma = New-Object System.Windows.Forms.CheckBox
-$chkChroma.Text = '亮度 + 色度（默认仅亮度）'
+$chkChroma.Text = L 'grain.chroma'
 $chkChroma.Dock = 'Fill'
 $chkChroma.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 7, 4, 3, 3
 
@@ -1273,7 +1273,7 @@ $av1TableAllCol.SizeType = [System.Windows.Forms.SizeType]::Absolute
 $av1TableAllCol.Width = 28
 [void]$av1TablePanel.ColumnStyles.Add($av1TableAllCol)
 
-$cmbAv1GrainTable = New-ComboBox @('正在扫描 Grain Table…') 0
+$cmbAv1GrainTable = New-ComboBox @((L 'grain.scanning_table')) 0
 $cmbAv1GrainTable.DropDownWidth = 560
 $cmbAv1GrainTable.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 4, 5, 3, 5
 $btnRefreshAv1Table = New-Object System.Windows.Forms.Button
@@ -1320,10 +1320,10 @@ $lblAv1ProcStrength.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
 [void]$av1ProcStrengthPanel.Controls.Add($trackAv1ProcStrength, 0, 0)
 [void]$av1ProcStrengthPanel.Controls.Add($lblAv1ProcStrength, 1, 0)
 
-Add-LabeledRow $pnlAv1 0 '颗粒方式' $cmbAv1Method
-Add-LabeledRow $pnlAv1 1 '胶片格式' $cmbAv1Format
-Add-LabeledRow $pnlAv1 2 '胶片型号' $cmbAv1Stock
-Add-LabeledRow $pnlAv1 3 '感光度 ISO' $numIso
+Add-LabeledRow $pnlAv1 0 (L 'grain.method') $cmbAv1Method
+Add-LabeledRow $pnlAv1 1 (L 'grain.format') $cmbAv1Format
+Add-LabeledRow $pnlAv1 2 (L 'grain.stock') $cmbAv1Stock
+Add-LabeledRow $pnlAv1 3 (L 'grain.iso') $numIso
 Add-LabeledRow $pnlAv1 4 'Grain Table' $av1TablePanel
 [void]$pnlAv1.Controls.Add($chkChroma, 0, 5)
 $pnlAv1.SetColumnSpan($chkChroma, 2)
@@ -1381,7 +1381,7 @@ $btnRefreshGrain.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 
 [void]$grainRootPanel.Controls.Add($btnGrainRoot, 1, 0)
 [void]$grainRootPanel.Controls.Add($btnRefreshGrain, 2, 0)
 
-$cmbHevcPlate = New-ComboBox @('正在扫描颗粒根目录…') 0
+$cmbHevcPlate = New-ComboBox @((L 'grain.scanning_root')) 0
 $cmbHevcPlate.Enabled = $false
 $cmbHevcPlate.DropDownWidth = 420
 
@@ -1444,15 +1444,15 @@ $lblHevcProcStrength.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
 [void]$hevcProcStrengthPanel.Controls.Add($lblHevcProcStrength, 1, 0)
 
 $cacheNote = New-Object System.Windows.Forms.Label
-$cacheNote.Text = '将递归扫描根目录中的原始 MOV；缓存自动匹配，缺失时回退 MOV。'
+$cacheNote.Text = L 'grain.root_note'
 $cacheNote.ForeColor = $ColorMuted
 $cacheNote.Dock = 'Fill'
 $cacheNote.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
 $cacheNote.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 8, 0, 2, 0
 
-Add-LabeledRow $pnlHevc 0 '颗粒根目录' $grainRootPanel
-Add-LabeledRow $pnlHevc 1 '颗粒方式' $cmbHevcPlate
-Add-LabeledRow $pnlHevc 2 '颗粒强度' $hevcStrengthPanel
+Add-LabeledRow $pnlHevc 0 (L 'grain.root') $grainRootPanel
+Add-LabeledRow $pnlHevc 1 (L 'grain.method') $cmbHevcPlate
+Add-LabeledRow $pnlHevc 2 (L 'grain.strength') $hevcStrengthPanel
 [void]$pnlHevc.Controls.Add($hevcProcStrengthPanel, 1, 2)
 [void]$pnlHevc.Controls.Add($cacheNote, 0, 3)
 $pnlHevc.SetColumnSpan($cacheNote, 2)
@@ -1471,7 +1471,7 @@ $grainUi.RowCount = 2
 Add-RowAbsolute $grainUi 34
 Add-RowPercent $grainUi 100
 [void]$grainHost.Controls.Add($grainUi)
-$cmbGrainMode = New-ComboBox @('胶片预设（推荐）','感光度 ISO（高级）','现成 Grain Table（影视 / Photon）','Digital Grain','GPU Film Grain (FGSIM)') 0
+$cmbGrainMode = New-ComboBox @((L 'grain.mode.film'),(L 'grain.mode.iso'),(L 'grain.mode.table'),(L 'grain.mode.digital'),(L 'grain.mode.fgsim')) 0
 $cmbGrainMode.DropDownWidth = 390
 [void]$grainUi.Controls.Add($cmbGrainMode,0,0)
 $grainContent = New-Object System.Windows.Forms.Panel
@@ -1506,7 +1506,7 @@ $plateOptions.RowCount = 2
 Add-RowAbsolute $plateOptions 34
 Add-RowAbsolute $plateOptions 34
 [void]$plateOptions.Controls.Add($grainRootPanel,0,0)
-$cmbGrainPlateFile = New-ComboBox @('未找到 Grain Plate') 0
+$cmbGrainPlateFile = New-ComboBox @((L 'grain.plate_missing')) 0
 $cmbGrainPlateFile.DropDownWidth = 560
 [void]$plateOptions.Controls.Add($cmbGrainPlateFile,0,1)
 [void]$pixelOptions.Controls.Add($plateOptions,0,0)
@@ -1787,11 +1787,11 @@ $toolTip = New-Object System.Windows.Forms.ToolTip
 $digitalGrainTip = '数字颗粒强度参考：0.30 轻微；0.40 轻；0.55 中等；0.68 接近 HEVC CT35 85%；0.75+ 明显/偏重。HDR 自动切换 10-bit 亮度颗粒路径，仍可用滑杆微调。'
 $toolTip.SetToolTip($trackAv1ProcStrength, $digitalGrainTip)
 $toolTip.SetToolTip($trackHevcProcStrength, $digitalGrainTip)
-$toolTip.SetToolTip($btnGrainRoot, '选择颗粒根目录')
-$toolTip.SetToolTip($btnRefreshGrain, '重新扫描根目录中的 .mov 颗粒片')
-$toolTip.SetToolTip($cmbAv1GrainTable, '默认仅显示与源视频分辨率最接近的 Grain Table 档位。')
-$toolTip.SetToolTip($btnRefreshAv1Table, '重新扫描 _AV1_Grain_Tables。')
-$toolTip.SetToolTip($chkShowAllAv1Tables, '显示全部分辨率 Grain Table；默认仅显示与源视频最接近的分辨率档位。')
+$toolTip.SetToolTip($btnGrainRoot, (L 'tooltip.grain_root'))
+$toolTip.SetToolTip($btnRefreshGrain, (L 'tooltip.grain_refresh'))
+$toolTip.SetToolTip($cmbAv1GrainTable, (L 'tooltip.table_default'))
+$toolTip.SetToolTip($btnRefreshAv1Table, (L 'tooltip.table_refresh'))
+$toolTip.SetToolTip($chkShowAllAv1Tables, (L 'tooltip.table_all'))
 $toolTip.SetToolTip($btnUploadSubtitle, '硬字幕独立于 H.264 上传版；启用后烧写到主输出，若同时生成 H.264 上传版则副本也包含同一字幕。默认距最终输出画面下沿 5px、水平居中。')
 $toolTip.SetToolTip($chkInterpolation, '逐行 SDR 输入插值到 60 fps；使用 Algo 13 + EncodeGUI Analyse。与自动电影帧率互斥。')
 $toolTip.SetToolTip($chkUpload, '附加 H.264 上传版固定使用 x264 Grain 8-bit 兼容输出；与主输出共用最终分辨率 / FPS / 高动态状态，但拥有独立码率。')
@@ -2004,7 +2004,7 @@ function Show-UploadSubtitleDialog {
     }
 
     $dlg = New-Object System.Windows.Forms.Form
-    $dlg.Text = '硬字幕'
+    $dlg.Text = L 'subtitle.title'
     $dlg.StartPosition = 'CenterParent'
     $dlg.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedDialog
     $dlg.MaximizeBox = $false
@@ -2038,21 +2038,21 @@ function Show-UploadSubtitleDialog {
     $cmbSource = New-ComboBox @() 0
     $cmbSource.DropDownWidth = 500
     $sourceDefs = New-Object System.Collections.ArrayList
-    [void]$cmbSource.Items.Add('关闭 · 不烧写字幕')
-    [void]$sourceDefs.Add([pscustomobject]@{ Mode='OFF'; Index=0; Path=''; Label='字幕：关闭' })
-    [void]$cmbSource.Items.Add('自动匹配 · 同名外部字幕优先，否则内嵌 #1')
-    [void]$sourceDefs.Add([pscustomobject]@{ Mode='AUTO'; Index=0; Path=''; Label='字幕：自动匹配' })
+    [void]$cmbSource.Items.Add((L 'subtitle.off'))
+    [void]$sourceDefs.Add([pscustomobject]@{ Mode='OFF'; Index=0; Path=''; Label=(L 'subtitle.label_off') })
+    [void]$cmbSource.Items.Add((L 'subtitle.auto'))
+    [void]$sourceDefs.Add([pscustomobject]@{ Mode='AUTO'; Index=0; Path=''; Label=(L 'subtitle.label_auto') })
 
     foreach ($track in $tracks) {
         [void]$cmbSource.Items.Add([string]$track.Label)
-        [void]$sourceDefs.Add([pscustomobject]@{ Mode='EMBEDDED'; Index=[int]$track.Ordinal; Path=''; Label=('字幕：内嵌 #' + ([int]$track.Ordinal + 1)) })
+        [void]$sourceDefs.Add([pscustomobject]@{ Mode='EMBEDDED'; Index=[int]$track.Ordinal; Path=''; Label=((L 'subtitle.label_embedded') -f ([int]$track.Ordinal + 1)) })
     }
     if ($sameName) {
-        [void]$cmbSource.Items.Add('同名外部 · ' + [System.IO.Path]::GetFileName($sameName))
-        [void]$sourceDefs.Add([pscustomobject]@{ Mode='EXTERNAL'; Index=0; Path=$sameName; Label=('字幕：' + [System.IO.Path]::GetFileName($sameName)) })
+        [void]$cmbSource.Items.Add((L 'subtitle.same_name') + [System.IO.Path]::GetFileName($sameName))
+        [void]$sourceDefs.Add([pscustomobject]@{ Mode='EXTERNAL'; Index=0; Path=$sameName; Label=((L 'subtitle.label_external') -f [System.IO.Path]::GetFileName($sameName)) })
     }
-    [void]$cmbSource.Items.Add('浏览外部字幕文件…')
-    [void]$sourceDefs.Add([pscustomobject]@{ Mode='BROWSE'; Index=0; Path=''; Label='字幕：外部文件' })
+    [void]$cmbSource.Items.Add((L 'subtitle.browse_external'))
+    [void]$sourceDefs.Add([pscustomobject]@{ Mode='BROWSE'; Index=0; Path=''; Label=(L 'subtitle.label_external_file') })
 
     $desired = 0
     if ($script:UploadSubtitle.Enabled) {
@@ -2072,7 +2072,7 @@ function Show-UploadSubtitleDialog {
     if ($cmbSource.Items.Count -gt 0) { $cmbSource.SelectedIndex = $desired }
 
     $btnBrowseSub = New-Object System.Windows.Forms.Button
-    $btnBrowseSub.Text = '浏览…'
+    $btnBrowseSub.Text = L 'config.browse'
     $btnBrowseSub.Dock = 'Fill'
     $btnBrowseSub.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 3,4,3,4
 
@@ -2111,25 +2111,25 @@ function Show-UploadSubtitleDialog {
         if ($span -gt 1) { $table.SetColumnSpan($control,$span) }
     }
 
-    Add-SubDialogLabel 0 '字幕来源' $cmbSource 1
+    Add-SubDialogLabel 0 (L 'subtitle.source') $cmbSource 1
     [void]$table.Controls.Add($btnBrowseSub,2,0)
-    Add-SubDialogLabel 1 '字体' $txtFont 2
-    Add-SubDialogLabel 2 '字号' $numSize 2
-    Add-SubDialogLabel 3 '字体颜色' $btnPrimary 2
-    Add-SubDialogLabel 4 '边框/阴影颜色' $btnBorder 2
-    Add-SubDialogLabel 5 '边框宽度' $numOutline 2
-    Add-SubDialogLabel 6 '阴影' $numShadow 2
-    Add-SubDialogLabel 7 '距画面下沿' $numMargin 2
+    Add-SubDialogLabel 1 (L 'subtitle.font') $txtFont 2
+    Add-SubDialogLabel 2 (L 'subtitle.size') $numSize 2
+    Add-SubDialogLabel 3 (L 'subtitle.primary_color') $btnPrimary 2
+    Add-SubDialogLabel 4 (L 'subtitle.border_color') $btnBorder 2
+    Add-SubDialogLabel 5 (L 'subtitle.outline') $numOutline 2
+    Add-SubDialogLabel 6 (L 'subtitle.shadow') $numShadow 2
+    Add-SubDialogLabel 7 (L 'subtitle.margin_bottom') $numMargin 2
 
     $note = New-Object System.Windows.Forms.Label
     $note.Dock='Fill'; $note.ForeColor=$ColorMuted; $note.Padding=New-Object System.Windows.Forms.Padding -ArgumentList 4,6,4,0
-    $note.Text = "默认：huiwen-mincho / 69 / 白色 / 黑色边框与阴影 / Outline 1 / Shadow 1 / 距最终输出画面下沿 5px、水平居中。启用添加黑边时，黑边属于最终输出画面，字幕自然位于下方黑边内；不添加黑边时，字幕位于视频画面底部并覆盖少量内容。字号、边距、描边和阴影均以 1920×1080 为基准，实际编码按输出宽度等比缩放。`r`n支持 SRT / ASS / SSA / WebVTT 等文本字幕；PGS/DVD 图形字幕暂不烧写。多文件任务建议使用各视频同名字幕。"
+    $note.Text = L 'subtitle.note'
     [void]$table.Controls.Add($note,0,8); $table.SetColumnSpan($note,3)
 
     $buttons = New-Object System.Windows.Forms.FlowLayoutPanel
     $buttons.Dock='Fill'; $buttons.FlowDirection='RightToLeft'; $buttons.WrapContents=$false
-    $ok = New-Object System.Windows.Forms.Button; $ok.Text='确定'; $ok.Width=82; $ok.DialogResult=[System.Windows.Forms.DialogResult]::OK
-    $cancel = New-Object System.Windows.Forms.Button; $cancel.Text='取消'; $cancel.Width=82; $cancel.DialogResult=[System.Windows.Forms.DialogResult]::Cancel
+    $ok = New-Object System.Windows.Forms.Button; $ok.Text=(L 'advanced.ok'); $ok.Width=82; $ok.DialogResult=[System.Windows.Forms.DialogResult]::OK
+    $cancel = New-Object System.Windows.Forms.Button; $cancel.Text=(L 'advanced.cancel'); $cancel.Width=82; $cancel.DialogResult=[System.Windows.Forms.DialogResult]::Cancel
     [void]$buttons.Controls.Add($ok); [void]$buttons.Controls.Add($cancel)
     [void]$table.Controls.Add($buttons,0,9); $table.SetColumnSpan($buttons,3)
     $dlg.AcceptButton=$ok; $dlg.CancelButton=$cancel
@@ -2139,8 +2139,8 @@ function Show-UploadSubtitleDialog {
     $btnBorder.Add_Click({ $colorDialog.Color=$btnBorder.BackColor; if ($colorDialog.ShowDialog($dlg) -eq [System.Windows.Forms.DialogResult]::OK) { $hex = ('{0:X2}{1:X2}{2:X2}' -f $colorDialog.Color.R,$colorDialog.Color.G,$colorDialog.Color.B); Set-SubtitleColorButton $btnBorder $hex } })
 
     $browseDialog = New-Object System.Windows.Forms.OpenFileDialog
-    $browseDialog.Title='选择外部字幕文件'
-    $browseDialog.Filter='字幕文件|*.srt;*.ass;*.ssa;*.vtt|所有文件|*.*'
+    $browseDialog.Title=(L 'subtitle.select_external')
+    $browseDialog.Filter=(L 'subtitle.filter')
     if ($targetPath) { $browseDialog.InitialDirectory=[System.IO.Path]::GetDirectoryName($targetPath) }
     $chosenBrowsePath = ''
     $btnBrowseSub.Add_Click({
@@ -2175,7 +2175,7 @@ function Show-UploadSubtitleDialog {
     $script:UploadSubtitle.Shadow = [double]$numShadow.Value
     $script:UploadSubtitle.MarginV = [int]$numMargin.Value
     $script:UploadSubtitle.Label = if ($script:UploadSubtitle.Enabled) { [string]$def.Label } else { '字幕：关闭' }
-    $btnUploadSubtitle.Text = if ($script:UploadSubtitle.Enabled) { '字幕 ✓' } else { '字幕…' }
+    $btnUploadSubtitle.Text = if ($script:UploadSubtitle.Enabled) { L 'button.subtitle_on' } else { L 'button.subtitle' }
     $toolTip.SetToolTip($btnUploadSubtitle, [string]$script:UploadSubtitle.Label)
     $dlg.Dispose()
 }
@@ -2578,9 +2578,9 @@ $av1InspectTimer.Add_Tick({
 function Update-FileCount {
     $count = $listFiles.Items.Count
     if ($count -eq 0) {
-        $lblStatus.Text = '就绪 · 请添加视频'
+        $lblStatus.Text = L 'log.ready'
     } elseif (-not $script:RunningProcess) {
-        $lblStatus.Text = "就绪 · 已添加 $count 个视频"
+        $lblStatus.Text = ((L 'status.ready_count') -f $count)
     }
 }
 
@@ -2672,17 +2672,17 @@ function Refresh-HevcGrainPlates {
     $cmbHevcPlate.BeginUpdate()
     try {
         $cmbHevcPlate.Items.Clear()
-        [void]$cmbHevcPlate.Items.Add('Digital Grain · Fast Noise · 滑杆（初始 0.30）')
-        [void]$cmbHevcPlate.Items.Add('Digital Grain · Fast Noise · 滑杆（初始 0.55）')
-        [void]$cmbHevcPlate.Items.Add('GPU Film Grain (FGSIM) · Light · 0.10 + HL50')
-        [void]$cmbHevcPlate.Items.Add('GPU Film Grain (FGSIM) · Medium · 0.20 + HL50（推荐）')
-        [void]$cmbHevcPlate.Items.Add('GPU Film Grain (FGSIM) · Heavy · 0.30 + HL50')
+        [void]$cmbHevcPlate.Items.Add((L 'grain.method.digital30'))
+        [void]$cmbHevcPlate.Items.Add((L 'grain.method.digital55'))
+        [void]$cmbHevcPlate.Items.Add((L 'grain.method.fgsim_light'))
+        [void]$cmbHevcPlate.Items.Add((L 'grain.method.fgsim_medium'))
+        [void]$cmbHevcPlate.Items.Add((L 'grain.method.fgsim_heavy'))
         $cmbHevcPlate.Enabled = $true
 
         if (-not $rootText -or -not (Test-Path -LiteralPath $rootText -PathType Container)) {
             $selectIndex = if ($previousPath -eq $proc30) { 0 } else { 1 }
             $cmbHevcPlate.SelectedIndex = $selectIndex
-            $cacheNote.Text = '数字颗粒可直接使用；扫描颗粒根目录不存在，外部 MOV 暂不可用。'
+            $cacheNote.Text = L 'grain.root_missing'
             return
         }
 
@@ -2716,7 +2716,7 @@ function Refresh-HevcGrainPlates {
         if ($files.Count -gt 0) {
             $cacheNote.Text = '数字颗粒可直接使用；另扫描到 ' + $files.Count + ' 个原始 MOV，缓存规则保持不变。'
         } else {
-            $cacheNote.Text = '数字颗粒可直接使用；当前根目录未扫描到原始 MOV。'
+            $cacheNote.Text = L 'grain.root_none'
         }
     } catch {
         $script:HevcGrainFiles = @($proc30, $proc55, $fgsimLight, $fgsimMedium, $fgsimHeavy)
@@ -2728,7 +2728,7 @@ function Refresh-HevcGrainPlates {
         [void]$cmbHevcPlate.Items.Add('GPU Film Grain (FGSIM) · Heavy · 0.30 + HL50')
         $cmbHevcPlate.SelectedIndex = 1
         $cmbHevcPlate.Enabled = $true
-        $cacheNote.Text = '扫描 MOV 失败，但数字颗粒仍可使用：' + $_.Exception.Message
+        $cacheNote.Text = (L 'grain.root_failed') + ' ' + $_.Exception.Message
     } finally {
         $cmbHevcPlate.EndUpdate()
         Update-HevcGrainControls
@@ -3243,9 +3243,9 @@ function Update-Av1Controls {
     $btnRefreshAv1Table.Enabled = $tableMode
     $chkShowAllAv1Tables.Enabled = $tableMode
     if ($cmbCodec.SelectedIndex -eq 0) {
-        if ($procMode) { $grpGrain.Text = 'AV1 · 数字颗粒（像素烘焙 / SDR+HDR）' }
-        elseif ($fgsimMode) { $grpGrain.Text = 'AV1 · GPU Film Grain (FGSIM)（像素烘焙 / SDR）' }
-        else { $grpGrain.Text = 'AV1 · 胶片颗粒元数据' }
+        if ($procMode) { $grpGrain.Text = L 'grain.av1_digital' }
+        elseif ($fgsimMode) { $grpGrain.Text = L 'grain.av1_fgsim' }
+        else { $grpGrain.Text = L 'grain.av1_metadata' }
     }
     Update-FgsimControls
 }
@@ -3282,7 +3282,7 @@ function Update-SpeedChoices {
     try {
         if ($cmbCodec.SelectedIndex -eq 2) {
             $presetLabel = switch ($script:X264Preset) { 'medium' { 'Medium' } 'slow' { 'Slow' } default { 'Faster' } }
-            $passLabel = if ($script:X264RateMode -eq '2PASS') { 'VBR 2-Pass' } else { 'VBR 单次' }
+            $passLabel = if ($script:X264RateMode -eq '2PASS') { L 'advanced.vbr2' } else { L 'speed.vbr1' }
             $cmbSpeed.BeginUpdate()
             try {
                 $cmbSpeed.Items.Clear()
@@ -3301,9 +3301,9 @@ function Update-SpeedChoices {
         $cmbSpeed.BeginUpdate()
         try {
             $cmbSpeed.Items.Clear()
-            [void]$cmbSpeed.Items.Add('FAST · p5 / qres（默认）')
+            [void]$cmbSpeed.Items.Add((L 'speed.fast'))
             [void]$cmbSpeed.Items.Add('Standard · p6 / fullres')
-            if ($allowUhq) { [void]$cmbSpeed.Items.Add('UHQ · p4 / fullres（AV1 专用）') }
+            if ($allowUhq) { [void]$cmbSpeed.Items.Add((L 'speed.uhq')) }
             $cmbSpeed.SelectedIndex = $selectedIndex
         } finally {
             $cmbSpeed.EndUpdate()
@@ -3480,11 +3480,11 @@ function Update-FramingUi {
         $selectedFrameIndex = $cmbFrameMode.SelectedIndex
 
         if ($customCrop -gt 0) {
-            $chkCinematic.Text = "启用 Cinematic Style（自定义：上下各 ${customCrop} px）"
+            $chkCinematic.Text = ((L 'cinematic.custom') -f $customCrop)
             $letterboxText = "加黑边 · 上下各 ${customCrop} px · 保留原分辨率"
             $cropText = "裁剪 · 上下各 ${customCrop} px"
         } else {
-            $chkCinematic.Text = '启用 Cinematic Style（约 2.39:1）'
+            $chkCinematic.Text = L 'cinematic.enable'
             $letterboxText = '加黑边 · 保留原分辨率（推荐后期字幕）'
             $cropText = '裁剪 · 输出有效 2.39:1 画面'
         }
@@ -3501,29 +3501,29 @@ function Update-FramingUi {
 
         if ($cmbCodec.SelectedIndex -eq 3) {
             $cmbFrameMode.Enabled = $false
-            $frameHelp.Text = 'AV1 视频流不重编码，仅添加/替换胶片颗粒元数据；画幅处理已禁用。'
+            $frameHelp.Text = L 'cinematic.copy_help'
             return
         }
 
         $enabled = $chkCinematic.Checked
         $cmbFrameMode.Enabled = $enabled
         if (-not $enabled) {
-            $frameHelp.Text = 'Cinematic Style 已关闭：AV1 / HEVC / H.264 均保持原始画幅。'
+            $frameHelp.Text = L 'cinematic.off_help'
             return
         }
 
         if ($cmbFrameMode.SelectedIndex -eq 0) {
             if ($customCrop -gt 0) {
-                $frameHelp.Text = "AV1 / HEVC / H.264：自定义黑边，上下各 ${customCrop} px；保持原分辨率。"
+                $frameHelp.Text = ((L 'cinematic.custom_letterbox') -f $customCrop)
             } else {
-                $frameHelp.Text = 'AV1 / HEVC / H.264：保留原分辨率，烘焙约 2.39:1 黑边，适合后期字幕。'
+                $frameHelp.Text = L 'cinematic.auto_letterbox'
             }
         } else {
             if ($customCrop -gt 0) {
                 $totalCrop = $customCrop * 2
-                $frameHelp.Text = "AV1 / HEVC / H.264：自定义裁剪，上下各 ${customCrop} px；输出高度总计减少 ${totalCrop} px。"
+                $frameHelp.Text = ((L 'cinematic.custom_crop') -f $customCrop,$totalCrop)
             } else {
-                $frameHelp.Text = 'AV1 / HEVC / H.264：裁剪至约 2.39:1，例如 1920×1080 → 1920×804。'
+                $frameHelp.Text = L 'cinematic.auto_crop'
             }
         }
     } finally {
@@ -3544,7 +3544,7 @@ function Update-CodecUi {
         $pnlHevc.Visible = $false
         $pnlAv1.Visible = $true
         $pnlAv1.BringToFront()
-        $grpGrain.Text = 'AV1 · 胶片颗粒元数据 · 不重编码'
+        $grpGrain.Text = L 'grain.av1_copy'
         Update-Av1Controls
 
         $cmbContainer.Enabled = $true
@@ -3565,8 +3565,8 @@ function Update-CodecUi {
         $chkBitrateAuto.Enabled = $false
         $btnUploadSubtitle.Enabled = $false
         $grpLut.Enabled = $false
-        $frameHelp.Text = 'AV1 视频流不重编码，仅添加/替换胶片颗粒元数据；反交错、码率、LUT、画幅处理和上传版等重编码功能已禁用。'
-        $btnStart.Text = '开始处理'
+        $frameHelp.Text = L 'cinematic.copy_help_full'
+        $btnStart.Text = L 'button.start_process'
         Update-SfeUi
         return
     }
@@ -3591,7 +3591,7 @@ function Update-CodecUi {
         $chkUploadBitrateAuto.Enabled = $chkUpload.Checked
         $btnUploadSubtitle.Enabled = $true
         $grpLut.Enabled = $true
-        $btnStart.Text = '开始编码'
+        $btnStart.Text = L 'button.start_encode'
         Update-DeinterlaceUi
         Update-FramingUi
         Update-UploadHighMotionUi
@@ -3647,10 +3647,10 @@ function Update-CodecUi {
         $pnlHevc.Visible = $true
         $pnlHevc.BringToFront()
         if ($newIndex -eq 2) {
-            $grpGrain.Text = 'H.264 x264 · 胶片颗粒'
+            $grpGrain.Text = L 'grain.x264'
             $chkUpload.Enabled = $false
         } else {
-            $grpGrain.Text = 'HEVC · 胶片颗粒'
+            $grpGrain.Text = L 'grain.hevc'
             $chkUpload.Enabled = (-not $script:HardwareCapsReady -or $script:X264Available)
         }
         if ($script:LastScannedGrainRoot -ne $txtGrainRoot.Text.Trim() -or $script:HevcGrainFiles.Count -eq 0) {
@@ -3923,11 +3923,11 @@ function Refresh-RecentLuts {
 
         $cmbRecentLut.Items.Clear()
         if ($script:RecentLuts.Count -gt 0) {
-            [void]$cmbRecentLut.Items.Add('— 选择最近使用的 LUT —')
+            [void]$cmbRecentLut.Items.Add((L 'lut.recent_select'))
             foreach ($entry in $script:RecentLuts) { [void]$cmbRecentLut.Items.Add([string]$entry.DisplayName) }
             $cmbRecentLut.Enabled = $true
         } else {
-            [void]$cmbRecentLut.Items.Add('暂无 LUT 图库最近使用记录')
+            [void]$cmbRecentLut.Items.Add((L 'lut.recent_empty'))
             $cmbRecentLut.Enabled = $false
         }
 
@@ -4017,11 +4017,11 @@ function Refresh-FavoriteLuts {
 
         $cmbFavoriteLut.Items.Clear()
         if ($script:FavoriteLuts.Count -gt 0) {
-            [void]$cmbFavoriteLut.Items.Add('— 选择我的最爱 LUT —')
+            [void]$cmbFavoriteLut.Items.Add((L 'lut.favorite_select'))
             foreach ($entry in $script:FavoriteLuts) { [void]$cmbFavoriteLut.Items.Add([string]$entry.DisplayName) }
             $cmbFavoriteLut.Enabled = $true
         } else {
-            [void]$cmbFavoriteLut.Items.Add('暂无 LUT 图库我的最爱')
+            [void]$cmbFavoriteLut.Items.Add((L 'lut.favorite_empty'))
             $cmbFavoriteLut.Enabled = $false
         }
 
@@ -4066,7 +4066,7 @@ function Set-LutUi {
         $indexByPath = Read-StudioLutIndex
         Set-StudioLutPreview (Get-StudioLutPreviewPath $script:SelectedLutPath $indexByPath)
     } else {
-        $lblSelectedLut.Text = '未选择 LUT'
+        $lblSelectedLut.Text = L 'lut.none'
         $lblSelectedLut.ForeColor = $ColorMuted
         $toolTip.SetToolTip($lblSelectedLut, '')
         Clear-StudioLutPreview
@@ -4219,7 +4219,7 @@ function Append-LogText {
             }
         }
         $currentName = [System.IO.Path]::GetFileName($inputPath)
-        $lblStatus.Text = '正在处理 · ' + $currentName
+        $lblStatus.Text = (L 'status.processing') + $currentName
     }
 
     $durations = [System.Text.RegularExpressions.Regex]::Matches($currentSegment, 'Duration\s*:\s*([0-9.]+)\s*sec')
@@ -4268,7 +4268,7 @@ function Append-LogText {
     $stages = [System.Text.RegularExpressions.Regex]::Matches($parseText, '\[(\d+)/(\d+)\]\s*([^\r\n]+)')
     if ($stages.Count -gt 0) {
         $lastStage = $stages[$stages.Count - 1]
-        $lblRunStage.Text = '阶段 ' + $lastStage.Groups[1].Value + '/' + $lastStage.Groups[2].Value + ' · ' + $lastStage.Groups[3].Value.Trim()
+        $lblRunStage.Text = (L 'status.stage') + $lastStage.Groups[1].Value + '/' + $lastStage.Groups[2].Value + ' · ' + $lastStage.Groups[3].Value.Trim()
     }
     if ($parseText.Length -gt 4096) {
         $script:LogParseTail = $parseText.Substring($parseText.Length - 4096)
@@ -4368,18 +4368,18 @@ function Complete-Run {
     Set-RunningState $false
 
     if ($script:RunWasCancelled) {
-        $lblStatus.Text = '任务已取消'
+        $lblStatus.Text = L 'status.cancelled'
         $lblStatus.ForeColor = $ColorError
-        $lblRunStage.Text = '已取消 · 可能保留部分输出或 AV1 临时目录'
+        $lblRunStage.Text = L 'status.cancelled_detail'
     } elseif ($ExitCode -eq 0) {
-        $lblStatus.Text = '全部任务已完成'
+        $lblStatus.Text = L 'status.completed'
         $lblStatus.ForeColor = $ColorSuccess
-        $lblRunStage.Text = '完成 · 请查看源文件目录中的输出'
+        $lblRunStage.Text = L 'status.completed_detail'
         $progress.Value = $progress.Maximum
     } else {
-        $lblStatus.Text = "任务结束，但存在错误（代码 $ExitCode）"
+        $lblStatus.Text = ((L 'status.error') -f $ExitCode)
         $lblStatus.ForeColor = $ColorError
-        $lblRunStage.Text = '完成但有错误 · 请查看下方日志'
+        $lblRunStage.Text = L 'status.error_detail'
     }
 
     if ($script:RunningProcess) {
@@ -4448,8 +4448,8 @@ function Start-NoReencodeProcessing {
     $script:CurrentDurationSeconds = 0.0
     $rtbLog.Clear()
     $lblStatus.ForeColor = [System.Drawing.SystemColors]::ControlText
-    $lblRunStage.Text = '正在启动 AV1 胶片颗粒无重编码处理…'
-    $lblRunMetric.Text = '视频编码：NONE · stream copy'
+    $lblRunStage.Text = L 'status.start_copy'
+    $lblRunMetric.Text = L 'status.copy_metric'
     Append-LogText ("Film Grain Studio`r`n" + ('=' * 68) + "`r`n")
     Append-LogText ("任务文件数：1  ·  模式：AV1 胶片颗粒添加/替换 · 视频不重编码`r`n`r`n")
 
@@ -4504,7 +4504,7 @@ function Start-NoReencodeProcessing {
         $script:OutputReadTask = $proc.StandardOutput.ReadLineAsync()
         $script:ErrorReadTask = $proc.StandardError.ReadLineAsync()
         Set-RunningState $true
-        $lblStatus.Text = 'AV1 胶片颗粒无重编码任务正在运行'
+        $lblStatus.Text = L 'status.copy_running'
         $pollTimer.Start()
     } catch {
         Set-RunningState $false
@@ -4654,7 +4654,7 @@ function Start-Encoding {
     $script:CurrentDurationSeconds = 0.0
     $rtbLog.Clear()
     $lblStatus.ForeColor = [System.Drawing.SystemColors]::ControlText
-    $lblRunStage.Text = '正在启动 Studio Bridge…'
+    $lblRunStage.Text = L 'status.start_bridge'
     $lblRunMetric.Text = 'fps: —   speed: —'
     Append-LogText ("Film Grain Studio`r`n" + ('=' * 68) + "`r`n")
     $rateModeLabel = if ($bitrateAuto) { '自动推荐' } else { '手动' }
@@ -4873,7 +4873,7 @@ function Start-Encoding {
         $script:OutputReadTask = $proc.StandardOutput.ReadLineAsync()
         $script:ErrorReadTask = $proc.StandardError.ReadLineAsync()
         Set-RunningState $true
-        $lblStatus.Text = '任务正在运行'
+        $lblStatus.Text = L 'status.running'
         $pollTimer.Start()
     } catch {
         Set-RunningState $false
@@ -4903,7 +4903,7 @@ function Stop-Encoding {
     if ($answer -ne [System.Windows.Forms.DialogResult]::Yes) { return }
 
     $script:RunWasCancelled = $true
-    $lblStatus.Text = '正在取消任务…'
+    $lblStatus.Text = L 'status.cancelling'
     $btnCancel.Enabled = $false
     try {
         $pidValue = $script:RunningProcess.Id
@@ -4971,7 +4971,7 @@ function Show-UtilityProcessDialog {
     $runButtons = New-Object System.Windows.Forms.FlowLayoutPanel
     $runButtons.Dock = 'Fill'; $runButtons.FlowDirection='RightToLeft'; $runButtons.WrapContents=$false
     $runButton = New-Object System.Windows.Forms.Button
-    $runButton.Text = '取消'; $runButton.Width = 88; $runButton.Height = 30; $runButton.Margin=New-Object System.Windows.Forms.Padding -ArgumentList 6,7,10,5
+    $runButton.Text = L 'common.cancel'; $runButton.Width = 88; $runButton.Height = 30; $runButton.Margin=New-Object System.Windows.Forms.Padding -ArgumentList 6,7,10,5
     [void]$runButtons.Controls.Add($runButton)
     [void]$runTable.Controls.Add($runButtons,0,1)
 
@@ -5018,7 +5018,7 @@ function Show-UtilityProcessDialog {
                         $timer.Stop()
                         & $append ("`r`n=== " + $(if ($state.Cancelled) { '已取消' } elseif ($state.ExitCode -eq 0) { '完成' } else { "结束，代码 $($state.ExitCode)" }) + " ===`r`n")
                         $runButton.Enabled=$true
-                        $runButton.Text='关闭'
+                        $runButton.Text=(L 'common.close')
                     }
                 }
             } catch {}
@@ -5067,7 +5067,7 @@ function Show-UtilityProcessDialog {
         } catch {
             $state.ExitCode=-1; $state.Finished=$true
             & $append ("启动失败：" + $_.Exception.Message + "`r`n")
-            $runButton.Text='关闭'
+            $runButton.Text=(L 'common.close')
         }
     })
 
@@ -5567,10 +5567,10 @@ function Show-PathConfigurationDialog {
         $cmbHevcPlate.BeginUpdate()
         try {
             $cmbHevcPlate.Items.Clear()
-            [void]$cmbHevcPlate.Items.Add('颗粒根目录已更新，请点击 ↻ 刷新')
+            [void]$cmbHevcPlate.Items.Add((L 'grain.root_updated'))
             $cmbHevcPlate.SelectedIndex = 0
             $cmbHevcPlate.Enabled = $false
-            $cacheNote.Text = '配置已保存；点击 Grain 区域的 ↻ 后再扫描原始 MOV。'
+            $cacheNote.Text = L 'grain.config_saved'
         } finally {
             $cmbHevcPlate.EndUpdate()
         }
