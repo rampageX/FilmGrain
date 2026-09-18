@@ -1,4 +1,5 @@
 ﻿$ErrorActionPreference = 'Stop'
+# I18N TEST R4N8C: WinPS 5.1 language enumeration compatibility fix.
 
 $script:FgLanguageRoot = Join-Path (Split-Path -Parent $PSScriptRoot) 'Lang'
 $script:FgLanguageSettingsPath = Join-Path $script:FgLanguageRoot 'FilmGrain_Language.ini'
