@@ -1,0 +1,264 @@
+name: Release Film Grain Studio v4.7.5 Final
+
+on:
+  push:
+    branches: [master]
+    paths: ['.github/workflows/release-v4.7.5-final.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout master
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build validate and publish v4.7.5
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          function Assert-CrlfOnly([string]$Path) {
+              $bytes = [System.IO.File]::ReadAllBytes($Path)
+              for ($i = 0; $i -lt $bytes.Length; $i++) {
+                  if ($bytes[$i] -eq 10) {
+                      if ($i -eq 0 -or $bytes[$i - 1] -ne 13) {
+                          throw "LF-only line ending found: $Path"
+                      }
+                  }
+                  if ($bytes[$i] -eq 13) {
+                      if ($i + 1 -ge $bytes.Length -or $bytes[$i + 1] -ne 10) {
+                          throw "Bare CR line ending found: $Path"
+                      }
+                  }
+              }
+          }
+
+          function Assert-FormalMarkers([string]$Root) {
+              $studioPath = Join-Path $Root 'Utils\FilmGrain_Studio.ps1'
+              $bridgePath = Join-Path $Root 'Utils\FilmGrain_Universal_HEVC_AV1_StudioBridge.bat'
+              $studio = [System.IO.File]::ReadAllText($studioPath)
+              $bridge = [System.IO.File]::ReadAllText($bridgePath)
+              $hint = 'HEVC+FGSIM 模式下, 若画面出现色带，请在视频码率中尝试 Standard CQ27 或 High Quality CQ23 方案。'
+
+              if (-not $studio.Contains("`$statusVersion.Text = 'v4.7.5'")) {
+                  throw 'GUI status version is not v4.7.5.'
+              }
+              if (([regex]::Matches($studio,[regex]::Escape($hint))).Count -ne 1) {
+                  throw 'HEVC+FGSIM guidance is missing, duplicated, or not exact.'
+              }
+              foreach ($required in @(
+                  'GPU Film Grain (FGSIM)',
+                  'Film Grain Strength',
+                  "`$script:FgsimRcChoice = 'VBR'",
+                  "`$script:FgsimStandardItem = 'Standard CQ27 / QP18-26'",
+                  "`$script:FgsimHighItem = 'High Quality CQ23 / QP18-24'",
+                  '$toolTip.SetToolTip($cmbBitrate, $lblHevcGrainHint.Text)'
+              )) {
+                  if (-not $studio.Contains($required)) { throw "Missing Studio v4.7.5 marker: $required" }
+              }
+              foreach ($required in @(
+                  'set "FGSIM_QUALITY=Original VBR"',
+                  'set "FGSIM_RC_TAG=VBR"',
+                  'set "FGSIM_RC_ARGS=-cq 27 -qmin 18 -qmax 26"',
+                  'set "FGSIM_RC_ARGS=-cq 23 -qmin 18 -qmax 24"',
+                  'set "FGSIM_QUALITY_SEL=1"',
+                  'GPU Film Grain (FGSIM)'
+              )) {
+                  if (-not $bridge.Contains($required)) { throw "Missing StudioBridge v4.7.5 marker: $required" }
+              }
+              $singleDevice = '-init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -i'
+              if (([regex]::Matches($bridge,[regex]::Escape($singleDevice))).Count -lt 5) {
+                  throw 'FGSIM direct paths do not consistently reuse the vk filter device.'
+              }
+              if ($bridge.Contains('-filter_hw_device vk %ACTIVE_DEINT_HW_ARGS% -i')) {
+                  throw 'FGSIM still appends a second deinterlace filter device.'
+              }
+              foreach ($asset in @(
+                  'Utils\_FilmGrainSimplified\FilmGrainSimplified.hook.template',
+                  'Utils\_FilmGrainSimplified\Prepare_FGSIM.ps1',
+                  'Utils\_FilmGrainSimplified\NoiseFallback_512x512_RGBA8.rgba',
+                  'Utils\_FilmGrainSimplified\THIRD_PARTY_LICENSE_FilmGrainSimplified.txt'
+              )) {
+                  if (-not (Test-Path -LiteralPath (Join-Path $Root $asset) -PathType Leaf)) {
+                      throw "FGSIM asset missing: $asset"
+                  }
+              }
+              if (-not (Select-String -LiteralPath (Join-Path $Root 'README.md') -SimpleMatch '![](images/Film_Grain_Studio.jpg)')) {
+                  throw 'README GUI screenshot line is missing.'
+              }
+              if (-not (Select-String -LiteralPath (Join-Path $Root 'CHANGELOG.md') -SimpleMatch '## v4.7.5')) {
+                  throw 'CHANGELOG does not document v4.7.5.'
+              }
+          }
+
+          Assert-FormalMarkers $PWD
+
+          git config user.name 'rampageX'
+          git config user.email 'punkdm@gmail.com'
+          Remove-Item -LiteralPath '.github\workflows\release-v4.7.5-final.yml' -Force -ErrorAction SilentlyContinue
+          git add -A
+          git diff --cached --quiet
+          if ($LASTEXITCODE -ne 0) {
+              git commit -m 'cleanup: remove temporary v4.7.5 release workflow [skip ci]'
+              if ($LASTEXITCODE -ne 0) { throw 'Failed to commit v4.7.5 release cleanup.' }
+              git push origin HEAD:master
+              if ($LASTEXITCODE -ne 0) { throw 'Failed to push v4.7.5 release cleanup.' }
+          }
+          $releaseCommit = (git rev-parse HEAD).Trim()
+
+          $folderName = 'FilmGrain_Studio_v4.7.5_Stable'
+          $distRoot = Join-Path $PWD 'dist'
+          $stage = Join-Path $distRoot $folderName
+          if (Test-Path -LiteralPath $distRoot) { Remove-Item -LiteralPath $distRoot -Recurse -Force }
+          New-Item -ItemType Directory -Path $stage | Out-Null
+
+          $releaseItems = @(
+              '.gitattributes','LICENSE','FilmGrain_Universal_HEVC_AV1_CLI.bat','FilmGrain_Universal_HEVC_AV1_GUI.bat',
+              'FilmGrain_Config.ini','README.md','CHANGELOG.md','README_FilmGrain_Studio.txt','README_Toolkit.txt',
+              'STABLE_BASELINE.txt','Utils','_AV1_Grain_Tables','_LUT_Tools','_OpenSVPFlow','images'
+          )
+          foreach ($item in $releaseItems) {
+              if (-not (Test-Path -LiteralPath $item)) { throw "Required release item missing: $item" }
+              Copy-Item -LiteralPath $item -Destination $stage -Recurse -Force
+          }
+
+          foreach ($runtimePath in @(
+              (Join-Path $stage 'Utils\_HardwareCaps.json'),
+              (Join-Path $stage '_LUT_Tools\LUT_Reference_Current.jpg'),
+              (Join-Path $stage '_LUT_Tools\_LUT_RECENT.txt'),
+              (Join-Path $stage '_LUT_Tools\_LUT_FAVORITES.txt'),
+              (Join-Path $stage '_LUT_Tools\_LUT_SMART_FILTER_REPORT.csv'),
+              (Join-Path $stage '_OpenSVPFlow\_PluginBackup'),
+              (Join-Path $stage '_OpenSVPFlow\Plugins\open-svpflow-version.txt')
+          )) {
+              if (Test-Path -LiteralPath $runtimePath) { Remove-Item -LiteralPath $runtimePath -Recurse -Force }
+          }
+          Get-ChildItem -LiteralPath (Join-Path $stage '_OpenSVPFlow\Plugins') -File -ErrorAction SilentlyContinue |
+              Where-Object { $_.Extension -ieq '.dll' } | Remove-Item -Force
+
+          Get-ChildItem -LiteralPath $stage -Recurse -File -Filter '*.ps1' | ForEach-Object {
+              $text = [System.IO.File]::ReadAllText($_.FullName)
+              $text = $text -replace "`r`n", "`n" -replace "`r", "`n"
+              $text = $text.Replace("`n", "`r`n")
+              [System.IO.File]::WriteAllText($_.FullName,$text,(New-Object System.Text.UTF8Encoding($true)))
+          }
+          foreach ($pattern in @('*.bat','*.cmd','*.vbs')) {
+              Get-ChildItem -LiteralPath $stage -Recurse -File -Filter $pattern | ForEach-Object {
+                  $text = [System.IO.File]::ReadAllText($_.FullName)
+                  $text = $text -replace "`r`n", "`n" -replace "`r", "`n"
+                  $text = $text.Replace("`n", "`r`n")
+                  [System.IO.File]::WriteAllText($_.FullName,$text,(New-Object System.Text.UTF8Encoding($false)))
+              }
+          }
+
+          foreach ($psFile in Get-ChildItem -LiteralPath $stage -Recurse -File -Filter '*.ps1') {
+              $bytes = [System.IO.File]::ReadAllBytes($psFile.FullName)
+              if ($bytes.Length -lt 3 -or $bytes[0] -ne 0xEF -or $bytes[1] -ne 0xBB -or $bytes[2] -ne 0xBF) {
+                  throw "PS1 BOM invalid: $($psFile.FullName)"
+              }
+              Assert-CrlfOnly $psFile.FullName
+              $text = [System.IO.File]::ReadAllText($psFile.FullName)
+              foreach ($ch in @([char]0x201C,[char]0x201D,[char]0x2018,[char]0x2019)) {
+                  if ($text.Contains([string]$ch)) { throw "Curly quote in PS1: $($psFile.FullName)" }
+              }
+          }
+
+          foreach ($pattern in @('*.bat','*.cmd','*.vbs')) {
+              foreach ($file in Get-ChildItem -LiteralPath $stage -Recurse -File -Filter $pattern) {
+                  $bytes = [System.IO.File]::ReadAllBytes($file.FullName)
+                  if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
+                      throw "BOM found in $($file.FullName)"
+                  }
+                  Assert-CrlfOnly $file.FullName
+                  if ($file.Extension -ieq '.bat' -or $file.Extension -ieq '.cmd') {
+                      $text = [System.IO.File]::ReadAllText($file.FullName)
+                      if ($text -match '(?m)\^[ \t]+\r?$') { throw "Caret continuation trailing whitespace: $($file.FullName)" }
+                      $labels = @{}
+                      foreach ($line in ($text -split "`r`n")) {
+                          if ($line -match '^:([A-Za-z0-9_.$-]+)\s*$') { $labels[$matches[1].ToUpperInvariant()] = $true }
+                      }
+                      foreach ($line in ($text -split "`r`n")) {
+                          if ($line -match '(?i)^\s*(?:goto|call\s+:)\s*:?(?<label>[A-Za-z0-9_.$-]+)') {
+                              $label = $matches['label'].ToUpperInvariant()
+                              if ($label -ne 'EOF' -and -not $labels.ContainsKey($label)) {
+                                  throw "Missing BAT label $label in $($file.FullName)"
+                              }
+                          }
+                      }
+                  }
+              }
+          }
+
+          foreach ($textFile in Get-ChildItem -LiteralPath $stage -Recurse -File | Where-Object { $_.Extension -in @('.ps1','.bat','.cmd','.vbs','.md','.txt') }) {
+              $text = [System.IO.File]::ReadAllText($textFile.FullName)
+              foreach ($ch in @([char]0x3010,[char]0x3011)) {
+                  if ($text.Contains([string]$ch)) { throw "Full-width square bracket in $($textFile.FullName)" }
+              }
+          }
+
+          Assert-FormalMarkers $stage
+          $assetHashes = @{
+              'Utils\_FilmGrainSimplified\FilmGrainSimplified.hook.template' = 'a202df8fb4e2983841b20bd3e3fe9d72997d03f42799fa202b069d8ec355cf9e'
+              'Utils\_FilmGrainSimplified\Prepare_FGSIM.ps1' = '762a851aac00c6a81c2d077c3c3ff674ff4ecf90bb5e7eb9aa4e44c7f3524003'
+              'Utils\_FilmGrainSimplified\NoiseFallback_512x512_RGBA8.rgba' = '1ba40fa910e7873eae94a417cbd2007f431ab17e4b93c5c41ada59b2df352bf1'
+          }
+          foreach ($entry in $assetHashes.GetEnumerator()) {
+              $actual = (Get-FileHash -LiteralPath (Join-Path $stage $entry.Key) -Algorithm SHA256).Hash.ToLowerInvariant()
+              if ($actual -ne $entry.Value) { throw "FGSIM asset hash mismatch: $($entry.Key)" }
+          }
+          $stageFiles = @(Get-ChildItem -LiteralPath $stage -Recurse -File)
+          if ($stageFiles.Count -ne 144) { throw "Unexpected formal package file count: $($stageFiles.Count)" }
+          foreach ($file in $stageFiles) {
+              if ($file.Name -match '(?i)(TEST|J4M8S|H7K3M|P6V8D|T9N4C|R8M2Q)') {
+                  throw "Test artifact found in formal package: $($file.FullName)"
+              }
+          }
+
+          $zipPath = Join-Path $distRoot ($folderName + '.zip')
+          Compress-Archive -LiteralPath $stage -DestinationPath $zipPath -CompressionLevel Optimal
+          $hash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          $shaPath = Join-Path $distRoot ($folderName + '.sha256')
+          [System.IO.File]::WriteAllText($shaPath,"$hash  $($folderName).zip`r`n",(New-Object System.Text.UTF8Encoding($false)))
+
+          $checkRoot = Join-Path $PWD 'zipcheck'
+          if (Test-Path -LiteralPath $checkRoot) { Remove-Item -LiteralPath $checkRoot -Recurse -Force }
+          Expand-Archive -LiteralPath $zipPath -DestinationPath $checkRoot -Force
+          $root = Join-Path $checkRoot $folderName
+          if (-not (Test-Path -LiteralPath $root)) { throw 'Expected release root folder missing after ZIP extraction.' }
+          if (@(Get-ChildItem -LiteralPath $checkRoot -Directory).Count -ne 1) { throw 'ZIP contains an unexpected top-level layout.' }
+          Assert-FormalMarkers $root
+          foreach ($psFile in Get-ChildItem -LiteralPath $root -Recurse -File -Filter '*.ps1') {
+              Assert-CrlfOnly $psFile.FullName
+              $bytes = [System.IO.File]::ReadAllBytes($psFile.FullName)
+              if ($bytes.Length -lt 3 -or $bytes[0] -ne 0xEF -or $bytes[1] -ne 0xBB -or $bytes[2] -ne 0xBF) {
+                  throw "PS1 BOM invalid after ZIP extraction: $($psFile.FullName)"
+              }
+          }
+          foreach ($pattern in @('*.bat','*.cmd','*.vbs')) {
+              foreach ($file in Get-ChildItem -LiteralPath $root -Recurse -File -Filter $pattern) {
+                  Assert-CrlfOnly $file.FullName
+                  $bytes = [System.IO.File]::ReadAllBytes($file.FullName)
+                  if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
+                      throw "BOM found after ZIP extraction: $($file.FullName)"
+                  }
+              }
+          }
+          if (@(Get-ChildItem -LiteralPath $root -Recurse -File).Count -ne 144) { throw 'ZIP file count changed after extraction.' }
+          foreach ($entry in $assetHashes.GetEnumerator()) {
+              $actual = (Get-FileHash -LiteralPath (Join-Path $root $entry.Key) -Algorithm SHA256).Hash.ToLowerInvariant()
+              if ($actual -ne $entry.Value) { throw "FGSIM asset hash mismatch after ZIP extraction: $($entry.Key)" }
+          }
+
+          gh release view v4.7.5 --repo $env:GITHUB_REPOSITORY 2>$null
+          if ($LASTEXITCODE -eq 0) { throw 'Release v4.7.5 already exists.' }
+          gh release create v4.7.5 $zipPath $shaPath --repo $env:GITHUB_REPOSITORY --target $releaseCommit --title 'Film Grain Studio v4.7.5' --notes-file '.github\release\RELEASE_NOTES.md'
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to create GitHub Release v4.7.5.' }
+          Write-Host "Released v4.7.5: $hash"
