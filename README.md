@@ -8,37 +8,8 @@
 - **HEVC Main10 + 真实扫描 Grain Plate**：将真实胶片颗粒合成到视频像素中，由 NVENC Main10 编码。
 - **H.264 x264 Grain + 真实扫描 Grain Plate**：与 HEVC 共用扫描 Grain / LUT / 画幅 / 反交错 / OpenSVPFlow 前处理，使用 `libx264 + preset faster + tune grain + VBR 单次` 作为默认日常路线；高级设置可选择 Medium / Slow 与 VBR 2-Pass。默认在编码边界高质量降为 8-bit High Profile，也可启用实验性 High10。
 
-当前正式稳定版为 **v4.8.0**，发布包名称：
 
-```text
-FilmGrain_Studio_v4.8.0_Stable.zip
-```
-
-所有独立脚本使用固定文件名，不再包含组件版本号；版本号只体现在整个项目的发布压缩包上。升级时建议完整替换工具包，避免新旧脚本混用。
-
-v4.6.0 在 v4.5.2.2 稳定基线之上正式加入 **AV1 NVENC 多引擎并行 / Split Frame Encoding (SFE)**。主界面“速度 / 质量”下方新增“多引擎并行 ×N”，由 NVIDIA NVENC 能力检测决定可用引擎数量；当前仅在 **AV1 Standard / UHQ** 模式允许启用。SFE 同时要求 **grav1synth 0.2.2 或更高版本**，旧版 grav1synth 会自动禁用该选项。实测 RTX 4080 的 AV1 Standard / UHQ 可获得明显的完整流程加速，而 AV1 FAST 与 HEVC 扫描 Grain 路线仍保持关闭 SFE。
-
-v4.6.0 同时修复隔行素材与 OpenSVPFlow 插帧的组合：OpenSVPFlow 仍只处理逐行输入；若任务中检测到隔行视频，则该文件自动旁路 OpenSVPFlow，改走既有 Field-rate 反交错，例如 29.97i → 59.94p、25i → 50p。逐行素材继续使用 OpenSVPFlow 60 fps；混合批量任务按文件分别判断。
-
-v4.6.1 不修改编码核心与既有参数，新增 **FGS 专用应用图标**，主窗口标题栏和 Windows 任务栏统一显示 FGS 图标；同时在 `_OpenSVPFlow` 中加入独立的最新版更新器，可在主动更新前后执行 CPU / GPU smoke test、自动备份现有插件并在失败时回滚。`00_Setup.bat` 继续负责首次安装已验证的固定运行环境。
-
-v4.6.2 在 v4.6.1 稳定基线上正式加入 **HDR Preserve** 与 **LUT Gallery 智能过滤**。HEVC Main10 / AV1 Main10 对 HDR 输入保持 BT.2020、PQ/HLG、10-bit 与源本来存在的 HDR10 静态元数据；HEVC 明确强制 `p010le`，并在最终输出执行 HDR 色彩信号验证。当前 OpenSVPFlow 仍是 YUV420P8 基线，因此 HDR 输入自动旁路插帧；H.264 主输出、H.264 上传版和现有 SDR/BT.709 LUT 路线也对 HDR 采用安全旁路。LUT Gallery 智能过滤将 LUT 分为 `Technical / Combined / Creative / Keep`，只隐藏高置信度纯 Technical，并通过跨文件 Creative Family 识别保留带多种 Log 输入适配的创意 Combined LUT。HEVC HDR10/PQ 与 AV1 HDR 均已完成用户侧实际测试。
-
-
-v4.6.2.1 为小型稳定性修复：修复 AV1 / HEVC 同时生成 H.264 上传版时，手动码率在 StudioBridge 中被重复校验并可能错误拒绝（例如 10000 kbps）的问题。上传版现在直接使用 GUI 已校验的平均码率、3× maxrate 与 6× bufsize；AV1 / HEVC / x264 三条主编码线的既有码率逻辑和编码参数均不变。
-
-v4.6.3 在 v4.6.2.1 稳定基线上完善 **LUT Gallery 预览同步**：图库新增“更新预览图”，可补建新增/缺失 LUT 预览，并仅对旧索引中明确记录且源 LUT 已不存在的单个 `*_preview.jpg` 与对应缩略图执行安全清理；目录仅在已经为空时使用非递归删除。更新完成后图库立即刷新匹配/总数，并显示新增、删除与当前总数。Gallery 同时优化底部按钮布局、分页右对齐、文件夹下拉框间距，以及智能过滤隐藏数量显示。现有“更换参考图”全量重建流程与 AV1 / HEVC / x264 编码核心参数均保持不变。
-
-
-v4.6.3.1 为 Windows 打包兼容性修正版：v4.6.3 功能与编码参数完全不变；正式发布固定使用 Windows runner。发布包中的 BAT/VBS/CMD 统一为 CRLF + 无 BOM，PS1 统一为 UTF-8 BOM + CRLF，并在最终 ZIP 解压后再次全量验证。该修复解决 Linux runner 打包后 Windows CMD 可能出现 BAT 标签实际存在却无法 `goto/call` 的问题。
-
-v4.7.0 正式加入 **数字颗粒（Fast Noise）** 与 **HDR→SDR Tone Mapping fallback**。数字颗粒可作为 AV1 / HEVC / x264 三条主线的通用像素颗粒引擎，不依赖外部 Grain Plate；强度使用连续滑杆 `0.10–1.00`，默认 `0.55`。实测参考：`0.30` 轻微、`0.40` 轻、`0.55` 中等、`0.68` 约接近 HEVC CT35 85%、`0.75+` 明显/偏重。SDR 路径使用约 1.333× Fast Noise 合成；AV1 / HEVC HDR Preserve 下使用 10-bit 亮度颗粒路径，只修改 Y 平面并保持 U/V 色度。HDR 输入还可在“高级 → HDR”选择自动兼容、保持 HDR 或强制 SDR；自动模式在 x264、BT.709 LUT、OpenSVPFlow 或 H.264 上传版等 SDR-only 流程出现时，先通过 Hable（默认，可选 Mobius / Reinhard / Gamma / Linear / Clip）Tone Mapping 到 BT.709 SDR，再进入原有 SDR 处理链。
-
-v4.7.5 将三种像素颗粒模式统一到 **Film Grain Strength** 强度滑杆，并加入单一的 **GPU Film Grain (FGSIM)** 模式；FGSIM 内部继续映射已经验证的 Light / Medium / Heavy 三档，不调整 shader、Vulkan/libplacebo 初始化或颗粒效果。HEVC + FGSIM 的视频码率下拉框新增 `Standard CQ27 / QP18-26` 与 `High Quality CQ23 / QP18-24` 两个可选方案，默认仍沿用原有自动或手动 VBR。界面提示为：`HEVC+FGSIM 模式下, 若画面出现色带，请在视频码率中尝试 Standard CQ27 或 High Quality CQ23 方案。` 同时修复 FGSIM 与 BWDIF Vulkan 并用时重复指定 filter device 的错误；二者统一复用 `vk` 设备。AV1、x264 Grain、普通 HEVC VBR、Digital Grain、Grain Plate、输出容器、AAC 256k、插帧、LUT 与 HDR 流程保持原样。
-
-v4.8.0 正式加入 **简体中文 / English 多语言界面**。GUI 文本从程序逻辑中抽离到 `Lang\\zh-CN.ini` 与 `Lang\\en-US.ini`，右上角可选择界面语言，保存后重新打开 Studio 生效；缺失键自动回退简体中文。编码器、码率模式、CLI 参数、配置协议与输出命名继续使用固定内部标识，语言切换不改变 AV1 / HEVC / x264 / FGSIM / HDR / LUT / OpenSVPFlow 编码逻辑。主界面、动态下拉框、媒体信息、Tooltip、字幕、路径配置及常用提示均完成双语化；英文界面使用独立的默认/最小窗口宽度，避免较长英文文本压缩右侧控件。Windows PowerShell 5.1 语言枚举兼容性也已修复并纳入发布 smoke test。
-
-默认配置仍为 **AV1 Main10 + MP4 + AAC 256k**，并集成 HDR Preserve、HDR→SDR 自动兼容、数字颗粒、LUT Gallery（含智能过滤）、自动 Field-rate 反交错、自动电影帧率、可选 OpenSVPFlow GPU 60 fps 插帧、Cinematic Style、多文件处理、NVENC / OpenSVPFlow 硬件能力自动探测、AV1 UHQ、AV1 SFE 及 AV1 Film Grain 最终验证。
+默认配置为 **AV1 Main10 + MP4 + AAC 256k**，并集成 HDR Preserve、HDR→SDR 自动兼容、数字颗粒、GPU Film Grain (FGSIM)、LUT Gallery（含智能过滤）、自动 Field-rate 反交错、自动电影帧率、可选 OpenSVPFlow GPU 60 fps 插帧、Cinematic Style、多文件处理、NVENC / OpenSVPFlow 硬件能力自动探测、AV1 UHQ、AV1 SFE 及 AV1 Film Grain 最终验证。
 
 历史版本变更请参阅 [`CHANGELOG.md`](CHANGELOG.md)。
 
@@ -358,6 +329,13 @@ v4.7.0 新增 **数字颗粒 · Fast Noise**，作为 AV1 / HEVC / x264 三条�
 - `0.75+`：明显 / 偏重。
 
 SDR 路径使用约 1.333× 分辨率的 Fast Noise 生成、形态学整形、亮度相关 Mask 后回缩到输出分辨率；相比早期 GEQ 随机颗粒参考实现，在 1080p / 1440p 实测可获得约 3× 的滤镜性能，同时通过滑杆补偿后可得到接近的颗粒存在感。HDR Preserve 下，AV1 / HEVC 使用 10-bit 亮度颗粒路径，只修改 Y 平面，U/V 色度保持不变；HDR 强度不要求与 SDR 数值严格等效，仍以滑杆做最终观感微调。
+
+---
+
+
+## GPU Film Grain (FGSIM) （v4.7.5）
+
+FGSIM 内部继续映射已经验证的 Light / Medium / Heavy 三档，不调整 shader、Vulkan/libplacebo 初始化或颗粒效果。HEVC + FGSIM 的视频码率下拉框新增 `Standard CQ27 / QP18-26` 与 `High Quality CQ23 / QP18-24` 两个可选方案，默认仍沿用原有自动或手动 VBR。界面提示为：`HEVC+FGSIM 模式下, 若画面出现色带，请在视频码率中尝试 Standard CQ27 或 High Quality CQ23 方案。` 同时修复 FGSIM 与 BWDIF Vulkan 并用时重复指定 filter device 的错误；二者统一复用 `vk` 设备。AV1、x264 Grain、普通 HEVC VBR、Digital Grain、Grain Plate、输出容器、AAC 256k、插帧、LUT 与 HDR 流程保持原样。
 
 ---
 
