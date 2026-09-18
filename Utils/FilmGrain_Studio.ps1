@@ -265,7 +265,7 @@ $script:UploadSubtitle = [ordered]@{
     Outline = 1.0
     Shadow = 1.0
     MarginV = 5
-    Label = '字幕：关闭'
+    Label = L 'subtitle.label_off'
 }
 $ColorHeader = [System.Drawing.Color]::FromArgb(45, 57, 72)
 $ColorAccent = [System.Drawing.Color]::FromArgb(47, 111, 173)
@@ -1784,7 +1784,7 @@ $lblLutStrength.Enabled = $false
 [void]$lutTable.Controls.Add($lblLutStrength, 2, 4)
 
 $toolTip = New-Object System.Windows.Forms.ToolTip
-$digitalGrainTip = '数字颗粒强度参考：0.30 轻微；0.40 轻；0.55 中等；0.68 接近 HEVC CT35 85%；0.75+ 明显/偏重。HDR 自动切换 10-bit 亮度颗粒路径，仍可用滑杆微调。'
+$digitalGrainTip = L 'digital_grain.tip'
 $toolTip.SetToolTip($trackAv1ProcStrength, $digitalGrainTip)
 $toolTip.SetToolTip($trackHevcProcStrength, $digitalGrainTip)
 $toolTip.SetToolTip($btnGrainRoot, (L 'tooltip.grain_root'))
@@ -1927,12 +1927,12 @@ $footer.Add_Resize({
 
 # Dialogs
 $openDialog = New-Object System.Windows.Forms.OpenFileDialog
-$openDialog.Title = '选择一个或多个视频文件'
+$openDialog.Title = L 'dialog.video_title'
 $openDialog.Multiselect = $true
-$openDialog.Filter = '视频文件|*.mp4;*.mkv;*.mov;*.mxf;*.avi;*.webm;*.ts;*.m2ts;*.mts|所有文件|*.*'
+$openDialog.Filter = L 'dialog.video_filter'
 
 $folderDialog = New-Object System.Windows.Forms.FolderBrowserDialog
-$folderDialog.Description = '选择 HEVC 扫描胶片颗粒根目录'
+$folderDialog.Description = L 'dialog.grain_root'
 $folderDialog.ShowNewFolderButton = $false
 
 function Get-SubtitleProbeExe {
@@ -1958,7 +1958,7 @@ function Get-TextSubtitleTracks {
             if ($codec -in $textCodecs) {
                 $lang = if ($stream.tags -and $stream.tags.language) { [string]$stream.tags.language } else { 'und' }
                 $title = if ($stream.tags -and $stream.tags.title) { [string]$stream.tags.title } else { '' }
-                $label = "内嵌 #$($ordinal + 1) · $lang · $codec"
+                $label = ((L 'subtitle.embedded_item') -f ($ordinal + 1),$lang,$codec)
                 if ($title) { $label += " · $title" }
                 $result += [pscustomobject]@{ Ordinal = $ordinal; Label = $label; Codec = $codec }
             }
@@ -2148,8 +2148,8 @@ function Show-UploadSubtitleDialog {
             $chosenBrowsePath=$browseDialog.FileName
             $browseIndex=$sourceDefs.Count-1
             $sourceDefs[$browseIndex].Path=$chosenBrowsePath
-            $sourceDefs[$browseIndex].Label='字幕：' + [System.IO.Path]::GetFileName($chosenBrowsePath)
-            $cmbSource.Items[$browseIndex]='外部 · ' + [System.IO.Path]::GetFileName($chosenBrowsePath)
+            $sourceDefs[$browseIndex].Label=((L 'subtitle.label_external') -f [System.IO.Path]::GetFileName($chosenBrowsePath))
+            $cmbSource.Items[$browseIndex]=((L 'subtitle.external_item') -f [System.IO.Path]::GetFileName($chosenBrowsePath))
             $cmbSource.SelectedIndex=$browseIndex
         }
     })
@@ -2158,7 +2158,7 @@ function Show-UploadSubtitleDialog {
     if ($result -ne [System.Windows.Forms.DialogResult]::OK) { $dlg.Dispose(); return }
     $def=$sourceDefs[$cmbSource.SelectedIndex]
     if ($def.Mode -eq 'BROWSE' -and -not $def.Path) {
-        Show-Info '尚未选择外部字幕文件。'
+        Show-Info (L 'subtitle.not_selected')
         $dlg.Dispose(); return
     }
 
@@ -2174,7 +2174,7 @@ function Show-UploadSubtitleDialog {
     $script:UploadSubtitle.Outline = [double]$numOutline.Value
     $script:UploadSubtitle.Shadow = [double]$numShadow.Value
     $script:UploadSubtitle.MarginV = [int]$numMargin.Value
-    $script:UploadSubtitle.Label = if ($script:UploadSubtitle.Enabled) { [string]$def.Label } else { '字幕：关闭' }
+    $script:UploadSubtitle.Label = if ($script:UploadSubtitle.Enabled) { [string]$def.Label } else { L 'subtitle.label_off' }
     $btnUploadSubtitle.Text = if ($script:UploadSubtitle.Enabled) { L 'button.subtitle_on' } else { L 'button.subtitle' }
     $toolTip.SetToolTip($btnUploadSubtitle, [string]$script:UploadSubtitle.Label)
     $dlg.Dispose()
