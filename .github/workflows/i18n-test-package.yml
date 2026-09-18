@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: fgs-i18n-test-package
+  cancel-in-progress: true
+
 jobs:
   package:
     runs-on: windows-2022
