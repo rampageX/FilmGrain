@@ -24,6 +24,7 @@ jobs:
           fetch-depth: 0
 
       - name: Build and validate formal package
+        id: build
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -164,6 +165,9 @@ jobs:
           "FGS_RELEASE_TAG=$tag" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "FGS_RELEASE_ZIP=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "FGS_RELEASE_SHA=$shaFile" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "artifact_name=$name" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "zip_name=$([IO.Path]::GetFileName($zip))" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "sha_name=$([IO.Path]::GetFileName($shaFile))" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
       - name: Create GitHub Release
         shell: powershell
@@ -175,10 +179,10 @@ jobs:
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: FilmGrain_Studio_v4.8.0_Stable
+          name: ${{ steps.build.outputs.artifact_name }}
           path: |
-            FilmGrain_Studio_v4.8.0_Stable.zip
-            FilmGrain_Studio_v4.8.0_Stable.zip.sha256
+            ${{ steps.build.outputs.zip_name }}
+            ${{ steps.build.outputs.sha_name }}
           if-no-files-found: error
 
       - name: Delete merged release branch
