@@ -1,5 +1,14 @@
 # Film Grain Studio — CHANGELOG
 
+## v4.8.1 — 2026-09-18
+
+- 重新整理 `README.md`：README 只维护当前版本的功能说明、工作原理、设置方式、使用建议与已知限制，不再重复记录逐版本更新流水；历史版本变化统一由 `CHANGELOG.md` 维护。
+- 重新梳理 AV1 / HEVC / H.264 三条主编码路线，以及 AV1 Film Grain metadata、真实扫描 Grain Plate、Digital Grain、GPU Film Grain (FGSIM) 四类颗粒方式；同步整理 HDR、LUT、反交错、OpenSVPFlow、字幕、码率、上传母版、多语言、路径配置与工具包结构说明。
+- 保留并继续以用户补充完善后的 v4.8.0 CHANGELOG 作为正式版本历史基准。
+- GitHub Release 页面统一使用中文，并采用与 README 一致的产品说明口径；README 负责“当前功能怎么用”，CHANGELOG 负责“版本发生了什么变化”。
+- 完整继承 v4.8.0 的程序文件与已验证功能；本版不修改 StudioBridge、AV1 / HEVC / x264、FGSIM、Digital Grain、Grain Plate、HDR、LUT、OpenSVPFlow、反交错、码率、字幕、容器或 AAC 256k 编码逻辑。
+- 正式版本号与发布包更新为 `v4.8.1` / `FilmGrain_Studio_v4.8.1_Stable.zip`。
+
 ## v4.8.0 — 2026-09-18
 
 - 正式加入 简体中文 / English 多语言界面。
