@@ -738,8 +738,17 @@ Initialize-HardwareCaps
 $form = New-Object System.Windows.Forms.Form
 $form.Text = 'Film Grain Studio'
 $form.StartPosition = 'CenterScreen'
-$form.ClientSize = New-Object System.Drawing.Size -ArgumentList 1320, 960
-$form.MinimumSize = New-Object System.Drawing.Size -ArgumentList 1280, 950
+
+$initialClientWidth = 1320
+$initialMinimumWidth = 1280
+try { $initialClientWidth = [int](L 'layout.window_width') } catch {}
+try { $initialMinimumWidth = [int](L 'layout.minimum_width') } catch {}
+if ($initialClientWidth -lt 1280) { $initialClientWidth = 1280 }
+if ($initialMinimumWidth -lt 1200) { $initialMinimumWidth = 1200 }
+if ($initialMinimumWidth -gt $initialClientWidth) { $initialMinimumWidth = $initialClientWidth }
+
+$form.ClientSize = New-Object System.Drawing.Size -ArgumentList $initialClientWidth, 960
+$form.MinimumSize = New-Object System.Drawing.Size -ArgumentList $initialMinimumWidth, 950
 $form.AutoScaleMode = [System.Windows.Forms.AutoScaleMode]::Dpi
 $form.Font = New-UiFont 9
 $form.AllowDrop = $true
@@ -783,7 +792,7 @@ $statusVersion = New-Object System.Windows.Forms.ToolStripStatusLabel
 $statusVersion.Spring = $false
 $statusVersion.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
 $statusVersion.ForeColor = $ColorMuted
-$statusVersion.Text = 'v4.7.5 I18N TEST M5Q8T'
+$statusVersion.Text = 'v4.7.5 I18N TEST P7L4N'
 $statusVersion.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 12, 0, 0, 0
 [void]$statusStrip.Items.Add($statusVersion)
 
