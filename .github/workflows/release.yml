@@ -181,11 +181,16 @@ jobs:
             FilmGrain_Studio_v4.8.0_Stable.zip.sha256
           if-no-files-found: error
 
-      - name: Delete merged temporary branches
+      - name: Delete merged release branch
         if: success()
         shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          git push origin --delete test/i18n-v4.7.5-k7m2q 2>$null
-          if ($LASTEXITCODE -ne 0) { Write-Host 'test branch already absent or could not be deleted.' }
-          git push origin --delete release/v4.8.0 2>$null
-          if ($LASTEXITCODE -ne 0) { Write-Host 'release branch already absent or could not be deleted.' }
+          $version = (Get-Content -LiteralPath '.github\release\version.txt' -Raw).Trim()
+          $ref = 'heads/release/v' + $version
+          gh api --method DELETE "repos/$env:GITHUB_REPOSITORY/git/refs/$ref"
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "Release branch already absent or could not be deleted: $ref"
+            exit 0
+          }
