@@ -1,5 +1,13 @@
 # Film Grain Studio — CHANGELOG
 
+## v4.8.0 — 2026-09-18
+
+- 正式加入 简体中文 / English 多语言界面。
+- GUI 文本从程序逻辑中抽离到 Lang\\zh-CN.ini 与 Lang\\en-US.ini，右上角可选择界面语言，保存后重新打开 Studio 生效；缺失键自动回退简体中文。
+- 编码器、码率模式、CLI 参数、配置协议与输出命名继续使用固定内部标识，语言切换不改变 AV1 / HEVC / x264 / FGSIM / HDR / LUT / OpenSVPFlow 编码逻辑。
+- 主界面、动态下拉框、媒体信息、Tooltip、字幕、路径配置及常用提示均完成双语化；英文界面使用独立的默认/最小窗口宽度，避免较长英文文本压缩右侧控件。
+- Windows PowerShell 5.1 语言枚举兼容性也已修复并纳入发布 smoke test。
+
 ## v4.7.5 — 2026-09-18
 
 - 颗粒模式统一为单一的 **GPU Film Grain (FGSIM)** 项，界面不再分别显示 Light / Medium / Heavy；FGSIM 内部仍映射已经验证的 Light `0.10`、Medium `0.20`、Heavy `0.30` 三档，不调整核心算法、shader、filter graph 或颗粒效果。
