@@ -978,6 +978,8 @@ Lang\
     FilmGrain_Language.ini
 
 Utils\
+    FGS_Benchmark.cmd
+    FGS_Benchmark.ps1
     FilmGrain_Language.ps1
     FilmGrain_Config.ps1
     FilmGrain_Config_Load.bat
@@ -1017,6 +1019,22 @@ _OpenSVPFlow\
 ```
 
 请保持两个入口 BAT、`Lang`、`Utils`、`_LUT_Tools`、`_AV1_Grain_Tables` 与 `_OpenSVPFlow` 的相对位置不变。
+
+---
+
+## FGS Benchmark 基准测试
+
+将一个测试视频拖到 `Utils/FGS_Benchmark.cmd`；配套的 `FGS_Benchmark.ps1` 必须保持在同一目录。工具读取现有 FGS 路径配置，通过同一个 StudioBridge 核心执行 B01–B09 与 Q01–Q03 共 12 项测试，覆盖 HEVC / AV1 / x264 的颗粒路线，以及 HEVC FGSIM 的 VBR、CQ27、CQ23 对照。
+
+1. 输入截图帧号，例如 `247,865,1420`；从 **0** 开始计数，且相对于当前测试片段。留空则不截图。
+2. 输入 Grain Plate **原始 MOV 文件的完整路径（含文件名）**，例如 `D:\Film_Grain\CT 35mm Grain 4K DCI\CT 35mm Grain 4K DCI.mov`。StudioBridge 会按现有规则复用 HEVC 无损缓存；不要直接指定 `_HEVC_Lossless.mkv`。留空时 B03/B09 标记为 SKIPPED。
+3. 结果保存在源视频目录下的 `FGS_Benchmark_随机数_随机数`，包含 `Benchmark.csv`、`Benchmark.md`、`Environment.txt`、`Source_Info.txt`、`Logs`、`Outputs` 和 `Screenshots`。隔离的 `Work` 目录用于暂存输入和失败中间文件。
+
+统计 FPS 是实际输出帧数除以完整 Bridge 耗时，不是视频播放帧率或 FFmpeg 瞬时速度；截图、结果探测和文件搬移不计入该耗时。越界截图会记录问题，不会替换为其它帧。
+
+两组实测报告与截图见 [Benchmark 文档与样本](https://github.com/rampageX/FilmGrain/tree/master/benchmark)：Taylor Swift - Look What You Made Me Do 片段第 **313** 帧，以及 LG OLED DAYDREAMS 测试片段第 **543** 帧。单帧用于观察特定场景，不代表整段平均画质；颗粒强度未做视觉等效标定，结果也不是严格的同码率编码器排名。
+
+**`benchmark/` 仅保留在仓库，正式发布 ZIP 排除整个目录；两个 Benchmark 脚本随正式包提供。**
 
 ---
 
