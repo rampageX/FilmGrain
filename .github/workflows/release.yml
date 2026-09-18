@@ -1,0 +1,191 @@
+name: Film Grain Studio Release
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - '.github/release/version.txt'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: film-grain-studio-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build and validate formal package
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = (Get-Content -LiteralPath '.github\release\version.txt' -Raw).Trim()
+          if (-not $version) { throw 'Release version is empty.' }
+          $tag = 'v' + $version
+          $name = 'FilmGrain_Studio_v' + $version + '_Stable'
+          $stage = Join-Path $env:RUNNER_TEMP $name
+          $zip = Join-Path $env:GITHUB_WORKSPACE ($name + '.zip')
+          $shaFile = $zip + '.sha256'
+
+          if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
+          New-Item -ItemType Directory -Path $stage | Out-Null
+
+          Get-ChildItem -LiteralPath $env:GITHUB_WORKSPACE -Force |
+            Where-Object { $_.Name -notin @('.git','.github') } |
+            ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $stage -Recurse -Force }
+
+          # Remove runtime/user state from the formal package.
+          @(
+            'Utils\_HardwareCaps.json',
+            '_LUT_Tools\LUT_Reference_Current.jpg',
+            '_OpenSVPFlow\Plugins\open-svpflow-version.txt',
+            '_OpenSVPFlow\_PluginBackup'
+          ) | ForEach-Object {
+            $p = Join-Path $stage $_
+            if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Recurse -Force }
+          }
+
+          $utf8Bom = New-Object System.Text.UTF8Encoding($true)
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+
+          # Formal PS1 rule: UTF-8 BOM + CRLF.
+          Get-ChildItem -LiteralPath $stage -Recurse -Filter '*.ps1' -File | ForEach-Object {
+            $bytes = [System.IO.File]::ReadAllBytes($_.FullName)
+            $offset = 0
+            if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) { $offset = 3 }
+            $text = [System.Text.Encoding]::UTF8.GetString($bytes, $offset, $bytes.Length - $offset)
+            $text = $text -replace "\r?\n", "`r`n"
+            [System.IO.File]::WriteAllText($_.FullName, $text, $utf8Bom)
+          }
+
+          # Language resources: UTF-8 no BOM + CRLF.
+          Get-ChildItem -LiteralPath (Join-Path $stage 'Lang') -Filter '*.ini' -File | ForEach-Object {
+            $bytes = [System.IO.File]::ReadAllBytes($_.FullName)
+            $offset = 0
+            if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) { $offset = 3 }
+            $text = [System.Text.Encoding]::UTF8.GetString($bytes, $offset, $bytes.Length - $offset)
+            $text = $text -replace "\r?\n", "`r`n"
+            [System.IO.File]::WriteAllText($_.FullName, $text, $utf8NoBom)
+          }
+
+          $required = @(
+            'FilmGrain_Universal_HEVC_AV1_GUI.bat',
+            'FilmGrain_Universal_HEVC_AV1_CLI.bat',
+            'Utils\FilmGrain_Studio.ps1',
+            'Utils\FilmGrain_Language.ps1',
+            'Lang\zh-CN.ini',
+            'Lang\en-US.ini',
+            'Lang\FilmGrain_Language.ini',
+            'Utils\_FilmGrainSimplified\NoiseFallback_512x512_RGBA8.rgba'
+          )
+          foreach ($rel in $required) {
+            if (-not (Test-Path -LiteralPath (Join-Path $stage $rel) -PathType Leaf)) {
+              throw "Required file missing: $rel"
+            }
+          }
+
+          # WinPS 5.1 language smoke test.
+          . (Join-Path $stage 'Utils\FilmGrain_Language.ps1')
+          $languages = @(Get-FgAvailableLanguages)
+          $codes = @($languages | ForEach-Object { [string]$_.Code })
+          if ($codes -notcontains 'zh-CN' -or $codes -notcontains 'en-US') {
+            throw ('Required languages missing: ' + ($codes -join ', '))
+          }
+
+          # Every GUI language key must exist in both language files.
+          $studioText = [System.IO.File]::ReadAllText((Join-Path $stage 'Utils\FilmGrain_Studio.ps1'))
+          $usedKeys = @([regex]::Matches($studioText, "\bL\s+'([^']+)'") | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
+          function Read-LangKeys([string]$Path) {
+            $keys = @{}
+            foreach ($line in [System.IO.File]::ReadAllLines($Path, [System.Text.Encoding]::UTF8)) {
+              $trim = $line.Trim()
+              if (-not $trim -or $trim.StartsWith('#') -or $trim.StartsWith(';')) { continue }
+              $eq = $line.IndexOf('=')
+              if ($eq -gt 0) { $keys[$line.Substring(0,$eq).Trim()] = $true }
+            }
+            return $keys
+          }
+          $zh = Read-LangKeys (Join-Path $stage 'Lang\zh-CN.ini')
+          $en = Read-LangKeys (Join-Path $stage 'Lang\en-US.ini')
+          $missingZh = @($usedKeys | Where-Object { -not $zh.ContainsKey($_) })
+          $missingEn = @($usedKeys | Where-Object { -not $en.ContainsKey($_) })
+          if ($missingZh.Count) { throw ('Missing zh-CN keys: ' + ($missingZh -join ', ')) }
+          if ($missingEn.Count) { throw ('Missing en-US keys: ' + ($missingEn -join ', ')) }
+
+          # PowerShell parse and forbidden quote checks.
+          Get-ChildItem -LiteralPath $stage -Recurse -Filter '*.ps1' -File | ForEach-Object {
+            $tokens = $null
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName,[ref]$tokens,[ref]$errors)
+            if ($errors.Count) {
+              throw ('PowerShell parse failed: ' + $_.FullName + ' :: ' + (($errors | ForEach-Object { $_.Message }) -join ' | '))
+            }
+            $text = [System.IO.File]::ReadAllText($_.FullName)
+            if ($text -match '[“”‘’]') { throw ('Curly quote found in ' + $_.FullName) }
+          }
+
+          # BAT/CMD/VBS: no UTF-8 BOM, CRLF, and no whitespace after caret continuation.
+          Get-ChildItem -LiteralPath $stage -Recurse -File |
+            Where-Object { $_.Extension.ToLowerInvariant() -in @('.bat','.cmd','.vbs') } |
+            ForEach-Object {
+              $bytes = [System.IO.File]::ReadAllBytes($_.FullName)
+              if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
+                throw ('UTF-8 BOM found in Windows script: ' + $_.FullName)
+              }
+              $raw = [System.Text.Encoding]::Default.GetString($bytes)
+              if ($raw -match '(?<!\r)\n') { throw ('LF-only newline found in Windows script: ' + $_.FullName) }
+              if ($_.Extension.ToLowerInvariant() -in @('.bat','.cmd')) {
+                $lines = [System.IO.File]::ReadAllLines($_.FullName,[System.Text.Encoding]::Default)
+                for ($i=0; $i -lt $lines.Length; $i++) {
+                  if ($lines[$i] -match '\^\s+$') {
+                    throw ('Caret trailing whitespace: ' + $_.FullName + ':' + ($i+1))
+                  }
+                }
+              }
+            }
+
+          if ($studioText -match 'I18N TEST|TEST P7L4N|TEST M5Q8T|TEST R4N8C|TEST K7M2Q') {
+            throw 'Formal GUI still contains a test-build marker.'
+          }
+
+          if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
+          Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip -CompressionLevel Optimal
+          $hash = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText($shaFile, ($hash + '  ' + [IO.Path]::GetFileName($zip) + "`r`n"), $utf8NoBom)
+
+          "FGS_RELEASE_TAG=$tag" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "FGS_RELEASE_ZIP=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "FGS_RELEASE_SHA=$shaFile" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Create GitHub Release
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$env:FGS_RELEASE_TAG" "$env:FGS_RELEASE_ZIP" "$env:FGS_RELEASE_SHA" --target "$env:GITHUB_SHA" --title "Film Grain Studio $env:FGS_RELEASE_TAG" --notes-file ".github/release/RELEASE_NOTES.md"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FilmGrain_Studio_v4.8.0_Stable
+          path: |
+            FilmGrain_Studio_v4.8.0_Stable.zip
+            FilmGrain_Studio_v4.8.0_Stable.zip.sha256
+          if-no-files-found: error
+
+      - name: Delete merged temporary branches
+        if: success()
+        shell: powershell
+        run: |
+          git push origin --delete test/i18n-v4.7.5-k7m2q 2>$null
+          if ($LASTEXITCODE -ne 0) { Write-Host 'test branch already absent or could not be deleted.' }
+          git push origin --delete release/v4.8.0 2>$null
+          if ($LASTEXITCODE -ne 0) { Write-Host 'release branch already absent or could not be deleted.' }

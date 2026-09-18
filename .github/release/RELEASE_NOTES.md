@@ -1,35 +1,52 @@
-# Film Grain Studio v4.7.5
+# Film Grain Studio v4.8.0
 
-v4.7.5 formalizes the user-tested **GPU Film Grain (FGSIM)** workflow while preserving the validated shader, Vulkan/libplacebo pipeline, and existing AV1/HEVC/x264 behavior.
+v4.8.0 adds a lightweight, file-based multilingual GUI layer while keeping the validated v4.7.5 encoding core unchanged.
 
-## Added and unified
+## Multilingual GUI
 
-- The UI now exposes one **GPU Film Grain (FGSIM)** mode instead of separate Light, Medium, and Heavy entries.
-- **Film Grain Strength** is the shared control for Digital Grain, Grain Plate, and FGSIM.
-- Internal FGSIM mapping remains unchanged: Light `0.10`, Medium `0.20`, and Heavy `0.30`.
-- In **HEVC + FGSIM**, the Video Bitrate selector adds two optional grain-oriented choices:
-  - Standard CQ27 / QP18-26
-  - High Quality CQ23 / QP18-24
-- Original automatic or manual **VBR remains the default**. CQ is intended as an optional remedy for clips that show banding.
-- The UI guidance is: `HEVC+FGSIM 模式下, 若画面出现色带，请在视频码率中尝试 Standard CQ27 或 High Quality CQ23 方案。`
+- Added **Simplified Chinese** and **English** interface languages.
+- UI text is stored separately in:
+  - `Lang/zh-CN.ini`
+  - `Lang/en-US.ini`
+- `Utils/FilmGrain_Language.ps1` handles UTF-8 language loading, fallback, available-language enumeration, and preference persistence.
+- The selected language is stored in `Lang/FilmGrain_Language.ini` and takes effect after reopening Film Grain Studio.
+- Simplified Chinese remains the default and fallback language.
 
-## Fixed
+## UI localization coverage
 
-- Fixed `Only one filter device can be used` when FGSIM and BWDIF Vulkan are enabled together.
-- BWDIF Vulkan and libplacebo now reuse the same `vk` filter device; no second `deintvk` device or `-filter_hw_device` is appended.
-- The fix covers the direct FGSIM HEVC, x264, and AV1 paths without rebuilding the validated filter chain.
+- Main window and Advanced Settings.
+- Encoder, FPS, framing, container, grain and other dynamically updated selectors.
+- Media information and AV1 Film Grain status display.
+- LUT, subtitle, path configuration, tooltips, common dialogs and runtime status text.
+- Dynamic text is translated at display time without changing validated internal state/protocol values.
 
-## Unchanged
+## Layout
 
-- AV1 routes and x264 Grain routes.
-- Normal HEVC VBR behavior.
-- Digital Grain and Grain Plate algorithms.
-- Output containers, AAC 256k, interpolation, LUT, HDR, subtitles, Cinematic Style, AV1 SFE, and Batch Summary behavior.
+- The existing Simplified Chinese layout remains unchanged at the validated ~1320 px client width.
+- English uses a wider 1500 px default window and 1420 px minimum width to prevent long labels from squeezing the HEVC/LUT panel or wrapping controls.
+- Window width can be defined per language file for future localizations.
+
+## Compatibility fixes
+
+- Fixed Windows PowerShell 5.1 language enumeration failure caused by returning `List[object]` through `return @($items)`; the loader now uses native PowerShell arrays.
+- Release validation includes a real WinPS 5.1 language-loader smoke test and verifies both `zh-CN` and `en-US` are available.
+- All language keys used by the GUI must exist in both language files.
+
+## Encoding core unchanged
+
+v4.8.0 does **not** change:
+
+- StudioBridge encoding logic.
+- AV1 / HEVC / x264 parameters or bitrate policy.
+- GPU Film Grain (FGSIM), Digital Grain, or Grain Plate algorithms.
+- HDR Preserve / HDR-to-SDR fallback.
+- LUT, OpenSVPFlow, deinterlace, subtitles, containers, or AAC 256k behavior.
+- The v4.7.5 HEVC + FGSIM VBR/CQ behavior and shared Vulkan filter-device fix.
 
 ## Validation
 
-- The final v4.7.5 build was tested successfully by the user.
-- The FGSIM shader, preparation script, and fallback-noise resource are preserved from the validated build.
-- The formal package is built on a **Windows Server 2022 runner** and rechecked after ZIP extraction.
-- BAT/VBS/CMD are CRLF with no BOM; PS1 files are UTF-8 BOM + CRLF. Curly quotes, full-width square brackets, caret trailing whitespace, and missing BAT labels are rejected.
-
+- Based on the user-verified `v4.7.5_I18N_TEST_P7L4N` build.
+- Formal package is built on a **Windows Server 2022 runner**.
+- PS1 files are packaged as UTF-8 BOM + CRLF.
+- Language INI files are UTF-8 without BOM + CRLF.
+- Windows batch safety, PowerShell parsing, curly-quote checks, language loading, and required-resource checks are enforced before release.

@@ -1,7 +1,7 @@
 ﻿Universal Film Grain Toolkit
 =============================
 
-当前正式稳定版：v4.7.5
+当前正式稳定版：v4.8.0
 
 版本与命名
 ----------
@@ -18,7 +18,12 @@ CHANGELOG.md
 README_FilmGrain_Studio.txt
 README_Toolkit.txt
 STABLE_BASELINE.txt
+Lang\
+    zh-CN.ini
+    en-US.ini
+    FilmGrain_Language.ini
 Utils\
+    FilmGrain_Language.ps1
     FilmGrain_Config.ps1
     FilmGrain_Config_Load.bat
     FilmGrain_Studio.ps1
@@ -68,6 +73,7 @@ GPU：NVIDIA GPU 自动探测（已验证 RTX 4080 与 T600 Laptop）
 FilmGrain_Universal_HEVC_AV1_CLI.bat
 
 功能：
+- v4.8.0：GUI 界面字符串外置到 Lang\zh-CN.ini / en-US.ini，新增右上角语言切换与中文 fallback；英文界面使用独立窗口宽度。多语言仅作用于 GUI 显示，不改变 GUI/CLI 共用的 StudioBridge 编码核心。
 - v4.7.5 统一 Digital Grain / Grain Plate / GPU Film Grain (FGSIM) 的 Film Grain Strength 交互；FGSIM 内部仍映射已经验证的 Light / Medium / Heavy 三档。
 - HEVC + FGSIM 的视频码率可选 Standard CQ27 / QP18-26 或 High Quality CQ23 / QP18-24，默认仍按原逻辑使用自动或手动 VBR。若画面出现色带，可按界面提示尝试 CQ 方案。
 - FGSIM + BWDIF Vulkan 统一复用 vk filter device，修复双设备冲突；其它编码路线与已验证流程保持不变。

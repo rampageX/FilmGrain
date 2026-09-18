@@ -1,7 +1,7 @@
 ﻿Film Grain Studio - 使用说明
 ============================
 
-当前正式稳定版：v4.7.5
+当前正式稳定版：v4.8.0
 
 这是 Universal Film Grain Toolkit 的图形前端。
 CLI 与 GUI Bridge 共享同一套编码逻辑，并分别提供交互菜单和图形界面。
@@ -17,6 +17,7 @@ Studio 打开后会自动加入文件列表。
 初版已实现
 ----------
 - 多视频添加、拖放、移除和清空。
+- v4.8.0 新增简体中文 / English 多语言界面：主界面、动态下拉框、媒体信息、Tooltip、字幕、路径配置及常用提示均由 Lang 语言文件驱动；右上角切换语言后重新打开 GUI 生效。中文保持原布局，英文使用更宽的默认窗口以避免控件被压缩。
 - v4.7.5 将 Digital Grain、Grain Plate 与 GPU Film Grain (FGSIM) 统一使用 Film Grain Strength 滑杆；FGSIM 内部继续映射已经验证的 Light / Medium / Heavy 三档，不调整核心算法与颗粒效果。
 - HEVC + FGSIM 的“视频码率”下拉框提供 Standard CQ27 / QP18-26 与 High Quality CQ23 / QP18-24；默认仍沿用原有自动或手动 VBR。提示：HEVC+FGSIM 模式下, 若画面出现色带，请在视频码率中尝试 Standard CQ27 或 High Quality CQ23 方案。
 - v4.7.5 修复 FGSIM + BWDIF Vulkan 重复指定 filter device 的错误，两者统一复用 vk；AV1、x264 Grain、普通 HEVC VBR、输出容器、AAC 256k、插帧、LUT 与 HDR 流程不变。
@@ -100,6 +101,9 @@ Utils\FilmGrain_Config.ps1 / FilmGrain_Config_Load.bat
 
 Utils\FilmGrain_Studio.ps1
     WinForms 图形界面。
+
+Utils\FilmGrain_Language.ps1 + Lang\zh-CN.ini / en-US.ini
+    GUI 多语言加载层与语言资源；Lang\FilmGrain_Language.ini 保存当前语言选择。
 
 Utils\FilmGrain_Studio_Launcher.vbs
     无控制台启动器；异步启动 WinForms 后立即退出，不保留 CMD 任务栏窗口。
