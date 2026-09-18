@@ -1,37 +1,25 @@
 ﻿Film Grain Studio formal stable baseline
 
 Baseline:
-v4.8.0
+v4.8.1
 
 Supersedes:
-v4.7.5
+v4.8.0
 
 Formal release:
-FilmGrain_Studio_v4.8.0_Stable.zip
+FilmGrain_Studio_v4.8.1_Stable.zip
 
-v4.8.0 major additions:
-- Simplified Chinese / English GUI localization through Lang\zh-CN.ini and Lang\en-US.ini.
-- Lightweight Utils\FilmGrain_Language.ps1 loader with zh-CN fallback and persisted language selection.
-- Dynamic UI strings, media information, tooltips, subtitle/configuration dialogs and common runtime messages are localized.
-- Internal encoder/config/CLI identifiers remain stable and language-independent.
-- English uses a wider language-specific startup/minimum window size; Chinese retains the validated original layout.
-- Windows PowerShell 5.1 language enumeration compatibility is validated during release packaging.
+Release scope:
+- Documentation and release-presentation update based on the complete v4.8.0 functional baseline.
+- README.md is the current product / function / usage guide.
+- CHANGELOG.md is the formal version-history record.
+- GitHub Release notes use Chinese and follow the README product-documentation style.
 
-Unchanged encoding core:
-- StudioBridge and AV1 / HEVC / x264 encoding logic.
-- GPU Film Grain (FGSIM), Digital Grain and Grain Plate processing.
-- HDR Preserve / HDR-to-SDR fallback, LUT, OpenSVPFlow, deinterlace, bitrate policy, containers and AAC 256k.
-
-Inherited from v4.7.5:
-- Unified Film Grain Strength control for Digital Grain / Grain Plate / FGSIM.
-- Optional HEVC + FGSIM Standard CQ27 and High Quality CQ23 remedies while VBR remains default.
-- FGSIM + BWDIF Vulkan shared vk filter-device fix.
-- All prior stable Film Grain Studio functionality.
+Encoding core:
+- Unchanged from v4.8.0.
+- StudioBridge, AV1 / HEVC / x264, FGSIM, Digital Grain, Grain Plate, HDR, LUT, OpenSVPFlow, deinterlace, bitrate policy, subtitles, containers and AAC 256k remain on the verified v4.8.0 logic.
 
 Release cleanup:
-- No Beta / TEST suffix in GUI version or formal filename.
-- No temporary test workflow/package files.
-- No Utils\_HardwareCaps.json.
-- No _LUT_Tools\LUT_Reference_Current.jpg.
-- No user OpenSVPFlow DLL/version state or _PluginBackup.
-- GUI status version is v4.8.0.
+- GUI status version is v4.8.1.
+- Formal package name is FilmGrain_Studio_v4.8.1_Stable.zip.
+- No TEST / Beta suffixes or temporary release-preparation files.
