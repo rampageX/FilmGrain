@@ -783,7 +783,7 @@ $statusVersion = New-Object System.Windows.Forms.ToolStripStatusLabel
 $statusVersion.Spring = $false
 $statusVersion.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
 $statusVersion.ForeColor = $ColorMuted
-$statusVersion.Text = 'v4.7.5 I18N TEST R4N8C'
+$statusVersion.Text = 'v4.7.5 I18N TEST M5Q8T'
 $statusVersion.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 12, 0, 0, 0
 [void]$statusStrip.Items.Add($statusVersion)
 
@@ -845,7 +845,7 @@ $cmbLanguage.Add_SelectedIndexChanged({
 
 $btnConfig = New-Object System.Windows.Forms.Button
 $btnConfig.Text = L 'button.config'
-$btnConfig.Size = New-Object System.Drawing.Size -ArgumentList 76, 30
+$btnConfig.Size = New-Object System.Drawing.Size -ArgumentList 92, 30
 $btnConfig.Anchor = 'Top,Right'
 $btnConfig.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
 $btnConfig.FlatAppearance.BorderColor = [System.Drawing.Color]::FromArgb(110, 126, 145)
@@ -856,7 +856,7 @@ $btnConfig.Location = New-Object System.Drawing.Point -ArgumentList 1158, 19
 
 $btnAdvanced = New-Object System.Windows.Forms.Button
 $btnAdvanced.Text = L 'button.advanced'
-$btnAdvanced.Size = New-Object System.Drawing.Size -ArgumentList 76, 30
+$btnAdvanced.Size = New-Object System.Drawing.Size -ArgumentList 92, 30
 $btnAdvanced.Anchor = 'Top,Right'
 $btnAdvanced.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
 $btnAdvanced.FlatAppearance.BorderColor = [System.Drawing.Color]::FromArgb(110, 126, 145)
@@ -1029,7 +1029,7 @@ $chkBitrateAuto.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 3
 $chkUploadHighMotion = New-Object System.Windows.Forms.CheckBox
 $chkUploadHighMotion.Text = L 'encode.high_motion'
 $chkUploadHighMotion.Checked = $false
-$chkUploadHighMotion.AutoSize = $true
+$chkUploadHighMotion.AutoSize = $false
 $chkUploadHighMotion.Dock = 'Fill'
 $chkUploadHighMotion.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 3, 7, 3, 3
 
@@ -1048,7 +1048,7 @@ $bitrateColAuto.Width = 62
 [void]$bitratePanel.ColumnStyles.Add($bitrateColAuto)
 $bitrateColMotion = New-Object System.Windows.Forms.ColumnStyle
 $bitrateColMotion.SizeType = [System.Windows.Forms.SizeType]::Absolute
-$bitrateColMotion.Width = 82
+$bitrateColMotion.Width = 106
 [void]$bitratePanel.ColumnStyles.Add($bitrateColMotion)
 [void]$bitratePanel.Controls.Add($cmbBitrate, 0, 0)
 [void]$bitratePanel.Controls.Add($chkBitrateAuto, 1, 0)
@@ -1559,7 +1559,7 @@ function Update-FgsimControls {
     try {
         $av1 = ($cmbCodec.SelectedIndex -eq 0 -or $cmbCodec.SelectedIndex -eq 3)
         $kind = Get-VisibleGrainKind
-        $modeItems = if ($av1) { @('胶片预设（推荐）','感光度 ISO（高级）','现成 Grain Table（影视 / Photon）','Digital Grain','GPU Film Grain (FGSIM)') } else { @('Digital Grain','Grain Plate','GPU Film Grain (FGSIM)') }
+        $modeItems = if ($av1) { @((L 'grain.mode.film'),(L 'grain.mode.iso'),(L 'grain.mode.table'),(L 'grain.mode.digital'),(L 'grain.mode.fgsim')) } else { @((L 'grain.mode.digital'),(L 'grain.mode.plate'),(L 'grain.mode.fgsim')) }
         if (($cmbGrainMode.Items -join '|') -ne ($modeItems -join '|')) {
             $cmbGrainMode.Items.Clear()
             $cmbGrainMode.Items.AddRange([object[]]$modeItems)
@@ -1666,7 +1666,7 @@ $lutTable.ColumnCount = 3
 $lutTable.RowCount = 5
 $lutCol1 = New-Object System.Windows.Forms.ColumnStyle
 $lutCol1.SizeType = [System.Windows.Forms.SizeType]::Absolute
-$lutCol1.Width = 88
+$lutCol1.Width = 108
 [void]$lutTable.ColumnStyles.Add($lutCol1)
 $lutCol2 = New-Object System.Windows.Forms.ColumnStyle
 $lutCol2.SizeType = [System.Windows.Forms.SizeType]::Percent
@@ -3348,7 +3348,7 @@ function Update-DeinterlaceUi {
     $auto = ($cmbDeint.SelectedIndex -eq 0)
     $cmbDeintMethod.Enabled = $auto
 
-    $autoText = '自动（隔行→双帧率，如 29.97i → 59.94p）'
+    $autoText = L 'fps.auto_interlaced'
     if ($auto) {
         $isConfirmedInterlaced = $false
         $selected = @($listFiles.SelectedItems)
@@ -3362,7 +3362,7 @@ function Update-DeinterlaceUi {
                     $srcFps = Format-MediaFps $meta.avg_frame_rate
                     $dstFps = Get-DoubleFpsDisplay ([string]$meta.avg_frame_rate)
                     if ($srcFps -and $srcFps -ne '—' -and $dstFps) {
-                        $autoText = "自动（${srcFps}i → ${dstFps}p）"
+                        $autoText = ((L 'fps.auto_detected') -f $srcFps,$dstFps)
                     }
                 }
             }
@@ -3373,11 +3373,11 @@ function Update-DeinterlaceUi {
             $cmbFps.SelectedIndex = 0
             $cmbFps.Enabled = $false
         } else {
-            if ($cmbFps.Items.Count -gt 0) { $cmbFps.Items[0] = '自动电影帧率 · VFR 兼容（默认）' }
+            if ($cmbFps.Items.Count -gt 0) { $cmbFps.Items[0] = L 'fps.auto_film' }
             $cmbFps.Enabled = $true
         }
     } else {
-        if ($cmbFps.Items.Count -gt 0) { $cmbFps.Items[0] = '自动电影帧率 · VFR 兼容（默认）' }
+        if ($cmbFps.Items.Count -gt 0) { $cmbFps.Items[0] = L 'fps.auto_film' }
         $cmbFps.Enabled = $true
     }
 }
@@ -3451,7 +3451,7 @@ function Update-InterpolationUi {
         if ($cmbDeint.SelectedIndex -ne 0) { $cmbDeint.SelectedIndex = 0 }
         $cmbDeint.Enabled = $false
         $cmbDeintMethod.Enabled = $true
-        if ($cmbFps.Items.Count -gt 0) { $cmbFps.Items[0] = 'OpenSVPFlow 60 fps · 隔行素材自动改走双帧率反交错' }
+        if ($cmbFps.Items.Count -gt 0) { $cmbFps.Items[0] = L 'fps.interpolation' }
         $cmbFps.SelectedIndex = 0
         $cmbFps.Enabled = $false
 
@@ -3481,12 +3481,12 @@ function Update-FramingUi {
 
         if ($customCrop -gt 0) {
             $chkCinematic.Text = ((L 'cinematic.custom') -f $customCrop)
-            $letterboxText = "加黑边 · 上下各 ${customCrop} px · 保留原分辨率"
-            $cropText = "裁剪 · 上下各 ${customCrop} px"
+            $letterboxText = ((L 'cinematic.letterbox_custom') -f $customCrop)
+            $cropText = ((L 'cinematic.crop_custom') -f $customCrop)
         } else {
             $chkCinematic.Text = L 'cinematic.enable'
-            $letterboxText = '加黑边 · 保留原分辨率（推荐后期字幕）'
-            $cropText = '裁剪 · 输出有效 2.39:1 画面'
+            $letterboxText = L 'cinematic.letterbox'
+            $cropText = L 'cinematic.crop'
         }
 
         if ($cmbFrameMode.Items.Count -gt 0 -and [string]$cmbFrameMode.Items[0] -ne $letterboxText) {
@@ -3538,8 +3538,8 @@ function Update-CodecUi {
     if ($newIndex -eq 3) {
         $script:NoReencodeUiActive = $true
         if ($cmbContainer.Items.Count -ge 2) {
-            $cmbContainer.Items[0] = 'MP4 · AAC 256k（兼容模式）'
-            $cmbContainer.Items[1] = 'MKV · 保留原始流（推荐）'
+            $cmbContainer.Items[0] = L 'container.mp4_compat'
+            $cmbContainer.Items[1] = L 'container.mkv_recommended'
         }
         $pnlHevc.Visible = $false
         $pnlAv1.Visible = $true
@@ -3576,8 +3576,8 @@ function Update-CodecUi {
     if ($script:NoReencodeUiActive) {
         $script:NoReencodeUiActive = $false
         if ($cmbContainer.Items.Count -ge 2) {
-            $cmbContainer.Items[0] = 'MP4 · AAC 256k（默认）'
-            $cmbContainer.Items[1] = 'MKV · 保留原始流'
+            $cmbContainer.Items[0] = L 'container.mp4'
+            $cmbContainer.Items[1] = L 'container.mkv'
         }
         $cmbContainer.Enabled = $true
         $cmbSpeed.Enabled = $true
