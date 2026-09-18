@@ -20,7 +20,7 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $name = 'FilmGrain_Studio_v4.7.5_I18N_TEST_K7M2Q'
+          $name = 'FilmGrain_Studio_v4.7.5_I18N_TEST_R4N8C'
           $stage = Join-Path $env:RUNNER_TEMP $name
           $zip = Join-Path $env:GITHUB_WORKSPACE ($name + '.zip')
 
@@ -78,6 +78,26 @@ jobs:
             if (-not (Test-Path -LiteralPath (Join-Path $stage $rel) -PathType Leaf)) { throw "Required file missing: $rel" }
           }
 
+          # Windows PowerShell 5.1 smoke test for the language loader.
+          $languageLoader = Join-Path $stage 'Utils\FilmGrain_Language.ps1'
+          . $languageLoader
+          $languages = @(Get-FgAvailableLanguages)
+          if ($languages.Count -lt 2) { throw "Language enumeration returned fewer than 2 languages." }
+          $languageCodes = @($languages | ForEach-Object { [string]$_.Code })
+          if ($languageCodes -notcontains 'zh-CN' -or $languageCodes -notcontains 'en-US') {
+            throw ('Language enumeration missing required locale: ' + ($languageCodes -join ', '))
+          }
+
+          # Parse all staged PS1 files with Windows PowerShell before packaging.
+          Get-ChildItem -LiteralPath $stage -Recurse -Filter '*.ps1' -File | ForEach-Object {
+            $tokens = $null
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors)
+            if ($errors.Count -gt 0) {
+              throw ('PowerShell parse failed: ' + $_.FullName + ' :: ' + (($errors | ForEach-Object { $_.Message }) -join ' | '))
+            }
+          }
+
           if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
           Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip -CompressionLevel Optimal
 
@@ -87,8 +107,8 @@ jobs:
       - name: Upload test package
         uses: actions/upload-artifact@v4
         with:
-          name: FilmGrain_Studio_v4.7.5_I18N_TEST_K7M2Q
+          name: FilmGrain_Studio_v4.7.5_I18N_TEST_R4N8C
           path: |
-            FilmGrain_Studio_v4.7.5_I18N_TEST_K7M2Q.zip
-            FilmGrain_Studio_v4.7.5_I18N_TEST_K7M2Q.zip.sha256
+            FilmGrain_Studio_v4.7.5_I18N_TEST_R4N8C.zip
+            FilmGrain_Studio_v4.7.5_I18N_TEST_R4N8C.zip.sha256
           if-no-files-found: error
