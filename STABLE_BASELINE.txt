@@ -1,32 +1,37 @@
 ﻿Film Grain Studio formal stable baseline
 
 Baseline:
-v4.7.5
+v4.8.0
 
 Supersedes:
-v4.7.0
+v4.7.5
 
 Formal release:
-FilmGrain_Studio_v4.7.5_Stable.zip
+FilmGrain_Studio_v4.8.0_Stable.zip
 
-v4.7.5 major additions:
-- Digital Grain, Grain Plate and GPU Film Grain (FGSIM) share the Film Grain Strength control.
-- FGSIM retains its validated Light / Medium / Heavy preset mapping and unchanged shader/filter pipeline.
-- HEVC + FGSIM adds optional Standard CQ27 / QP18-26 and High Quality CQ23 / QP18-24 entries to the video bitrate selector.
-- Original automatic or manual VBR remains the default; CQ is an optional remedy when banding appears.
-- FGSIM and BWDIF Vulkan reuse the same vk filter device, fixing the duplicate filter device failure.
-- AV1, x264 Grain, normal HEVC VBR, Digital Grain, Grain Plate, containers, AAC 256k, interpolation, LUT and HDR workflows remain unchanged.
+v4.8.0 major additions:
+- Simplified Chinese / English GUI localization through Lang\zh-CN.ini and Lang\en-US.ini.
+- Lightweight Utils\FilmGrain_Language.ps1 loader with zh-CN fallback and persisted language selection.
+- Dynamic UI strings, media information, tooltips, subtitle/configuration dialogs and common runtime messages are localized.
+- Internal encoder/config/CLI identifiers remain stable and language-independent.
+- English uses a wider language-specific startup/minimum window size; Chinese retains the validated original layout.
+- Windows PowerShell 5.1 language enumeration compatibility is validated during release packaging.
 
-Inherited from v4.7.0:
-- Digital Grain / Fast Noise across AV1, HEVC and x264 main lines.
-- AV1 / HEVC HDR Preserve and HDR-to-SDR Tone Mapping fallback.
-- Windows packaging compatibility rules and release validation.
-- LUT Gallery, AV1 SFE, OpenSVPFlow updater, H.264 upload bitrate fix, Batch Summary and all prior stable functionality.
+Unchanged encoding core:
+- StudioBridge and AV1 / HEVC / x264 encoding logic.
+- GPU Film Grain (FGSIM), Digital Grain and Grain Plate processing.
+- HDR Preserve / HDR-to-SDR fallback, LUT, OpenSVPFlow, deinterlace, bitrate policy, containers and AAC 256k.
+
+Inherited from v4.7.5:
+- Unified Film Grain Strength control for Digital Grain / Grain Plate / FGSIM.
+- Optional HEVC + FGSIM Standard CQ27 and High Quality CQ23 remedies while VBR remains default.
+- FGSIM + BWDIF Vulkan shared vk filter-device fix.
+- All prior stable Film Grain Studio functionality.
 
 Release cleanup:
-- No temporary patch / hotfix / test files.
+- No Beta / TEST suffix in GUI version or formal filename.
+- No temporary test workflow/package files.
 - No Utils\_HardwareCaps.json.
 - No _LUT_Tools\LUT_Reference_Current.jpg.
 - No user OpenSVPFlow DLL/version state or _PluginBackup.
-- No Recent / Favorites / Smart Filter CSV user state.
-- GUI status version is v4.7.5 with no Beta / TEST suffix.
+- GUI status version is v4.8.0.

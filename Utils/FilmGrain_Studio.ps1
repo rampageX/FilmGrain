@@ -792,7 +792,7 @@ $statusVersion = New-Object System.Windows.Forms.ToolStripStatusLabel
 $statusVersion.Spring = $false
 $statusVersion.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
 $statusVersion.ForeColor = $ColorMuted
-$statusVersion.Text = 'v4.7.5 I18N TEST P7L4N'
+$statusVersion.Text = 'v4.8.0'
 $statusVersion.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 12, 0, 0, 0
 [void]$statusStrip.Items.Add($statusVersion)
 
