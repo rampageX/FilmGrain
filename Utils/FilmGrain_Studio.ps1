@@ -632,7 +632,7 @@ function Initialize-HardwareCaps {
     $script:Av1Available = $true
     $script:Av1UhqAvailable = $false
     $script:SfeMaxEngines = 1
-    $script:Grav1synthVersion = '未检测'
+    $script:Grav1synthVersion = L 'hardware.not_detected'
     $script:Grav1synthSfeCompatible = $false
     $script:HevcAvailable = $true
     $script:X264Available = $true
@@ -679,7 +679,7 @@ function Initialize-HardwareCaps {
         $script:Av1Available = $true
         $script:Av1UhqAvailable = $false
         $script:SfeMaxEngines = 1
-        $script:Grav1synthVersion = '未检测'
+        $script:Grav1synthVersion = L 'hardware.not_detected'
         $script:Grav1synthSfeCompatible = $false
         $script:HevcAvailable = $true
         $script:X264Available = $true
@@ -1627,7 +1627,7 @@ $cmbGrainMode.Add_SelectedIndexChanged({
                 $plateIndex = if ($cmbGrainPlateFile.SelectedIndex -ge 0) { $cmbGrainPlateFile.SelectedIndex + 5 } else { 5 }
                 if ($plateIndex -ge $script:HevcGrainFiles.Count) { $plateIndex = 5 }
                 $cmbHevcPlate.SelectedIndex = $plateIndex
-            } else { Show-Error '未找到 Grain Plate，请先在配置中设置颗粒根目录。' }
+            } else { Show-Error (L 'error.grain_plate_missing') }
         }
     } finally { $script:UpdatingProcStrengthUi = $false }
     Update-FgsimControls
@@ -4132,11 +4132,11 @@ function Register-FavoriteLutRecentUse {
 
 function Open-LutGallery {
     if (-not (Test-Path -LiteralPath $LutSelector)) {
-        Show-Error "找不到 LUT 图库：`r`n$LutSelector`r`n`r`n请保持 Utils 与 _LUT_Tools 文件夹的相对位置不变。"
+        Show-Error ((L 'error.lut_gallery_missing') -f $LutSelector)
         return
     }
     if (-not (Test-Path -LiteralPath $LutRoot)) {
-        Show-Error "LUT 根目录不存在：`r`n$LutRoot"
+        Show-Error ((L 'error.lut_root_missing') -f $LutRoot)
         return
     }
 
@@ -4168,11 +4168,11 @@ function Open-LutGallery {
         } elseif ($rc -ne 11) {
             $detail = $galleryError.Trim()
             if ($detail.Length -gt 2000) { $detail = $detail.Substring(0, 2000) }
-            if ($detail) { Show-Error "LUT 图库启动失败，返回代码：$rc`r`n`r`n$detail" }
-            else { Show-Error "LUT 图库启动失败，返回代码：$rc；未返回错误详情。" }
+            if ($detail) { Show-Error ((L 'error.lut_gallery_failed') -f $rc,$detail) }
+            else { Show-Error ((L 'error.lut_gallery_failed_no_detail') -f $rc) }
         }
     } catch {
-        Show-Error ("打开 LUT 图库失败：`r`n" + $_.Exception.Message)
+        Show-Error ((L 'error.lut_gallery_open_failed') -f $_.Exception.Message)
     } finally {
         if (Test-Path -LiteralPath $pick) { Remove-Item -LiteralPath $pick -Force -ErrorAction SilentlyContinue }
         Refresh-RecentLuts
@@ -4417,40 +4417,40 @@ function Quote-CmdArgument {
 
 function Start-NoReencodeProcessing {
     if ($cmbAv1Method.SelectedIndex -ge 3) {
-        Show-Error '数字颗粒属于像素烘焙，需要重编码；AV1 不重编码模式仅支持原有元数据颗粒。'
+        Show-Error (L 'error.digital_requires_encode')
         return
     }
 
     $paths = @(Get-InputPaths)
     if ($paths.Count -ne 1) {
-        Show-Error '「AV1 不重编码 · 添加/替换胶片颗粒」当前仅支持单个 AV1 输入文件。'
+        Show-Error (L 'error.no_reencode_single')
         return
     }
     $path = [string]$paths[0]
     $key = $path.ToLowerInvariant()
     if (-not $script:ProbeVideoMeta.ContainsKey($key) -or ([string]$script:ProbeVideoMeta[$key].codec_name).ToLowerInvariant() -ne 'av1') {
-        Show-Error '当前文件未确认是 AV1，请重新选择文件并等待媒体信息读取完成。'
+        Show-Error (L 'error.not_confirmed_av1')
         return
     }
     if (-not (Test-Path -LiteralPath $NoReencodeBat -PathType Leaf)) {
-        Show-Error "找不到 AV1 无重编码工具：`r`n$NoReencodeBat"
+        Show-Error ((L 'error.no_reencode_tool_missing') -f $NoReencodeBat)
         return
     }
     if (-not (Test-Path -LiteralPath $Grav1synth -PathType Leaf)) {
-        Show-Error "找不到 grav1synth：`r`n$Grav1synth"
+        Show-Error ((L 'error.grav_missing') -f $Grav1synth)
         return
     }
 
     $selectedAv1GrainTable = ''
     if ($cmbAv1Method.SelectedIndex -eq 2) {
         if ($script:Av1GrainTableFiles.Count -eq 0 -or $cmbAv1GrainTable.SelectedIndex -lt 0 -or $cmbAv1GrainTable.SelectedIndex -ge $script:Av1GrainTableFiles.Count) {
-            Show-Error '当前没有可用的 Grain Table。请将 .tbl / .txt Grain Table 放入项目根目录 _AV1_Grain_Tables 的对应分辨率目录后点击刷新。'
+            Show-Error (L 'error.no_grain_table')
             return
         }
         $selectedAv1GrainTable = [string]$script:Av1GrainTableFiles[$cmbAv1GrainTable.SelectedIndex]
         if (-not (Test-Path -LiteralPath $selectedAv1GrainTable -PathType Leaf)) {
             Refresh-Av1GrainTables
-            Show-Error '所选 Grain Table 已不存在，请刷新后重新选择。'
+            Show-Error (L 'error.grain_table_missing')
             return
         }
     }
@@ -4532,7 +4532,7 @@ function Start-NoReencodeProcessing {
         $script:ErrorReadTask = $null
         $script:OutputStreamClosed = $true
         $script:ErrorStreamClosed = $true
-        Show-Error ("启动 AV1 无重编码任务失败：`r`n" + $_.Exception.Message)
+        Show-Error ((L 'error.no_reencode_start_failed') -f $_.Exception.Message)
     }
 }
 
@@ -4543,7 +4543,7 @@ function Start-Encoding {
     }
 
     if (-not (Test-Path -LiteralPath $CoreBat)) {
-        Show-Error "找不到 Studio 桥接核心：`r`n$CoreBat"
+        Show-Error ((L 'error.bridge_missing') -f $CoreBat)
         return
     }
 
@@ -4560,20 +4560,20 @@ function Start-Encoding {
         Update-HardwareProfileUi
         Update-SfeUi
         if (-not $script:OpenSvpAvailable) {
-            Show-Error "OpenSVPFlow GPU 运行库尚未通过能力检测。`r`n`r`n请先运行：`r`n$OpenSvpSetupBat`r`n`r`n安装完成后重新启动 Film Grain Studio。"
+            Show-Error ((L 'error.svp_runtime') -f $OpenSvpSetupBat)
             return
         }
     }
 
     $paths = @(Get-InputPaths)
     if ($paths.Count -eq 0) {
-        Show-Info '请先添加至少一个视频文件。'
+        Show-Info (L 'info.add_video')
         return
     }
 
     $bitrate = 0L
     if (-not [long]::TryParse((Get-EncodingBitrateText), [ref]$bitrate) -or $bitrate -le 10 -or $bitrate -gt 500000000) {
-        Show-Error '视频码率必须是大于 10 且不超过 500000000 的整数（单位 kbps）。'
+        Show-Error (L 'error.bitrate_invalid')
         return
     }
     $bitrateAuto = [bool]$script:ModeBitrateAuto[$cmbCodec.SelectedIndex]
@@ -4584,49 +4584,49 @@ function Start-Encoding {
     $uploadBitrateAuto = [bool]$script:UploadBitrateAuto
     if ($cmbCodec.SelectedIndex -ne 2 -and $chkUpload.Checked) {
         if (-not [long]::TryParse($cmbUploadBitrate.Text.Trim(), [ref]$uploadBitrate) -or $uploadBitrate -le 10 -or $uploadBitrate -gt 500000000) {
-            Show-Error 'H.264 上传版码率必须是大于 10 且不超过 500000000 的整数（单位 kbps）。'
+            Show-Error (L 'error.upload_bitrate_invalid')
             return
         }
     }
 
     if ($chkLut.Checked) {
         if (-not $script:SelectedLutPath) {
-            Show-Info '已启用 LUT，但尚未选择 LUT。请先打开 LUT Gallery。'
+            Show-Info (L 'info.lut_not_selected')
             return
         }
         if (-not (Test-Path -LiteralPath $script:SelectedLutPath)) {
-            Show-Error "所选 LUT 已不存在：`r`n$script:SelectedLutPath"
+            Show-Error ((L 'error.selected_lut_missing') -f $script:SelectedLutPath)
             return
         }
     }
 
     $mode = if ($cmbCodec.SelectedIndex -eq 0) { 'AV1' } elseif ($cmbCodec.SelectedIndex -eq 1) { 'HEVC' } else { 'X264' }
     if ($script:HardwareCapsReady -and $mode -eq 'AV1' -and -not $script:Av1Available) {
-        Show-Error '当前 GPU / 驱动不支持 AV1 Main10 NVENC。请改用可用的 HEVC 或 H.264 x264 Grain。'
+        Show-Error (L 'error.av1_unavailable')
         return
     }
     if ($script:HardwareCapsReady -and $mode -eq 'HEVC' -and -not $script:HevcAvailable) {
-        Show-Error '当前 GPU / 驱动不支持本项目所需的 HEVC Main10 NVENC + Vulkan 路径。'
+        Show-Error (L 'error.hevc_unavailable')
         return
     }
     if ($script:HardwareCapsReady -and $mode -eq 'X264' -and -not $script:X264Available) {
-        Show-Error '当前环境没有通过 x264 Grain 主线能力检测（Vulkan + libx264 + tune grain），无法启动 H.264 x264 Grain。'
+        Show-Error (L 'error.x264_unavailable')
         return
     }
     if ($mode -ne 'X264' -and $cmbSpeed.SelectedIndex -eq 2 -and ($mode -ne 'AV1' -or -not $script:Av1UhqAvailable)) {
-        Show-Error '当前 GPU / 驱动 / FFmpeg 不支持 AV1 UHQ，请选择 FAST 或 Standard。'
+        Show-Error (L 'error.uhq_unavailable')
         return
     }
     $selectedAv1GrainTable = ''
     if ($mode -eq 'AV1' -and $cmbAv1Method.SelectedIndex -eq 2) {
         if ($script:Av1GrainTableFiles.Count -eq 0 -or $cmbAv1GrainTable.SelectedIndex -lt 0 -or $cmbAv1GrainTable.SelectedIndex -ge $script:Av1GrainTableFiles.Count) {
-            Show-Error '当前没有可用的 Grain Table。请将 .tbl / .txt Grain Table 放入项目根目录 _AV1_Grain_Tables 的对应分辨率目录后点击刷新。'
+            Show-Error (L 'error.no_grain_table')
             return
         }
         $selectedAv1GrainTable = [string]$script:Av1GrainTableFiles[$cmbAv1GrainTable.SelectedIndex]
         if (-not (Test-Path -LiteralPath $selectedAv1GrainTable -PathType Leaf)) {
             Refresh-Av1GrainTables
-            Show-Error '所选 Grain Table 已不存在，请刷新后重新选择。'
+            Show-Error (L 'error.grain_table_missing')
             return
         }
     }
@@ -4640,7 +4640,7 @@ function Start-Encoding {
             Refresh-HevcGrainPlates
         }
         if ($script:HevcGrainFiles.Count -lt 2 -or $cmbHevcPlate.SelectedIndex -lt 0 -or $cmbHevcPlate.SelectedIndex -ge $script:HevcGrainFiles.Count) {
-            Show-Error '当前没有可用的颗粒选项。'
+            Show-Error (L 'error.no_grain_option')
             return
         }
         $selectedGrainPath = [string]$script:HevcGrainFiles[$cmbHevcPlate.SelectedIndex]
@@ -4655,7 +4655,7 @@ function Start-Encoding {
         } else {
             if (-not (Test-Path -LiteralPath $selectedGrainPath -PathType Leaf)) {
                 Refresh-HevcGrainPlates
-                Show-Error '所选扫描颗粒片已不存在，请刷新后重新选择。'
+                Show-Error (L 'error.selected_plate_missing')
                 return
             }
         }
@@ -4901,7 +4901,7 @@ function Start-Encoding {
         $script:ErrorReadTask = $null
         $script:OutputStreamClosed = $true
         $script:ErrorStreamClosed = $true
-        Show-Error ("启动编码任务失败：`r`n" + $_.Exception.Message)
+        Show-Error ((L 'error.encode_start_failed') -f $_.Exception.Message)
     }
 }
 
@@ -4913,8 +4913,8 @@ function Stop-Encoding {
 
     $answer = [System.Windows.Forms.MessageBox]::Show(
         $form,
-        "确定取消当前任务？`r`n`r`n强制停止后，可能保留未完成输出或 AV1 临时目录。",
-        '取消胶片颗粒任务',
+        (L 'cancel.encode_confirm'),
+        (L 'cancel.encode_title'),
         [System.Windows.Forms.MessageBoxButtons]::YesNo,
         [System.Windows.Forms.MessageBoxIcon]::Warning
     )
@@ -5559,7 +5559,7 @@ function Show-PathConfigurationDialog {
         $script:Av1Available = $true
         $script:Av1UhqAvailable = $false
         $script:SfeMaxEngines = 1
-        $script:Grav1synthVersion = '未检测'
+        $script:Grav1synthVersion = L 'hardware.not_detected'
         $script:Grav1synthSfeCompatible = $false
         $script:HevcAvailable = $true
         if ($ffmpegState.Valid -and $ffmpegState.LastDir -eq [string]$script:PathConfig.FFMPEG_DIR) {
