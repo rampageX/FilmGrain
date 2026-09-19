@@ -44,7 +44,7 @@ FilmGrain_Universal_HEVC_AV1_GUI.bat
 基本流程：
 
 1. 添加或拖入一个或多个视频。
-2. 选择 AV1、HEVC 或 H.264 x264 Grain。
+2. 编码方式选择 AV1、HEVC 或 x264；颗粒方式在下方独立选择。
 3. 选择 Film Grain 方式、输出容器、码率、输出帧率和反交错方式。
 4. 按需启用 Cinematic Style、LUT、字幕、OpenSVPFlow、HDR 处理等功能。
 5. 点击“开始编码”。
