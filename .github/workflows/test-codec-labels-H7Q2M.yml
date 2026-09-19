@@ -19,7 +19,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Validate codec labels and scripts
-        shell: powershell
+        shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
 
@@ -74,6 +74,17 @@ jobs:
           }
 
           if ($studio -match '[“”‘’]') { throw 'Curly quote found in FilmGrain_Studio.ps1' }
+
+      - name: Validate Studio with Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tokens = $null
+          $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile('Utils\FilmGrain_Studio.ps1',[ref]$tokens,[ref]$errors)
+          if ($errors.Count) {
+            throw ('Windows PowerShell 5.1 parse failed: ' + (($errors | ForEach-Object { $_.Message }) -join ' | '))
+          }
 
       - name: Build test package
         id: build
