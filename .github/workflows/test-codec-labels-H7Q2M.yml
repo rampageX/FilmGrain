@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - test/v4.8.3-codec-labels-H7Q2M
+  pull_request:
+    branches:
+      - master
 
 permissions:
   contents: read
