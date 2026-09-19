@@ -441,10 +441,12 @@ function Show-AdvancedSettingsDialog {
     $cmbAdvHevcSpatialAq.Location = New-Object System.Drawing.Point -ArgumentList 190, 134
     $cmbAdvHevcSpatialAq.Size = New-Object System.Drawing.Size -ArgumentList 260, 26
     [void]$cmbAdvHevcSpatialAq.Items.Add((L 'advanced.hevc_spatial_off'))
+    [void]$cmbAdvHevcSpatialAq.Items.Add((L 'advanced.hevc_spatial_4'))
     [void]$cmbAdvHevcSpatialAq.Items.Add((L 'advanced.hevc_spatial_8'))
     [void]$cmbAdvHevcSpatialAq.Items.Add((L 'advanced.hevc_spatial_10'))
     [void]$cmbAdvHevcSpatialAq.Items.Add((L 'advanced.hevc_spatial_12'))
-    $cmbAdvHevcSpatialAq.SelectedIndex = switch ($script:HevcSpatialAq) { 0 { 0 } 10 { 2 } 12 { 3 } default { 1 } }
+    [void]$cmbAdvHevcSpatialAq.Items.Add((L 'advanced.hevc_spatial_15'))
+    $cmbAdvHevcSpatialAq.SelectedIndex = switch ($script:HevcSpatialAq) { 0 { 0 } 4 { 1 } 10 { 3 } 12 { 4 } 15 { 5 } default { 2 } }
     $cmbAdvHevcSpatialAq.Enabled = (-not $script:HardwareCapsReady -or $script:HevcAvailable)
     [void]$tabEncode.Controls.Add($cmbAdvHevcSpatialAq)
 
@@ -643,7 +645,7 @@ function Show-AdvancedSettingsDialog {
         $script:H264High10 = ([bool]$chkAdvH264High10.Checked -and $script:H264High10Available)
         $script:X264RateMode = if ($cmbAdvX264RateMode.SelectedIndex -eq 2) { '3PASS' } elseif ($cmbAdvX264RateMode.SelectedIndex -eq 1) { '2PASS' } else { 'VBR1' }
         $script:X264Preset = switch ($cmbAdvX264Preset.SelectedIndex) { 1 { 'medium' } 2 { 'slow' } default { 'faster' } }
-        $script:HevcSpatialAq = switch ($cmbAdvHevcSpatialAq.SelectedIndex) { 0 { 0 } 2 { 10 } 3 { 12 } default { 8 } }
+        $script:HevcSpatialAq = switch ($cmbAdvHevcSpatialAq.SelectedIndex) { 0 { 0 } 1 { 4 } 3 { 10 } 4 { 12 } 5 { 15 } default { 8 } }
         $script:HevcTemporalAq = [bool]$chkAdvHevcTemporalAq.Checked
         $script:HdrPolicy = switch ($cmbAdvHdrPolicy.SelectedIndex) { 1 { 'PRESERVE' } 2 { 'SDR' } default { 'AUTO' } }
         $script:ToneMapAlgo = switch ($cmbAdvToneMap.SelectedIndex) { 1 { 'mobius' } 2 { 'reinhard' } 3 { 'gamma' } 4 { 'linear' } 5 { 'clip' } default { 'hable' } }
@@ -823,7 +825,7 @@ $statusVersion = New-Object System.Windows.Forms.ToolStripStatusLabel
 $statusVersion.Spring = $false
 $statusVersion.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
 $statusVersion.ForeColor = $ColorMuted
-$statusVersion.Text = 'v4.8.4_AQTEST_Q8N4R'
+$statusVersion.Text = 'v4.8.5'
 $statusVersion.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 12, 0, 0, 0
 [void]$statusStrip.Items.Add($statusVersion)
 
