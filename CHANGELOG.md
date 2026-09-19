@@ -1,5 +1,12 @@
 # Film Grain Studio — CHANGELOG
 
+## v4.8.2 X264 3-Pass TEST R8K4M（待实测，不升级主线）
+
+- 高级编码新增 VBR 3-Pass，GUI / CLI、三种颗粒路线、OpenSVPFlow 和 H.264 上传副本同步支持 Pass 1 → Pass 3 → Pass 2。
+- 保持 VBR 1-Pass 默认及全部现有编码参数；3-Pass 输出追加 `_3PASS`，保留 preset 后缀。
+- 中间遍失败立即停止并进入清理；修正 FGSIM 多遍第一遍失败时返回码未保存的问题。
+
+
 ## v4.8.2 — 2026-09-18
 
 - 正式集成 FGS Benchmark v1.0：`Utils/FGS_Benchmark.cmd` 与配套 PS1 调用既有 StudioBridge，提供 B01–B09、Q01–Q03 完整 12 项测试矩阵。

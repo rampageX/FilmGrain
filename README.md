@@ -301,8 +301,10 @@ High Profile / yuv420p
 
 ```text
 Preset：Faster / Medium / Slow
-码率模式：VBR 单次 / VBR 2-Pass
+码率模式：VBR 单次 / VBR 2-Pass / VBR 3-Pass（测试）
 ```
+
+`3-Pass` 为高级可选模式，严格执行 Pass 1 → Pass 3 → Pass 2，沿用所有现有 x264 参数；默认仍为 VBR 单次，非默认输出追加 `_3PASS` 标识。
 
 `2-Pass` 主要用于更精确地分配给定平均码率 / 文件大小，不是颗粒保留的必要条件。FGS 的 x264 Grain 路线始终把 `tune grain` 和足够码率作为核心。
 
