@@ -58,7 +58,8 @@ jobs:
             if ($zh.Contains($old) -or $en.Contains($old)) { throw "Old codec label remains: $old" }
           }
 
-          if (-not $studio.Contains("$statusVersion.Text = 'v4.8.3 TEST H7Q2M'")) {
+          $marker = '$statusVersion.Text = ''v4.8.3 TEST H7Q2M'''
+          if (-not $studio.Contains($marker)) {
             throw 'Test build marker missing.'
           }
 
