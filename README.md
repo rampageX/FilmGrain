@@ -240,6 +240,10 @@ HEVC 主线适合将真实扫描 Grain Plate 直接合成到视频像素，再�
 - 支持 LUT、Cinematic Style、反交错、自动电影帧率、字幕、OpenSVPFlow、MP4 / MKV 与多文件处理；
 - HDR 输入可进入 Main10 HDR Preserve 工作流。
 
+### HEVC AQ
+
+`高级设置 → 编码` 提供 HEVC Spatial AQ 与 Temporal AQ 控制。Spatial AQ 可选 `0 / 4 / 8 / 10 / 12 / 15`，默认 `8`，其中 `0` 表示关闭；Temporal AQ 为独立复选框并默认开启。两项设置仅作用于 HEVC 主编码，并继续服从硬件能力检测，不支持的功能不会被强制启用。
+
 ### Grain Cache
 
 主脚本会自动查找与原始 Grain MOV 同目录、同名的缓存：
