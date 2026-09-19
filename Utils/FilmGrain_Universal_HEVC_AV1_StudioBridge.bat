@@ -2499,9 +2499,11 @@ if /i "%MODE%"=="HEVC" (
 set "MAIN_AQ_STRENGTH=%AQ_STRENGTH%"
 if /i "%MODE%"=="HEVC" if defined FG_HEVC_SPATIAL_AQ (
     if "%FG_HEVC_SPATIAL_AQ%"=="0" set "ENABLE_SPATIAL_AQ=0"
+    if "%FG_HEVC_SPATIAL_AQ%"=="4" set "MAIN_AQ_STRENGTH=4"
     if "%FG_HEVC_SPATIAL_AQ%"=="8" set "MAIN_AQ_STRENGTH=8"
     if "%FG_HEVC_SPATIAL_AQ%"=="10" set "MAIN_AQ_STRENGTH=10"
     if "%FG_HEVC_SPATIAL_AQ%"=="12" set "MAIN_AQ_STRENGTH=12"
+    if "%FG_HEVC_SPATIAL_AQ%"=="15" set "MAIN_AQ_STRENGTH=15"
 )
 if /i "%MODE%"=="HEVC" if defined FG_HEVC_TEMPORAL_AQ (
     if "%FG_HEVC_TEMPORAL_AQ%"=="0" set "ENABLE_TEMPORAL_AQ=0"
