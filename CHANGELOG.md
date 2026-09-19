@@ -1,5 +1,13 @@
 # Film Grain Studio — CHANGELOG
 
+## v4.8.4 — 2026-09-19
+
+- 主界面“编码方式”下拉菜单的三条主编码路线简化为 **AV1 / HEVC / x264**，不再把 grav1synth、扫描 Grain 或默认 VBR 模式写进编码器名称，避免与可独立选择的 Grain 方式混淆。
+- 简体中文与英文语言资源同步更新；硬件不可用状态仍保留明确提示，但不再把主线名称绑定到某一种颗粒实现。
+- **AV1 不重编码 · 添加/替换胶片颗粒** / **AV1 No Re-encode · Add/Replace Film Grain** 特殊工作流名称保持不变。
+- 本次仅调整 GUI 显示文字与版本号；内部编码器索引、GUI / CLI 共用 StudioBridge、颗粒算法、码率、输出命名、AAC 256k 及其它已验证编码逻辑均未修改。
+- 多语言测试包 `v4.8.3 TEST H7Q2M` 已通过用户实际测试；正式 GUI 与发布包更新为 `v4.8.4` / `FilmGrain_Studio_v4.8.4_Stable.zip`。
+
 ## v4.8.3 — 2026-09-19
 
 - 高级设置 → 编码 → x264 码率模式新增 **VBR 3-Pass**，严格按 `Pass 1 → Pass 3 → Pass 2` 执行；默认继续使用 VBR 1-Pass。
