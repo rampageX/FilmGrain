@@ -1,20 +1,18 @@
-# Film Grain Studio v4.8.3
+# Film Grain Studio v4.8.4
 
-本版正式加入已经实测通过的 **x264 VBR 3-Pass**，并统一 AV1 / HEVC / x264 三条主线及 H.264 上传副本的输出命名顺序。
+本版对主界面的“编码方式”命名进行整理，使编码器选择与 Film Grain 实现方式彻底分开。
 
-## x264 VBR 3-Pass
+## 编码方式命名
 
-- `高级设置 → 编码 → x264 码率模式` 新增 `VBR 3-Pass`。
-- 严格执行 `Pass 1 → Pass 3 → Pass 2`，默认仍为 `VBR 1-Pass`。
-- GUI / CLI、三类像素颗粒、OpenSVPFlow 和 H.264 上传副本共用同一设置。
-- 保持现有 preset、tune grain、自动码率、High Motion、VBV 与 AAC 256k 逻辑；3-Pass 输出追加 `_3PASS`。
+- 三条主线统一显示为：`AV1`、`HEVC`、`x264`。
+- 不再在编码方式名称中写入 grav1synth、扫描 Grain 或默认 VBR 模式，因为这些颗粒 / 参数现在都可以在其它控件中独立选择。
+- **AV1 不重编码 · 添加/替换胶片颗粒** 特殊工作流保持原名称不变。
 
-## 统一输出命名
+## 多语言同步
 
-- 输出名称按 GUI 设置面板顺序排列：编码方式 → 编码参数 → 颗粒及参数 → LUT → 其它标识。
-- AV1、HEVC、x264 主输出和 H.264 上传副本使用一致的组织方式。
-- AV1 无重编码 Film Grain 添加 / 替换兼容旧版和当前名称；重复替换只更新颗粒标识，并保留单个 `_ADDED` / `_REPLACED`。
+- 简体中文与英文界面同步更新。
+- 硬件不可用状态仍会显示明确提示，但主线名称不再绑定到具体颗粒实现。
 
-## 验证与构建
+## 兼容性与验证
 
-3-Pass 和新命名均已完成用户实际测试。正式包由 Windows Server 2022 runner 构建，并执行 PowerShell 语法、语言资源、BOM、CRLF、必需文件、Benchmark 排除与最终 ZIP 内容检查。
+本次仅修改 GUI 显示文字和版本号，不调整编码核心、GUI / CLI 共用 StudioBridge、颗粒算法、码率、输出命名或 AAC 256k 设置。测试包 `H7Q2M` 已通过用户实际验证。正式包继续由 Windows Server 2022 runner 构建，并执行 PowerShell、语言资源、BOM、CRLF、必需文件与最终 ZIP 检查。
