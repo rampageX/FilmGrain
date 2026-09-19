@@ -1,26 +1,24 @@
 ﻿Film Grain Studio formal stable baseline
 
 Baseline:
-v4.8.2
+v4.8.5
 
 Supersedes:
-v4.8.1
+v4.8.4
 
 Formal release:
-FilmGrain_Studio_v4.8.2_Stable.zip
+FilmGrain_Studio_v4.8.5_Stable.zip
 
 Release scope:
-- Integrate user-validated FGS Benchmark v1.0 without changing its scripts.
-- Keep two historical v4.8.1 benchmark result sets in the repository only.
-- Consolidate usage in README.md / benchmark/README.md and history in CHANGELOG.md.
-- Ship Utils/FGS_Benchmark.cmd and Utils/FGS_Benchmark.ps1.
-- Exclude the entire benchmark directory from the formal ZIP.
+- Add HEVC Spatial AQ control in Advanced Settings -> Encoding.
+- Spatial AQ choices: 0 / 4 / 8 / 10 / 12 / 15; default remains 8.
+- Keep HEVC Temporal AQ as an independent checkbox; default remains enabled.
+- Controls affect HEVC main encode only and continue to respect hardware capability detection.
 
 Encoding core:
-- Unchanged from v4.8.1; GUI and CLI keep the shared StudioBridge.
-- No AV1 / HEVC / x264, grain, HDR, LUT, interpolation, deinterlace or bitrate changes.
+- Preserve AV1, x264, H.264 upload-copy AQ behavior and all existing Grain, HDR, LUT, interpolation, deinterlace and bitrate logic.
 - AAC remains 256k.
 
 Release:
 - Windows Server 2022 runner; existing syntax, BOM and CRLF checks preserved.
-- GUI status version is v4.8.2.
+- GUI status version is v4.8.5.

@@ -250,6 +250,8 @@ $script:CinematicCropPerSide = 0
 $script:H264High10 = $false
 $script:X264RateMode = 'VBR1'
 $script:X264Preset = 'faster'
+$script:HevcSpatialAq = 8
+$script:HevcTemporalAq = $true
 $script:HdrPolicy = 'AUTO'
 $script:ToneMapAlgo = 'hable'
 $script:UpdatingFramingUi = $false
@@ -391,19 +393,19 @@ function Show-AdvancedSettingsDialog {
     $chkAdvH264High10.Text = L 'advanced.high10'
     $chkAdvH264High10.Checked = ($script:H264High10 -and $script:H264High10Available)
     $chkAdvH264High10.Enabled = (-not $script:HardwareCapsReady -or $script:H264High10Available)
-    $chkAdvH264High10.Location = New-Object System.Drawing.Point -ArgumentList 28, 32
-    $chkAdvH264High10.Size = New-Object System.Drawing.Size -ArgumentList 260, 28
+    $chkAdvH264High10.Location = New-Object System.Drawing.Point -ArgumentList 28, 18
+    $chkAdvH264High10.Size = New-Object System.Drawing.Size -ArgumentList 260, 26
     [void]$tabEncode.Controls.Add($chkAdvH264High10)
 
     $lblX264RateMode = New-Object System.Windows.Forms.Label
     $lblX264RateMode.Text = L 'advanced.x264_rate'
-    $lblX264RateMode.Location = New-Object System.Drawing.Point -ArgumentList 28, 78
+    $lblX264RateMode.Location = New-Object System.Drawing.Point -ArgumentList 28, 58
     $lblX264RateMode.Size = New-Object System.Drawing.Size -ArgumentList 150, 24
     [void]$tabEncode.Controls.Add($lblX264RateMode)
 
     $cmbAdvX264RateMode = New-Object System.Windows.Forms.ComboBox
     $cmbAdvX264RateMode.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
-    $cmbAdvX264RateMode.Location = New-Object System.Drawing.Point -ArgumentList 190, 74
+    $cmbAdvX264RateMode.Location = New-Object System.Drawing.Point -ArgumentList 190, 54
     $cmbAdvX264RateMode.Size = New-Object System.Drawing.Size -ArgumentList 260, 26
     [void]$cmbAdvX264RateMode.Items.Add((L 'advanced.vbr1'))
     [void]$cmbAdvX264RateMode.Items.Add((L 'advanced.vbr2'))
@@ -413,13 +415,13 @@ function Show-AdvancedSettingsDialog {
 
     $lblX264Preset = New-Object System.Windows.Forms.Label
     $lblX264Preset.Text = 'x264 Preset'
-    $lblX264Preset.Location = New-Object System.Drawing.Point -ArgumentList 28, 122
+    $lblX264Preset.Location = New-Object System.Drawing.Point -ArgumentList 28, 98
     $lblX264Preset.Size = New-Object System.Drawing.Size -ArgumentList 150, 24
     [void]$tabEncode.Controls.Add($lblX264Preset)
 
     $cmbAdvX264Preset = New-Object System.Windows.Forms.ComboBox
     $cmbAdvX264Preset.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
-    $cmbAdvX264Preset.Location = New-Object System.Drawing.Point -ArgumentList 190, 118
+    $cmbAdvX264Preset.Location = New-Object System.Drawing.Point -ArgumentList 190, 94
     $cmbAdvX264Preset.Size = New-Object System.Drawing.Size -ArgumentList 260, 26
     [void]$cmbAdvX264Preset.Items.Add((L 'advanced.preset_faster'))
     [void]$cmbAdvX264Preset.Items.Add('Medium')
@@ -428,10 +430,38 @@ function Show-AdvancedSettingsDialog {
     $cmbAdvX264Preset.SelectedIndex = $presetIndex
     [void]$tabEncode.Controls.Add($cmbAdvX264Preset)
 
+    $lblHevcSpatialAq = New-Object System.Windows.Forms.Label
+    $lblHevcSpatialAq.Text = L 'advanced.hevc_spatial_aq'
+    $lblHevcSpatialAq.Location = New-Object System.Drawing.Point -ArgumentList 28, 138
+    $lblHevcSpatialAq.Size = New-Object System.Drawing.Size -ArgumentList 150, 24
+    [void]$tabEncode.Controls.Add($lblHevcSpatialAq)
+
+    $cmbAdvHevcSpatialAq = New-Object System.Windows.Forms.ComboBox
+    $cmbAdvHevcSpatialAq.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
+    $cmbAdvHevcSpatialAq.Location = New-Object System.Drawing.Point -ArgumentList 190, 134
+    $cmbAdvHevcSpatialAq.Size = New-Object System.Drawing.Size -ArgumentList 260, 26
+    [void]$cmbAdvHevcSpatialAq.Items.Add((L 'advanced.hevc_spatial_off'))
+    [void]$cmbAdvHevcSpatialAq.Items.Add((L 'advanced.hevc_spatial_4'))
+    [void]$cmbAdvHevcSpatialAq.Items.Add((L 'advanced.hevc_spatial_8'))
+    [void]$cmbAdvHevcSpatialAq.Items.Add((L 'advanced.hevc_spatial_10'))
+    [void]$cmbAdvHevcSpatialAq.Items.Add((L 'advanced.hevc_spatial_12'))
+    [void]$cmbAdvHevcSpatialAq.Items.Add((L 'advanced.hevc_spatial_15'))
+    $cmbAdvHevcSpatialAq.SelectedIndex = switch ($script:HevcSpatialAq) { 0 { 0 } 4 { 1 } 10 { 3 } 12 { 4 } 15 { 5 } default { 2 } }
+    $cmbAdvHevcSpatialAq.Enabled = (-not $script:HardwareCapsReady -or $script:HevcAvailable)
+    [void]$tabEncode.Controls.Add($cmbAdvHevcSpatialAq)
+
+    $chkAdvHevcTemporalAq = New-Object System.Windows.Forms.CheckBox
+    $chkAdvHevcTemporalAq.Text = L 'advanced.hevc_temporal_aq'
+    $chkAdvHevcTemporalAq.Checked = [bool]$script:HevcTemporalAq
+    $chkAdvHevcTemporalAq.Enabled = (-not $script:HardwareCapsReady -or $script:HevcAvailable)
+    $chkAdvHevcTemporalAq.Location = New-Object System.Drawing.Point -ArgumentList 190, 170
+    $chkAdvHevcTemporalAq.Size = New-Object System.Drawing.Size -ArgumentList 260, 26
+    [void]$tabEncode.Controls.Add($chkAdvHevcTemporalAq)
+
     $lblEncodeInfo = New-Object System.Windows.Forms.Label
     $lblEncodeInfo.AutoSize = $false
-    $lblEncodeInfo.Location = New-Object System.Drawing.Point -ArgumentList 28, 166
-    $lblEncodeInfo.Size = New-Object System.Drawing.Size -ArgumentList 630, 150
+    $lblEncodeInfo.Location = New-Object System.Drawing.Point -ArgumentList 28, 206
+    $lblEncodeInfo.Size = New-Object System.Drawing.Size -ArgumentList 630, 116
     $lblEncodeInfo.ForeColor = $ColorMuted
     $lblEncodeInfo.Text = L 'advanced.encode_info'
     [void]$tabEncode.Controls.Add($lblEncodeInfo)
@@ -615,6 +645,8 @@ function Show-AdvancedSettingsDialog {
         $script:H264High10 = ([bool]$chkAdvH264High10.Checked -and $script:H264High10Available)
         $script:X264RateMode = if ($cmbAdvX264RateMode.SelectedIndex -eq 2) { '3PASS' } elseif ($cmbAdvX264RateMode.SelectedIndex -eq 1) { '2PASS' } else { 'VBR1' }
         $script:X264Preset = switch ($cmbAdvX264Preset.SelectedIndex) { 1 { 'medium' } 2 { 'slow' } default { 'faster' } }
+        $script:HevcSpatialAq = switch ($cmbAdvHevcSpatialAq.SelectedIndex) { 0 { 0 } 1 { 4 } 3 { 10 } 4 { 12 } 5 { 15 } default { 8 } }
+        $script:HevcTemporalAq = [bool]$chkAdvHevcTemporalAq.Checked
         $script:HdrPolicy = switch ($cmbAdvHdrPolicy.SelectedIndex) { 1 { 'PRESERVE' } 2 { 'SDR' } default { 'AUTO' } }
         $script:ToneMapAlgo = switch ($cmbAdvToneMap.SelectedIndex) { 1 { 'mobius' } 2 { 'reinhard' } 3 { 'gamma' } 4 { 'linear' } 5 { 'clip' } default { 'hable' } }
         Update-HdrCompatibilityUi
@@ -793,7 +825,7 @@ $statusVersion = New-Object System.Windows.Forms.ToolStripStatusLabel
 $statusVersion.Spring = $false
 $statusVersion.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
 $statusVersion.ForeColor = $ColorMuted
-$statusVersion.Text = 'v4.8.4'
+$statusVersion.Text = 'v4.8.5'
 $statusVersion.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 12, 0, 0, 0
 [void]$statusStrip.Items.Add($statusVersion)
 
@@ -4800,6 +4832,8 @@ function Start-Encoding {
     $envs['FG_H264_HIGH10'] = if ($script:H264High10) { '1' } else { '0' }
     $envs['FG_X264_PRESET'] = [string]$script:X264Preset
     $envs['FG_X264_PASS_MODE'] = [string]$script:X264RateMode
+    $envs['FG_HEVC_SPATIAL_AQ'] = [string]$script:HevcSpatialAq
+    $envs['FG_HEVC_TEMPORAL_AQ'] = if ($script:HevcTemporalAq) { '1' } else { '0' }
     $envs['FG_FPS_MODE'] = if ($cmbFps.SelectedIndex -eq 0) { 'AUTO' } else { 'SOURCE' }
     $envs['FG_SVP_INTERPOLATE'] = if ($chkInterpolation.Checked) { '1' } else { '0' }
     $envs['FG_SVP_ALGO'] = [string]$script:SvpAlgo

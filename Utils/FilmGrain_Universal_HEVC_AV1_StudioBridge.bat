@@ -2496,12 +2496,26 @@ if /i "%MODE%"=="HEVC" (
     set "ENABLE_FULLRES=%FG_CAP_HEVC_FULLRES%"
 )
 
+set "MAIN_AQ_STRENGTH=%AQ_STRENGTH%"
+if /i "%MODE%"=="HEVC" if defined FG_HEVC_SPATIAL_AQ (
+    if "%FG_HEVC_SPATIAL_AQ%"=="0" set "ENABLE_SPATIAL_AQ=0"
+    if "%FG_HEVC_SPATIAL_AQ%"=="4" set "MAIN_AQ_STRENGTH=4"
+    if "%FG_HEVC_SPATIAL_AQ%"=="8" set "MAIN_AQ_STRENGTH=8"
+    if "%FG_HEVC_SPATIAL_AQ%"=="10" set "MAIN_AQ_STRENGTH=10"
+    if "%FG_HEVC_SPATIAL_AQ%"=="12" set "MAIN_AQ_STRENGTH=12"
+    if "%FG_HEVC_SPATIAL_AQ%"=="15" set "MAIN_AQ_STRENGTH=15"
+)
+if /i "%MODE%"=="HEVC" if defined FG_HEVC_TEMPORAL_AQ (
+    if "%FG_HEVC_TEMPORAL_AQ%"=="0" set "ENABLE_TEMPORAL_AQ=0"
+    if "%FG_HEVC_TEMPORAL_AQ%"=="1" set "ENABLE_TEMPORAL_AQ=%FG_CAP_HEVC_TAQ%"
+)
+
 set "BF_ARGS="
 if "%ENABLE_BF%"=="1" set "BF_ARGS=-bf 4"
 if "%ENABLE_BREF%"=="1" set "BF_ARGS=-bf 4 -b_ref_mode middle"
 
 set "SPATIAL_AQ_ARGS="
-if "%ENABLE_SPATIAL_AQ%"=="1" set "SPATIAL_AQ_ARGS=-spatial-aq 1 -aq-strength %AQ_STRENGTH%"
+if "%ENABLE_SPATIAL_AQ%"=="1" set "SPATIAL_AQ_ARGS=-spatial-aq 1 -aq-strength %MAIN_AQ_STRENGTH%"
 
 set "TAQ_ARGS="
 if "%ENABLE_TEMPORAL_AQ%"=="1" set "TAQ_ARGS=-temporal-aq 1"
@@ -2645,7 +2659,7 @@ if "%HIGH_MOTION%"=="1" (
     echo High motion   : Disabled
 )
 if "%ENABLE_SPATIAL_AQ%"=="1" (
-    echo Spatial AQ    : Enabled
+    echo Spatial AQ    : Enabled / strength %MAIN_AQ_STRENGTH%
 ) else (
     echo Spatial AQ    : Disabled
 )

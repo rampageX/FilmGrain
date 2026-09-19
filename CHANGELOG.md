@@ -1,5 +1,13 @@
 # Film Grain Studio — CHANGELOG
 
+## v4.8.5 — 2026-09-19
+
+- 高级设置 → 编码正式加入 HEVC AQ 手动控制：**Spatial AQ 0 / 4 / 8 / 10 / 12 / 15**，默认继续为 **8**；`0` 表示关闭 Spatial AQ。
+- **Temporal AQ** 保持独立复选框，默认继续开启；实际启用仍受 HEVC 硬件能力检测结果约束。
+- HEVC AQ 选项仅影响 HEVC 主编码；AV1、x264 与 H.264 上传副本继续沿用原有 AQ 逻辑，不调整码率、Grain、HDR、OpenSVPFlow、反交错或 AAC 256k。
+- 正式版基于已完成实际编码/截图对比的 `v4.8.4_AQTEST_Q8N4R` 控件实现，仅扩展 Spatial AQ 档位并恢复正式版本标识；用户决定不再进行额外测试。
+- GUI 正式版本号与发布包更新为 `v4.8.5` / `FilmGrain_Studio_v4.8.5_Stable.zip`。
+
 ## v4.8.4 — 2026-09-19
 
 - 主界面“编码方式”下拉菜单的三条主编码路线简化为 **AV1 / HEVC / x264**，不再把 grav1synth、扫描 Grain 或默认 VBR 模式写进编码器名称，避免与可独立选择的 Grain 方式混淆。
