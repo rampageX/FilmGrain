@@ -55,7 +55,7 @@ with tempfile.TemporaryDirectory(prefix='FGS_3pass_') as td:
    assert (r.returncode!=0)==bool(fail),(lines[start],mode,fail,r.returncode,r.stdout,r.stderr)
    cases+=1
  # Real CMD naming/settings routine, including all presets and default behavior.
- routine=s[s.index(':RESOLVE_X264_SETTINGS\n'):s.index(':SELECT_FRAMING\n')]
+ routine=s[s.index('\n:RESOLVE_X264_SETTINGS\n')+1:s.index('\n:SELECT_FRAMING\n')+1]
  for preset in ['faster','medium','slow']:
   for mode in ['VBR1','2PASS','3PASS']:
    script='@echo off\nsetlocal DisableDelayedExpansion\ncall :RESOLVE_X264_SETTINGS\necho RESULT=%X264_FILE_SUFFIX%\nexit /b 0\n'+routine
