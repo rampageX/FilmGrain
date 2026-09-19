@@ -301,8 +301,10 @@ High Profile / yuv420p
 
 ```text
 Preset：Faster / Medium / Slow
-码率模式：VBR 单次 / VBR 2-Pass
+码率模式：VBR 单次 / VBR 2-Pass / VBR 3-Pass
 ```
+
+`3-Pass` 为高级可选模式，严格执行 Pass 1 → Pass 3 → Pass 2，沿用所有现有 x264 参数；默认仍为 VBR 单次，非默认输出追加 `_3PASS` 标识。
 
 `2-Pass` 主要用于更精确地分配给定平均码率 / 文件大小，不是颗粒保留的必要条件。FGS 的 x264 Grain 路线始终把 `tune grain` 和足够码率作为核心。
 
@@ -1136,3 +1138,13 @@ ffmpeg -hide_banner -h decoder=libdav1d
 > **AV1 Main10 + grav1synth Film Grain，输出 MP4 / AAC 256k。**
 
 需要上传到会二次转码的视频平台时，再额外生成一份将 Grain 烘焙到像素的 H.264 / AAC 上传母版。
+
+### 输出文件命名
+
+输出名称按 GUI 面板顺序组织：原名 → 编码方式 → 速度 / 非默认多遍参数 → 码率 / 位深 → 帧率 / 反交错 / 画幅 → 颗粒及参数 → LUT → HDR / 字幕等其它标识。
+
+- `Nature_AV1_UHQ_6000k_24p_GS_Classic35.mp4`
+- `Nature_X264_SLOW_3PASS_18000k_24p_FG_DG68.mp4`
+- `Nature_HEVC_FAST_12000k_24p_FG_CT35_V20.mp4`
+
+AV1 无重编码替换兼容旧版与当前名称，只更新颗粒部分，并保留单个 `_REPLACED` / `_ADDED`。上传副本以实际 X264 参数开头，末尾标识来源。旧顺序文件不会自动改名；新任务按当前名称判断是否已存在。

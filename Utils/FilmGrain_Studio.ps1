@@ -407,7 +407,8 @@ function Show-AdvancedSettingsDialog {
     $cmbAdvX264RateMode.Size = New-Object System.Drawing.Size -ArgumentList 260, 26
     [void]$cmbAdvX264RateMode.Items.Add((L 'advanced.vbr1'))
     [void]$cmbAdvX264RateMode.Items.Add((L 'advanced.vbr2'))
-    $cmbAdvX264RateMode.SelectedIndex = if ($script:X264RateMode -eq '2PASS') { 1 } else { 0 }
+    [void]$cmbAdvX264RateMode.Items.Add((L 'advanced.vbr3'))
+    $cmbAdvX264RateMode.SelectedIndex = if ($script:X264RateMode -eq '3PASS') { 2 } elseif ($script:X264RateMode -eq '2PASS') { 1 } else { 0 }
     [void]$tabEncode.Controls.Add($cmbAdvX264RateMode)
 
     $lblX264Preset = New-Object System.Windows.Forms.Label
@@ -612,7 +613,7 @@ function Show-AdvancedSettingsDialog {
         $script:SvpMaskArea = [int]$numAdvMask.Value
         $script:CinematicCropPerSide = [int]$numAdvCrop.Value
         $script:H264High10 = ([bool]$chkAdvH264High10.Checked -and $script:H264High10Available)
-        $script:X264RateMode = if ($cmbAdvX264RateMode.SelectedIndex -eq 1) { '2PASS' } else { 'VBR1' }
+        $script:X264RateMode = if ($cmbAdvX264RateMode.SelectedIndex -eq 2) { '3PASS' } elseif ($cmbAdvX264RateMode.SelectedIndex -eq 1) { '2PASS' } else { 'VBR1' }
         $script:X264Preset = switch ($cmbAdvX264Preset.SelectedIndex) { 1 { 'medium' } 2 { 'slow' } default { 'faster' } }
         $script:HdrPolicy = switch ($cmbAdvHdrPolicy.SelectedIndex) { 1 { 'PRESERVE' } 2 { 'SDR' } default { 'AUTO' } }
         $script:ToneMapAlgo = switch ($cmbAdvToneMap.SelectedIndex) { 1 { 'mobius' } 2 { 'reinhard' } 3 { 'gamma' } 4 { 'linear' } 5 { 'clip' } default { 'hable' } }
@@ -792,7 +793,7 @@ $statusVersion = New-Object System.Windows.Forms.ToolStripStatusLabel
 $statusVersion.Spring = $false
 $statusVersion.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
 $statusVersion.ForeColor = $ColorMuted
-$statusVersion.Text = 'v4.8.2'
+$statusVersion.Text = 'v4.8.3'
 $statusVersion.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 12, 0, 0, 0
 [void]$statusStrip.Items.Add($statusVersion)
 
@@ -3309,7 +3310,7 @@ function Update-SpeedChoices {
     try {
         if ($cmbCodec.SelectedIndex -eq 2) {
             $presetLabel = switch ($script:X264Preset) { 'medium' { 'Medium' } 'slow' { 'Slow' } default { 'Faster' } }
-            $passLabel = if ($script:X264RateMode -eq '2PASS') { L 'advanced.vbr2' } else { L 'speed.vbr1' }
+            $passLabel = if ($script:X264RateMode -eq '3PASS') { L 'advanced.vbr3' } elseif ($script:X264RateMode -eq '2PASS') { L 'advanced.vbr2' } else { L 'speed.vbr1' }
             $cmbSpeed.BeginUpdate()
             try {
                 $cmbSpeed.Items.Clear()
@@ -4716,7 +4717,7 @@ function Start-Encoding {
     }
 
     $x264PresetLabel = switch ($script:X264Preset) { 'medium' { 'Medium' } 'slow' { 'Slow' } default { 'Faster' } }
-    $x264PassLabel = if ($script:X264RateMode -eq '2PASS') { 'VBR 2-Pass' } else { 'VBR 单次' }
+    $x264PassLabel = if ($script:X264RateMode -eq '3PASS') { 'VBR 3-Pass' } elseif ($script:X264RateMode -eq '2PASS') { 'VBR 2-Pass' } else { 'VBR 单次' }
     if ($mode -eq 'X264') {
         Append-LogText ("x264 Grain：$x264PresetLabel + tune grain + $x264PassLabel`r`n")
     }

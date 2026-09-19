@@ -1,5 +1,14 @@
 # Film Grain Studio — CHANGELOG
 
+## v4.8.3 — 2026-09-19
+
+- 高级设置 → 编码 → x264 码率模式新增 **VBR 3-Pass**，严格按 `Pass 1 → Pass 3 → Pass 2` 执行；默认继续使用 VBR 1-Pass。
+- GUI / CLI、Grain Plate、Digital Grain、FGSIM、OpenSVPFlow 以及 AV1 / HEVC 的 H.264 上传副本同步支持 3-Pass；preset、tune grain、自动码率、High Motion、VBV 与 AAC 256k 等既有参数保持不变。
+- 非默认 3-Pass 输出追加 `_3PASS`；中间遍失败会立即停止并清理 passlog，FGSIM 多遍第一遍失败会正确保留返回码。
+- 统一 AV1 / HEVC / x264 主输出及 H.264 上传副本的文件名顺序，按 GUI 设置面板排列编码方式、编码参数、颗粒及参数、LUT、HDR / 字幕等其它标识。
+- AV1 无重编码添加 / 替换 Film Grain metadata 兼容旧版与当前输出名称；重复替换只更新颗粒标识，并保留单个 `_ADDED` / `_REPLACED` 后缀。
+- 3-Pass 与新命名均已通过用户实际测试；正式 GUI 版本号与发布包更新为 `v4.8.3` / `FilmGrain_Studio_v4.8.3_Stable.zip`。
+
 ## v4.8.2 — 2026-09-18
 
 - 正式集成 FGS Benchmark v1.0：`Utils/FGS_Benchmark.cmd` 与配套 PS1 调用既有 StudioBridge，提供 B01–B09、Q01–Q03 完整 12 项测试矩阵。
