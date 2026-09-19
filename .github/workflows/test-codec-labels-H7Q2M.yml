@@ -1,0 +1,157 @@
+name: Codec Labels Test H7Q2M
+
+on:
+  push:
+    branches:
+      - test/v4.8.3-codec-labels-H7Q2M
+
+permissions:
+  contents: read
+
+jobs:
+  test-package:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate codec labels and scripts
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $zhPath = 'Lang\zh-CN.ini'
+          $enPath = 'Lang\en-US.ini'
+          $studioPath = 'Utils\FilmGrain_Studio.ps1'
+
+          $zh = [System.IO.File]::ReadAllText($zhPath, [System.Text.Encoding]::UTF8)
+          $en = [System.IO.File]::ReadAllText($enPath, [System.Text.Encoding]::UTF8)
+          $studio = [System.IO.File]::ReadAllText($studioPath)
+
+          foreach ($expected in @(
+            'codec.av1_default=AV1',
+            'codec.hevc_scan=HEVC',
+            'codec.x264_default=x264',
+            'codec.av1_unavailable=AV1（当前硬件不可用）',
+            'codec.x264_unavailable=x264（当前 x264 路径不可用）',
+            'codec.no_reencode=AV1 不重编码 · 添加/替换胶片颗粒'
+          )) {
+            if (-not $zh.Contains($expected)) { throw "Missing zh-CN label: $expected" }
+          }
+
+          foreach ($expected in @(
+            'codec.av1_default=AV1',
+            'codec.hevc_scan=HEVC',
+            'codec.x264_default=x264',
+            'codec.av1_unavailable=AV1 (Unavailable on this hardware)',
+            'codec.x264_unavailable=x264 (x264 path unavailable)',
+            'codec.no_reencode=AV1 No Re-encode · Add/Replace Film Grain'
+          )) {
+            if (-not $en.Contains($expected)) { throw "Missing en-US label: $expected" }
+          }
+
+          foreach ($old in @(
+            'codec.av1_default=AV1 · grav1synth',
+            'codec.hevc_scan=HEVC ·',
+            'codec.x264_default=H.264 · x264 Grain'
+          )) {
+            if ($zh.Contains($old) -or $en.Contains($old)) { throw "Old codec label remains: $old" }
+          }
+
+          if (-not $studio.Contains("$statusVersion.Text = 'v4.8.3 TEST H7Q2M'")) {
+            throw 'Test build marker missing.'
+          }
+
+          $tokens = $null
+          $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile($studioPath,[ref]$tokens,[ref]$errors)
+          if ($errors.Count) {
+            throw ('PowerShell parse failed: ' + (($errors | ForEach-Object { $_.Message }) -join ' | '))
+          }
+
+          if ($studio -match '[“”‘’]') { throw 'Curly quote found in FilmGrain_Studio.ps1' }
+
+      - name: Build test package
+        id: build
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $name = 'FilmGrain_Studio_v4.8.3_CodecLabels_TEST_H7Q2M'
+          $stage = Join-Path $env:RUNNER_TEMP $name
+          $zip = Join-Path $env:GITHUB_WORKSPACE ($name + '.zip')
+          $shaFile = $zip + '.sha256'
+
+          if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
+          New-Item -ItemType Directory -Path $stage | Out-Null
+
+          Get-ChildItem -LiteralPath $env:GITHUB_WORKSPACE -Force |
+            Where-Object { $_.Name -notin @('.git','.github','benchmark') } |
+            ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $stage -Recurse -Force }
+
+          @(
+            'Utils\_HardwareCaps.json',
+            '_LUT_Tools\LUT_Reference_Current.jpg',
+            '_OpenSVPFlow\Plugins\open-svpflow-version.txt',
+            '_OpenSVPFlow\_PluginBackup'
+          ) | ForEach-Object {
+            $p = Join-Path $stage $_
+            if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Recurse -Force }
+          }
+
+          $utf8Bom = New-Object System.Text.UTF8Encoding($true)
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+
+          Get-ChildItem -LiteralPath $stage -Recurse -Filter '*.ps1' -File | ForEach-Object {
+            $bytes = [System.IO.File]::ReadAllBytes($_.FullName)
+            $offset = 0
+            if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) { $offset = 3 }
+            $text = [System.Text.Encoding]::UTF8.GetString($bytes, $offset, $bytes.Length - $offset)
+            $text = $text -replace "\r?\n", "`r`n"
+            [System.IO.File]::WriteAllText($_.FullName, $text, $utf8Bom)
+          }
+
+          Get-ChildItem -LiteralPath (Join-Path $stage 'Lang') -Filter '*.ini' -File | ForEach-Object {
+            $bytes = [System.IO.File]::ReadAllBytes($_.FullName)
+            $offset = 0
+            if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) { $offset = 3 }
+            $text = [System.Text.Encoding]::UTF8.GetString($bytes, $offset, $bytes.Length - $offset)
+            $text = $text -replace "\r?\n", "`r`n"
+            [System.IO.File]::WriteAllText($_.FullName, $text, $utf8NoBom)
+          }
+
+          Get-ChildItem -LiteralPath $stage -Recurse -File |
+            Where-Object { $_.Extension.ToLowerInvariant() -in @('.bat','.cmd','.vbs') } |
+            ForEach-Object {
+              $bytes = [System.IO.File]::ReadAllBytes($_.FullName)
+              if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
+                throw ('UTF-8 BOM found in Windows script: ' + $_.FullName)
+              }
+              $raw = [System.Text.Encoding]::Default.GetString($bytes)
+              if ($raw -match '(?<!\r)\n') { throw ('LF-only newline found in Windows script: ' + $_.FullName) }
+              if ($_.Extension.ToLowerInvariant() -in @('.bat','.cmd')) {
+                $lines = [System.IO.File]::ReadAllLines($_.FullName,[System.Text.Encoding]::Default)
+                for ($i=0; $i -lt $lines.Length; $i++) {
+                  if ($lines[$i] -match '\^\s+$') {
+                    throw ('Caret trailing whitespace: ' + $_.FullName + ':' + ($i+1))
+                  }
+                }
+              }
+            }
+
+          if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
+          Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip -CompressionLevel Optimal
+          $hash = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText($shaFile, ($hash + '  ' + [IO.Path]::GetFileName($zip) + "`r`n"), $utf8NoBom)
+
+          "artifact_name=$name" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "zip_name=$([IO.Path]::GetFileName($zip))" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "sha_name=$([IO.Path]::GetFileName($shaFile))" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Upload test package
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.build.outputs.artifact_name }}
+          path: |
+            ${{ steps.build.outputs.zip_name }}
+            ${{ steps.build.outputs.sha_name }}
+          if-no-files-found: error
