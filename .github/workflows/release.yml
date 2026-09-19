@@ -157,7 +157,7 @@ jobs:
               }
             }
 
-          if ($studioText -match 'I18N TEST|TEST P7L4N|TEST M5Q8T|TEST R4N8C|TEST K7M2Q') {
+          if ($studioText -match 'statusVersion\.Text[^\r\n]*TEST|I18N TEST|TEST P7L4N|TEST M5Q8T|TEST R4N8C|TEST K7M2Q') {
             throw 'Formal GUI still contains a test-build marker.'
           }
 
