@@ -1138,3 +1138,13 @@ ffmpeg -hide_banner -h decoder=libdav1d
 > **AV1 Main10 + grav1synth Film Grain，输出 MP4 / AAC 256k。**
 
 需要上传到会二次转码的视频平台时，再额外生成一份将 Grain 烘焙到像素的 H.264 / AAC 上传母版。
+
+### v4.8.2 TEST N6Q9T：输出命名测试
+
+输出按 GUI 面板顺序组织：原名 → 编码方式 → 速度 / 非默认多遍参数 → 码率 / 位深 → 帧率 / 反交错 / 画幅 → 颗粒及参数 → LUT → HDR / 字幕等其它标识。
+
+- `Nature_AV1_UHQ_6000k_24p_GS_Classic35.mp4`
+- `Nature_X264_SLOW_3PASS_18000k_24p_FG_DG68.mp4`
+- `Nature_HEVC_FAST_12000k_24p_FG_CT35_V20.mp4`
+
+AV1 无重编码替换保留旧名称兼容，新格式替换仅更新颗粒部分，并保留单个 `_REPLACED` / `_ADDED`。上传副本以实际 X264 参数开头，末尾标识来源。右下角显示 `v4.8.2 TEST N6Q9T`，与测试包对应。旧顺序文件不会自动改名；新任务按新名称判断是否已存在。

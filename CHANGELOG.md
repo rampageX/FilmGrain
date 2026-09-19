@@ -1,5 +1,12 @@
 # Film Grain Studio — CHANGELOG
 
+## v4.8.2 Naming TEST N6Q9T（待实测）
+
+- 保留已验证的 3-Pass，统一三条主线及上传副本命名顺序。
+- AV1 替换颗粒兼容新旧名称，保留 ADDED / REPLACED 特殊规则。
+- GUI 右下角显示 v4.8.2 TEST N6Q9T，与完整测试包随机标识一致。
+
+
 ## v4.8.2 X264 3-Pass TEST R8K4M（待实测，不升级主线）
 
 - 高级编码新增 VBR 3-Pass，GUI / CLI、三种颗粒路线、OpenSVPFlow 和 H.264 上传副本同步支持 Pass 1 → Pass 3 → Pass 2。

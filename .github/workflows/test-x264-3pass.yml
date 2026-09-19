@@ -1,7 +1,7 @@
 name: x264 3-Pass Test Package
 on:
   push:
-    branches: ['test/v4.8.2-x264-3pass-R8K4M']
+    branches: ['test/v4.8.2-naming-N6Q9T']
 permissions:
   contents: read
 jobs:
@@ -14,6 +14,9 @@ jobs:
       - name: Verify x264 parameter preservation and CMD control flow
         shell: powershell
         run: python .github/test_x264_3pass.py
+      - name: Test filename generation and AV1 replacement
+        shell: powershell
+        run: python .github/test_naming.py
       - name: Build and validate formal package
         id: build
         shell: powershell
@@ -22,7 +25,7 @@ jobs:
           $version = (Get-Content -LiteralPath '.github\release\version.txt' -Raw).Trim()
           if (-not $version) { throw 'Release version is empty.' }
           $tag = 'v' + $version
-          $name = 'FilmGrain_Studio_v' + $version + '_X264_3Pass_TEST_R8K4M'
+          $name = 'FilmGrain_Studio_v' + $version + '_Naming_TEST_N6Q9T'
           $stage = Join-Path $env:RUNNER_TEMP $name
           $zip = Join-Path $env:GITHUB_WORKSPACE ($name + '.zip')
           $shaFile = $zip + '.sha256'
@@ -176,7 +179,7 @@ jobs:
       - name: Upload test package
         uses: actions/upload-artifact@v4
         with:
-          name: FilmGrain_Studio_v4.8.2_X264_3Pass_TEST_R8K4M
+          name: FilmGrain_Studio_v4.8.2_Naming_TEST_N6Q9T
           path: |
             ${{ steps.build.outputs.zip_name }}
             ${{ steps.build.outputs.sha_name }}

@@ -107,7 +107,23 @@ $studioMatch = [System.Text.RegularExpressions.Regex]::Match(
     [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
 )
 
-if ($studioMatch.Success) {
+# Current GUI-order names: codec / encode settings / Grain / LUT / extras.
+# Keep the legacy AV1GS branch below for existing files.
+$currentMatch = [System.Text.RegularExpressions.Regex]::Match(
+    $cleanBase,
+    '^(?<prefix>.+_AV1_(?:STD|FAST|UHQ)_\d+k.*?)_GS_(?<grain>.+?)(?<tail>_LUT_.*|_SDR_.*|_SUB)?(?:_(?:ADDED|REPLACED))?$',
+    [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
+)
+
+if ($currentMatch.Success) {
+    $tail = [System.Text.RegularExpressions.Regex]::Replace(
+        $currentMatch.Groups['tail'].Value,
+        '(?:_(?:ADDED|REPLACED))+$',
+        '',
+        [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
+    )
+    $finalName = $currentMatch.Groups['prefix'].Value + '_GS_' + $grainTag + $tail + '_' + $sourceAction + '.' + $extension
+} elseif ($studioMatch.Success) {
     $root = $studioMatch.Groups['root'].Value
     $speed = $studioMatch.Groups['speed'].Value.ToUpperInvariant()
     $tail = [System.Text.RegularExpressions.Regex]::Replace(
