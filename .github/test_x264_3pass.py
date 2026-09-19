@@ -24,7 +24,7 @@ assert len(starts)==9
 cases=0
 with tempfile.TemporaryDirectory(prefix='FGS_3pass_') as td:
  work=Path(td)/'中文 & (3pass)'; work.mkdir()
- stub='@echo off\necho %1>>"%TRACE%"\nif "%1"=="%FAIL_PASS%" exit /b 7\nexit /b 0\n'
+ stub='@echo off\n>>"%TRACE%" echo %1\nif "%1"=="%FAIL_PASS%" exit /b 7\nexit /b 0\n'
  (work/'encoder.cmd').write_bytes(stub.replace('\n','\r\n').encode('ascii'))
  for start in starts:
   end=next(i for i in range(start,len(lines)) if ' -pass 2 ' in lines[i] and 'libx264' in lines[i])
