@@ -6,6 +6,7 @@ on:
       - master
     paths:
       - '.github/release/version.txt'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -40,19 +41,24 @@ jobs:
           New-Item -ItemType Directory -Path $stage | Out-Null
 
           Get-ChildItem -LiteralPath $env:GITHUB_WORKSPACE -Force |
-            Where-Object { $_.Name -notin @('.git','.github','benchmark') } |
+            Where-Object { $_.Name -notin @('.git','.github','.gitignore','benchmark') } |
             ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $stage -Recurse -Force }
 
           # Remove runtime/user state from the formal package.
           @(
             'Utils\_HardwareCaps.json',
             '_LUT_Tools\LUT_Reference_Current.jpg',
-            '_OpenSVPFlow\Plugins\open-svpflow-version.txt',
             '_OpenSVPFlow\_PluginBackup'
           ) | ForEach-Object {
             $p = Join-Path $stage $_
             if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Recurse -Force }
           }
+
+          # Runtime environments must never enter the formal package.
+          Get-ChildItem -LiteralPath $stage -Directory -Force -Recurse |
+            Where-Object { $_.Name -eq '.env' } |
+            Sort-Object FullName -Descending |
+            ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force }
 
           $utf8Bom = New-Object System.Text.UTF8Encoding($true)
           $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
@@ -86,7 +92,10 @@ jobs:
             'Utils\FilmGrain_Language.ps1',
             'Lang\zh-CN.ini',
             'Lang\en-US.ini',
-            'Lang\FilmGrain_Language.ini',
+            'FilmGrain_Config.ini',
+            '_OpenSVPFlow\Plugins\open-svpflow-version.txt',
+            '_OpenSVPFlow\Plugins\svpflow1_vs.dll',
+            '_OpenSVPFlow\Plugins\svpflow2_vs.dll',
             'Utils\_FilmGrainSimplified\NoiseFallback_512x512_RGBA8.rgba'
           )
           foreach ($rel in $required) {
@@ -95,7 +104,12 @@ jobs:
             }
           }
 
-          if (Test-Path -LiteralPath (Join-Path $stage 'benchmark')) { throw 'benchmark must not be included in the formal package.' }
+          if (Test-Path -LiteralPath (Join-Path $stage 'Lang\FilmGrain_Language.ini')) {
+            throw 'Legacy language preference file must not be included in the formal package.'
+          }
+          if (Test-Path -LiteralPath (Join-Path $stage 'benchmark')) {
+            throw 'benchmark must not be included in the formal package.'
+          }
 
           # WinPS 5.1 language smoke test.
           . (Join-Path $stage 'Utils\FilmGrain_Language.ps1')
@@ -167,11 +181,43 @@ jobs:
           $archive = [IO.Compression.ZipFile]::OpenRead($zip)
           try {
             $entries = @($archive.Entries | ForEach-Object { $_.FullName.Replace('\','/') })
-            if (@($entries | Where-Object { $_ -match '(^|/)benchmark/' }).Count) { throw 'benchmark found in final ZIP.' }
-            foreach ($requiredScript in @('Utils/FGS_Benchmark.cmd','Utils/FGS_Benchmark.ps1')) {
-              if ($entries -notcontains $requiredScript) { throw "Benchmark script missing from ZIP: $requiredScript" }
+
+            foreach ($requiredEntry in @(
+              'FilmGrain_Config.ini',
+              '_OpenSVPFlow/Plugins/open-svpflow-version.txt',
+              '_OpenSVPFlow/Plugins/svpflow1_vs.dll',
+              '_OpenSVPFlow/Plugins/svpflow2_vs.dll',
+              'Utils/FGS_Benchmark.cmd',
+              'Utils/FGS_Benchmark.ps1'
+            )) {
+              if ($entries -notcontains $requiredEntry) {
+                throw "Required ZIP entry missing: $requiredEntry"
+              }
+            }
+
+            if ($entries -contains 'Lang/FilmGrain_Language.ini') {
+              throw 'Legacy language preference file found in final ZIP.'
+            }
+            if ($entries -contains 'Utils/_HardwareCaps.json') {
+              throw 'Runtime hardware cache found in final ZIP.'
+            }
+            if ($entries -contains '.gitignore') {
+              throw '.gitignore must not be included in the formal package.'
+            }
+            if ($entries -contains 'release.bat') {
+              throw 'release.bat must not be included in the formal package.'
+            }
+            if (@($entries | Where-Object { $_ -match '(^|/)\.env(/|$)' }).Count) {
+              throw 'Runtime .env directory found in final ZIP.'
+            }
+            if (@($entries | Where-Object { $_ -like '_OpenSVPFlow/_PluginBackup/*' }).Count) {
+              throw 'OpenSVPFlow _PluginBackup found in final ZIP.'
+            }
+            if (@($entries | Where-Object { $_ -match '(^|/)benchmark/' }).Count) {
+              throw 'benchmark found in final ZIP.'
             }
           } finally { $archive.Dispose() }
+
           $hash = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
           [System.IO.File]::WriteAllText($shaFile, ($hash + '  ' + [IO.Path]::GetFileName($zip) + "`r`n"), $utf8NoBom)
 
