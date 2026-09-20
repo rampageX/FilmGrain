@@ -1,7 +1,8 @@
 ﻿$ErrorActionPreference = 'Stop'
 
 $script:FgLanguageRoot = Join-Path (Split-Path -Parent $PSScriptRoot) 'Lang'
-$script:FgLanguageSettingsPath = Join-Path $script:FgLanguageRoot 'FilmGrain_Language.ini'
+$script:FgLanguageConfigPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'FilmGrain_Config.ini'
+$script:FgLegacyLanguageSettingsPath = Join-Path $script:FgLanguageRoot 'FilmGrain_Language.ini'
 $script:FgDefaultLanguage = 'zh-CN'
 $script:FgLanguageCode = $script:FgDefaultLanguage
 $script:FgLanguageFallback = @{}
@@ -34,15 +35,31 @@ function Import-FgLanguageFile {
 }
 
 function Get-FgLanguagePreference {
-    if (-not (Test-Path -LiteralPath $script:FgLanguageSettingsPath -PathType Leaf)) {
-        return $script:FgDefaultLanguage
+    try {
+        if (Test-Path -LiteralPath $script:FgLanguageConfigPath -PathType Leaf) {
+            $utf8Strict = New-Object System.Text.UTF8Encoding($false, $true)
+            $configText = [System.IO.File]::ReadAllText($script:FgLanguageConfigPath, $utf8Strict)
+            if ($configText -match '(?im)^\s*LANGUAGE\s*=') {
+                $settings = Get-FilmGrainConfig
+                $code = [string]$settings.LANGUAGE
+                if ($code) { return $code.Trim() }
+            }
+        }
+    } catch {}
+
+    if (Test-Path -LiteralPath $script:FgLegacyLanguageSettingsPath -PathType Leaf) {
+        try {
+            $legacy = Import-FgLanguageFile -Path $script:FgLegacyLanguageSettingsPath
+            $legacyCode = [string]$legacy['LANGUAGE']
+            if ($legacyCode) {
+                try {
+                    Save-FilmGrainConfig -Values @{ LANGUAGE = $legacyCode.Trim() }
+                } catch {}
+                return $legacyCode.Trim()
+            }
+        } catch {}
     }
 
-    try {
-        $settings = Import-FgLanguageFile -Path $script:FgLanguageSettingsPath
-        $code = [string]$settings['LANGUAGE']
-        if ($code) { return $code.Trim() }
-    } catch {}
     return $script:FgDefaultLanguage
 }
 
@@ -54,16 +71,7 @@ function Set-FgLanguagePreference {
         throw "Language file not found: $candidate"
     }
 
-    if (-not (Test-Path -LiteralPath $script:FgLanguageRoot -PathType Container)) {
-        [void](New-Item -ItemType Directory -Force -Path $script:FgLanguageRoot)
-    }
-
-    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-    [System.IO.File]::WriteAllLines(
-        $script:FgLanguageSettingsPath,
-        @('LANGUAGE=' + $Language),
-        $utf8NoBom
-    )
+    Save-FilmGrainConfig -Values @{ LANGUAGE = $Language }
 }
 
 function Initialize-FgLanguage {
