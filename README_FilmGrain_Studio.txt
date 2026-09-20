@@ -103,7 +103,7 @@ Utils\FilmGrain_Studio.ps1
     WinForms 图形界面。
 
 Utils\FilmGrain_Language.ps1 + Lang\zh-CN.ini / en-US.ini
-    GUI 多语言加载层与语言资源；Lang\FilmGrain_Language.ini 保存当前语言选择。
+    GUI 多语言加载层与语言资源；当前语言选择统一保存在根目录 FilmGrain_Config.ini。
 
 Utils\FilmGrain_Studio_Launcher.vbs
     无控制台启动器；异步启动 WinForms 后立即退出，不保留 CMD 任务栏窗口。
