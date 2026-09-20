@@ -33,6 +33,7 @@ set "CUDA_DEVICE=0"
 set "AQ_STRENGTH=8"
 set "HARDWARE_CAPS_SCRIPT=%~dp0FilmGrain_Hardware_Caps.ps1"
 set "SUBTITLE_HELPER=%~dp0FilmGrain_Subtitle_Prepare.ps1"
+set "TEMP_CHECK_SCRIPT=%~dp0FilmGrain_Temp_Check.ps1"
 set "OPEN_SVP_ROOT=%~dp0..\_OpenSVPFlow"
 set "OPEN_SVP_VSPIPE=%OPEN_SVP_ROOT%\.venv\Scripts\vspipe.exe"
 set "OPEN_SVP_VPY=%OPEN_SVP_ROOT%\FilmGrain_OpenSVPFlow.vpy"
@@ -104,6 +105,12 @@ if /i "%FG_STUDIO_MODE%"=="1" (
     set "STUDIO_FFMPEG_PROGRESS_ARGS=-progress pipe:2 -stats_period 0.5"
     if defined FG_KEEP_FAILED set "KEEP_FAILED_INTERMEDIATES=%FG_KEEP_FAILED%"
 )
+if defined FG_TEMP_MODE set "TEMP_MODE=%FG_TEMP_MODE%"
+if defined FG_TEMP_CUSTOM_DIR set "TEMP_CUSTOM_DIR=%FG_TEMP_CUSTOM_DIR%"
+if /i not "%TEMP_MODE%"=="SYSTEM" if /i not "%TEMP_MODE%"=="CUSTOM" set "TEMP_MODE=VIDEO"
+if defined FG_OUTPUT_MODE set "OUTPUT_MODE=%FG_OUTPUT_MODE%"
+if defined FG_OUTPUT_CUSTOM_DIR set "OUTPUT_CUSTOM_DIR=%FG_OUTPUT_CUSTOM_DIR%"
+if /i not "%OUTPUT_MODE%"=="CUSTOM" set "OUTPUT_MODE=VIDEO"
 
 
 rem ============================================================
@@ -2087,7 +2094,7 @@ set "FG_RATE_W=%ACTIVE_WIDTH%"
 set "FG_RATE_H=%ACTIVE_HEIGHT%"
 set "FG_RATE_FPS=%OUT_FPS%"
 set "FG_RATE_MOTION=%HIGH_MOTION%"
-set "RATE_CALC=%INDIR%.__FGS_RATE_%RANDOM%_%RANDOM%.tmp"
+set "RATE_CALC=%TEMP_JOB_ROOT%\__FGS_RATE_%RANDOM%_%RANDOM%.tmp"
 
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$c=[Globalization.CultureInfo]::InvariantCulture; try{$p=$env:FG_RATE_FPS -split '/'; if($p.Count -eq 2){$fps=[double]::Parse($p[0],$c)/[double]::Parse($p[1],$c)}else{$fps=[double]::Parse($env:FG_RATE_FPS,$c)}; $w=[int]$env:FG_RATE_W; $h=[int]$env:FG_RATE_H}catch{exit 1}; if($fps -le 0 -or $w -le 0 -or $h -le 0){exit 1}; $edge=[Math]::Max($w,$h); if($edge -le 1280){$tier='720p'}elseif($edge -le 1920){$tier='1080p'}elseif($edge -le 2560){$tier='1440p'}else{$tier='2160p'}; $normal=@{AV1=@{'720p'=3500;'1080p'=5000;'1440p'=7000;'2160p'=10000};HEVC=@{'720p'=4000;'1080p'=6000;'1440p'=8000;'2160p'=12000};X264=@{'720p'=5000;'1080p'=7500;'1440p'=10000;'2160p'=15000}}; $motion=@{AV1=@{'720p'=6000;'1080p'=9000;'1440p'=12000;'2160p'=18000};HEVC=@{'720p'=7000;'1080p'=11000;'1440p'=15000;'2160p'=22000};X264=@{'720p'=10000;'1080p'=15000;'1440p'=20000;'2160p'=30000}}; $m=$env:FG_RATE_CODEC; if(-not $normal.ContainsKey($m)){exit 1}; $base=if($env:FG_RATE_MOTION -eq '1'){[double]$motion[$m][$tier]}else{[double]$normal[$m][$tier]}; $pts=@(@(24.0,0.60),@(25.0,0.62),@(30.0,0.70),@(50.0,0.90),@(60.0,1.00),@(120.0,1.65)); if($fps -le 24.0){$factor=[Math]::Max(0.40,0.60*($fps/24.0))}else{$factor=0.0; for($i=1;$i -lt $pts.Count;$i++){if($fps -le [double]$pts[$i][0]){$x1=[double]$pts[$i-1][0];$y1=[double]$pts[$i-1][1];$x2=[double]$pts[$i][0];$y2=[double]$pts[$i][1];$factor=$y1+(($y2-$y1)*(($fps-$x1)/($x2-$x1)));break}}; if($factor -le 0){$factor=1.65*[Math]::Pow(($fps/120.0),0.75)}}; $br=[int]([Math]::Floor((($base*$factor)+250.0)/500.0)*500.0); if($br -lt 1000){$br=1000}; [Console]::Out.Write(('{0}|{1}|{2}|{3}|{4}' -f $br,$tier,[int]$base,$factor.ToString('0.###',$c),$fps.ToString('0.###',$c)))" > "%RATE_CALC%" 2>nul
 set "RATE_RC=%ERRORLEVEL%"
@@ -2283,7 +2290,7 @@ set "FG_UPLOAD_RATE_W=%ACTIVE_WIDTH%"
 set "FG_UPLOAD_RATE_H=%ACTIVE_HEIGHT%"
 set "FG_UPLOAD_RATE_FPS=%OUT_FPS%"
 set "FG_UPLOAD_RATE_MOTION=%UPLOAD_HIGH_MOTION%"
-set "UPLOAD_RATE_CALC=%INDIR%.__FGS_UPLOAD_RATE_%RANDOM%_%RANDOM%.tmp"
+set "UPLOAD_RATE_CALC=%TEMP_JOB_ROOT%\__FGS_UPLOAD_RATE_%RANDOM%_%RANDOM%.tmp"
 
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$c=[Globalization.CultureInfo]::InvariantCulture; try{$p=$env:FG_UPLOAD_RATE_FPS -split '/'; if($p.Count -eq 2){$fps=[double]::Parse($p[0],$c)/[double]::Parse($p[1],$c)}else{$fps=[double]::Parse($env:FG_UPLOAD_RATE_FPS,$c)}; $w=[int]$env:FG_UPLOAD_RATE_W; $h=[int]$env:FG_UPLOAD_RATE_H}catch{exit 1}; if($fps -le 0 -or $w -le 0 -or $h -le 0){exit 1}; $edge=[Math]::Max($w,$h); if($edge -le 1280){$tier='720p'}elseif($edge -le 1920){$tier='1080p'}elseif($edge -le 2560){$tier='1440p'}else{$tier='2160p'}; $normal=@{'720p'=5000;'1080p'=7500;'1440p'=10000;'2160p'=15000}; $motion=@{'720p'=10000;'1080p'=15000;'1440p'=20000;'2160p'=30000}; $base=if($env:FG_UPLOAD_RATE_MOTION -eq '1'){[double]$motion[$tier]}else{[double]$normal[$tier]}; $pts=@(@(24.0,0.60),@(25.0,0.62),@(30.0,0.70),@(50.0,0.90),@(60.0,1.00),@(120.0,1.65)); if($fps -le 24.0){$factor=[Math]::Max(0.40,0.60*($fps/24.0))}else{$factor=0.0; for($i=1;$i -lt $pts.Count;$i++){if($fps -le [double]$pts[$i][0]){$x1=[double]$pts[$i-1][0];$y1=[double]$pts[$i-1][1];$x2=[double]$pts[$i][0];$y2=[double]$pts[$i][1];$factor=$y1+(($y2-$y1)*(($fps-$x1)/($x2-$x1)));break}}; if($factor -le 0){$factor=1.65*[Math]::Pow(($fps/120.0),0.75)}}; $br=[int]([Math]::Floor((($base*$factor)+250.0)/500.0)*500.0); if($br -lt 1000){$br=1000}; [Console]::Out.Write(('{0}|{1}|{2}|{3}|{4}' -f $br,$tier,[int]$base,$factor.ToString('0.###',$c),$fps.ToString('0.###',$c)))" > "%UPLOAD_RATE_CALC%" 2>nul
 set "UPLOAD_RATE_RC=%ERRORLEVEL%"
@@ -2760,6 +2767,99 @@ rem ============================================================
 rem Shared multi-file loop and probe
 rem ============================================================
 
+:PREPARE_TEMP_ROOT
+set "TEMP_JOB_ROOT="
+if /i "%TEMP_MODE%"=="SYSTEM" set "TEMP_JOB_ROOT=%TEMP%\FilmGrain_Studio"
+if /i "%TEMP_MODE%"=="CUSTOM" (
+    if not defined TEMP_CUSTOM_DIR (
+        echo ERROR: Custom temporary directory is not configured.
+        exit /b 1
+    )
+    set "TEMP_JOB_ROOT=%TEMP_CUSTOM_DIR%\FilmGrain_Studio"
+)
+if not defined TEMP_JOB_ROOT set "TEMP_JOB_ROOT=%INDIR:~0,-1%"
+if not exist "%TEMP_JOB_ROOT%" mkdir "%TEMP_JOB_ROOT%" >nul 2>&1
+if not exist "%TEMP_JOB_ROOT%" (
+    echo ERROR: Could not create temporary directory:
+    echo "%TEMP_JOB_ROOT%"
+    exit /b 1
+)
+set "TEMP_WRITE_TEST=%TEMP_JOB_ROOT%\.fgs_write_test_%RANDOM%_%RANDOM%.tmp"
+>"%TEMP_WRITE_TEST%" echo FGS
+if errorlevel 1 (
+    echo ERROR: Temporary directory is not writable:
+    echo "%TEMP_JOB_ROOT%"
+    set "TEMP_WRITE_TEST="
+    exit /b 1
+)
+del /q "%TEMP_WRITE_TEST%" >nul 2>&1
+set "TEMP_WRITE_TEST="
+exit /b 0
+
+:CHECK_TEMP_SPACE
+if not exist "%TEMP_CHECK_SCRIPT%" exit /b 0
+set "TEMP_CHECK_HDR_ARG="
+if "%HDR_CONVERT_TO_SDR%"=="1" set "TEMP_CHECK_HDR_ARG=-HdrWorkFile"
+"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%TEMP_CHECK_SCRIPT%" -InputPath "%INPUT%" -TempRoot "%TEMP_JOB_ROOT%" -Mode "%MODE%" %TEMP_CHECK_HDR_ARG%
+set "TEMP_CHECK_RC=%ERRORLEVEL%"
+if "%TEMP_CHECK_RC%"=="0" exit /b 0
+if "%TEMP_CHECK_RC%"=="1" (
+    echo ERROR: Temporary-directory validation failed.
+    exit /b 1
+)
+echo.
+echo WARNING: The temporary drive may not have enough free space.
+echo Temporary directory: "%TEMP_JOB_ROOT%"
+if "%FG_TEMP_SPACE_CONFIRMED%"=="1" exit /b 0
+set "TEMP_CONTINUE=N"
+set /p "TEMP_CONTINUE=Continue anyway? [y/N]: "
+if /i "%TEMP_CONTINUE%"=="Y" exit /b 0
+exit /b 1
+
+:PREPARE_OUTPUT_ROOT
+set "OUTDIR=%INDIR%"
+if /i "%OUTPUT_MODE%"=="CUSTOM" set "OUTDIR=%OUTPUT_CUSTOM_DIR%"
+if not defined OUTDIR (
+    echo ERROR: Custom output directory is not configured.
+    exit /b 1
+)
+if not "%OUTDIR:~-1%"=="\" set "OUTDIR=%OUTDIR%\"
+if not exist "%OUTDIR%" mkdir "%OUTDIR%" >nul 2>&1
+if not exist "%OUTDIR%" (
+    echo ERROR: Could not create output directory:
+    echo "%OUTDIR%"
+    exit /b 1
+)
+set "OUTPUT_WRITE_TEST=%OUTDIR%.fgs_write_test_%RANDOM%_%RANDOM%.tmp"
+>"%OUTPUT_WRITE_TEST%" echo FGS
+if errorlevel 1 (
+    echo ERROR: Output directory is not writable:
+    echo "%OUTDIR%"
+    set "OUTPUT_WRITE_TEST="
+    exit /b 1
+)
+del /q "%OUTPUT_WRITE_TEST%" >nul 2>&1
+set "OUTPUT_WRITE_TEST="
+exit /b 0
+
+:CHECK_OUTPUT_SPACE
+if not exist "%TEMP_CHECK_SCRIPT%" exit /b 0
+"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%TEMP_CHECK_SCRIPT%" -InputPath "%INPUT%" -TempRoot "%OUTDIR%." -Mode "%MODE%" -OutputCheck
+set "OUTPUT_CHECK_RC=%ERRORLEVEL%"
+if "%OUTPUT_CHECK_RC%"=="0" exit /b 0
+if "%OUTPUT_CHECK_RC%"=="1" (
+    echo ERROR: Output-directory validation failed.
+    exit /b 1
+)
+echo.
+echo WARNING: The output drive may not have enough free space.
+echo Output directory: "%OUTDIR%"
+if "%FG_OUTPUT_SPACE_CONFIRMED%"=="1" exit /b 0
+set "OUTPUT_CONTINUE=N"
+set /p "OUTPUT_CONTINUE=Continue anyway? [y/N]: "
+if /i "%OUTPUT_CONTINUE%"=="Y" exit /b 0
+exit /b 1
+
 :PROCESS_NEXT
 call :CLEAN_HDR_TO_SDR_WORKFILE
 if "%~1"=="" goto FINISHED
@@ -2785,6 +2885,18 @@ set "SVP_SYNC_SOURCE_ARGS="
 set "SVP_SYNC_ACTIVE=0"
 set "M2TS_VIDEO_START="
 set "M2TS_AUDIO_START="
+call :PREPARE_TEMP_ROOT
+if errorlevel 1 (
+    set /a FAIL_COUNT+=1
+    shift
+    goto PROCESS_NEXT
+)
+call :PREPARE_OUTPUT_ROOT
+if errorlevel 1 (
+    set /a FAIL_COUNT+=1
+    shift
+    goto PROCESS_NEXT
+)
 
 echo.
 echo ============================================================
@@ -2804,6 +2916,19 @@ if "%HDR_ACTIVE%"=="1" if /i "%HDR_POLICY%"=="AUTO" if /i "%MODE%"=="X264" set "
 if "%HDR_ACTIVE%"=="1" if /i "%HDR_POLICY%"=="AUTO" if "%LUT_ENABLED%"=="1" set "HDR_CONVERT_TO_SDR=1"
 if "%HDR_ACTIVE%"=="1" if /i "%HDR_POLICY%"=="AUTO" if "%ENABLE_UPLOAD_BAKE%"=="1" set "HDR_CONVERT_TO_SDR=1"
 if "%HDR_ACTIVE%"=="1" if /i "%HDR_POLICY%"=="AUTO" if /i "%REQUESTED_FPS_MODE%"=="SVP60" set "HDR_CONVERT_TO_SDR=1"
+
+call :CHECK_TEMP_SPACE
+if errorlevel 1 (
+    set /a FAIL_COUNT+=1
+    shift
+    goto PROCESS_NEXT
+)
+call :CHECK_OUTPUT_SPACE
+if errorlevel 1 (
+    set /a FAIL_COUNT+=1
+    shift
+    goto PROCESS_NEXT
+)
 
 if not "%HDR_CONVERT_TO_SDR%"=="1" goto HDR_TO_SDR_FLOW_DONE
 set "HDR_SOURCE_LABEL=%HDR_LABEL%"
@@ -2983,14 +3108,14 @@ set "DIM="
 
 rem Write probe results to files. Do not use FOR /F command substitution;
 rem CMD can otherwise damage filenames containing special characters.
-set "PROBE_DIM=%TEMP%\FGU_dim_%RANDOM%_%RANDOM%.txt"
-set "PROBE_FPS=%TEMP%\FGU_fps_%RANDOM%_%RANDOM%.txt"
-set "PROBE_DUR=%TEMP%\FGU_dur_%RANDOM%_%RANDOM%.txt"
-set "PROBE_FIELD=%TEMP%\FGU_field_%RANDOM%_%RANDOM%.txt"
-set "PROBE_PRIM=%TEMP%\FGU_prim_%RANDOM%_%RANDOM%.txt"
-set "PROBE_TRC=%TEMP%\FGU_trc_%RANDOM%_%RANDOM%.txt"
-set "PROBE_CSP=%TEMP%\FGU_csp_%RANDOM%_%RANDOM%.txt"
-set "PROBE_RANGE=%TEMP%\FGU_range_%RANDOM%_%RANDOM%.txt"
+set "PROBE_DIM=%TEMP_JOB_ROOT%\FGU_dim_%RANDOM%_%RANDOM%.txt"
+set "PROBE_FPS=%TEMP_JOB_ROOT%\FGU_fps_%RANDOM%_%RANDOM%.txt"
+set "PROBE_DUR=%TEMP_JOB_ROOT%\FGU_dur_%RANDOM%_%RANDOM%.txt"
+set "PROBE_FIELD=%TEMP_JOB_ROOT%\FGU_field_%RANDOM%_%RANDOM%.txt"
+set "PROBE_PRIM=%TEMP_JOB_ROOT%\FGU_prim_%RANDOM%_%RANDOM%.txt"
+set "PROBE_TRC=%TEMP_JOB_ROOT%\FGU_trc_%RANDOM%_%RANDOM%.txt"
+set "PROBE_CSP=%TEMP_JOB_ROOT%\FGU_csp_%RANDOM%_%RANDOM%.txt"
+set "PROBE_RANGE=%TEMP_JOB_ROOT%\FGU_range_%RANDOM%_%RANDOM%.txt"
 
 "%FFPROBE%" -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0:s=x "%INPUT%" > "%PROBE_DIM%" 2>nul
 if errorlevel 1 (
@@ -3102,10 +3227,10 @@ exit /b 0
 :VERIFY_HDR_SIGNALING
 if not "%HDR_ACTIVE%"=="1" exit /b 0
 set "HDR_VERIFY_TAG=%RANDOM%_%RANDOM%"
-set "HDR_VERIFY_PRIM=%INDIR%.__FGS_HDR_PRIM_%HDR_VERIFY_TAG%.tmp"
-set "HDR_VERIFY_TRC=%INDIR%.__FGS_HDR_TRC_%HDR_VERIFY_TAG%.tmp"
-set "HDR_VERIFY_CSP=%INDIR%.__FGS_HDR_CSP_%HDR_VERIFY_TAG%.tmp"
-set "HDR_VERIFY_RANGE=%INDIR%.__FGS_HDR_RANGE_%HDR_VERIFY_TAG%.tmp"
+set "HDR_VERIFY_PRIM=%TEMP_JOB_ROOT%\__FGS_HDR_PRIM_%HDR_VERIFY_TAG%.tmp"
+set "HDR_VERIFY_TRC=%TEMP_JOB_ROOT%\__FGS_HDR_TRC_%HDR_VERIFY_TAG%.tmp"
+set "HDR_VERIFY_CSP=%TEMP_JOB_ROOT%\__FGS_HDR_CSP_%HDR_VERIFY_TAG%.tmp"
+set "HDR_VERIFY_RANGE=%TEMP_JOB_ROOT%\__FGS_HDR_RANGE_%HDR_VERIFY_TAG%.tmp"
 set "HDR_VERIFY_PRIM_VAL="
 set "HDR_VERIFY_TRC_VAL="
 set "HDR_VERIFY_CSP_VAL="
@@ -3155,7 +3280,7 @@ exit /b 0
 
 :PREPARE_HDR_TO_SDR_WORKFILE
 set "HDR_SDR_ORIGINAL_INPUT=%INPUT%"
-set "HDR_SDR_WORKFILE=%INDIR%__FGS_HDR2SDR_%RANDOM%_%RANDOM%.mkv"
+set "HDR_SDR_WORKFILE=%TEMP_JOB_ROOT%\__FGS_HDR2SDR_%RANDOM%_%RANDOM%.mkv"
 set "HDR_TONEMAP_FILTER=zscale=rin=%COLOR_RANGE%:pin=%COLOR_PRIMARIES%:tin=%COLOR_TRANSFER%:min=%COLOR_SPACE%:t=linear:npl=100,format=gbrpf32le,tonemap=tonemap=%TONEMAP_ALGO%:desat=2,zscale=p=bt709:t=bt709:m=bt709:r=tv,format=p010le,sidedata=mode=delete:type=MASTERING_DISPLAY_METADATA,sidedata=mode=delete:type=CONTENT_LIGHT_LEVEL,setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709"
 
 "%FFMPEG%" -hide_banner -h filter=zscale >nul 2>&1
@@ -3251,9 +3376,9 @@ if "%ENABLE_CROP%"=="1" set "FRAME_POST_FILTER=%CROP_POST_FILTER%"
 if "%ENABLE_LETTERBOX%"=="1" set "FRAME_POST_FILTER=%LETTERBOX_FILTER%"
 
 call :RESOLVE_PIXEL_GRAIN_NAME
-set "OUTPUT_BASE=%INDIR%%NAME%_HEVC_%SPEED_SUFFIX%_%BITRATE_NUM%k%GRAIN_RC_NAME%%FPS_SUFFIX%%DEINT_FILE_SUFFIX%%FRAME_SUFFIX%%PIXEL_GRAIN_NAME%%LUT_FILE_SUFFIX%%HDR_FILE_SUFFIX%"
+set "OUTPUT_BASE=%OUTDIR%%NAME%_HEVC_%SPEED_SUFFIX%_%BITRATE_NUM%k%GRAIN_RC_NAME%%FPS_SUFFIX%%DEINT_FILE_SUFFIX%%FRAME_SUFFIX%%PIXEL_GRAIN_NAME%%LUT_FILE_SUFFIX%%HDR_FILE_SUFFIX%"
 set "OUTPUT=%OUTPUT_BASE%%SUB_FILE_SUFFIX%.%EXT%"
-set "UPLOAD_OUTPUT=%INDIR%%NAME%_X264%X264_FILE_SUFFIX%_%UPLOAD_BITRATE_NUM%k%FPS_SUFFIX%%DEINT_FILE_SUFFIX%%FRAME_SUFFIX%%PIXEL_GRAIN_NAME%%LUT_FILE_SUFFIX%%HDR_FILE_SUFFIX%_UPLOAD_FROM_HEVC_%SPEED_SUFFIX%_%BITRATE_NUM%k%GRAIN_RC_NAME%%SUB_FILE_SUFFIX%.mp4"
+set "UPLOAD_OUTPUT=%OUTDIR%%NAME%_X264%X264_FILE_SUFFIX%_%UPLOAD_BITRATE_NUM%k%FPS_SUFFIX%%DEINT_FILE_SUFFIX%%FRAME_SUFFIX%%PIXEL_GRAIN_NAME%%LUT_FILE_SUFFIX%%HDR_FILE_SUFFIX%_UPLOAD_FROM_HEVC_%SPEED_SUFFIX%_%BITRATE_NUM%k%GRAIN_RC_NAME%%SUB_FILE_SUFFIX%.mp4"
 
 set "DURATION_ARGS="
 set "GRAIN_TIME_ARGS="
@@ -3525,7 +3650,7 @@ if "%ENABLE_LETTERBOX%"=="1" set "FRAME_POST_FILTER=%LETTERBOX_FILTER%"
 call :RESOLVE_PIXEL_GRAIN_NAME
 set "X264_DEPTH_SUFFIX="
 if "%X264_HIGH10%"=="1" set "X264_DEPTH_SUFFIX=_HIGH10"
-set "OUTPUT_BASE=%INDIR%%NAME%_X264%X264_FILE_SUFFIX%_%BITRATE_NUM%k%X264_DEPTH_SUFFIX%%FPS_SUFFIX%%DEINT_FILE_SUFFIX%%FRAME_SUFFIX%%PIXEL_GRAIN_NAME%%LUT_FILE_SUFFIX%%HDR_FILE_SUFFIX%"
+set "OUTPUT_BASE=%OUTDIR%%NAME%_X264%X264_FILE_SUFFIX%_%BITRATE_NUM%k%X264_DEPTH_SUFFIX%%FPS_SUFFIX%%DEINT_FILE_SUFFIX%%FRAME_SUFFIX%%PIXEL_GRAIN_NAME%%LUT_FILE_SUFFIX%%HDR_FILE_SUFFIX%"
 set "OUTPUT=%OUTPUT_BASE%%SUB_FILE_SUFFIX%.%EXT%"
 
 set "DURATION_ARGS="
@@ -3610,7 +3735,7 @@ set "X264_MAIN_RC=%ERRORLEVEL%"
 goto X264_MAIN_DONE
 
 :X264_MAIN_2PASS
-set "X264_PASSLOG=%INDIR%.__FGS_X264_%RANDOM%_%RANDOM%"
+set "X264_PASSLOG=%TEMP_JOB_ROOT%\__FGS_X264_%RANDOM%_%RANDOM%"
 echo x264 step 1/%X264_PASS_COUNT% - pass 1: analysis...
 "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk %MAIN_HWACCEL_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%FRAME_POST_FILTER%%X264_SUB_FILTER%,%X264_DEPTH_FILTER%[vout]" -map "[vout]" -an -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -pass 1 -passlogfile "%X264_PASSLOG%" -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f null NUL
 set "X264_PASS1_RC=%ERRORLEVEL%"
@@ -3636,7 +3761,7 @@ set "X264_MAIN_RC=%ERRORLEVEL%"
 goto X264_MAIN_DONE
 
 :X264_MAIN_OPEN_SVP_2PASS
-set "X264_PASSLOG=%INDIR%.__FGS_X264_%RANDOM%_%RANDOM%"
+set "X264_PASSLOG=%TEMP_JOB_ROOT%\__FGS_X264_%RANDOM%_%RANDOM%"
 echo x264 step 1/%X264_PASS_COUNT% - pass 1: OpenSVPFlow analysis...
 "%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=60" --arg "target_den=1" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%SVP_GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%FRAME_POST_FILTER%%X264_SUB_FILTER%,%X264_DEPTH_FILTER%[vout]" -map "[vout]" -an -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -pass 1 -passlogfile "%X264_PASSLOG%" -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f null NUL
 set "X264_PASS1_RC=%ERRORLEVEL%"
@@ -3710,7 +3835,7 @@ if /i "%X264_PASS_MODE%"=="3PASS" goto X264_FGSIM_2PASS
 set "X264_MAIN_RC=%ERRORLEVEL%"
 goto X264_MAIN_DONE
 :X264_FGSIM_2PASS
-set "X264_PASSLOG=%INDIR%.__FGS_X264_FGSIM_%RANDOM%_%RANDOM%"
+set "X264_PASSLOG=%TEMP_JOB_ROOT%\__FGS_X264_FGSIM_%RANDOM%_%RANDOM%"
 "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -i "%INPUT%" -filter_complex "%FGSIM_FILTER%" -map "[vout]" -an -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -pass 1 -passlogfile "%X264_PASSLOG%" -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f null NUL
 set "X264_PASS1_RC=%ERRORLEVEL%"
 if not "%X264_PASS1_RC%"=="0" goto X264_MAIN_FAIL_PASS1
@@ -3730,7 +3855,7 @@ if /i "%X264_PASS_MODE%"=="3PASS" goto X264_FGSIM_OPEN_SVP_2PASS
 set "X264_MAIN_RC=%ERRORLEVEL%"
 goto X264_MAIN_DONE
 :X264_FGSIM_OPEN_SVP_2PASS
-set "X264_PASSLOG=%INDIR%.__FGS_X264_FGSIM_%RANDOM%_%RANDOM%"
+set "X264_PASSLOG=%TEMP_JOB_ROOT%\__FGS_X264_FGSIM_%RANDOM%_%RANDOM%"
 "%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=60" --arg "target_den=1" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -filter_complex "%FGSIM_FILTER%" -map "[vout]" -an -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -pass 1 -passlogfile "%X264_PASSLOG%" -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f null NUL
 set "X264_PASS1_RC=%ERRORLEVEL%"
 if not "%X264_PASS1_RC%"=="0" goto X264_MAIN_FAIL_PASS1
@@ -3774,7 +3899,7 @@ set "X264_MAIN_RC=%ERRORLEVEL%"
 goto X264_MAIN_DONE
 
 :X264_PROC_2PASS
-set "X264_PASSLOG=%INDIR%.__FGS_X264_PROC_%RANDOM%_%RANDOM%"
+set "X264_PASSLOG=%TEMP_JOB_ROOT%\__FGS_X264_PROC_%RANDOM%_%RANDOM%"
 echo x264 step 1/%X264_PASS_COUNT% - pass 1: Digital Grain analysis...
 "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %ACTIVE_DEINT_HW_ARGS% -i "%INPUT%" -filter_complex "%PROC_FILTER%" -map "[vout]" -an -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -pass 1 -passlogfile "%X264_PASSLOG%" -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f null NUL
 set "X264_PASS1_RC=%ERRORLEVEL%"
@@ -3799,7 +3924,7 @@ set "X264_MAIN_RC=%ERRORLEVEL%"
 goto X264_MAIN_DONE
 
 :X264_PROC_OPEN_SVP_2PASS
-set "X264_PASSLOG=%INDIR%.__FGS_X264_PROC_%RANDOM%_%RANDOM%"
+set "X264_PASSLOG=%TEMP_JOB_ROOT%\__FGS_X264_PROC_%RANDOM%_%RANDOM%"
 echo x264 step 1/%X264_PASS_COUNT% - pass 1: Digital Grain OpenSVPFlow analysis...
 "%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=60" --arg "target_den=1" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -filter_complex "%PROC_FILTER%" -map "[vout]" -an -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -pass 1 -passlogfile "%X264_PASSLOG%" -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f null NUL
 set "X264_PASS1_RC=%ERRORLEVEL%"
@@ -3836,8 +3961,8 @@ if errorlevel 1 exit /b 1
 if not "%HDR_UPLOAD_SKIP%"=="1" if "%ENABLE_UPLOAD_BAKE%"=="1" if /i "%UPLOAD_MODE%"=="X264" call :RESOLVE_X264_UPLOAD_RATE
 if errorlevel 1 exit /b 1
 
-set "OUTPUT=%INDIR%%NAME%_AV1_%SPEED_SUFFIX%_%BITRATE_NUM%k%FPS_SUFFIX%%DEINT_FILE_SUFFIX%%FRAME_SUFFIX%_GS_%GRAIN_FILE_TAG%%LUT_FILE_SUFFIX%%HDR_FILE_SUFFIX%%SUB_FILE_SUFFIX%.%EXT%"
-set "UPLOAD_OUTPUT=%INDIR%%NAME%_X264%X264_FILE_SUFFIX%_%UPLOAD_BITRATE_NUM%k%FPS_SUFFIX%%DEINT_FILE_SUFFIX%%FRAME_SUFFIX%_GS_%GRAIN_FILE_TAG%%LUT_FILE_SUFFIX%%HDR_FILE_SUFFIX%_UPLOAD_FROM_AV1_%SPEED_SUFFIX%_%BITRATE_NUM%k%SUB_FILE_SUFFIX%.mp4"
+set "OUTPUT=%OUTDIR%%NAME%_AV1_%SPEED_SUFFIX%_%BITRATE_NUM%k%FPS_SUFFIX%%DEINT_FILE_SUFFIX%%FRAME_SUFFIX%_GS_%GRAIN_FILE_TAG%%LUT_FILE_SUFFIX%%HDR_FILE_SUFFIX%%SUB_FILE_SUFFIX%.%EXT%"
+set "UPLOAD_OUTPUT=%OUTDIR%%NAME%_X264%X264_FILE_SUFFIX%_%UPLOAD_BITRATE_NUM%k%FPS_SUFFIX%%DEINT_FILE_SUFFIX%%FRAME_SUFFIX%_GS_%GRAIN_FILE_TAG%%LUT_FILE_SUFFIX%%HDR_FILE_SUFFIX%_UPLOAD_FROM_AV1_%SPEED_SUFFIX%_%BITRATE_NUM%k%SUB_FILE_SUFFIX%.mp4"
 
 if exist "%OUTPUT%" (
     echo SKIP: Main AV1 output already exists:
@@ -3857,7 +3982,7 @@ if exist "%OUTPUT%" (
 
 rem Isolated same-drive temporary workspace.
 set "JOBID=%RANDOM%_%RANDOM%"
-set "JOBDIR=%INDIR%__AV1GS_TMP_%JOBID%"
+set "JOBDIR=%TEMP_JOB_ROOT%\__AV1GS_TMP_%JOBID%"
 set "TMP_BASE=%JOBDIR%\base.ivf"
 set "TMP_GRAIN=%JOBDIR%\grain.ivf"
 set "VERIFY_TABLE=%JOBDIR%\verify.txt"
@@ -4373,7 +4498,7 @@ if not "%UPLOAD_RUN_RC%"=="0" (
 goto RUN_HEVC_UPLOAD_SVP_MAIN_X264_VERIFY
 
 :RUN_HEVC_UPLOAD_SVP_MAIN_X264_2PASS
-set "UPLOAD_PASSLOG=%INDIR%.__FGS_UPLOAD_X264_%RANDOM%_%RANDOM%"
+set "UPLOAD_PASSLOG=%TEMP_JOB_ROOT%\__FGS_UPLOAD_X264_%RANDOM%_%RANDOM%"
 call :CLEAN_X264_PASSLOG
 
 echo.
@@ -4451,7 +4576,7 @@ if not "%UPLOAD_RUN_RC%"=="0" (
 goto RUN_HEVC_UPLOAD_X264_VERIFY
 
 :RUN_HEVC_UPLOAD_X264_2PASS
-set "UPLOAD_PASSLOG=%INDIR%.__FGS_UPLOAD_X264_%RANDOM%_%RANDOM%"
+set "UPLOAD_PASSLOG=%TEMP_JOB_ROOT%\__FGS_UPLOAD_X264_%RANDOM%_%RANDOM%"
 call :CLEAN_X264_PASSLOG
 
 echo.
@@ -4581,7 +4706,7 @@ if not "%UPLOAD_RUN_RC%"=="0" (
 goto RUN_AV1_UPLOAD_X264_VERIFY
 
 :RUN_AV1_UPLOAD_X264_2PASS
-set "UPLOAD_PASSLOG=%INDIR%.__FGS_UPLOAD_X264_%RANDOM%_%RANDOM%"
+set "UPLOAD_PASSLOG=%TEMP_JOB_ROOT%\__FGS_UPLOAD_X264_%RANDOM%_%RANDOM%"
 call :CLEAN_X264_PASSLOG
 
 echo.
@@ -4680,8 +4805,8 @@ exit /b 0
 
 :MPEGTS_SVP_SYNC_APPLY
 set "SYNC_TAG=%RANDOM%_%RANDOM%"
-set "SYNC_VFILE=%INDIR%.__FGS_TS_VSTART_%SYNC_TAG%.tmp"
-set "SYNC_AFILE=%INDIR%.__FGS_TS_ASTART_%SYNC_TAG%.tmp"
+set "SYNC_VFILE=%TEMP_JOB_ROOT%\__FGS_TS_VSTART_%SYNC_TAG%.tmp"
+set "SYNC_AFILE=%TEMP_JOB_ROOT%\__FGS_TS_ASTART_%SYNC_TAG%.tmp"
 
 "%FFPROBE%" -v error -select_streams v:0 -show_entries stream=start_time -of default=nokey=1:noprint_wrappers=1 "%INPUT%" > "%SYNC_VFILE%" 2>nul
 if exist "%SYNC_VFILE%" set /p "M2TS_VIDEO_START="<"%SYNC_VFILE%"

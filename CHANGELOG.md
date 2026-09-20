@@ -2,6 +2,11 @@
 
 ## v4.8.6 — 2026-09-20
 
+- 配置页新增临时目录策略：默认使用视频当前目录，也可切换到系统临时目录或自定义目录；选择系统临时目录时自定义路径自动禁用。
+- 配置页新增输出目录策略：默认继续输出到视频当前目录，也可统一输出到用户选择的自定义目录。
+- GUI、CLI、AV1 / HEVC / x264 主线、H.264 上传副本及 AV1 免重编码添加/替换颗粒流程统一读取临时目录与输出目录配置；AV1 最终命名保持在所选输出目录内完成。
+- 临时目录与输出目录分别执行路径创建、写入权限与可用空间检查；根据输入文件及处理路线估算所需空间并保留安全余量，空间可能不足时给出明确提示。
+- 修复输出目录以反斜杠结尾时传入 Windows PowerShell 检测脚本可能残留非法引号、导致 `CreateDirectory` 报“Illegal characters in path”的问题；AV1、HEVC、x264 三线已完成用户实际测试。
 - 用户配置统一收口到根目录 `FilmGrain_Config.ini`：除 FFmpeg / grav1synth / Grain / LUT 路径外，统一保存 GUI 语言、LUT Gallery 智能过滤状态，以及高级设置“编码 / 插帧 / HDR / 其他”中的全部可修改项目。
 - 高级设置四个页面分别提供独立“恢复默认”，只恢复当前页面；HEVC Spatial AQ / Temporal AQ、x264 码率模式与 Preset、H.264 High10、OpenSVPFlow 参数、HDR 策略 / Tone Mapping、Cinematic Style 自定义画幅均可持久化。
 - 旧版 `Lang\FilmGrain_Language.ini` 仅作为一次性迁移来源；语言选择迁移后由统一配置管理，正式包不再携带该旧配置文件。

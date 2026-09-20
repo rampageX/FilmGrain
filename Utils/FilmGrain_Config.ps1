@@ -7,6 +7,10 @@ $script:FilmGrainConfigDefaults = [ordered]@{
     GRAV1SYNTH = 'E:\EnCoder\FFMpeg\grav1synth\grav1synth.exe'
     GRAIN_ROOT = 'D:\Film_Grain'
     LUT_ROOT = 'E:\Adobe Portable\LUTs'
+    TEMP_MODE = 'VIDEO'
+    TEMP_CUSTOM_DIR = ''
+    OUTPUT_MODE = 'VIDEO'
+    OUTPUT_CUSTOM_DIR = ''
 
     LANGUAGE = 'zh-CN'
     SMART_FILTER_ENABLED = 'false'
@@ -32,7 +36,11 @@ $script:FilmGrainConfigSections = [ordered]@{
         'FFMPEG_DIR',
         'GRAV1SYNTH',
         'GRAIN_ROOT',
-        'LUT_ROOT'
+        'LUT_ROOT',
+        'TEMP_MODE',
+        'TEMP_CUSTOM_DIR',
+        'OUTPUT_MODE',
+        'OUTPUT_CUSTOM_DIR'
     )
     General = @(
         'LANGUAGE'
@@ -137,7 +145,7 @@ function Normalize-FilmGrainConfigValue {
     )
 
     $text = [string]$Value
-    if ($Key -in @('FFMPEG_DIR','GRAV1SYNTH','GRAIN_ROOT','LUT_ROOT')) {
+    if ($Key -in @('FFMPEG_DIR','GRAV1SYNTH','GRAIN_ROOT','LUT_ROOT','TEMP_CUSTOM_DIR','OUTPUT_CUSTOM_DIR')) {
         $text = $text.Trim().Trim('"')
         if ($Key -eq 'FFMPEG_DIR') { $text = $text.TrimEnd('\') }
     } else {
@@ -207,6 +215,10 @@ function Get-FilmGrainConfig {
         GRAV1SYNTH = [string]$result['GRAV1SYNTH']
         GRAIN_ROOT = [string]$result['GRAIN_ROOT']
         LUT_ROOT = [string]$result['LUT_ROOT']
+        TEMP_MODE = [string]$result['TEMP_MODE']
+        TEMP_CUSTOM_DIR = [string]$result['TEMP_CUSTOM_DIR']
+        OUTPUT_MODE = [string]$result['OUTPUT_MODE']
+        OUTPUT_CUSTOM_DIR = [string]$result['OUTPUT_CUSTOM_DIR']
 
         LANGUAGE = [string]$result['LANGUAGE']
         SMART_FILTER_ENABLED = [string]$result['SMART_FILTER_ENABLED']

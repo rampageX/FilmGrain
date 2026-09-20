@@ -254,6 +254,10 @@ $script:HevcSpatialAq = 8
 $script:HevcTemporalAq = $true
 $script:HdrPolicy = 'AUTO'
 $script:ToneMapAlgo = 'hable'
+$script:TempMode = 'VIDEO'
+$script:TempCustomDir = ''
+$script:OutputMode = 'VIDEO'
+$script:OutputCustomDir = ''
 
 # Load all persistent Advanced settings from the unified FilmGrain_Config.ini.
 try {
@@ -298,6 +302,10 @@ try {
     }
 
     $script:HevcTemporalAq = ([string]$cfg.HEVC_TEMPORAL_AQ -match '^(?i:true|1|yes|on)$')
+    $script:TempMode = switch ([string]$cfg.TEMP_MODE) { 'SYSTEM' { 'SYSTEM'; break } 'CUSTOM' { 'CUSTOM'; break } default { 'VIDEO'; break } }
+    $script:TempCustomDir = [string]$cfg.TEMP_CUSTOM_DIR
+    $script:OutputMode = if ([string]$cfg.OUTPUT_MODE -eq 'CUSTOM') { 'CUSTOM' } else { 'VIDEO' }
+    $script:OutputCustomDir = [string]$cfg.OUTPUT_CUSTOM_DIR
 
     $script:HdrPolicy = switch ([string]$cfg.HDR_POLICY) {
         'PRESERVE' { 'PRESERVE'; break }
@@ -426,6 +434,62 @@ function Show-Info {
         [System.Windows.Forms.MessageBoxButtons]::OK,
         [System.Windows.Forms.MessageBoxIcon]::Information
     )
+}
+
+function Format-ByteSize {
+    param([double]$Bytes)
+    if ($Bytes -ge 1TB) { return ('{0:N2} TB' -f ($Bytes / 1TB)) }
+    if ($Bytes -ge 1GB) { return ('{0:N2} GB' -f ($Bytes / 1GB)) }
+    return ('{0:N0} MB' -f ($Bytes / 1MB))
+}
+
+function Confirm-TempWorkspace {
+    param([string[]]$InputPaths, [string]$Mode, [bool]$NoReencode = $false)
+    $requirements = @{}
+    foreach ($inputPath in $InputPaths) {
+        $root = switch ($script:TempMode) { 'SYSTEM' { Join-Path ([IO.Path]::GetTempPath()) 'FilmGrain_Studio' } 'CUSTOM' { Join-Path $script:TempCustomDir 'FilmGrain_Studio' } default { Split-Path -Parent $inputPath } }
+        try {
+            [void][IO.Directory]::CreateDirectory($root)
+            $testPath = Join-Path $root ('.fgs_write_test_' + [guid]::NewGuid().ToString('N') + '.tmp')
+            [IO.File]::WriteAllText($testPath, 'FGS'); Remove-Item -LiteralPath $testPath -Force
+        } catch { Show-Error ((L 'error.temp_unavailable') -f $root,$_.Exception.Message); return $false }
+        $sourceBytes = [double](Get-Item -LiteralPath $inputPath).Length
+        $factor = if ($NoReencode) { 2.2 } elseif ($Mode -eq 'AV1') { 2.6 } else { 1.0 }
+        $metaKey = $inputPath.ToLowerInvariant()
+        if ($script:ProbeVideoMeta.ContainsKey($metaKey)) { $transfer=([string]$script:ProbeVideoMeta[$metaKey].color_transfer).ToLowerInvariant(); if ($transfer -in @('smpte2084','arib-std-b67')) {$factor+=4.0} }
+        $required = [Math]::Max(512MB,[Math]::Ceiling($sourceBytes * $factor))
+        if (-not $requirements.ContainsKey($root) -or $required -gt [double]$requirements[$root]) { $requirements[$root] = $required }
+    }
+    foreach ($root in $requirements.Keys) {
+        try { $driveRoot=[IO.Path]::GetPathRoot([IO.Path]::GetFullPath($root)); $drive=New-Object System.IO.DriveInfo -ArgumentList $driveRoot; $free=[double]$drive.AvailableFreeSpace }
+        catch { Show-Error ((L 'error.temp_unavailable') -f $root,$_.Exception.Message); return $false }
+        $required=[double]$requirements[$root]; $reserve=[Math]::Max(2GB,[Math]::Ceiling($required*0.2))
+        if ($free -lt ($required+$reserve)) {
+            $message=(L 'warning.temp_space') -f $root,(Format-ByteSize $free),(Format-ByteSize $required),(Format-ByteSize $reserve)
+            $answer=[System.Windows.Forms.MessageBox]::Show($form,$message,'Film Grain Studio',[System.Windows.Forms.MessageBoxButtons]::YesNo,[System.Windows.Forms.MessageBoxIcon]::Warning,[System.Windows.Forms.MessageBoxDefaultButton]::Button2)
+            if ($answer -ne [System.Windows.Forms.DialogResult]::Yes) { return $false }
+        }
+    }
+    $outputRequirements=@{}
+    foreach ($inputPath in $InputPaths) {
+        $root=if ($script:OutputMode -eq 'CUSTOM') {$script:OutputCustomDir} else {Split-Path -Parent $inputPath}
+        try {[void][IO.Directory]::CreateDirectory($root); $testPath=Join-Path $root ('.fgs_write_test_'+[guid]::NewGuid().ToString('N')+'.tmp'); [IO.File]::WriteAllText($testPath,'FGS'); Remove-Item -LiteralPath $testPath -Force}
+        catch {Show-Error ((L 'error.output_unavailable') -f $root,$_.Exception.Message); return $false}
+        $required=[Math]::Max(512MB,[Math]::Ceiling(([double](Get-Item -LiteralPath $inputPath).Length)*1.2))
+        if (-not $outputRequirements.ContainsKey($root)) {$outputRequirements[$root]=0.0}
+        $outputRequirements[$root]=[double]$outputRequirements[$root]+$required
+    }
+    foreach ($root in $outputRequirements.Keys) {
+        try {$driveRoot=[IO.Path]::GetPathRoot([IO.Path]::GetFullPath($root)); $drive=New-Object System.IO.DriveInfo -ArgumentList $driveRoot; $free=[double]$drive.AvailableFreeSpace}
+        catch {Show-Error ((L 'error.output_unavailable') -f $root,$_.Exception.Message); return $false}
+        $required=[double]$outputRequirements[$root]; $reserve=[Math]::Max(2GB,[Math]::Ceiling($required*0.2))
+        if ($free -lt ($required+$reserve)) {
+            $message=(L 'warning.output_space') -f $root,(Format-ByteSize $free),(Format-ByteSize $required),(Format-ByteSize $reserve)
+            $answer=[System.Windows.Forms.MessageBox]::Show($form,$message,'Film Grain Studio',[System.Windows.Forms.MessageBoxButtons]::YesNo,[System.Windows.Forms.MessageBoxIcon]::Warning,[System.Windows.Forms.MessageBoxDefaultButton]::Button2)
+            if ($answer -ne [System.Windows.Forms.DialogResult]::Yes) {return $false}
+        }
+    }
+    return $true
 }
 
 function Show-AdvancedSettingsDialog {
@@ -4610,6 +4674,7 @@ function Start-NoReencodeProcessing {
         Show-Error ((L 'error.grav_missing') -f $Grav1synth)
         return
     }
+    if (-not (Confirm-TempWorkspace -InputPaths @($path) -Mode 'AV1' -NoReencode $true)) { return }
 
     $selectedAv1GrainTable = ''
     if ($cmbAv1Method.SelectedIndex -eq 2) {
@@ -4662,6 +4727,7 @@ function Start-NoReencodeProcessing {
 
     $envs = $psi.EnvironmentVariables
     $envs['FG_STUDIO_MODE'] = '1'
+    $envs['FG_TEMP_MODE']=[string]$script:TempMode; $envs['FG_TEMP_CUSTOM_DIR']=[string]$script:TempCustomDir; $envs['FG_TEMP_SPACE_CONFIRMED']='1'; $envs['FG_OUTPUT_MODE']=[string]$script:OutputMode; $envs['FG_OUTPUT_CUSTOM_DIR']=[string]$script:OutputCustomDir; $envs['FG_OUTPUT_SPACE_CONFIRMED']='1'
     $envs['FG_TOOL_NO_PAUSE'] = '1'
     $envs['FG_CONTAINER'] = if ($cmbContainer.SelectedIndex -eq 0) { 'MP4' } else { 'MKV' }
     $av1Modes = @('PRESET', 'ISO', 'TABLE')
@@ -4830,6 +4896,7 @@ function Start-Encoding {
             }
         }
     }
+    if (-not (Confirm-TempWorkspace -InputPaths $paths -Mode $mode)) { return }
 
     $script:RunWasCancelled = $false
     $script:RunCompletionHandled = $false
@@ -4940,6 +5007,7 @@ function Start-Encoding {
 
     $envs = $psi.EnvironmentVariables
     $envs['FG_STUDIO_MODE'] = '1'
+    $envs['FG_TEMP_MODE']=[string]$script:TempMode; $envs['FG_TEMP_CUSTOM_DIR']=[string]$script:TempCustomDir; $envs['FG_TEMP_SPACE_CONFIRMED']='1'; $envs['FG_OUTPUT_MODE']=[string]$script:OutputMode; $envs['FG_OUTPUT_CUSTOM_DIR']=[string]$script:OutputCustomDir; $envs['FG_OUTPUT_SPACE_CONFIRMED']='1'
     $envs['FG_MODE'] = $mode
     $envs['FG_CONTAINER'] = if ($cmbContainer.SelectedIndex -eq 0) { 'MP4' } else { 'MKV' }
     $envs['FG_HDR_POLICY'] = [string]$script:HdrPolicy
@@ -5282,14 +5350,14 @@ function Show-PathConfigurationDialog {
     $dlg.MaximizeBox = $false
     $dlg.MinimizeBox = $false
     $dlg.ShowInTaskbar = $false
-    $dlg.ClientSize = New-Object System.Drawing.Size -ArgumentList 850, 486
+    $dlg.ClientSize = New-Object System.Drawing.Size -ArgumentList 850, 590
     $dlg.Font = New-UiFont 9
 
     $table = New-Object System.Windows.Forms.TableLayoutPanel
     $table.Dock = 'Fill'
     $table.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 12, 12, 12, 10
     $table.ColumnCount = 4
-    $table.RowCount = 10
+    $table.RowCount = 12
     $c0 = New-Object System.Windows.Forms.ColumnStyle; $c0.SizeType='Absolute'; $c0.Width=108; [void]$table.ColumnStyles.Add($c0)
     $c1 = New-Object System.Windows.Forms.ColumnStyle; $c1.SizeType='Percent'; $c1.Width=100; [void]$table.ColumnStyles.Add($c1)
     $c2 = New-Object System.Windows.Forms.ColumnStyle; $c2.SizeType='Absolute'; $c2.Width=94; [void]$table.ColumnStyles.Add($c2)
@@ -5302,6 +5370,8 @@ function Show-PathConfigurationDialog {
     Add-RowAbsolute $table 36
     Add-RowAbsolute $table 42
     Add-RowAbsolute $table 36
+    Add-RowAbsolute $table 46
+    Add-RowAbsolute $table 46
     Add-RowPercent $table 100
     Add-RowAbsolute $table 42
     [void]$dlg.Controls.Add($table)
@@ -5383,10 +5453,40 @@ function Show-PathConfigurationDialog {
     [void]$table.Controls.Add($lblLutDetect,1,7)
     [void]$table.Controls.Add($btnBuildLutPreviews,2,7); $table.SetColumnSpan($btnBuildLutPreviews,2)
 
+    $tempPanel=New-Object System.Windows.Forms.TableLayoutPanel
+    $tempPanel.Dock='Fill'; $tempPanel.ColumnCount=2; $tempPanel.Margin=New-Object System.Windows.Forms.Padding -ArgumentList 0
+    $tc0=New-Object System.Windows.Forms.ColumnStyle; $tc0.SizeType='Absolute'; $tc0.Width=190; [void]$tempPanel.ColumnStyles.Add($tc0)
+    $tc1=New-Object System.Windows.Forms.ColumnStyle; $tc1.SizeType='Percent'; $tc1.Width=100; [void]$tempPanel.ColumnStyles.Add($tc1)
+    $cmbCfgTempMode=New-Object System.Windows.Forms.ComboBox; $cmbCfgTempMode.DropDownStyle='DropDownList'; $cmbCfgTempMode.Dock='Fill'; $cmbCfgTempMode.Margin=New-Object System.Windows.Forms.Padding -ArgumentList 4,8,4,6
+    foreach ($item in @((L 'config.temp_video'),(L 'config.temp_system'),(L 'config.temp_custom'))) {[void]$cmbCfgTempMode.Items.Add($item)}
+    $cmbCfgTempMode.SelectedIndex=switch ([string]$cfg.TEMP_MODE) {'SYSTEM'{1} 'CUSTOM'{2} default{0}}
+    $txtCfgTemp=New-ConfigTextBox ([string]$cfg.TEMP_CUSTOM_DIR)
+    [void]$tempPanel.Controls.Add($cmbCfgTempMode,0,0); [void]$tempPanel.Controls.Add($txtCfgTemp,1,0)
+    $btnCfgTemp=New-ConfigBrowseButton
+    Add-ConfigLabel 8 (L 'config.temp_dir'); [void]$table.Controls.Add($tempPanel,1,8); [void]$table.Controls.Add($btnCfgTemp,2,8)
+
+    $outputPanel=New-Object System.Windows.Forms.TableLayoutPanel
+    $outputPanel.Dock='Fill'; $outputPanel.ColumnCount=2; $outputPanel.Margin=New-Object System.Windows.Forms.Padding -ArgumentList 0
+    $oc0=New-Object System.Windows.Forms.ColumnStyle; $oc0.SizeType='Absolute'; $oc0.Width=190; [void]$outputPanel.ColumnStyles.Add($oc0)
+    $oc1=New-Object System.Windows.Forms.ColumnStyle; $oc1.SizeType='Percent'; $oc1.Width=100; [void]$outputPanel.ColumnStyles.Add($oc1)
+    $cmbCfgOutputMode=New-Object System.Windows.Forms.ComboBox; $cmbCfgOutputMode.DropDownStyle='DropDownList'; $cmbCfgOutputMode.Dock='Fill'; $cmbCfgOutputMode.Margin=New-Object System.Windows.Forms.Padding -ArgumentList 4,8,4,6
+    foreach ($item in @((L 'config.output_video'),(L 'config.output_custom'))) {[void]$cmbCfgOutputMode.Items.Add($item)}
+    $cmbCfgOutputMode.SelectedIndex=if ([string]$cfg.OUTPUT_MODE -eq 'CUSTOM') {1} else {0}
+    $txtCfgOutput=New-ConfigTextBox ([string]$cfg.OUTPUT_CUSTOM_DIR)
+    [void]$outputPanel.Controls.Add($cmbCfgOutputMode,0,0); [void]$outputPanel.Controls.Add($txtCfgOutput,1,0)
+    $btnCfgOutput=New-ConfigBrowseButton
+    Add-ConfigLabel 9 (L 'config.output_dir'); [void]$table.Controls.Add($outputPanel,1,9); [void]$table.Controls.Add($btnCfgOutput,2,9)
+
+    $updateCfgStorageUi={
+        $tempCustom=($cmbCfgTempMode.SelectedIndex -eq 2); $txtCfgTemp.Enabled=$tempCustom; $btnCfgTemp.Enabled=$tempCustom
+        $outputCustom=($cmbCfgOutputMode.SelectedIndex -eq 1); $txtCfgOutput.Enabled=$outputCustom; $btnCfgOutput.Enabled=$outputCustom
+    }
+    $cmbCfgTempMode.Add_SelectedIndexChanged($updateCfgStorageUi); $cmbCfgOutputMode.Add_SelectedIndexChanged($updateCfgStorageUi); & $updateCfgStorageUi
+
     $note=New-Object System.Windows.Forms.Label
     $note.Dock='Fill'; $note.ForeColor=$ColorMuted; $note.TextAlign='TopLeft'; $note.Padding=New-Object System.Windows.Forms.Padding -ArgumentList 4,8,4,0
     $note.Text=((L 'config.note') -f $cfg.ConfigPath)
-    [void]$table.Controls.Add($note,0,8); $table.SetColumnSpan($note,4)
+    [void]$table.Controls.Add($note,0,10); $table.SetColumnSpan($note,4)
 
     $buttonPanel=New-Object System.Windows.Forms.FlowLayoutPanel
     $buttonPanel.Dock='Fill'; $buttonPanel.FlowDirection='RightToLeft'; $buttonPanel.WrapContents=$false
@@ -5394,7 +5494,7 @@ function Show-PathConfigurationDialog {
     $btnCancelCfg=New-Object System.Windows.Forms.Button; $btnCancelCfg.Text=(L 'config.cancel'); $btnCancelCfg.Width=82; $btnCancelCfg.DialogResult=[System.Windows.Forms.DialogResult]::Cancel
     $btnDefaults=New-Object System.Windows.Forms.Button; $btnDefaults.Text=(L 'config.defaults'); $btnDefaults.Width=104
     [void]$buttonPanel.Controls.Add($btnOk); [void]$buttonPanel.Controls.Add($btnCancelCfg); [void]$buttonPanel.Controls.Add($btnDefaults)
-    [void]$table.Controls.Add($buttonPanel,0,9); $table.SetColumnSpan($buttonPanel,4)
+    [void]$table.Controls.Add($buttonPanel,0,11); $table.SetColumnSpan($buttonPanel,4)
     $dlg.CancelButton=$btnCancelCfg
 
     $cfgTip=New-Object System.Windows.Forms.ToolTip
@@ -5612,6 +5712,8 @@ function Show-PathConfigurationDialog {
     $btnCfgGrav.Add_Click({ if (& $pickExe $txtCfgGrav (L 'dialog.grav_exe') 'grav1synth.exe') { Update-GravStatus } })
     $btnCfgGrain.Add_Click({ if (& $pickFolder $txtCfgGrain (L 'dialog.grain_root')) { Update-GrainStatus } })
     $btnCfgLut.Add_Click({ if (& $pickFolder $txtCfgLut (L 'dialog.lut_root')) { Update-LutStatus } })
+    $btnCfgTemp.Add_Click({ [void](& $pickFolder $txtCfgTemp (L 'config.temp_browse')) })
+    $btnCfgOutput.Add_Click({ [void](& $pickFolder $txtCfgOutput (L 'config.output_browse')) })
 
     $btnBuildGrainCache.Add_Click({
         Update-GrainStatus
@@ -5658,6 +5760,8 @@ function Show-PathConfigurationDialog {
         $txtCfgGrav.Text=[string]$script:FilmGrainConfigDefaults.GRAV1SYNTH
         $txtCfgGrain.Text=[string]$script:FilmGrainConfigDefaults.GRAIN_ROOT
         $txtCfgLut.Text=[string]$script:FilmGrainConfigDefaults.LUT_ROOT
+        $cmbCfgTempMode.SelectedIndex=0; $txtCfgTemp.Text=''
+        $cmbCfgOutputMode.SelectedIndex=0; $txtCfgOutput.Text=''
     })
 
     $btnOk.Add_Click({
@@ -5687,10 +5791,24 @@ function Show-PathConfigurationDialog {
             }
         }
 
+        $tempMode=switch ($cmbCfgTempMode.SelectedIndex) {1{'SYSTEM'} 2{'CUSTOM'} default{'VIDEO'}}
+        $tempCustom=$txtCfgTemp.Text.Trim().TrimEnd('\')
+        $outputMode=if ($cmbCfgOutputMode.SelectedIndex -eq 1) {'CUSTOM'} else {'VIDEO'}
+        $outputCustom=$txtCfgOutput.Text.Trim().TrimEnd('\')
+        foreach ($storage in @(@($tempMode,$tempCustom,(L 'config.temp_dir')),@($outputMode,$outputCustom,(L 'config.output_dir')))) {
+            if ($storage[0] -eq 'CUSTOM') {
+                if (-not $storage[1]) { [void][System.Windows.Forms.MessageBox]::Show($dlg,((L 'config.custom_empty') -f $storage[2]),(L 'config.path_title'),[System.Windows.Forms.MessageBoxButtons]::OK,[System.Windows.Forms.MessageBoxIcon]::Warning); return }
+                try { [void][System.IO.Directory]::CreateDirectory($storage[1]); $test=Join-Path $storage[1] ('.fgs_write_test_'+[guid]::NewGuid().ToString('N')+'.tmp'); [IO.File]::WriteAllText($test,'FGS'); Remove-Item -LiteralPath $test -Force }
+                catch { [void][System.Windows.Forms.MessageBox]::Show($dlg,((L 'error.temp_unavailable') -f $storage[1],$_.Exception.Message),(L 'config.path_title'),[System.Windows.Forms.MessageBoxButtons]::OK,[System.Windows.Forms.MessageBoxIcon]::Warning); return }
+            }
+        }
+
         try {
             Save-FilmGrainConfig -Values @{
                 FFMPEG_DIR=$ffmpegDir; GRAV1SYNTH=$txtCfgGrav.Text.Trim();
-                GRAIN_ROOT=$txtCfgGrain.Text.Trim(); LUT_ROOT=$txtCfgLut.Text.Trim()
+                GRAIN_ROOT=$txtCfgGrain.Text.Trim(); LUT_ROOT=$txtCfgLut.Text.Trim();
+                TEMP_MODE=$tempMode; TEMP_CUSTOM_DIR=$tempCustom;
+                OUTPUT_MODE=$outputMode; OUTPUT_CUSTOM_DIR=$outputCustom
             }
         } catch {
             [void][System.Windows.Forms.MessageBox]::Show($dlg,((L 'config.save_failed') -f $_.Exception.Message),(L 'config.path_title'),[System.Windows.Forms.MessageBoxButtons]::OK,[System.Windows.Forms.MessageBoxIcon]::Error)
@@ -5711,6 +5829,10 @@ function Show-PathConfigurationDialog {
     $script:Grav1synth = [string]$script:PathConfig.GRAV1SYNTH
     $script:DefaultGrainRoot = [string]$script:PathConfig.GRAIN_ROOT
     $script:LutRoot = [string]$script:PathConfig.LUT_ROOT
+    $script:TempMode = [string]$script:PathConfig.TEMP_MODE
+    $script:TempCustomDir = [string]$script:PathConfig.TEMP_CUSTOM_DIR
+    $script:OutputMode = [string]$script:PathConfig.OUTPUT_MODE
+    $script:OutputCustomDir = [string]$script:PathConfig.OUTPUT_CUSTOM_DIR
     $script:LutPreviewRoot = Join-Path $script:LutRoot '_LUT_PREVIEWS'
     $script:LutGalleryIndex = Join-Path $script:LutPreviewRoot '_LUT_GALLERY_INDEX.json'
     $script:LutGalleryRecent = Join-Path $script:LutPreviewRoot '_LUT_GALLERY_RECENT.json'

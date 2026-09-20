@@ -24,6 +24,13 @@ rem ============================================================
 
 call "%~dp0FilmGrain_Config_Load.bat"
 if errorlevel 1 exit /b 1
+set "TEMP_CHECK_SCRIPT=%~dp0FilmGrain_Temp_Check.ps1"
+if defined FG_TEMP_MODE set "TEMP_MODE=%FG_TEMP_MODE%"
+if defined FG_TEMP_CUSTOM_DIR set "TEMP_CUSTOM_DIR=%FG_TEMP_CUSTOM_DIR%"
+if /i not "%TEMP_MODE%"=="SYSTEM" if /i not "%TEMP_MODE%"=="CUSTOM" set "TEMP_MODE=VIDEO"
+if defined FG_OUTPUT_MODE set "OUTPUT_MODE=%FG_OUTPUT_MODE%"
+if defined FG_OUTPUT_CUSTOM_DIR set "OUTPUT_CUSTOM_DIR=%FG_OUTPUT_CUSTOM_DIR%"
+if /i not "%OUTPUT_MODE%"=="CUSTOM" set "OUTPUT_MODE=VIDEO"
 
 rem Keep failed temporary workspace:
 rem   1 = keep for troubleshooting
@@ -416,6 +423,43 @@ rem ============================================================
 set "INPUT=%~f1"
 set "INDIR=%~dp1"
 set "NAME=%~n1"
+set "TEMP_JOB_ROOT="
+if /i "%TEMP_MODE%"=="SYSTEM" set "TEMP_JOB_ROOT=%TEMP%\FilmGrain_Studio"
+if /i "%TEMP_MODE%"=="CUSTOM" if defined TEMP_CUSTOM_DIR set "TEMP_JOB_ROOT=%TEMP_CUSTOM_DIR%\FilmGrain_Studio"
+if not defined TEMP_JOB_ROOT set "TEMP_JOB_ROOT=%INDIR:~0,-1%"
+if not exist "%TEMP_JOB_ROOT%" mkdir "%TEMP_JOB_ROOT%" >nul 2>&1
+if not exist "%TEMP_JOB_ROOT%" (
+    echo ERROR: Could not create temporary directory:
+    echo "%TEMP_JOB_ROOT%"
+    set /a FAIL_COUNT+=1
+    exit /b
+)
+set "OUTDIR=%INDIR%"
+if /i "%OUTPUT_MODE%"=="CUSTOM" set "OUTDIR=%OUTPUT_CUSTOM_DIR%"
+if not defined OUTDIR (
+    echo ERROR: Custom output directory is not configured.
+    set /a FAIL_COUNT+=1
+    exit /b
+)
+if not "%OUTDIR:~-1%"=="\" set "OUTDIR=%OUTDIR%\"
+if not exist "%OUTDIR%" mkdir "%OUTDIR%" >nul 2>&1
+if not exist "%OUTDIR%" (
+    echo ERROR: Could not create output directory:
+    echo "%OUTDIR%"
+    set /a FAIL_COUNT+=1
+    exit /b
+)
+
+call :CHECK_TEMP_SPACE "%INPUT%" "%TEMP_JOB_ROOT%"
+if errorlevel 1 (
+    set /a FAIL_COUNT+=1
+    exit /b
+)
+call :CHECK_OUTPUT_SPACE "%INPUT%" "%OUTDIR%."
+if errorlevel 1 (
+    set /a FAIL_COUNT+=1
+    exit /b
+)
 
 echo.
 echo ============================================================
@@ -423,7 +467,7 @@ echo [%TOTAL_COUNT%] "%INPUT%"
 echo ============================================================
 
 rem ---------- verify source video codec is AV1 ----------
-set "CODEC_FILE=%TEMP%\AV1FG_codec_%RANDOM%_%RANDOM%.txt"
+set "CODEC_FILE=%TEMP_JOB_ROOT%\AV1FG_codec_%RANDOM%_%RANDOM%.txt"
 "%FFPROBE%" -v error -select_streams v:0 -show_entries stream=codec_name -of default=nw=1:nk=1 "%INPUT%" > "%CODEC_FILE%" 2>nul
 set "VIDEO_CODEC="
 set /p "VIDEO_CODEC="<"%CODEC_FILE%"
@@ -440,10 +484,10 @@ rem Keep the raw remux filename short. The verified file is renamed by
 rem FilmGrain_AV1_FinalizeName.ps1 after processing succeeds. This avoids
 rem path growth when a FilmGrain Studio AV1 output is processed repeatedly.
 set "JOBID=%RANDOM%_%RANDOM%"
-set "OUTPUT=%INDIR%__AV1FG_OUT_%JOBID%.%EXT%"
+set "OUTPUT=%OUTDIR%__AV1FG_OUT_%JOBID%.%EXT%"
 
 rem ---------- isolated temporary workspace ----------
-set "JOBDIR=%INDIR%__AV1FG_TMP_%JOBID%"
+set "JOBDIR=%TEMP_JOB_ROOT%\__AV1FG_TMP_%JOBID%"
 
 mkdir "%JOBDIR%" >nul 2>&1
 if errorlevel 1 (
@@ -590,8 +634,8 @@ rem Filename cleanup happens only after successful verification.
 rem ============================================================
 
 set "AV1FG_FINAL_HELPER=%~dp0FilmGrain_AV1_FinalizeName.ps1"
-set "AV1FG_FINAL_RESULT=%TEMP%\AV1FG_final_%RANDOM%_%RANDOM%.txt"
-set "AV1FG_FINAL_LOG=%TEMP%\AV1FG_final_%RANDOM%_%RANDOM%.log"
+set "AV1FG_FINAL_RESULT=%TEMP_JOB_ROOT%\AV1FG_final_%RANDOM%_%RANDOM%.txt"
+set "AV1FG_FINAL_LOG=%TEMP_JOB_ROOT%\AV1FG_final_%RANDOM%_%RANDOM%.log"
 
 if not exist "%AV1FG_FINAL_HELPER%" (
     echo ERROR: AV1 filename finalizer not found:
@@ -669,6 +713,38 @@ exit /b
 rem ============================================================
 rem Failed job
 rem ============================================================
+
+:CHECK_TEMP_SPACE
+if not exist "%TEMP_CHECK_SCRIPT%" exit /b 0
+"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%TEMP_CHECK_SCRIPT%" -InputPath "%~1" -TempRoot "%~2" -Mode NOREENCODE
+set "TEMP_CHECK_RC=%ERRORLEVEL%"
+if "%TEMP_CHECK_RC%"=="0" exit /b 0
+if "%TEMP_CHECK_RC%"=="1" (
+    echo ERROR: Temporary-directory validation failed.
+    exit /b 1
+)
+echo WARNING: The temporary drive may not have enough free space.
+if "%FG_TEMP_SPACE_CONFIRMED%"=="1" exit /b 0
+set "TEMP_CONTINUE=N"
+set /p "TEMP_CONTINUE=Continue anyway? [y/N]: "
+if /i "%TEMP_CONTINUE%"=="Y" exit /b 0
+exit /b 1
+
+:CHECK_OUTPUT_SPACE
+if not exist "%TEMP_CHECK_SCRIPT%" exit /b 0
+"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%TEMP_CHECK_SCRIPT%" -InputPath "%~1" -TempRoot "%~2" -Mode NOREENCODE -OutputCheck
+set "OUTPUT_CHECK_RC=%ERRORLEVEL%"
+if "%OUTPUT_CHECK_RC%"=="0" exit /b 0
+if "%OUTPUT_CHECK_RC%"=="1" (
+    echo ERROR: Output-directory validation failed.
+    exit /b 1
+)
+echo WARNING: The output drive may not have enough free space.
+if "%FG_OUTPUT_SPACE_CONFIRMED%"=="1" exit /b 0
+set "OUTPUT_CONTINUE=N"
+set /p "OUTPUT_CONTINUE=Continue anyway? [y/N]: "
+if /i "%OUTPUT_CONTINUE%"=="Y" exit /b 0
+exit /b 1
 
 :FAILED_JOB
 set /a FAIL_COUNT+=1

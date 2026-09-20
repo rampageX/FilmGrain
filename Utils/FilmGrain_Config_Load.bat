@@ -12,12 +12,20 @@ if not exist "%FILMGRAIN_CONFIG_FILE%" (
     >>"%FILMGRAIN_CONFIG_FILE%" echo GRAV1SYNTH=E:\EnCoder\FFMpeg\grav1synth\grav1synth.exe
     >>"%FILMGRAIN_CONFIG_FILE%" echo GRAIN_ROOT=D:\Film_Grain
     >>"%FILMGRAIN_CONFIG_FILE%" echo LUT_ROOT=E:\Adobe Portable\LUTs
+    >>"%FILMGRAIN_CONFIG_FILE%" echo TEMP_MODE=VIDEO
+    >>"%FILMGRAIN_CONFIG_FILE%" echo TEMP_CUSTOM_DIR=
+    >>"%FILMGRAIN_CONFIG_FILE%" echo OUTPUT_MODE=VIDEO
+    >>"%FILMGRAIN_CONFIG_FILE%" echo OUTPUT_CUSTOM_DIR=
 )
 
 set "FFMPEG_DIR=E:\EnCoder\FFMpeg\x64\bin"
 set "GRAV1SYNTH=E:\EnCoder\FFMpeg\grav1synth\grav1synth.exe"
 set "GRAIN_ROOT=D:\Film_Grain"
 set "LUT_ROOT=E:\Adobe Portable\LUTs"
+set "TEMP_MODE=VIDEO"
+set "TEMP_CUSTOM_DIR="
+set "OUTPUT_MODE=VIDEO"
+set "OUTPUT_CUSTOM_DIR="
 set "_FG_HAVE_DIR=0"
 set "_FG_LEGACY_FFMPEG="
 set "_FG_LEGACY_FFPROBE="
@@ -35,6 +43,10 @@ for /f "usebackq tokens=1,* delims== eol=;" %%A in ("%FILMGRAIN_CONFIG_FILE%") d
     if /i "%%A"=="GRAV1SYNTH" set "GRAV1SYNTH=%%B"
     if /i "%%A"=="GRAIN_ROOT" set "GRAIN_ROOT=%%B"
     if /i "%%A"=="LUT_ROOT" set "LUT_ROOT=%%B"
+    if /i "%%A"=="TEMP_MODE" set "TEMP_MODE=%%B"
+    if /i "%%A"=="TEMP_CUSTOM_DIR" set "TEMP_CUSTOM_DIR=%%B"
+    if /i "%%A"=="OUTPUT_MODE" set "OUTPUT_MODE=%%B"
+    if /i "%%A"=="OUTPUT_CUSTOM_DIR" set "OUTPUT_CUSTOM_DIR=%%B"
 )
 
 if not "%_FG_HAVE_DIR%"=="1" if defined _FG_LEGACY_FFMPEG for %%P in ("%_FG_LEGACY_FFMPEG%") do set "FFMPEG_DIR=%%~dpP"

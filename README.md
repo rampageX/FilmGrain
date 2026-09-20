@@ -50,7 +50,7 @@ FilmGrain_Universal_HEVC_AV1_GUI.bat
 5. 点击“开始编码”。
 6. 在任务区查看当前阶段、进度、`fps`、`speed`、`ETA` 与完整日志。
 
-GUI 输出默认保存在源视频所在目录；已有同名输出时会跳过，不直接覆盖。
+GUI 输出默认保存在源视频所在目录，也可以在右上角“配置”中选择统一的自定义输出目录；已有同名输出时会跳过，不直接覆盖。
 
 ### CLI 命令行
 
@@ -874,11 +874,11 @@ FilmGrain_Config.ini
 
 GUI 右上角的 **配置** 可以修改并保存。GUI、CLI、StudioBridge 与相关 Utils 工具读取同一份配置，不再分别维护硬编码路径。
 
-FilmGrain_Config.ini 同时是 FGS 唯一的用户自定义配置文件，不再使用独立的语言偏好配置文件。除路径外，还保存当前 GUI 语言、LUT Gallery“智能过滤”状态，以及“高级设置”中的全部可修改项目。高级设置按“编码 / 插帧 / HDR / 其他”分组保存；每个页面都有独立的“恢复默认”，只恢复当前页面，不影响其它页面。
+FilmGrain_Config.ini 同时是 FGS 唯一的用户自定义配置文件，不再使用独立的语言偏好配置文件。除外部工具路径外，还保存临时目录与输出目录策略、当前 GUI 语言、LUT Gallery“智能过滤”状态，以及“高级设置”中的全部可修改项目。高级设置按“编码 / 插帧 / HDR / 其他”分组保存；每个页面都有独立的“恢复默认”，只恢复当前页面，不影响其它页面。
 
 主要配置分组：
 
-- [Paths]：FFmpeg、grav1synth、Grain、LUT 路径；
+- [Paths]：FFmpeg、grav1synth、Grain、LUT 路径，以及临时目录、输出目录模式与自定义路径；
 - [General]：GUI 语言；
 - [LUTGallery]：智能过滤状态；
 - [Advanced.Encoding]：H.264 High10、x264 Preset / VBR 模式、HEVC Spatial AQ / Temporal AQ；
@@ -896,6 +896,8 @@ FFmpeg 目录：E:\EnCoder\FFMpeg\x64\bin
 grav1synth：E:\EnCoder\FFMpeg\grav1synth\grav1synth.exe
 HEVC Grain 库：D:\Film_Grain
 LUT 根目录：E:\Adobe Portable\LUTs
+临时目录：视频当前目录；可选系统临时目录或自定义目录
+输出目录：视频当前目录；可选自定义目录
 ```
 
 配置界面中：
@@ -904,11 +906,14 @@ LUT 根目录：E:\Adobe Portable\LUTs
 - grav1synth 显示版本；
 - Grain 根目录统计原始 MOV、原分辨率 Cache 与 1080p Cache；
 - LUT 根目录统计 `.cube` LUT 与 Gallery 预览；
+- 临时目录与输出目录分别检查目录创建、写入权限与可用空间；
 - 浏览选择后立即检测；
 - 手工输入后由用户点击 `↻` 再检测；
 - 保存时不重新执行长时间扫描。
 
 `FilmGrain_Config.ini` 使用 UTF-8 无 BOM。PS1 显式按 UTF-8 读写；BAT 通过统一配置读取层处理编码和 CMD 特殊字符。
+
+开始任务前，FGS 会根据输入文件大小和实际处理路线分别估算临时空间与输出空间，并额外保留安全余量。批量任务按目标磁盘汇总或取峰值检查；检测到空间可能不足时会先提示，由用户决定是否继续。
 
 ### grav1synth 0.2.2+
 
