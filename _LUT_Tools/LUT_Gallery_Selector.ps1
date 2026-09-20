@@ -6,6 +6,13 @@
 )
 
 $ErrorActionPreference = 'Stop'
+
+$ConfigScript = Join-Path (Split-Path -Parent $PSScriptRoot) 'Utils\FilmGrain_Config.ps1'
+if (-not (Test-Path -LiteralPath $ConfigScript -PathType Leaf)) {
+    throw "Film Grain configuration helper not found: $ConfigScript"
+}
+. $ConfigScript
+
 $RecentLimit = 25
 $recentPath = Join-Path $PreviewRoot '_LUT_GALLERY_RECENT.json'
 $script:RecentWriteError = ''
@@ -534,6 +541,12 @@ $script:PreviewBuildOriginalTitle = $form.Text
 # V2 rule: only pure technical/utility LUTs are hidden.
 # Combined LUTs that contain both an input transform and a creative look stay visible.
 $script:SmartFilterEnabled = $false
+try {
+    $cfg = Get-FilmGrainConfig
+    $script:SmartFilterEnabled = ([string]$cfg.SMART_FILTER_ENABLED -match '^(?i:true|1|yes|on)$')
+} catch {
+    $script:SmartFilterEnabled = $false
+}
 $script:SmartScanComplete = $false
 $script:SmartTechnicalCount = 0
 $script:SmartCombinedCount = 0
@@ -703,6 +716,35 @@ function Get-SmartLutClassification($entry) {
     }
     $script:SmartLutCache[$key] = $result
     return $result
+}
+
+function Save-SmartFilterPreference([bool]$Enabled) {
+    try {
+        Save-FilmGrainConfig -Values @{
+            SMART_FILTER_ENABLED = if ($Enabled) { 'true' } else { 'false' }
+        }
+        return $true
+    } catch {
+        [System.Windows.Forms.MessageBox]::Show(
+            ("无法保存 LUT 智能过滤状态：" + [Environment]::NewLine + [Environment]::NewLine + $_.Exception.Message),
+            'LUT 图库',
+            'OK',
+            'Warning'
+        ) | Out-Null
+        return $false
+    }
+}
+
+function Update-SmartFilterButtonState {
+    if ($script:SmartFilterEnabled) {
+        $smartFilter.Text = '智能过滤：开'
+        $smartFilter.BackColor = [System.Drawing.Color]::LightSteelBlue
+        $selectedLabel.Text = "智能过滤已开启：隐藏 $($script:SmartTechnicalCount) 个纯功能型 LUT；保留 $($script:SmartCombinedCount) 个 Combined LUT。"
+    } else {
+        $smartFilter.Text = '智能过滤'
+        $smartFilter.BackColor = [System.Drawing.SystemColors]::Control
+        $selectedLabel.Text = '智能过滤已关闭，显示全部 LUT。'
+    }
 }
 
 function Build-SmartLutClassificationCache {
@@ -1407,15 +1449,8 @@ $smartFilter.Add_Click({
     }
 
     $script:SmartFilterEnabled = -not $script:SmartFilterEnabled
-    if ($script:SmartFilterEnabled) {
-        $smartFilter.Text = '智能过滤：开'
-        $smartFilter.BackColor = [System.Drawing.Color]::LightSteelBlue
-        $selectedLabel.Text = "智能过滤已开启：隐藏 $($script:SmartTechnicalCount) 个纯功能型 LUT；保留 $($script:SmartCombinedCount) 个 Combined LUT。"
-    } else {
-        $smartFilter.Text = '智能过滤'
-        $smartFilter.BackColor = [System.Drawing.SystemColors]::Control
-        $selectedLabel.Text = '智能过滤已关闭，显示全部 LUT。'
-    }
+    [void](Save-SmartFilterPreference $script:SmartFilterEnabled)
+    Update-SmartFilterButtonState
     Apply-Filter
 })
 
@@ -1468,6 +1503,24 @@ $form.Add_FormClosed({
     Clear-Page
 })
 
+if ($script:SmartFilterEnabled -and -not $script:SmartScanComplete) {
+    try {
+        $form.UseWaitCursor = $true
+        Build-SmartLutClassificationCache
+    } catch {
+        $script:SmartFilterEnabled = $false
+        [void](Save-SmartFilterPreference $false)
+        [System.Windows.Forms.MessageBox]::Show(
+            ("智能过滤初始化失败，已恢复为关闭：" + [Environment]::NewLine + [Environment]::NewLine + $_.Exception.Message),
+            'LUT 图库',
+            'OK',
+            'Warning'
+        ) | Out-Null
+    } finally {
+        $form.UseWaitCursor = $false
+    }
+}
+Update-SmartFilterButtonState
 Apply-Filter
 [void]$search.Focus()
 [void]$form.ShowDialog()
