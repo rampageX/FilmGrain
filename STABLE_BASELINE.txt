@@ -1,24 +1,26 @@
-﻿Film Grain Studio formal stable baseline
+Film Grain Studio formal stable baseline
 
 Baseline:
-v4.8.5
+v4.8.6
 
 Supersedes:
-v4.8.4
+v4.8.5
 
 Formal release:
-FilmGrain_Studio_v4.8.5_Stable.zip
+FilmGrain_Studio_v4.8.6_Stable.zip
 
 Release scope:
-- Add HEVC Spatial AQ control in Advanced Settings -> Encoding.
-- Spatial AQ choices: 0 / 4 / 8 / 10 / 12 / 15; default remains 8.
-- Keep HEVC Temporal AQ as an independent checkbox; default remains enabled.
-- Controls affect HEVC main encode only and continue to respect hardware capability detection.
+- Unify all user settings in root FilmGrain_Config.ini.
+- Persist GUI language, LUT Gallery smart filter and all Advanced Settings pages.
+- Keep legacy Lang\FilmGrain_Language.ini only as a migration source; do not ship it.
+- Ship the verified OpenSVPFlow plugin DLLs and open-svpflow-version.txt.
+- Keep runtime .env, _PluginBackup and Utils\_HardwareCaps.json out of the formal package.
+- Keep release.bat as a local-only ignored release tool.
 
 Encoding core:
-- Preserve AV1, x264, H.264 upload-copy AQ behavior and all existing Grain, HDR, LUT, interpolation, deinterlace and bitrate logic.
+- Preserve AV1, HEVC and x264 encoding behavior and existing Grain, HDR, LUT, interpolation, deinterlace and bitrate logic.
 - AAC remains 256k.
 
 Release:
-- Windows Server 2022 runner; existing syntax, BOM and CRLF checks preserved.
-- GUI status version is v4.8.5.
+- Windows Server 2022 runner.
+- GUI status version is v4.8.6.

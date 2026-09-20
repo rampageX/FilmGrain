@@ -1,0 +1,8 @@
+# FGS local/runtime generated files
+Utils/_HardwareCaps.json
+
+# Local runtime environments
+.env/
+
+# Local release tool
+/release.bat

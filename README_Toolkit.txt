@@ -1,7 +1,7 @@
-﻿Universal Film Grain Toolkit
+Universal Film Grain Toolkit
 =============================
 
-当前正式稳定版：v4.8.5
+当前正式稳定版：v4.8.6
 
 版本与命名
 ----------
@@ -195,4 +195,4 @@ GUI 以非交互模式调用同一 BAT，单独双击 BAT 时仍保留 1 / 2 / 3
 - AV1 免重编码工具失败时默认保留临时目录，便于查看日志。
 - v4.7.0 已提供 HDR→SDR Tone Mapping fallback；OpenSVPFlow 仍是 SDR/YUV420P8 路线，因此 HDR 输入需要先转 SDR。仍不处理 Dolby Vision RPU 或 HDR10+ 动态 metadata。
 - LUT 智能过滤是保守初筛；无法高置信确认的 LUT 优先保留。
-- 正式 v4.7.0 不携带 `_HardwareCaps.json`、`LUT_Reference_Current.jpg`、OpenSVPFlow 用户 DLL/备份、Smart Filter CSV 等机器/用户运行状态。
+- 正式包不携带 `_HardwareCaps.json`、`LUT_Reference_Current.jpg`、OpenSVPFlow `.env` / `_PluginBackup`、Smart Filter CSV 等机器/用户运行状态；当前已验证的 OpenSVPFlow 插件 DLL 与版本状态文件除外。

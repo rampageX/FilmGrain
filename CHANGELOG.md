@@ -1,5 +1,16 @@
 # Film Grain Studio — CHANGELOG
 
+## v4.8.6 — 2026-09-20
+
+- 用户配置统一收口到根目录 `FilmGrain_Config.ini`：除 FFmpeg / grav1synth / Grain / LUT 路径外，统一保存 GUI 语言、LUT Gallery 智能过滤状态，以及高级设置“编码 / 插帧 / HDR / 其他”中的全部可修改项目。
+- 高级设置四个页面分别提供独立“恢复默认”，只恢复当前页面；HEVC Spatial AQ / Temporal AQ、x264 码率模式与 Preset、H.264 High10、OpenSVPFlow 参数、HDR 策略 / Tone Mapping、Cinematic Style 自定义画幅均可持久化。
+- 旧版 `Lang\FilmGrain_Language.ini` 仅作为一次性迁移来源；语言选择迁移后由统一配置管理，正式包不再携带该旧配置文件。
+- `FilmGrain_Config.ps1` 改为合并式保存，更新某组配置时不覆盖其它已保存项目；GUI、CLI、StudioBridge 与 LUT Gallery 继续共享同一配置来源。
+- 正式包随附当前已验证的 OpenSVPFlow `svpflow1_vs.dll`、`svpflow2_vs.dll` 与 `open-svpflow-version.txt`，避免正常使用时重复下载；安装生成的 `.env`、`_PluginBackup` 及本机 `_HardwareCaps.json` 仍作为运行时状态排除。
+- 新增 `.gitignore` 管理本机运行状态，并将根目录 `release.bat` 调整为仅本地使用的发布工具，不再由 Git 跟踪，也不进入 Stable ZIP。
+- 正式发布脚本同步校验统一配置、OpenSVPFlow 插件与运行时排除规则；继续使用 Windows Server 2022 Release 工作流，不创建、切换或合并分支。
+- 本次配置持久化与界面行为已经过用户实际测试；AV1 / HEVC / x264 编码核心、Grain 算法、HDR / LUT / 反交错 / 插帧处理链及 AAC 256k 策略不做额外重构。
+
 ## v4.8.5 — 2026-09-19
 
 - 高级设置 → 编码正式加入 HEVC AQ 手动控制：**Spatial AQ 0 / 4 / 8 / 10 / 12 / 15**，默认继续为 **8**；`0` 表示关闭 Spatial AQ。

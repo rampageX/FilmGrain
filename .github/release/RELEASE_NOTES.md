@@ -1,18 +1,12 @@
-# Film Grain Studio v4.8.5
+# Film Grain Studio v4.8.6
 
-本版正式加入 HEVC AQ 高级控制，便于按素材需要手动调整 NVENC 的 Spatial AQ 与 Temporal AQ，同时保持原有默认行为不变。
+本版主要完成用户配置统一与正式发布流程整理。
 
-## HEVC AQ
+- 所有用户自定义配置统一保存到根目录 `FilmGrain_Config.ini`，包括 GUI 语言、LUT Gallery 智能过滤状态和高级设置四页参数。
+- 高级设置“编码 / 插帧 / HDR / 其他”分别支持独立恢复默认，不影响其它页面。
+- 旧版 `Lang\FilmGrain_Language.ini` 仅用于一次性迁移，正式包不再携带。
+- 正式包随附当前已验证的 OpenSVPFlow 插件 DLL 与版本状态文件；`.env`、`_PluginBackup` 和 `_HardwareCaps.json` 等本机运行状态继续排除。
+- `release.bat` 调整为本地发布工具，不再由 Git 跟踪，也不进入 Stable ZIP。
+- AV1 / HEVC / x264 编码核心及既有 Grain、HDR、LUT、反交错、OpenSVPFlow、码率和 AAC 256k 策略保持不变。
 
-- `高级设置 → 编码 → HEVC Spatial AQ` 提供：`0 / 4 / 8 / 10 / 12 / 15`。
-- 默认仍为 `8`；`0` 表示关闭 Spatial AQ。
-- `HEVC Temporal AQ` 保持独立复选框，默认开启。
-- 两项设置仍受硬件能力检测约束；不支持时不会强行追加对应 NVENC 参数。
-
-## 兼容性
-
-- 仅调整 HEVC 主编码 AQ 控制；AV1、x264 与 H.264 上传副本继续沿用既有 AQ 逻辑。
-- 不修改自动/手动码率、FGSIM、Digital Grain、Grain Plate、HDR、LUT、OpenSVPFlow、反交错、字幕、容器或 AAC 256k。
-- 基于 `v4.8.4_AQTEST_Q8N4R` 已完成的实际编码/截图比较收口；正式版新增 4 与 15 两档，并恢复干净的 `v4.8.5` 版本标识。
-
-正式包继续由 Windows Server 2022 runner 构建，并执行 PowerShell、语言资源、BOM、CRLF、必需文件与最终 ZIP 检查。
+完整功能说明见 `README.md`，版本历史见 `CHANGELOG.md`。

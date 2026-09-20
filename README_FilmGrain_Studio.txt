@@ -1,7 +1,7 @@
-﻿Film Grain Studio - 使用说明
+Film Grain Studio - 使用说明
 ============================
 
-当前正式稳定版：v4.8.5
+当前正式稳定版：v4.8.6
 
 这是 Universal Film Grain Toolkit 的图形前端。
 CLI 与 GUI Bridge 共享同一套编码逻辑，并分别提供交互菜单和图形界面。
@@ -89,6 +89,8 @@ LUT 根目录：E:\Adobe Portable\LUTs
 INI 使用 UTF-8 无 BOM；GUI、CLI、StudioBridge 与相关 Utils 工具读取同一配置。
 
 FilmGrain_Config.ini 现在也是 FGS 唯一的用户自定义配置文件：除上述路径外，还保存 GUI 语言、LUT Gallery“智能过滤”状态，以及高级设置的全部可修改项目。高级设置分为“编码 / 插帧 / HDR / 其他”，每个页面均提供“恢复默认”，只恢复当前页面。旧版本留下的 Lang\FilmGrain_Language.ini 会在启动时自动迁移语言选择，之后不再作为配置来源。
+
+正式包随附当前已验证的 OpenSVPFlow 插件 DLL 与版本状态文件；首次安装仍由 00_Setup.bat 建立本地运行环境。安装生成的 .env、_PluginBackup 与本机硬件能力缓存不属于正式包。
 
 文件关系
 --------

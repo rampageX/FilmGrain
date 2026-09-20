@@ -516,6 +516,8 @@ OpenSVPFlow 只处理逐行输入。隔行素材会自动旁路插帧并进入�
 
 `_OpenSVPFlow\01_Update_OpenSVPFlow.bat` 可主动更新上游最新版；更新前会备份当前插件，只有新版通过 CPU / GPU smoke test 后才保留，失败则回滚。
 
+正式包随附当前已验证的 `svpflow1_vs.dll`、`svpflow2_vs.dll` 与 `open-svpflow-version.txt`，可直接作为已验证插件基线；首次安装脚本仍负责建立本地运行环境。安装生成的 `.env` 与 `_PluginBackup` 属于本机运行状态，不进入正式包。
+
 ---
 
 ## LUT Gallery 与 Film Look
