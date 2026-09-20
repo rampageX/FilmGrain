@@ -3,3 +3,6 @@ Utils/_HardwareCaps.json
 
 # Local runtime environments
 .env/
+
+# Keep release.bat as local release tool
+/release.bat
