@@ -21,7 +21,7 @@ STABLE_BASELINE.txt
 Lang\
     zh-CN.ini
     en-US.ini
-    FilmGrain_Language.ini
+
 Utils\
     FilmGrain_Language.ps1
     FilmGrain_Config.ps1
@@ -66,6 +66,8 @@ grav1synth：E:\EnCoder\FFMpeg\grav1synth\grav1synth.exe
 HEVC Grain 库：D:\Film_Grain
 LUT 根目录：E:\Adobe Portable\LUTs
 GPU：NVIDIA GPU 自动探测（已验证 RTX 4080 与 T600 Laptop）
+
+FilmGrain_Config.ini 同时保存所有 FGS 用户自定义配置，不再单独保存语言偏好。除路径外包括 GUI 语言、LUT Gallery“智能过滤”状态，以及高级设置“编码 / 插帧 / HDR / 其他”四页的全部可修改项目。每个高级设置页面均提供独立“恢复默认”按钮，只恢复当前页面。旧版本的 Lang\FilmGrain_Language.ini 如仍存在，会在启动时自动迁移到 FilmGrain_Config.ini。
 
 1. 整合主脚本
 -------------
