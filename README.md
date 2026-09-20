@@ -833,21 +833,19 @@ AV1 不重编码 · 添加/替换胶片颗粒
 
 ## 多语言界面
 
-GUI 使用独立语言文件：
+GUI 使用独立语言资源文件：
 
-```text
+\`\`\`text
 Lang\zh-CN.ini
 Lang\en-US.ini
-Lang\FilmGrain_Language.ini
 Utils\FilmGrain_Language.ps1
-```
+\`\`\`
 
 其中：
 
-- `zh-CN.ini`：简体中文，同时作为缺失翻译的 fallback；
-- `en-US.ini`：English；
-- `FilmGrain_Language.ini`：保存当前语言选择；
-- `FilmGrain_Language.ps1`：负责 UTF-8 语言文件读取、fallback、语言枚举与偏好保存。
+- \`zh-CN.ini\`：简体中文，同时作为缺失翻译的 fallback；
+- \`en-US.ini\`：English；
+- \`FilmGrain_Language.ps1\`：负责 UTF-8 语言文件读取、fallback、语言枚举；当前语言选择统一保存到根目录 FilmGrain_Config.ini。
 
 右上角可以选择界面语言。保存后重新打开 Film Grain Studio 生效。
 
