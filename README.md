@@ -874,6 +874,20 @@ FilmGrain_Config.ini
 
 GUI 右上角的 **配置** 可以修改并保存。GUI、CLI、StudioBridge 与相关 Utils 工具读取同一份配置，不再分别维护硬编码路径。
 
+FilmGrain_Config.ini 同时是 FGS 唯一的用户自定义配置文件，不再使用独立的语言偏好配置文件。除路径外，还保存当前 GUI 语言、LUT Gallery“智能过滤”状态，以及“高级设置”中的全部可修改项目。高级设置按“编码 / 插帧 / HDR / 其他”分组保存；每个页面都有独立的“恢复默认”，只恢复当前页面，不影响其它页面。
+
+主要配置分组：
+
+- [Paths]：FFmpeg、grav1synth、Grain、LUT 路径；
+- [General]：GUI 语言；
+- [LUTGallery]：智能过滤状态；
+- [Advanced.Encoding]：H.264 High10、x264 Preset / VBR 模式、HEVC Spatial AQ / Temporal AQ；
+- [Advanced.Interpolation]：SmoothFps Algo、Analyse Profile、Artifact Mask Area；
+- [Advanced.HDR]：HDR 输入处理、Tone Mapping；
+- [Advanced.Other]：Cinematic Style 自定义画幅。
+
+升级旧版本时，如果检测到旧的 Lang\FilmGrain_Language.ini，启动时会自动把语言选择迁移到 FilmGrain_Config.ini。
+
 默认值：
 
 ```text
@@ -981,7 +995,6 @@ STABLE_BASELINE.txt
 Lang\
     zh-CN.ini
     en-US.ini
-    FilmGrain_Language.ini
 
 Utils\
     FGS_Benchmark.cmd
