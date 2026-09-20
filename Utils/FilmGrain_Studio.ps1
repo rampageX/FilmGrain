@@ -254,6 +254,78 @@ $script:HevcSpatialAq = 8
 $script:HevcTemporalAq = $true
 $script:HdrPolicy = 'AUTO'
 $script:ToneMapAlgo = 'hable'
+
+# Load all persistent Advanced settings from the unified FilmGrain_Config.ini.
+try {
+    $cfg = $script:PathConfig
+
+    $svpAlgo = 13
+    try { $candidate = [int]$cfg.SVP_ALGO; if (@(1,2,11,13,21,22,23) -contains $candidate) { $svpAlgo = $candidate } } catch {}
+    $script:SvpAlgo = $svpAlgo
+
+    $script:SvpAnalyse = if ([string]$cfg.SVP_ANALYSE -eq 'BASE') { 'BASE' } else { 'ENCODEGUI' }
+
+    $svpMask = 100
+    try {
+        $candidate = [int]$cfg.SVP_MASK_AREA
+        if ($candidate -lt 0) { $candidate = 0 }
+        if ($candidate -gt 100) { $candidate = 100 }
+        $svpMask = $candidate
+    } catch {}
+    $script:SvpMaskArea = $svpMask
+
+    $script:H264High10 = ([string]$cfg.H264_HIGH10 -match '^(?i:true|1|yes|on)$')
+
+    $script:X264RateMode = switch ([string]$cfg.X264_RATE_MODE) {
+        '2PASS' { '2PASS'; break }
+        '3PASS' { '3PASS'; break }
+        default { 'VBR1'; break }
+    }
+
+    $script:X264Preset = switch ([string]$cfg.X264_PRESET) {
+        'medium' { 'medium'; break }
+        'slow' { 'slow'; break }
+        default { 'faster'; break }
+    }
+
+    $script:HevcSpatialAq = switch ([string]$cfg.HEVC_SPATIAL_AQ) {
+        '0' { 0; break }
+        '4' { 4; break }
+        '10' { 10; break }
+        '12' { 12; break }
+        '15' { 15; break }
+        default { 8; break }
+    }
+
+    $script:HevcTemporalAq = ([string]$cfg.HEVC_TEMPORAL_AQ -match '^(?i:true|1|yes|on)$')
+
+    $script:HdrPolicy = switch ([string]$cfg.HDR_POLICY) {
+        'PRESERVE' { 'PRESERVE'; break }
+        'SDR' { 'SDR'; break }
+        default { 'AUTO'; break }
+    }
+
+    $script:ToneMapAlgo = switch ([string]$cfg.TONE_MAP_ALGO) {
+        'mobius' { 'mobius'; break }
+        'reinhard' { 'reinhard'; break }
+        'gamma' { 'gamma'; break }
+        'linear' { 'linear'; break }
+        'clip' { 'clip'; break }
+        default { 'hable'; break }
+    }
+
+    $crop = 0
+    try {
+        $candidate = [int]$cfg.CINEMATIC_CROP_PER_SIDE
+        if ($candidate -lt 0) { $candidate = 0 }
+        if ($candidate -gt 2000) { $candidate = 2000 }
+        $crop = $candidate
+    } catch {}
+    $script:CinematicCropPerSide = $crop
+} catch {
+    # Keep the verified in-code defaults if a user-edited configuration value is invalid.
+}
+
 $script:UpdatingFramingUi = $false
 $script:UploadSubtitle = [ordered]@{
     Enabled = $false
@@ -466,6 +538,12 @@ function Show-AdvancedSettingsDialog {
     $lblEncodeInfo.Text = L 'advanced.encode_info'
     [void]$tabEncode.Controls.Add($lblEncodeInfo)
 
+    $btnEncodeDefaults = New-Object System.Windows.Forms.Button
+    $btnEncodeDefaults.Text = L 'config.defaults'
+    $btnEncodeDefaults.Location = New-Object System.Drawing.Point -ArgumentList 530, 328
+    $btnEncodeDefaults.Size = New-Object System.Drawing.Size -ArgumentList 112, 30
+    [void]$tabEncode.Controls.Add($btnEncodeDefaults)
+
     $lblAlgo = New-Object System.Windows.Forms.Label
     $lblAlgo.Text = 'SmoothFps Algo'
     $lblAlgo.Location = New-Object System.Drawing.Point -ArgumentList 28, 34
@@ -525,7 +603,7 @@ function Show-AdvancedSettingsDialog {
     [void]$tabInterp.Controls.Add($lblInterpInfo)
 
     $btnRecommended = New-Object System.Windows.Forms.Button
-    $btnRecommended.Text = L 'advanced.restore_recommended'
+    $btnRecommended.Text = L 'config.defaults'
     $btnRecommended.Location = New-Object System.Drawing.Point -ArgumentList 190, 292
     $btnRecommended.Size = New-Object System.Drawing.Size -ArgumentList 112, 30
     [void]$tabInterp.Controls.Add($btnRecommended)
@@ -569,6 +647,12 @@ function Show-AdvancedSettingsDialog {
     $lblHdrInfo.Text = L 'advanced.hdr_info'
     [void]$tabHdr.Controls.Add($lblHdrInfo)
 
+    $btnHdrDefaults = New-Object System.Windows.Forms.Button
+    $btnHdrDefaults.Text = L 'config.defaults'
+    $btnHdrDefaults.Location = New-Object System.Drawing.Point -ArgumentList 190, 292
+    $btnHdrDefaults.Size = New-Object System.Drawing.Size -ArgumentList 112, 30
+    [void]$tabHdr.Controls.Add($btnHdrDefaults)
+
     $updateHdrAdvancedUi = {
         $enabled = ($cmbAdvHdrPolicy.SelectedIndex -ne 1)
         $cmbAdvToneMap.Enabled = $enabled
@@ -607,6 +691,12 @@ function Show-AdvancedSettingsDialog {
     $lblCropInfo.Text = L 'advanced.crop_info'
     [void]$tabOther.Controls.Add($lblCropInfo)
 
+    $btnOtherDefaults = New-Object System.Windows.Forms.Button
+    $btnOtherDefaults.Text = L 'config.defaults'
+    $btnOtherDefaults.Location = New-Object System.Drawing.Point -ArgumentList 190, 292
+    $btnOtherDefaults.Size = New-Object System.Drawing.Size -ArgumentList 112, 30
+    [void]$tabOther.Controls.Add($btnOtherDefaults)
+
     $btnOk = New-Object System.Windows.Forms.Button
     $btnOk.Text = L 'advanced.ok'
     $btnOk.Location = New-Object System.Drawing.Point -ArgumentList 514, 406
@@ -626,10 +716,28 @@ function Show-AdvancedSettingsDialog {
     $dlg.AcceptButton = $btnOk
     $dlg.CancelButton = $btnCancelAdv
 
+    $btnEncodeDefaults.Add_Click({
+        $chkAdvH264High10.Checked = $false
+        $cmbAdvX264RateMode.SelectedIndex = 0
+        $cmbAdvX264Preset.SelectedIndex = 0
+        $cmbAdvHevcSpatialAq.SelectedIndex = 2
+        $chkAdvHevcTemporalAq.Checked = $true
+    })
+
     $btnRecommended.Add_Click({
         $cmbAdvAlgo.SelectedItem = '13'
         $cmbAdvAnalyse.SelectedIndex = 0
         $numAdvMask.Value = 100
+    })
+
+    $btnHdrDefaults.Add_Click({
+        $cmbAdvHdrPolicy.SelectedIndex = 0
+        $cmbAdvToneMap.SelectedIndex = 0
+        & $updateHdrAdvancedUi
+    })
+
+    $btnOtherDefaults.Add_Click({
+        $numAdvCrop.Value = 0
     })
 
     $result = $dlg.ShowDialog($form)
@@ -649,6 +757,26 @@ function Show-AdvancedSettingsDialog {
         $script:HevcTemporalAq = [bool]$chkAdvHevcTemporalAq.Checked
         $script:HdrPolicy = switch ($cmbAdvHdrPolicy.SelectedIndex) { 1 { 'PRESERVE' } 2 { 'SDR' } default { 'AUTO' } }
         $script:ToneMapAlgo = switch ($cmbAdvToneMap.SelectedIndex) { 1 { 'mobius' } 2 { 'reinhard' } 3 { 'gamma' } 4 { 'linear' } 5 { 'clip' } default { 'hable' } }
+
+        try {
+            Save-FilmGrainConfig -Values @{
+                H264_HIGH10 = if ($script:H264High10) { 'true' } else { 'false' }
+                X264_RATE_MODE = [string]$script:X264RateMode
+                X264_PRESET = [string]$script:X264Preset
+                HEVC_SPATIAL_AQ = [string]$script:HevcSpatialAq
+                HEVC_TEMPORAL_AQ = if ($script:HevcTemporalAq) { 'true' } else { 'false' }
+                SVP_ALGO = [string]$script:SvpAlgo
+                SVP_ANALYSE = [string]$script:SvpAnalyse
+                SVP_MASK_AREA = [string]$script:SvpMaskArea
+                HDR_POLICY = [string]$script:HdrPolicy
+                TONE_MAP_ALGO = [string]$script:ToneMapAlgo
+                CINEMATIC_CROP_PER_SIDE = [string]$script:CinematicCropPerSide
+            }
+            $script:PathConfig = Get-FilmGrainConfig
+        } catch {
+            Show-Error $_.Exception.Message 'Film Grain Studio'
+        }
+
         Update-HdrCompatibilityUi
         Update-InterpolationUi
         Update-SpeedChoices
