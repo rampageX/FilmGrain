@@ -88,6 +88,8 @@ HEVC Grain 库：D:\Film_Grain
 LUT 根目录：E:\Adobe Portable\LUTs
 INI 使用 UTF-8 无 BOM；GUI、CLI、StudioBridge 与相关 Utils 工具读取同一配置。
 
+FilmGrain_Config.ini 现在也是 FGS 唯一的用户自定义配置文件：除上述路径外，还保存 GUI 语言、LUT Gallery“智能过滤”状态，以及高级设置的全部可修改项目。高级设置分为“编码 / 插帧 / HDR / 其他”，每个页面均提供“恢复默认”，只恢复当前页面。旧版本留下的 Lang\FilmGrain_Language.ini 会在启动时自动迁移语言选择，之后不再作为配置来源。
+
 文件关系
 --------
 FilmGrain_Universal_HEVC_AV1_GUI.bat
