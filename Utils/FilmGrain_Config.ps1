@@ -118,6 +118,7 @@ function Read-FilmGrainConfigValues {
                 $legacyDir = Split-Path -Parent $legacyExe
                 if ($legacyDir) {
                     $result['FFMPEG_DIR'] = $legacyDir.TrimEnd('\')
+                    $configured['FFMPEG_DIR'] = $true
                 }
             } catch {}
         }
@@ -143,7 +144,7 @@ function Normalize-FilmGrainConfigValue {
         $text = $text.Trim()
     }
 
-    if ($text.Contains([char]13) -or $text.Contains([char]10)) {
+    if ($text.IndexOf([char]13) -ge 0 -or $text.IndexOf([char]10) -ge 0) {
         throw "Invalid FilmGrain_Config value for $Key."
     }
 
@@ -191,6 +192,10 @@ function Get-FilmGrainConfig {
     }
 
     $read = Read-FilmGrainConfigValues -Path $Path
+    if ($read.Configured.Count -lt $script:FilmGrainConfigDefaults.Count) {
+        Save-FilmGrainConfig -Values @{} -Path $Path
+        $read = Read-FilmGrainConfigValues -Path $Path
+    }
     $result = $read.Values
 
     $ffmpegDir = ([string]$result['FFMPEG_DIR']).Trim().Trim('"').TrimEnd('\')
