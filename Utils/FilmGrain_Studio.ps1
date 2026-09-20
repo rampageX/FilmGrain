@@ -533,14 +533,14 @@ function Show-AdvancedSettingsDialog {
     $lblEncodeInfo = New-Object System.Windows.Forms.Label
     $lblEncodeInfo.AutoSize = $false
     $lblEncodeInfo.Location = New-Object System.Drawing.Point -ArgumentList 28, 206
-    $lblEncodeInfo.Size = New-Object System.Drawing.Size -ArgumentList 630, 116
+    $lblEncodeInfo.Size = New-Object System.Drawing.Size -ArgumentList 630, 80
     $lblEncodeInfo.ForeColor = $ColorMuted
     $lblEncodeInfo.Text = L 'advanced.encode_info'
     [void]$tabEncode.Controls.Add($lblEncodeInfo)
 
     $btnEncodeDefaults = New-Object System.Windows.Forms.Button
     $btnEncodeDefaults.Text = L 'config.defaults'
-    $btnEncodeDefaults.Location = New-Object System.Drawing.Point -ArgumentList 530, 328
+    $btnEncodeDefaults.Location = New-Object System.Drawing.Point -ArgumentList 190, 292
     $btnEncodeDefaults.Size = New-Object System.Drawing.Size -ArgumentList 112, 30
     [void]$tabEncode.Controls.Add($btnEncodeDefaults)
 
