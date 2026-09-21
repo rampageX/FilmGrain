@@ -1,39 +1,12 @@
-# Film Grain Studio v4.8.7
+# Film Grain Studio v4.8.8
 
-v4.8.7 主要完善 Film Grain Studio 的临时文件与输出文件目录管理，使大容量批量编码、系统盘空间有限以及需要独立输出目录的使用场景更方便。
+本次版本主要统一 AV1 / HEVC NVENC Standard 默认编码参数，并调整 NVENC AQ 默认策略，同时修复 FGSIM 在特殊字符路径下的 shader 路径解析问题。
 
-## 自定义临时目录
+## 更新内容
 
-临时文件位置现在可以根据实际环境选择：
-
-* 源视频目录
-* 系统临时目录
-* 自定义目录
-
-使用系统临时目录或自定义目录时，Film Grain Studio 会在对应位置使用 `FilmGrain_Studio` 子目录保存运行时临时文件，避免直接将中间文件散落在目录根部。
-
-## 自定义输出目录
-
-最终编码文件现在可以：
-
-* 继续输出到源视频所在目录
-* 输出到用户指定的自定义目录
-
-默认行为保持不变，仍然输出到源视频当前目录。
-
-临时目录与输出目标目录设置会保存到根目录 `FilmGrain_Config.ini`，并由 GUI 与 CLI 共用。
-
-AV1、HEVC、x264、H.264 上传版以及 AV1 不重编码添加/替换颗粒流程统一遵循对应的目录设置。
-
-## 路径与空间检查
-
-本版本同时完善了目录相关的运行前检查：
-
-* 检查目标路径是否有效；
-* 检查目录是否具备写入条件；
-* 检查临时目录及输出目录的可用空间；
-* 批量任务按预计总输出需求进行空间判断。
-
-同时修复了自定义路径以反斜杠 `\` 结尾时，PowerShell 路径验证可能错误失败的问题。
-
-本次更新集中在目录管理、配置持久化与路径可靠性，不改变现有编码参数、Film Grain 处理方式及输出命名规则。
+- 统一 AV1 / HEVC NVENC Standard 默认编码参数：P7、VBR、10-bit、Full Resolution Multipass、B-frames 4。
+- Spatial AQ 默认 Strength 8，Temporal AQ 默认关闭，并统一作用于 AV1 / HEVC。
+- NVENC Lookahead 调整为 27。
+- 精简高级编码设置中的 AQ 与 H.264 High10 说明。
+- 修复 FGSIM 在包含空格、单引号等特殊字符路径下的 shader 路径解析问题。
+- Benchmark README 增加 LG OLED DAYDREAMS 演示视频链接。
