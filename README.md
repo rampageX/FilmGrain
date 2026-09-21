@@ -22,8 +22,8 @@ Film Grain Studio 的目标不是只提供一种“加颗粒”方法，而是�
 
 <table>
   <tr>
-    <td width="50%" align="center"><a href="images/Original.jpg"><img src="images/Original.jpg" width="100%" alt="Original"></a><br><sub>Original Video</sub></td>
-    <td width="50%" align="center"><a href="images/FG_CT35_V20FAST_HEVC_239LB_23976p.mkv_20260830_102847.766.jpg"><img src="images/FG_CT35_V20FAST_HEVC_239LB_23976p.mkv_20260830_102847.766.jpg" width="100%" alt="HEVC Real Grain"></a><br><sub>HEVC + Real Scanned Film Grain</sub></td>
+    <td width="50%" align="center"><a href="images/Original.png"><img src="images/Original.png" width="100%" alt="Original"></a><br><sub>Original Video</sub></td>
+    <td width="50%" align="center"><a href="images/FGS_AV1_UHQ_11000k_GS_Modern35_2_Frame_73.png"><img src="images/FGS_AV1_UHQ_11000k_GS_Modern35_2_Frame_73.png" width="100%" alt="AV1 Real Grain"></a><br><sub>AV1 + Native Film Grain</sub></td>
   </tr>
 </table>
 
