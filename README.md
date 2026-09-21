@@ -36,7 +36,7 @@ Film Grain Studio 的目标不是只提供一种“加颗粒”方法，而是�
 双击：
 
 ```text
-FilmGrain_Universal_HEVC_AV1_GUI.bat
+FilmGrain_Universal_GUI.bat
 ```
 
 也可以将一个或多个视频直接拖到该 BAT。启动脚本会在交接参数后退出，Film Grain Studio 正常显示，不保留 CMD 或 Windows PowerShell 黑框。
@@ -57,7 +57,7 @@ GUI 输出默认保存在源视频所在目录，也可以在右上角“配置�
 将一个或多个视频拖到：
 
 ```text
-FilmGrain_Universal_HEVC_AV1_CLI.bat
+FilmGrain_Universal_CLI.bat
 ```
 
 按菜单选择处理方式；直接回车采用默认值。全部任务结束后会显示成功、失败和跳过数量。
@@ -1001,8 +1001,8 @@ GUI 底部状态栏集中显示 GPU、NVIDIA 驱动版本、FFmpeg 版本、能�
 ## 工具包结构
 
 ```text
-FilmGrain_Universal_HEVC_AV1_CLI.bat
-FilmGrain_Universal_HEVC_AV1_GUI.bat
+FilmGrain_Universal_CLI.bat
+FilmGrain_Universal_GUI.bat
 FilmGrain_Config.ini
 README.md
 CHANGELOG.md

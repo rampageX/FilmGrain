@@ -9,9 +9,9 @@ CLI 与 GUI Bridge 共享同一套编码逻辑，并分别提供交互菜单和�
 
 启动方式
 --------
-双击：FilmGrain_Universal_HEVC_AV1_GUI.bat
+双击：FilmGrain_Universal_GUI.bat
 
-也可以把一个或多个视频直接拖到 FilmGrain_Universal_HEVC_AV1_GUI.bat，
+也可以把一个或多个视频直接拖到 FilmGrain_Universal_GUI.bat，
 Studio 打开后会自动加入文件列表。
 
 初版已实现
@@ -94,7 +94,7 @@ FilmGrain_Config.ini 现在也是 FGS 唯一的用户自定义配置文件：除
 
 文件关系
 --------
-FilmGrain_Universal_HEVC_AV1_GUI.bat
+FilmGrain_Universal_GUI.bat
     GUI 入口；解决 PowerShell 执行策略与 STA 启动问题。
 
 FilmGrain_Config.ini
@@ -118,7 +118,7 @@ Utils\FilmGrain_Universal_HEVC_AV1_StudioBridge.bat
 Utils\FilmGrain_Subtitle_Prepare.ps1
     H.264 上传版文本字幕识别、字符集处理、ASS 样式与位置准备。
 
-FilmGrain_Universal_HEVC_AV1_CLI.bat
+FilmGrain_Universal_CLI.bat
     CLI 入口，直接进入同一 StudioBridge 核心的交互模式，可独立拖放使用。
 
 请保持两个入口 BAT、Utils、_LUT_Tools 与 _AV1_Grain_Tables 文件夹的相对位置不变。

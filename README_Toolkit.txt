@@ -10,8 +10,8 @@ Universal Film Grain Toolkit
 
 目录结构
 --------
-FilmGrain_Universal_HEVC_AV1_CLI.bat
-FilmGrain_Universal_HEVC_AV1_GUI.bat
+FilmGrain_Universal_CLI.bat
+FilmGrain_Universal_GUI.bat
 FilmGrain_Config.ini
 README.md
 CHANGELOG.md
@@ -72,7 +72,7 @@ FilmGrain_Config.ini 同时保存所有 FGS 用户自定义配置，不再单独
 1. 整合主脚本
 -------------
 将一个或多个视频拖到：
-FilmGrain_Universal_HEVC_AV1_CLI.bat
+FilmGrain_Universal_CLI.bat
 
 功能：
 - v4.8.0：GUI 界面字符串外置到 Lang\zh-CN.ini / en-US.ini，新增右上角语言切换与中文 fallback；英文界面使用独立窗口宽度。多语言仅作用于 GUI 显示，不改变 GUI/CLI 共用的 StudioBridge 编码核心。
