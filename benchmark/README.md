@@ -17,6 +17,8 @@ Taylor Swift 片段用于观察肤色、暗部渐变及颗粒与压缩伪影；L
 
 截图是特定场景的比较样本，尤其适合暴露瑕疵，**不代表整段视频的平均画质**。正常播放中的颗粒运动、闪烁和连续性，需要结合视频判断。
 
+[LG OLED DAYDREAMS 演示视频](https://mega.nz/folder/2BYkDKLb#fmDqRuvrtKITvOYiDHvOpg)
+
 ## 运行方法
 
 将一个视频拖到 `Utils/FGS_Benchmark.cmd`，保持配套 PS1 与 CMD 同目录，并先在 FGS 中配置好 FFmpeg 等工具路径。

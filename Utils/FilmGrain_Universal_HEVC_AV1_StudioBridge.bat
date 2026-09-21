@@ -486,7 +486,7 @@ if /i "%MODE%"=="X264" goto SELECT_X264_SPEED
 echo.
 echo Speed / quality:
 echo.
-echo   [1] Standard  - p6 / fullres / lookahead 32
+echo   [1] Standard  - p7 / fullres / lookahead 27
 echo   [2] FAST      - p5 / qres    / lookahead 16   ^(default^)
 if /i "%MODE%"=="AV1" if "%FG_CAP_AV1_UHQ%"=="1" echo   [3] UHQ       - p4 / fullres / automatic temporal analysis
 echo.
@@ -520,8 +520,8 @@ set "UHQ_SELECTED=0"
 if "%SPEED_SEL%"=="3" set "UHQ_SELECTED=1"
 
 if "%SPEED_SEL%"=="1" (
-    set "PRESET=p6"
-    set "LOOKAHEAD=32"
+    set "PRESET=p7"
+    set "LOOKAHEAD=27"
     set "MULTIPASS=fullres"
     set "ENCODER_TUNE=hq"
     set "UHQ_MODE=0"
@@ -1306,7 +1306,7 @@ if not exist "%FGSIM_HOOK_PATH%" (
     exit /b 1
 )
 set "FGSIM_HOOK_FILTER_PATH="
-for /f "usebackq delims=" %%P in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$p=$env:FGSIM_HOOK_PATH; $p=$p.Replace([char]92,'/').Replace(':','\:'); [Console]::Out.Write($p)"`) do set "FGSIM_HOOK_FILTER_PATH=%%P"
+for /f "usebackq delims=" %%P in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$p=[string]$env:FGSIM_HOOK_PATH; $bs=[string][char]92; $sq=[string][char]39; $p=$p.Replace($bs,'/'); $p=$p.Replace(':',$bs+':').Replace(',',$bs+',').Replace(';',$bs+';').Replace('[',$bs+'[').Replace(']',$bs+']'); $p=$p.Replace($sq,$sq+$bs+$bs+$bs+$sq+$sq); [Console]::Out.Write($sq+$p+$sq)"`) do set "FGSIM_HOOK_FILTER_PATH=%%P"
 if not defined FGSIM_HOOK_FILTER_PATH (
     echo ERROR: Could not prepare FilmGrainSimplified FFmpeg filter path.
     exit /b 1
@@ -1367,7 +1367,7 @@ exit /b 0
 
 :VALIDATE_FGSIM_HOOK
 set "FGSIM_TEST_LOG=%TEMP%\FGSIM_PRECHECK_%RANDOM%_%RANDOM%.log"
-"%FFMPEG%" -hide_banner -loglevel warning -y -init_hw_device vulkan=fgsimvk:%VULKAN_DEVICE% -filter_hw_device fgsimvk -f lavfi -i "color=c=gray:s=32x32:d=0.04" -vf "format=yuv420p,hwupload,libplacebo=format=yuv420p:custom_shader_path='%FGSIM_HOOK_FILTER_PATH%',hwdownload,format=yuv420p" -frames:v 1 -f null NUL >"%FGSIM_TEST_LOG%" 2>&1
+"%FFMPEG%" -hide_banner -loglevel warning -y -init_hw_device vulkan=fgsimvk:%VULKAN_DEVICE% -filter_hw_device fgsimvk -f lavfi -i "color=c=gray:s=32x32:d=0.04" -vf "format=yuv420p,hwupload,libplacebo=format=yuv420p:custom_shader_path=%FGSIM_HOOK_FILTER_PATH%,hwdownload,format=yuv420p" -frames:v 1 -f null NUL >"%FGSIM_TEST_LOG%" 2>&1
 set "FGSIM_TEST_RC=%ERRORLEVEL%"
 if not "%FGSIM_TEST_RC%"=="0" goto FGSIM_PRECHECK_FAIL
 findstr /i /c:"shaderc compile status 'error'" /c:"Failed executing hook" /c:"Failed creating render pass" "%FGSIM_TEST_LOG%" >nul 2>&1
@@ -2503,8 +2503,12 @@ if /i "%MODE%"=="HEVC" (
     set "ENABLE_FULLRES=%FG_CAP_HEVC_FULLRES%"
 )
 
+rem Standard AV1/HEVC baseline: Spatial AQ on, Temporal AQ off.
+rem Studio AQ controls are shared by AV1 and HEVC NVENC.
+if "%SPEED_SEL%"=="1" set "ENABLE_TEMPORAL_AQ=0"
+
 set "MAIN_AQ_STRENGTH=%AQ_STRENGTH%"
-if /i "%MODE%"=="HEVC" if defined FG_HEVC_SPATIAL_AQ (
+if defined FG_HEVC_SPATIAL_AQ (
     if "%FG_HEVC_SPATIAL_AQ%"=="0" set "ENABLE_SPATIAL_AQ=0"
     if "%FG_HEVC_SPATIAL_AQ%"=="4" set "MAIN_AQ_STRENGTH=4"
     if "%FG_HEVC_SPATIAL_AQ%"=="8" set "MAIN_AQ_STRENGTH=8"
@@ -2512,9 +2516,10 @@ if /i "%MODE%"=="HEVC" if defined FG_HEVC_SPATIAL_AQ (
     if "%FG_HEVC_SPATIAL_AQ%"=="12" set "MAIN_AQ_STRENGTH=12"
     if "%FG_HEVC_SPATIAL_AQ%"=="15" set "MAIN_AQ_STRENGTH=15"
 )
-if /i "%MODE%"=="HEVC" if defined FG_HEVC_TEMPORAL_AQ (
+if defined FG_HEVC_TEMPORAL_AQ (
     if "%FG_HEVC_TEMPORAL_AQ%"=="0" set "ENABLE_TEMPORAL_AQ=0"
-    if "%FG_HEVC_TEMPORAL_AQ%"=="1" set "ENABLE_TEMPORAL_AQ=%FG_CAP_HEVC_TAQ%"
+    if "%FG_HEVC_TEMPORAL_AQ%"=="1" if /i "%MODE%"=="AV1" set "ENABLE_TEMPORAL_AQ=%FG_CAP_AV1_TAQ%"
+    if "%FG_HEVC_TEMPORAL_AQ%"=="1" if /i "%MODE%"=="HEVC" set "ENABLE_TEMPORAL_AQ=%FG_CAP_HEVC_TAQ%"
 )
 
 set "BF_ARGS="
@@ -3563,7 +3568,7 @@ call :PREPARE_UPLOAD_SUBTITLE "%INDIR%"
 if errorlevel 1 exit /b 1
 set "FGSIM_BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%format=yuv420p[fgsimbase]"
 if "%LUT_ENABLED%"=="1" set "FGSIM_BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%format=gbrp16le,setpts=PTS-STARTPTS,split=2[lutorig][lutsrc];[lutsrc]lut3d=file='%LUT_FILTER_PATH%':interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=yuv420p[fgsimbase]"
-set "FGSIM_FILTER=%FGSIM_BASE_FILTER%;[fgsimbase]hwupload,libplacebo=format=yuv420p:custom_shader_path='%FGSIM_HOOK_FILTER_PATH%',hwdownload,format=yuv420p%FRAME_POST_FILTER%%MAIN_SUB_FILTER%,format=p010le[vout]"
+set "FGSIM_FILTER=%FGSIM_BASE_FILTER%;[fgsimbase]hwupload,libplacebo=format=yuv420p:custom_shader_path=%FGSIM_HOOK_FILTER_PATH%,hwdownload,format=yuv420p%FRAME_POST_FILTER%%MAIN_SUB_FILTER%,format=p010le[vout]"
 pushd "%INDIR%"
 if /i "%FPS_MODE%"=="SVP60" goto HEVC_FGSIM_OPEN_SVP
 "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -i "%INPUT%" -filter_complex "%FGSIM_FILTER%" -map "[vout]" %HEVC_STREAM_MAP_ARGS% -map_metadata 0 -map_chapters 0 -c:v hevc_nvenc -pix_fmt p010le -gpu %CUDA_DEVICE% -profile:v main10 -preset %PRESET% -tune hq -rc vbr %FGSIM_RC_ARGS% -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %HEVC_AUDIO_MUX_ARGS% %HEVC_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
@@ -3826,7 +3831,7 @@ call :PREPARE_UPLOAD_SUBTITLE "%INDIR%"
 if errorlevel 1 exit /b 1
 set "FGSIM_BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%format=yuv420p[fgsimbase]"
 if "%LUT_ENABLED%"=="1" set "FGSIM_BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%format=gbrp16le,setpts=PTS-STARTPTS,split=2[lutorig][lutsrc];[lutsrc]lut3d=file='%LUT_FILTER_PATH%':interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=yuv420p[fgsimbase]"
-set "FGSIM_FILTER=%FGSIM_BASE_FILTER%;[fgsimbase]hwupload,libplacebo=format=yuv420p:custom_shader_path='%FGSIM_HOOK_FILTER_PATH%',hwdownload,format=yuv420p%FRAME_POST_FILTER%%X264_SUB_FILTER%,%X264_DEPTH_FILTER%[vout]"
+set "FGSIM_FILTER=%FGSIM_BASE_FILTER%;[fgsimbase]hwupload,libplacebo=format=yuv420p:custom_shader_path=%FGSIM_HOOK_FILTER_PATH%,hwdownload,format=yuv420p%FRAME_POST_FILTER%%X264_SUB_FILTER%,%X264_DEPTH_FILTER%[vout]"
 pushd "%INDIR%"
 if /i "%FPS_MODE%"=="SVP60" goto X264_FGSIM_OPEN_SVP
 if /i "%X264_PASS_MODE%"=="2PASS" goto X264_FGSIM_2PASS
@@ -4083,7 +4088,7 @@ goto AV1_STAGE1_DONE
 :AV1_STAGE1_FGSIM
 set "FGSIM_AV1_BASE=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%CROP_FILTER%format=yuv420p%LETTERBOX_FILTER%%MAIN_SUB_FILTER%[fgsimbase]"
 if "%LUT_ENABLED%"=="1" set "FGSIM_AV1_BASE=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%CROP_FILTER%format=gbrp16le,split=2[lutorig][lutsrc];[lutsrc]lut3d=file=filmlook.cube:interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=yuv420p%LETTERBOX_FILTER%%MAIN_SUB_FILTER%[fgsimbase]"
-set "FGSIM_AV1_FILTER=%FGSIM_AV1_BASE%;[fgsimbase]hwupload,libplacebo=format=yuv420p:custom_shader_path='%FGSIM_HOOK_FILTER_PATH%',hwdownload,format=yuv420p,format=p010le[vout]"
+set "FGSIM_AV1_FILTER=%FGSIM_AV1_BASE%;[fgsimbase]hwupload,libplacebo=format=yuv420p:custom_shader_path=%FGSIM_HOOK_FILTER_PATH%,hwdownload,format=yuv420p,format=p010le[vout]"
 pushd "%JOBDIR%"
 if /i "%FPS_MODE%"=="SVP60" goto AV1_FGSIM_OPEN_SVP
 "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -i "%INPUT%" -filter_complex "%FGSIM_AV1_FILTER%" -map "[vout]" -an -sn -dn -c:v av1_nvenc -gpu %CUDA_DEVICE% -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune %ENCODER_TUNE% -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"

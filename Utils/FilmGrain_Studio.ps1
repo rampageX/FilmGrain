@@ -251,7 +251,7 @@ $script:H264High10 = $false
 $script:X264RateMode = 'VBR1'
 $script:X264Preset = 'faster'
 $script:HevcSpatialAq = 8
-$script:HevcTemporalAq = $true
+$script:HevcTemporalAq = $false
 $script:HdrPolicy = 'AUTO'
 $script:ToneMapAlgo = 'hable'
 $script:TempMode = 'VIDEO'
@@ -530,7 +530,7 @@ function Show-AdvancedSettingsDialog {
     $chkAdvH264High10.Checked = ($script:H264High10 -and $script:H264High10Available)
     $chkAdvH264High10.Enabled = (-not $script:HardwareCapsReady -or $script:H264High10Available)
     $chkAdvH264High10.Location = New-Object System.Drawing.Point -ArgumentList 28, 18
-    $chkAdvH264High10.Size = New-Object System.Drawing.Size -ArgumentList 260, 26
+    $chkAdvH264High10.Size = New-Object System.Drawing.Size -ArgumentList 600, 26
     [void]$tabEncode.Controls.Add($chkAdvH264High10)
 
     $lblX264RateMode = New-Object System.Windows.Forms.Label
@@ -583,13 +583,13 @@ function Show-AdvancedSettingsDialog {
     [void]$cmbAdvHevcSpatialAq.Items.Add((L 'advanced.hevc_spatial_12'))
     [void]$cmbAdvHevcSpatialAq.Items.Add((L 'advanced.hevc_spatial_15'))
     $cmbAdvHevcSpatialAq.SelectedIndex = switch ($script:HevcSpatialAq) { 0 { 0 } 4 { 1 } 10 { 3 } 12 { 4 } 15 { 5 } default { 2 } }
-    $cmbAdvHevcSpatialAq.Enabled = (-not $script:HardwareCapsReady -or $script:HevcAvailable)
+    $cmbAdvHevcSpatialAq.Enabled = (-not $script:HardwareCapsReady -or $script:Av1Available -or $script:HevcAvailable)
     [void]$tabEncode.Controls.Add($cmbAdvHevcSpatialAq)
 
     $chkAdvHevcTemporalAq = New-Object System.Windows.Forms.CheckBox
     $chkAdvHevcTemporalAq.Text = L 'advanced.hevc_temporal_aq'
     $chkAdvHevcTemporalAq.Checked = [bool]$script:HevcTemporalAq
-    $chkAdvHevcTemporalAq.Enabled = (-not $script:HardwareCapsReady -or $script:HevcAvailable)
+    $chkAdvHevcTemporalAq.Enabled = (-not $script:HardwareCapsReady -or $script:Av1Available -or $script:HevcAvailable)
     $chkAdvHevcTemporalAq.Location = New-Object System.Drawing.Point -ArgumentList 190, 170
     $chkAdvHevcTemporalAq.Size = New-Object System.Drawing.Size -ArgumentList 260, 26
     [void]$tabEncode.Controls.Add($chkAdvHevcTemporalAq)
@@ -597,14 +597,14 @@ function Show-AdvancedSettingsDialog {
     $lblEncodeInfo = New-Object System.Windows.Forms.Label
     $lblEncodeInfo.AutoSize = $false
     $lblEncodeInfo.Location = New-Object System.Drawing.Point -ArgumentList 28, 206
-    $lblEncodeInfo.Size = New-Object System.Drawing.Size -ArgumentList 630, 80
+    $lblEncodeInfo.Size = New-Object System.Drawing.Size -ArgumentList 630, 48
     $lblEncodeInfo.ForeColor = $ColorMuted
     $lblEncodeInfo.Text = L 'advanced.encode_info'
     [void]$tabEncode.Controls.Add($lblEncodeInfo)
 
     $btnEncodeDefaults = New-Object System.Windows.Forms.Button
     $btnEncodeDefaults.Text = L 'config.defaults'
-    $btnEncodeDefaults.Location = New-Object System.Drawing.Point -ArgumentList 190, 292
+    $btnEncodeDefaults.Location = New-Object System.Drawing.Point -ArgumentList 190, 262
     $btnEncodeDefaults.Size = New-Object System.Drawing.Size -ArgumentList 112, 30
     [void]$tabEncode.Controls.Add($btnEncodeDefaults)
 
@@ -729,7 +729,7 @@ function Show-AdvancedSettingsDialog {
     $lblCropTitle.Text = L 'advanced.crop_title'
     $lblCropTitle.Location = New-Object System.Drawing.Point -ArgumentList 28, 30
     $lblCropTitle.Size = New-Object System.Drawing.Size -ArgumentList 260, 26
-    $lblCropTitle.Font = New-UiFont 9 ([System.Drawing.FontStyle]::Bold)
+    $lblCropTitle.Font = New-UiFont 9 ([System.Drawing.FontStyle]::Regular)
     [void]$tabOther.Controls.Add($lblCropTitle)
 
     $lblCropValue = New-Object System.Windows.Forms.Label
@@ -785,7 +785,7 @@ function Show-AdvancedSettingsDialog {
         $cmbAdvX264RateMode.SelectedIndex = 0
         $cmbAdvX264Preset.SelectedIndex = 0
         $cmbAdvHevcSpatialAq.SelectedIndex = 2
-        $chkAdvHevcTemporalAq.Checked = $true
+        $chkAdvHevcTemporalAq.Checked = $false
     })
 
     $btnRecommended.Add_Click({
@@ -3554,7 +3554,7 @@ function Update-SpeedChoices {
         try {
             $cmbSpeed.Items.Clear()
             [void]$cmbSpeed.Items.Add((L 'speed.fast'))
-            [void]$cmbSpeed.Items.Add('Standard · p6 / fullres')
+            [void]$cmbSpeed.Items.Add('Standard · p7 / fullres')
             if ($allowUhq) { [void]$cmbSpeed.Items.Add((L 'speed.uhq')) }
             $cmbSpeed.SelectedIndex = $selectedIndex
         } finally {

@@ -1,5 +1,6 @@
 # FGS local/runtime generated files
 Utils/_HardwareCaps.json
+Utils/_FilmGrainSimplified/Generated/
 
 # Local runtime environments
 .env/

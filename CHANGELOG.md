@@ -1,5 +1,14 @@
 # Film Grain Studio — CHANGELOG
 
+## v4.8.8
+
+- 统一 AV1 / HEVC NVENC Standard 默认编码参数：P7、VBR、10-bit、Full Resolution Multipass、B-frames 4。
+- Spatial AQ 默认 Strength 8，Temporal AQ 默认关闭，并统一作用于 AV1 / HEVC。
+- NVENC Lookahead 调整为 27。
+- 精简高级编码设置中的 AQ 与 H.264 High10 说明。
+- 修复 FGSIM 在包含空格、单引号等特殊字符路径下的 shader 路径解析问题。
+- Benchmark README 增加 LG OLED DAYDREAMS 演示视频链接。
+
 ## v4.8.7
 
 ### 新增
