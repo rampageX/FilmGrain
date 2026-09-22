@@ -98,6 +98,10 @@ if($Action -eq 'Init') {
     if(!(Test-Path -LiteralPath $bridge)){throw 'Place CMD and PS1 in the FGS root or beside StudioBridge in Utils.'}
     $utils=Split-Path -Parent $bridge; $fgs=Split-Path -Parent $utils
     $ini=Join-Path $fgs 'FilmGrain_Config.ini'
+    $defaultIni=Join-Path $fgs 'FilmGrain_Config.default.ini'
+    if(!(Test-Path -LiteralPath $ini) -and (Test-Path -LiteralPath $defaultIni -PathType Leaf)){
+        Copy-Item -LiteralPath $defaultIni -Destination $ini -Force
+    }
     if(!(Test-Path -LiteralPath $ini)){throw "Configuration missing: $ini"}
     $cfg=@{}
     foreach($line in Get-Content -LiteralPath $ini -Encoding UTF8){if($line -match '^([^;#\[=]+)=(.*)$'){$cfg[$matches[1]]=$matches[2]}}

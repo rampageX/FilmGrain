@@ -1,6 +1,7 @@
 ﻿$ErrorActionPreference = 'Stop'
 
 $script:FilmGrainConfigPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'FilmGrain_Config.ini'
+$script:FilmGrainDefaultConfigPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'FilmGrain_Config.default.ini'
 
 $script:FilmGrainConfigDefaults = [ordered]@{
     FFMPEG_DIR = 'E:\EnCoder\FFMpeg\x64\bin'
@@ -18,8 +19,8 @@ $script:FilmGrainConfigDefaults = [ordered]@{
     H264_HIGH10 = 'false'
     X264_RATE_MODE = 'VBR1'
     X264_PRESET = 'faster'
-    HEVC_SPATIAL_AQ = '8'
-    HEVC_TEMPORAL_AQ = 'true'
+    NVENC_SPATIAL_AQ = '8'
+    NVENC_TEMPORAL_AQ = 'false'
 
     SVP_ALGO = '13'
     SVP_ANALYSE = 'ENCODEGUI'
@@ -52,8 +53,8 @@ $script:FilmGrainConfigSections = [ordered]@{
         'H264_HIGH10',
         'X264_RATE_MODE',
         'X264_PRESET',
-        'HEVC_SPATIAL_AQ',
-        'HEVC_TEMPORAL_AQ'
+        'NVENC_SPATIAL_AQ',
+        'NVENC_TEMPORAL_AQ'
     )
     'Advanced.Interpolation' = @(
         'SVP_ALGO',
@@ -69,6 +70,24 @@ $script:FilmGrainConfigSections = [ordered]@{
     )
 }
 
+function Initialize-FilmGrainConfig {
+    param(
+        [string]$Path = $script:FilmGrainConfigPath,
+        [string]$DefaultPath = $script:FilmGrainDefaultConfigPath
+    )
+
+    if (Test-Path -LiteralPath $Path -PathType Leaf) { return }
+
+    $dir = Split-Path -Parent $Path
+    if ($dir -and -not (Test-Path -LiteralPath $dir -PathType Container)) {
+        [void](New-Item -ItemType Directory -Force -Path $dir)
+    }
+
+    if (Test-Path -LiteralPath $DefaultPath -PathType Leaf) {
+        Copy-Item -LiteralPath $DefaultPath -Destination $Path -Force
+    }
+}
+
 function Read-FilmGrainConfigValues {
     param([string]$Path = $script:FilmGrainConfigPath)
 
@@ -82,6 +101,7 @@ function Read-FilmGrainConfigValues {
         return [pscustomobject]@{
             Values = $result
             Configured = $configured
+            NeedsRewrite = $false
         }
     }
 
@@ -95,6 +115,7 @@ function Read-FilmGrainConfigValues {
     $legacyFfmpeg = ''
     $legacyFfprobe = ''
     $hasFfmpegDir = $false
+    $needsRewrite = $false
 
     foreach ($line in $lines) {
         $text = [string]$line
@@ -111,6 +132,9 @@ function Read-FilmGrainConfigValues {
 
         if ($key -eq 'FFMPEG') { $legacyFfmpeg = $value; continue }
         if ($key -eq 'FFPROBE') { $legacyFfprobe = $value; continue }
+
+        if ($key -eq 'HEVC_SPATIAL_AQ') { $key = 'NVENC_SPATIAL_AQ'; $needsRewrite = $true }
+        if ($key -eq 'HEVC_TEMPORAL_AQ') { $key = 'NVENC_TEMPORAL_AQ'; $needsRewrite = $true }
 
         if ($script:FilmGrainConfigDefaults.Contains($key)) {
             $result[$key] = $value
@@ -135,6 +159,7 @@ function Read-FilmGrainConfigValues {
     return [pscustomobject]@{
         Values = $result
         Configured = $configured
+        NeedsRewrite = $needsRewrite
     }
 }
 
@@ -165,6 +190,7 @@ function Save-FilmGrainConfig {
         [string]$Path = $script:FilmGrainConfigPath
     )
 
+    Initialize-FilmGrainConfig -Path $Path
     $read = Read-FilmGrainConfigValues -Path $Path
     $current = $read.Values
 
@@ -195,12 +221,13 @@ function Save-FilmGrainConfig {
 function Get-FilmGrainConfig {
     param([string]$Path = $script:FilmGrainConfigPath)
 
+    Initialize-FilmGrainConfig -Path $Path
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
         Save-FilmGrainConfig -Values @{} -Path $Path
     }
 
     $read = Read-FilmGrainConfigValues -Path $Path
-    if ($read.Configured.Count -lt $script:FilmGrainConfigDefaults.Count) {
+    if ($read.Configured.Count -lt $script:FilmGrainConfigDefaults.Count -or $read.NeedsRewrite) {
         Save-FilmGrainConfig -Values @{} -Path $Path
         $read = Read-FilmGrainConfigValues -Path $Path
     }
@@ -226,8 +253,8 @@ function Get-FilmGrainConfig {
         H264_HIGH10 = [string]$result['H264_HIGH10']
         X264_RATE_MODE = [string]$result['X264_RATE_MODE']
         X264_PRESET = [string]$result['X264_PRESET']
-        HEVC_SPATIAL_AQ = [string]$result['HEVC_SPATIAL_AQ']
-        HEVC_TEMPORAL_AQ = [string]$result['HEVC_TEMPORAL_AQ']
+        NVENC_SPATIAL_AQ = [string]$result['NVENC_SPATIAL_AQ']
+        NVENC_TEMPORAL_AQ = [string]$result['NVENC_TEMPORAL_AQ']
 
         SVP_ALGO = [string]$result['SVP_ALGO']
         SVP_ANALYSE = [string]$result['SVP_ANALYSE']

@@ -292,7 +292,7 @@ try {
         default { 'faster'; break }
     }
 
-    $script:HevcSpatialAq = switch ([string]$cfg.HEVC_SPATIAL_AQ) {
+    $script:HevcSpatialAq = switch ([string]$cfg.NVENC_SPATIAL_AQ) {
         '0' { 0; break }
         '4' { 4; break }
         '10' { 10; break }
@@ -301,7 +301,7 @@ try {
         default { 8; break }
     }
 
-    $script:HevcTemporalAq = ([string]$cfg.HEVC_TEMPORAL_AQ -match '^(?i:true|1|yes|on)$')
+    $script:HevcTemporalAq = ([string]$cfg.NVENC_TEMPORAL_AQ -match '^(?i:true|1|yes|on)$')
     $script:TempMode = switch ([string]$cfg.TEMP_MODE) { 'SYSTEM' { 'SYSTEM'; break } 'CUSTOM' { 'CUSTOM'; break } default { 'VIDEO'; break } }
     $script:TempCustomDir = [string]$cfg.TEMP_CUSTOM_DIR
     $script:OutputMode = if ([string]$cfg.OUTPUT_MODE -eq 'CUSTOM') { 'CUSTOM' } else { 'VIDEO' }
@@ -827,8 +827,8 @@ function Show-AdvancedSettingsDialog {
                 H264_HIGH10 = if ($script:H264High10) { 'true' } else { 'false' }
                 X264_RATE_MODE = [string]$script:X264RateMode
                 X264_PRESET = [string]$script:X264Preset
-                HEVC_SPATIAL_AQ = [string]$script:HevcSpatialAq
-                HEVC_TEMPORAL_AQ = if ($script:HevcTemporalAq) { 'true' } else { 'false' }
+                NVENC_SPATIAL_AQ = [string]$script:HevcSpatialAq
+                NVENC_TEMPORAL_AQ = if ($script:HevcTemporalAq) { 'true' } else { 'false' }
                 SVP_ALGO = [string]$script:SvpAlgo
                 SVP_ANALYSE = [string]$script:SvpAnalyse
                 SVP_MASK_AREA = [string]$script:SvpMaskArea

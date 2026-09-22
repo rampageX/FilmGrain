@@ -25,7 +25,7 @@ $Utf8Strict = New-Object System.Text.UTF8Encoding($false, $true)
 $RequiredPackageFiles = @(
     '.gitattributes',
     'CHANGELOG.md',
-    'FilmGrain_Config.ini',
+    'FilmGrain_Config.default.ini',
     'FilmGrain_Universal_CLI.bat',
     'FilmGrain_Universal_GUI.bat',
     'LICENSE',
@@ -56,6 +56,7 @@ $RequiredPackageDirectories = @(
 
 $ExcludedPackagePaths = @(
     '.github',
+    'FilmGrain_Config.ini',
     '.gitignore',
     'benchmark',
     'release.bat',
