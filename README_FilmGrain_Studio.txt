@@ -1,7 +1,7 @@
 Film Grain Studio - 使用说明
 ============================
 
-当前正式稳定版：v4.8.6
+当前正式稳定版：v4.8.9
 
 这是 Universal Film Grain Toolkit 的图形前端。
 CLI 与 GUI Bridge 共享同一套编码逻辑，并分别提供交互菜单和图形界面。
@@ -17,6 +17,9 @@ Studio 打开后会自动加入文件列表。
 初版已实现
 ----------
 - 多视频添加、拖放、移除和清空。
+- v4.8.9 新增色彩纠正与 LUT 实时预览：选择单个视频后，可直接在实际视频帧上调整对比度、亮度、饱和度、Gamma 与黑白模式；时间线支持单击逐帧、双击跳转及拖动定位，调整滑杆双击可单项恢复默认。
+- 色彩纠正窗口可直接打开现有 LUT Gallery，并以 25% / 50% / 75% / 100% 强度实时查看色彩纠正与 LUT 的最终叠加效果；确定后同步回主界面，取消不覆盖原设置。
+- 高级设置“其他”可启用 1280×700 大界面，视频预览由默认 720×480 扩大为 960×540；色彩参数和界面选项统一保存到 FilmGrain_Config.ini。启用色彩纠正的输出文件追加 _CC。
 - v4.8.0 新增简体中文 / English 多语言界面：主界面、动态下拉框、媒体信息、Tooltip、字幕、路径配置及常用提示均由 Lang 语言文件驱动；右上角切换语言后重新打开 GUI 生效。中文保持原布局，英文使用更宽的默认窗口以避免控件被压缩。
 - v4.7.5 将 Digital Grain、Grain Plate 与 GPU Film Grain (FGSIM) 统一使用 Film Grain Strength 滑杆；FGSIM 内部继续映射已经验证的 Light / Medium / Heavy 三档，不调整核心算法与颗粒效果。
 - HEVC + FGSIM 的“视频码率”下拉框提供 Standard CQ27 / QP18-26 与 High Quality CQ23 / QP18-24；默认仍沿用原有自动或手动 VBR。提示：HEVC+FGSIM 模式下, 若画面出现色带，请在视频码率中尝试 Standard CQ27 或 High Quality CQ23 方案。
@@ -88,7 +91,7 @@ HEVC Grain 库：D:\Film_Grain
 LUT 根目录：E:\Adobe Portable\LUTs
 INI 使用 UTF-8 无 BOM；GUI、CLI、StudioBridge 与相关 Utils 工具读取同一配置。
 
-FilmGrain_Config.ini 现在也是 FGS 唯一的用户自定义配置文件：除上述路径外，还保存 GUI 语言、LUT Gallery“智能过滤”状态，以及高级设置的全部可修改项目。高级设置分为“编码 / 插帧 / HDR / 其他”，每个页面均提供“恢复默认”，只恢复当前页面。旧版本留下的 Lang\FilmGrain_Language.ini 会在启动时自动迁移语言选择，之后不再作为配置来源。
+FilmGrain_Config.ini 现在也是 FGS 唯一的用户自定义配置文件：除上述路径外，还保存 GUI 语言、LUT Gallery“智能过滤”状态、高级设置的全部可修改项目，以及色彩纠正的启用状态、对比度、亮度、饱和度、Gamma 与黑白模式。高级设置分为“编码 / 插帧 / HDR / 其他”，每个页面均提供“恢复默认”，只恢复当前页面。旧版本留下的 Lang\FilmGrain_Language.ini 会在启动时自动迁移语言选择，之后不再作为配置来源。
 
 正式包随附当前已验证的 OpenSVPFlow 插件 DLL 与版本状态文件；首次安装仍由 00_Setup.bat 建立本地运行环境。安装生成的 .env、_PluginBackup 与本机硬件能力缓存不属于正式包。
 
@@ -105,6 +108,9 @@ Utils\FilmGrain_Config.ps1 / FilmGrain_Config_Load.bat
 
 Utils\FilmGrain_Studio.ps1
     WinForms 图形界面。
+
+Utils\FilmGrain_ColorCorrection.ps1
+    色彩纠正、视频帧时间线及 LUT 最终叠加效果的实时预览窗口。
 
 Utils\FilmGrain_Language.ps1 + Lang\zh-CN.ini / en-US.ini
     GUI 多语言加载层与语言资源；当前语言选择统一保存在根目录 FilmGrain_Config.ini。

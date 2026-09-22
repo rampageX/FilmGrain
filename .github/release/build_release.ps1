@@ -34,6 +34,7 @@ $RequiredPackageFiles = @(
     'README_Toolkit.txt',
     'STABLE_BASELINE.txt',
     'Utils\FilmGrain_Studio.ps1',
+    'Utils\FilmGrain_ColorCorrection.ps1',
     'Utils\FGS_Benchmark.cmd',
     'Utils\FGS_Benchmark.ps1',
     'Utils\FilmGrain_Language.ps1',

@@ -73,6 +73,15 @@ set "LUT_LABEL=None"
 set "LUT_OPACITY=0.75"
 set "LUT_STRENGTH_PCT=75"
 set "LUT_FILE_SUFFIX="
+set "COLOR_ENABLED=0"
+set "COLOR_CONTRAST=1.00"
+set "COLOR_BRIGHTNESS=0.00"
+set "COLOR_SATURATION=1.00"
+set "COLOR_GAMMA=1.00"
+set "COLOR_BLACK_WHITE=0"
+set "COLOR_FILTER="
+set "COLOR_LABEL=Disabled"
+set "COLOR_FILE_SUFFIX="
 
 set "FILE_COUNT=0"
 set "SUCCESS_COUNT=0"
@@ -147,6 +156,7 @@ call :SELECT_CONTAINER
 call :SELECT_HDR_POLICY
 if errorlevel 1 goto FATAL_END
 call :SELECT_FILM_LUT
+call :SELECT_COLOR_CORRECTION
 
 call :SELECT_GRAIN_ENGINE
 if errorlevel 1 goto FATAL_END
@@ -173,6 +183,10 @@ call :BUILD_ENCODER_ARGS
 set "SESSION_LUT_ENABLED=%LUT_ENABLED%"
 set "SESSION_LUT_LABEL=%LUT_LABEL%"
 set "SESSION_LUT_FILE_SUFFIX=%LUT_FILE_SUFFIX%"
+set "SESSION_COLOR_ENABLED=%COLOR_ENABLED%"
+set "SESSION_COLOR_FILTER=%COLOR_FILTER%"
+set "SESSION_COLOR_LABEL=%COLOR_LABEL%"
+set "SESSION_COLOR_FILE_SUFFIX=%COLOR_FILE_SUFFIX%"
 call :START_BATCH_TIMER
 call :SHOW_SESSION_SUMMARY
 goto PROCESS_NEXT
@@ -1107,6 +1121,32 @@ exit /b 0
 rem ============================================================
 rem Shared Grain engine selector - native or procedural pixels
 rem ============================================================
+
+:SELECT_COLOR_CORRECTION
+set "COLOR_ENABLED=0"
+set "COLOR_CONTRAST=1.00"
+set "COLOR_BRIGHTNESS=0.00"
+set "COLOR_SATURATION=1.00"
+set "COLOR_GAMMA=1.00"
+set "COLOR_BLACK_WHITE=0"
+set "COLOR_FILTER="
+set "COLOR_LABEL=Disabled"
+set "COLOR_FILE_SUFFIX="
+if not "%FG_STUDIO_MODE%"=="1" exit /b 0
+if not "%FG_COLOR_ENABLED%"=="1" exit /b 0
+set "COLOR_CONTRAST=%FG_COLOR_CONTRAST%"
+set "COLOR_BRIGHTNESS=%FG_COLOR_BRIGHTNESS%"
+set "COLOR_SATURATION=%FG_COLOR_SATURATION%"
+set "COLOR_GAMMA=%FG_COLOR_GAMMA%"
+if "%FG_COLOR_BLACK_WHITE%"=="1" set "COLOR_BLACK_WHITE=1"
+set "COLOR_ENABLED=1"
+set "COLOR_FILTER=eq=contrast=%COLOR_CONTRAST%:brightness=%COLOR_BRIGHTNESS%:saturation=%COLOR_SATURATION%:gamma=%COLOR_GAMMA%,"
+set "COLOR_LABEL=C %COLOR_CONTRAST% / B %COLOR_BRIGHTNESS% / S %COLOR_SATURATION% / G %COLOR_GAMMA%"
+if "%COLOR_BLACK_WHITE%"=="1" set "COLOR_FILTER=%COLOR_FILTER%hue=s=0,"
+if "%COLOR_BLACK_WHITE%"=="1" set "COLOR_LABEL=%COLOR_LABEL% / BW"
+set "COLOR_FILE_SUFFIX=_CC"
+exit /b 0
+
 
 :SELECT_HDR_POLICY
 set "HDR_POLICY=AUTO"
@@ -2644,6 +2684,7 @@ echo Deinterlace   : %DEINT_LABEL%
 echo Cinema frame  : %FRAME_LABEL%
 echo Container     : %CONTAINER_LABEL%
 echo Film Look     : %LUT_LABEL%
+echo Color correct : %COLOR_LABEL%
 echo Upload copy   : %UPLOAD_LABEL%
 if not "%HDR_UPLOAD_SKIP%"=="1" if "%ENABLE_UPLOAD_BAKE%"=="1" echo Upload       : %UPLOAD_LABEL%
 if "%ENABLE_UPLOAD_SUBTITLE%"=="1" echo Hard subtitle : Enabled / main output; upload copy also includes it when enabled
@@ -2878,6 +2919,10 @@ set "LAST_ERROR_LOG="
 set "LUT_ENABLED=%SESSION_LUT_ENABLED%"
 set "LUT_LABEL=%SESSION_LUT_LABEL%"
 set "LUT_FILE_SUFFIX=%SESSION_LUT_FILE_SUFFIX%"
+set "COLOR_ENABLED=%SESSION_COLOR_ENABLED%"
+set "COLOR_FILTER=%SESSION_COLOR_FILTER%"
+set "COLOR_LABEL=%SESSION_COLOR_LABEL%"
+set "COLOR_FILE_SUFFIX=%SESSION_COLOR_FILE_SUFFIX%"
 set "HDR_UPLOAD_SKIP=0"
 set "HDR_TONEMAPPED=0"
 set "HDR_FILE_SUFFIX="
@@ -2919,6 +2964,7 @@ if "%HDR_ACTIVE%"=="1" if /i "%HDR_POLICY%"=="SDR" set "HDR_CONVERT_TO_SDR=1"
 if "%HDR_ACTIVE%"=="1" if /i "%GRAIN_ENGINE%"=="FGSIM" set "HDR_CONVERT_TO_SDR=1"
 if "%HDR_ACTIVE%"=="1" if /i "%HDR_POLICY%"=="AUTO" if /i "%MODE%"=="X264" set "HDR_CONVERT_TO_SDR=1"
 if "%HDR_ACTIVE%"=="1" if /i "%HDR_POLICY%"=="AUTO" if "%LUT_ENABLED%"=="1" set "HDR_CONVERT_TO_SDR=1"
+if "%HDR_ACTIVE%"=="1" if /i "%HDR_POLICY%"=="AUTO" if "%COLOR_ENABLED%"=="1" set "HDR_CONVERT_TO_SDR=1"
 if "%HDR_ACTIVE%"=="1" if /i "%HDR_POLICY%"=="AUTO" if "%ENABLE_UPLOAD_BAKE%"=="1" set "HDR_CONVERT_TO_SDR=1"
 if "%HDR_ACTIVE%"=="1" if /i "%HDR_POLICY%"=="AUTO" if /i "%REQUESTED_FPS_MODE%"=="SVP60" set "HDR_CONVERT_TO_SDR=1"
 
@@ -3381,9 +3427,9 @@ if "%ENABLE_CROP%"=="1" set "FRAME_POST_FILTER=%CROP_POST_FILTER%"
 if "%ENABLE_LETTERBOX%"=="1" set "FRAME_POST_FILTER=%LETTERBOX_FILTER%"
 
 call :RESOLVE_PIXEL_GRAIN_NAME
-set "OUTPUT_BASE=%OUTDIR%%NAME%_HEVC_%SPEED_SUFFIX%_%BITRATE_NUM%k%GRAIN_RC_NAME%%FPS_SUFFIX%%DEINT_FILE_SUFFIX%%FRAME_SUFFIX%%PIXEL_GRAIN_NAME%%LUT_FILE_SUFFIX%%HDR_FILE_SUFFIX%"
+set "OUTPUT_BASE=%OUTDIR%%NAME%_HEVC_%SPEED_SUFFIX%_%BITRATE_NUM%k%GRAIN_RC_NAME%%FPS_SUFFIX%%DEINT_FILE_SUFFIX%%FRAME_SUFFIX%%PIXEL_GRAIN_NAME%%COLOR_FILE_SUFFIX%%LUT_FILE_SUFFIX%%HDR_FILE_SUFFIX%"
 set "OUTPUT=%OUTPUT_BASE%%SUB_FILE_SUFFIX%.%EXT%"
-set "UPLOAD_OUTPUT=%OUTDIR%%NAME%_X264%X264_FILE_SUFFIX%_%UPLOAD_BITRATE_NUM%k%FPS_SUFFIX%%DEINT_FILE_SUFFIX%%FRAME_SUFFIX%%PIXEL_GRAIN_NAME%%LUT_FILE_SUFFIX%%HDR_FILE_SUFFIX%_UPLOAD_FROM_HEVC_%SPEED_SUFFIX%_%BITRATE_NUM%k%GRAIN_RC_NAME%%SUB_FILE_SUFFIX%.mp4"
+set "UPLOAD_OUTPUT=%OUTDIR%%NAME%_X264%X264_FILE_SUFFIX%_%UPLOAD_BITRATE_NUM%k%FPS_SUFFIX%%DEINT_FILE_SUFFIX%%FRAME_SUFFIX%%PIXEL_GRAIN_NAME%%COLOR_FILE_SUFFIX%%LUT_FILE_SUFFIX%%HDR_FILE_SUFFIX%_UPLOAD_FROM_HEVC_%SPEED_SUFFIX%_%BITRATE_NUM%k%GRAIN_RC_NAME%%SUB_FILE_SUFFIX%.mp4"
 
 set "DURATION_ARGS="
 set "GRAIN_TIME_ARGS="
@@ -3455,8 +3501,8 @@ if "%GRAIN_SCALE_REQUIRED%"=="1" set "SVP_GRAIN_FILTER=%SVP_GRAIN_FILTER%,scale_
 set "SVP_GRAIN_FILTER=%SVP_GRAIN_FILTER%[grainvk]"
 
 rem No-LUT mode keeps the verified V20 branch.
-set "BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%format=p010le,setpts=PTS-STARTPTS,hwupload[basevk]"
-if "%LUT_ENABLED%"=="1" set "BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%format=gbrp16le,setpts=PTS-STARTPTS,split=2[lutorig][lutsrc];[lutsrc]lut3d=file='%LUT_FILTER_PATH%':interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=p010le,hwupload[basevk]"
+set "BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%COLOR_FILTER%format=p010le,setpts=PTS-STARTPTS,hwupload[basevk]"
+if "%LUT_ENABLED%"=="1" set "BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%COLOR_FILTER%format=gbrp16le,setpts=PTS-STARTPTS,split=2[lutorig][lutsrc];[lutsrc]lut3d=file='%LUT_FILTER_PATH%':interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=p010le,hwupload[basevk]"
 
 if exist "%OUTPUT%" (
     echo SKIP: Main HEVC output already exists:
@@ -3566,8 +3612,8 @@ if exist "%OUTPUT%" (
 )
 call :PREPARE_UPLOAD_SUBTITLE "%INDIR%"
 if errorlevel 1 exit /b 1
-set "FGSIM_BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%format=yuv420p[fgsimbase]"
-if "%LUT_ENABLED%"=="1" set "FGSIM_BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%format=gbrp16le,setpts=PTS-STARTPTS,split=2[lutorig][lutsrc];[lutsrc]lut3d=file='%LUT_FILTER_PATH%':interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=yuv420p[fgsimbase]"
+set "FGSIM_BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%COLOR_FILTER%format=yuv420p[fgsimbase]"
+if "%LUT_ENABLED%"=="1" set "FGSIM_BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%COLOR_FILTER%format=gbrp16le,setpts=PTS-STARTPTS,split=2[lutorig][lutsrc];[lutsrc]lut3d=file='%LUT_FILTER_PATH%':interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=yuv420p[fgsimbase]"
 set "FGSIM_FILTER=%FGSIM_BASE_FILTER%;[fgsimbase]hwupload,libplacebo=format=yuv420p:custom_shader_path=%FGSIM_HOOK_FILTER_PATH%,hwdownload,format=yuv420p%FRAME_POST_FILTER%%MAIN_SUB_FILTER%,format=p010le[vout]"
 pushd "%INDIR%"
 if /i "%FPS_MODE%"=="SVP60" goto HEVC_FGSIM_OPEN_SVP
@@ -3612,10 +3658,10 @@ call :PREPARE_UPLOAD_SUBTITLE "%INDIR%"
 if errorlevel 1 exit /b 1
 set /a PROC_W=(((WIDTH*4+2)/3)+1)/2*2
 set /a PROC_H=(((HEIGHT*4+2)/3)+1)/2*2
-set "PROC_BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%format=yuv420p[procbase]"
-if "%LUT_ENABLED%"=="1" set "PROC_BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%format=gbrp16le,setpts=PTS-STARTPTS,split=2[lutorig][lutsrc];[lutsrc]lut3d=file='%LUT_FILTER_PATH%':interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=yuv420p[procbase]"
+set "PROC_BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%COLOR_FILTER%format=yuv420p[procbase]"
+if "%LUT_ENABLED%"=="1" set "PROC_BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%COLOR_FILTER%format=gbrp16le,setpts=PTS-STARTPTS,split=2[lutorig][lutsrc];[lutsrc]lut3d=file='%LUT_FILTER_PATH%':interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=yuv420p[procbase]"
 set "PROC_FILTER=%PROC_BASE_FILTER%;[procbase]split=4[seed][masksrc][base][blacksrc];[seed]scale=%PROC_W%:%PROC_H%,lutyuv=y=128:u=128:v=128,noise=c0s=100:c0f=t+u,deflate=threshold0=15,dilation=threshold0=10,eq=contrast=3,scale=%WIDTH%:%HEIGHT%[n];[masksrc]lutyuv=y='%PROC_MASK%*(182-abs(75-val))':u=128:v=128[o];[n][o]blend=c0_mode=multiply,negate[a];[base][a]alphamerge[c];[blacksrc]drawbox=color=black:t=fill[black];[black][c]overlay=shortest=1%FRAME_POST_FILTER%%MAIN_SUB_FILTER%,format=p010le[vout]"
-if "%HDR_ACTIVE%"=="1" set "PROC_BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%format=yuv420p10le[procbase]"
+if "%HDR_ACTIVE%"=="1" set "PROC_BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%COLOR_FILTER%format=yuv420p10le[procbase]"
 if "%HDR_ACTIVE%"=="1" set "PROC_FILTER=%PROC_BASE_FILTER%;[procbase]split=3[seedsrc][masksrc][base];[seedsrc]format=yuv420p,scale=%PROC_W%:%PROC_H%,lutyuv=y=128:u=128:v=128,noise=c0s=100:c0f=t+u,deflate=threshold0=15,dilation=threshold0=10,eq=contrast=3,scale=%WIDTH%:%HEIGHT%[n8];[masksrc]scale=in_range=%COLOR_RANGE%:out_range=tv,format=yuv420p,lutyuv=y='%PROC_MASK%*(182-abs(75-val))':u=128:v=128[o8];[n8][o8]blend=c0_mode=multiply,negate,format=gray,format=gray10le[alpha10];[base]extractplanes=planes=y+u+v[yb][ub][vb];[yb][alpha10]lut2=c0='%PROC_HDR_BLACK%+(x-%PROC_HDR_BLACK%)*y/1023':d=10[yout];[yout][ub][vb]mergeplanes=map0s=0:map0p=0:map1s=1:map1p=0:map2s=2:map2p=0:format=yuv420p10le%FRAME_POST_FILTER%%MAIN_SUB_FILTER%%HDR_FRAME_FILTER%,format=p010le[vout]"
 if "%HDR_ACTIVE%"=="1" echo HDR Digital Grain: 10-bit luma-only path / slider %PROC_MASK% / scaled 8-bit mask model
 
@@ -3655,7 +3701,7 @@ if "%ENABLE_LETTERBOX%"=="1" set "FRAME_POST_FILTER=%LETTERBOX_FILTER%"
 call :RESOLVE_PIXEL_GRAIN_NAME
 set "X264_DEPTH_SUFFIX="
 if "%X264_HIGH10%"=="1" set "X264_DEPTH_SUFFIX=_HIGH10"
-set "OUTPUT_BASE=%OUTDIR%%NAME%_X264%X264_FILE_SUFFIX%_%BITRATE_NUM%k%X264_DEPTH_SUFFIX%%FPS_SUFFIX%%DEINT_FILE_SUFFIX%%FRAME_SUFFIX%%PIXEL_GRAIN_NAME%%LUT_FILE_SUFFIX%%HDR_FILE_SUFFIX%"
+set "OUTPUT_BASE=%OUTDIR%%NAME%_X264%X264_FILE_SUFFIX%_%BITRATE_NUM%k%X264_DEPTH_SUFFIX%%FPS_SUFFIX%%DEINT_FILE_SUFFIX%%FRAME_SUFFIX%%PIXEL_GRAIN_NAME%%COLOR_FILE_SUFFIX%%LUT_FILE_SUFFIX%%HDR_FILE_SUFFIX%"
 set "OUTPUT=%OUTPUT_BASE%%SUB_FILE_SUFFIX%.%EXT%"
 
 set "DURATION_ARGS="
@@ -3718,8 +3764,8 @@ set "SVP_GRAIN_FILTER=[2:v:0]fps=%OUT_FPS%,format=p010le,setpts=PTS-STARTPTS,hwu
 if "%GRAIN_SCALE_REQUIRED%"=="1" set "SVP_GRAIN_FILTER=%SVP_GRAIN_FILTER%,scale_vulkan=w=%WIDTH%:h=%HEIGHT%:scaler=bilinear"
 set "SVP_GRAIN_FILTER=%SVP_GRAIN_FILTER%[grainvk]"
 
-set "BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%format=p010le,setpts=PTS-STARTPTS,hwupload[basevk]"
-if "%LUT_ENABLED%"=="1" set "BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%format=gbrp16le,setpts=PTS-STARTPTS,split=2[lutorig][lutsrc];[lutsrc]lut3d=file='%LUT_FILTER_PATH%':interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=p010le,hwupload[basevk]"
+set "BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%COLOR_FILTER%format=p010le,setpts=PTS-STARTPTS,hwupload[basevk]"
+if "%LUT_ENABLED%"=="1" set "BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%COLOR_FILTER%format=gbrp16le,setpts=PTS-STARTPTS,split=2[lutorig][lutsrc];[lutsrc]lut3d=file='%LUT_FILTER_PATH%':interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=p010le,hwupload[basevk]"
 
 if exist "%OUTPUT%" (
     echo SKIP: Main H.264 x264 output already exists:
@@ -3829,8 +3875,8 @@ if exist "%OUTPUT%" (
 )
 call :PREPARE_UPLOAD_SUBTITLE "%INDIR%"
 if errorlevel 1 exit /b 1
-set "FGSIM_BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%format=yuv420p[fgsimbase]"
-if "%LUT_ENABLED%"=="1" set "FGSIM_BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%format=gbrp16le,setpts=PTS-STARTPTS,split=2[lutorig][lutsrc];[lutsrc]lut3d=file='%LUT_FILTER_PATH%':interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=yuv420p[fgsimbase]"
+set "FGSIM_BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%COLOR_FILTER%format=yuv420p[fgsimbase]"
+if "%LUT_ENABLED%"=="1" set "FGSIM_BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%COLOR_FILTER%format=gbrp16le,setpts=PTS-STARTPTS,split=2[lutorig][lutsrc];[lutsrc]lut3d=file='%LUT_FILTER_PATH%':interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=yuv420p[fgsimbase]"
 set "FGSIM_FILTER=%FGSIM_BASE_FILTER%;[fgsimbase]hwupload,libplacebo=format=yuv420p:custom_shader_path=%FGSIM_HOOK_FILTER_PATH%,hwdownload,format=yuv420p%FRAME_POST_FILTER%%X264_SUB_FILTER%,%X264_DEPTH_FILTER%[vout]"
 pushd "%INDIR%"
 if /i "%FPS_MODE%"=="SVP60" goto X264_FGSIM_OPEN_SVP
@@ -3889,8 +3935,8 @@ call :PREPARE_UPLOAD_SUBTITLE "%INDIR%"
 if errorlevel 1 exit /b 1
 set /a PROC_W=(((WIDTH*4+2)/3)+1)/2*2
 set /a PROC_H=(((HEIGHT*4+2)/3)+1)/2*2
-set "PROC_BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%format=yuv420p[procbase]"
-if "%LUT_ENABLED%"=="1" set "PROC_BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%format=gbrp16le,setpts=PTS-STARTPTS,split=2[lutorig][lutsrc];[lutsrc]lut3d=file='%LUT_FILTER_PATH%':interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=yuv420p[procbase]"
+set "PROC_BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%COLOR_FILTER%format=yuv420p[procbase]"
+if "%LUT_ENABLED%"=="1" set "PROC_BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%COLOR_FILTER%format=gbrp16le,setpts=PTS-STARTPTS,split=2[lutorig][lutsrc];[lutsrc]lut3d=file='%LUT_FILTER_PATH%':interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=yuv420p[procbase]"
 set "PROC_FILTER=%PROC_BASE_FILTER%;[procbase]split=4[seed][masksrc][base][blacksrc];[seed]scale=%PROC_W%:%PROC_H%,lutyuv=y=128:u=128:v=128,noise=c0s=100:c0f=t+u,deflate=threshold0=15,dilation=threshold0=10,eq=contrast=3,scale=%WIDTH%:%HEIGHT%[n];[masksrc]lutyuv=y='%PROC_MASK%*(182-abs(75-val))':u=128:v=128[o];[n][o]blend=c0_mode=multiply,negate[a];[base][a]alphamerge[c];[blacksrc]drawbox=color=black:t=fill[black];[black][c]overlay=shortest=1%FRAME_POST_FILTER%%X264_SUB_FILTER%,%X264_DEPTH_FILTER%[vout]"
 
 pushd "%INDIR%"
@@ -3966,8 +4012,8 @@ if errorlevel 1 exit /b 1
 if not "%HDR_UPLOAD_SKIP%"=="1" if "%ENABLE_UPLOAD_BAKE%"=="1" if /i "%UPLOAD_MODE%"=="X264" call :RESOLVE_X264_UPLOAD_RATE
 if errorlevel 1 exit /b 1
 
-set "OUTPUT=%OUTDIR%%NAME%_AV1_%SPEED_SUFFIX%_%BITRATE_NUM%k%FPS_SUFFIX%%DEINT_FILE_SUFFIX%%FRAME_SUFFIX%_GS_%GRAIN_FILE_TAG%%LUT_FILE_SUFFIX%%HDR_FILE_SUFFIX%%SUB_FILE_SUFFIX%.%EXT%"
-set "UPLOAD_OUTPUT=%OUTDIR%%NAME%_X264%X264_FILE_SUFFIX%_%UPLOAD_BITRATE_NUM%k%FPS_SUFFIX%%DEINT_FILE_SUFFIX%%FRAME_SUFFIX%_GS_%GRAIN_FILE_TAG%%LUT_FILE_SUFFIX%%HDR_FILE_SUFFIX%_UPLOAD_FROM_AV1_%SPEED_SUFFIX%_%BITRATE_NUM%k%SUB_FILE_SUFFIX%.mp4"
+set "OUTPUT=%OUTDIR%%NAME%_AV1_%SPEED_SUFFIX%_%BITRATE_NUM%k%FPS_SUFFIX%%DEINT_FILE_SUFFIX%%FRAME_SUFFIX%_GS_%GRAIN_FILE_TAG%%COLOR_FILE_SUFFIX%%LUT_FILE_SUFFIX%%HDR_FILE_SUFFIX%%SUB_FILE_SUFFIX%.%EXT%"
+set "UPLOAD_OUTPUT=%OUTDIR%%NAME%_X264%X264_FILE_SUFFIX%_%UPLOAD_BITRATE_NUM%k%FPS_SUFFIX%%DEINT_FILE_SUFFIX%%FRAME_SUFFIX%_GS_%GRAIN_FILE_TAG%%COLOR_FILE_SUFFIX%%LUT_FILE_SUFFIX%%HDR_FILE_SUFFIX%_UPLOAD_FROM_AV1_%SPEED_SUFFIX%_%BITRATE_NUM%k%SUB_FILE_SUFFIX%.mp4"
 
 if exist "%OUTPUT%" (
     echo SKIP: Main AV1 output already exists:
@@ -4014,7 +4060,7 @@ if errorlevel 1 (
 
 set "DURATION_ARGS="
 if defined DURATION set "DURATION_ARGS=-t %DURATION%"
-set "VIDEO_FILTER=%ACTIVE_DEINT_FILTER%%FPS_FILTER%%CROP_FILTER%format=p010le%LETTERBOX_FILTER%%HDR_FRAME_FILTER%"
+set "VIDEO_FILTER=%ACTIVE_DEINT_FILTER%%FPS_FILTER%%CROP_FILTER%%COLOR_FILTER%format=p010le%LETTERBOX_FILTER%%HDR_FRAME_FILTER%"
 
 echo Source      : %WIDTH%x%HEIGHT% @ %FPS%
 echo Output      : %ACTIVE_WIDTH%x%ACTIVE_HEIGHT% @ %OUT_FPS%
@@ -4086,8 +4132,8 @@ popd
 goto AV1_STAGE1_DONE
 
 :AV1_STAGE1_FGSIM
-set "FGSIM_AV1_BASE=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%CROP_FILTER%format=yuv420p%LETTERBOX_FILTER%%MAIN_SUB_FILTER%[fgsimbase]"
-if "%LUT_ENABLED%"=="1" set "FGSIM_AV1_BASE=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%CROP_FILTER%format=gbrp16le,split=2[lutorig][lutsrc];[lutsrc]lut3d=file=filmlook.cube:interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=yuv420p%LETTERBOX_FILTER%%MAIN_SUB_FILTER%[fgsimbase]"
+set "FGSIM_AV1_BASE=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%CROP_FILTER%%COLOR_FILTER%format=yuv420p%LETTERBOX_FILTER%%MAIN_SUB_FILTER%[fgsimbase]"
+if "%LUT_ENABLED%"=="1" set "FGSIM_AV1_BASE=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%CROP_FILTER%%COLOR_FILTER%format=gbrp16le,split=2[lutorig][lutsrc];[lutsrc]lut3d=file=filmlook.cube:interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=yuv420p%LETTERBOX_FILTER%%MAIN_SUB_FILTER%[fgsimbase]"
 set "FGSIM_AV1_FILTER=%FGSIM_AV1_BASE%;[fgsimbase]hwupload,libplacebo=format=yuv420p:custom_shader_path=%FGSIM_HOOK_FILTER_PATH%,hwdownload,format=yuv420p,format=p010le[vout]"
 pushd "%JOBDIR%"
 if /i "%FPS_MODE%"=="SVP60" goto AV1_FGSIM_OPEN_SVP
@@ -4105,10 +4151,10 @@ goto AV1_STAGE1_DONE
 :AV1_STAGE1_PROCEDURAL
 set /a PROC_W=(((ACTIVE_WIDTH*4+2)/3)+1)/2*2
 set /a PROC_H=(((ACTIVE_HEIGHT*4+2)/3)+1)/2*2
-set "PROC_AV1_BASE=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%CROP_FILTER%format=yuv420p%LETTERBOX_FILTER%%MAIN_SUB_FILTER%[procbase]"
-if "%LUT_ENABLED%"=="1" set "PROC_AV1_BASE=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%CROP_FILTER%format=gbrp16le,split=2[lutorig][lutsrc];[lutsrc]lut3d=file=filmlook.cube:interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=yuv420p%LETTERBOX_FILTER%%MAIN_SUB_FILTER%[procbase]"
+set "PROC_AV1_BASE=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%CROP_FILTER%%COLOR_FILTER%format=yuv420p%LETTERBOX_FILTER%%MAIN_SUB_FILTER%[procbase]"
+if "%LUT_ENABLED%"=="1" set "PROC_AV1_BASE=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%CROP_FILTER%%COLOR_FILTER%format=gbrp16le,split=2[lutorig][lutsrc];[lutsrc]lut3d=file=filmlook.cube:interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=yuv420p%LETTERBOX_FILTER%%MAIN_SUB_FILTER%[procbase]"
 set "PROC_AV1_FILTER=%PROC_AV1_BASE%;[procbase]split=4[seed][masksrc][base][blacksrc];[seed]scale=%PROC_W%:%PROC_H%,lutyuv=y=128:u=128:v=128,noise=c0s=100:c0f=t+u,deflate=threshold0=15,dilation=threshold0=10,eq=contrast=3,scale=%ACTIVE_WIDTH%:%ACTIVE_HEIGHT%[n];[masksrc]lutyuv=y='%PROC_MASK%*(182-abs(75-val))':u=128:v=128[o];[n][o]blend=c0_mode=multiply,negate[a];[base][a]alphamerge[c];[blacksrc]drawbox=color=black:t=fill[black];[black][c]overlay=shortest=1,format=p010le[vout]"
-if "%HDR_ACTIVE%"=="1" set "PROC_AV1_BASE=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%CROP_FILTER%format=yuv420p10le%LETTERBOX_FILTER%%MAIN_SUB_FILTER%[procbase]"
+if "%HDR_ACTIVE%"=="1" set "PROC_AV1_BASE=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%CROP_FILTER%%COLOR_FILTER%format=yuv420p10le%LETTERBOX_FILTER%%MAIN_SUB_FILTER%[procbase]"
 if "%HDR_ACTIVE%"=="1" set "PROC_AV1_FILTER=%PROC_AV1_BASE%;[procbase]split=3[seedsrc][masksrc][base];[seedsrc]format=yuv420p,scale=%PROC_W%:%PROC_H%,lutyuv=y=128:u=128:v=128,noise=c0s=100:c0f=t+u,deflate=threshold0=15,dilation=threshold0=10,eq=contrast=3,scale=%ACTIVE_WIDTH%:%ACTIVE_HEIGHT%[n8];[masksrc]scale=in_range=%COLOR_RANGE%:out_range=tv,format=yuv420p,lutyuv=y='%PROC_MASK%*(182-abs(75-val))':u=128:v=128[o8];[n8][o8]blend=c0_mode=multiply,negate,format=gray,format=gray10le[alpha10];[base]extractplanes=planes=y+u+v[yb][ub][vb];[yb][alpha10]lut2=c0='%PROC_HDR_BLACK%+(x-%PROC_HDR_BLACK%)*y/1023':d=10[yout];[yout][ub][vb]mergeplanes=map0s=0:map0p=0:map1s=1:map1p=0:map2s=2:map2p=0:format=yuv420p10le%HDR_FRAME_FILTER%,format=p010le[vout]"
 if "%HDR_ACTIVE%"=="1" echo HDR Digital Grain: 10-bit luma-only path / slider %PROC_MASK% / scaled 8-bit mask model
 pushd "%JOBDIR%"
@@ -4335,12 +4381,12 @@ exit /b 0
 :RUN_LUT_AV1_ENCODE
 pushd "%JOBDIR%"
 if /i "%FPS_MODE%"=="SVP60" goto RUN_LUT_AV1_OPEN_SVP
-"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %ACTIVE_DEINT_HW_ARGS% -i "%INPUT%" -filter_complex "[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%CROP_FILTER%format=gbrp16le,split=2[lutorig][lutsrc];[lutsrc]lut3d=file=filmlook.cube:interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=p010le%LETTERBOX_FILTER%%MAIN_SUB_FILTER%[vout]" -map "[vout]" -an -sn -dn -c:v av1_nvenc -gpu %CUDA_DEVICE% -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune %ENCODER_TUNE% -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% %HDR_ENCODE_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
+"%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %ACTIVE_DEINT_HW_ARGS% -i "%INPUT%" -filter_complex "[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%CROP_FILTER%%COLOR_FILTER%format=gbrp16le,split=2[lutorig][lutsrc];[lutsrc]lut3d=file=filmlook.cube:interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=p010le%LETTERBOX_FILTER%%MAIN_SUB_FILTER%[vout]" -map "[vout]" -an -sn -dn -c:v av1_nvenc -gpu %CUDA_DEVICE% -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune %ENCODER_TUNE% -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% %HDR_ENCODE_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
 set "RUN_LUT_RC=%ERRORLEVEL%"
 goto RUN_LUT_AV1_DONE
 
 :RUN_LUT_AV1_OPEN_SVP
-"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=60" --arg "target_den=1" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -f yuv4mpegpipe -i pipe:0 -filter_complex "[0:v:0]%CROP_FILTER%format=gbrp16le,split=2[lutorig][lutsrc];[lutsrc]lut3d=file=filmlook.cube:interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=p010le%LETTERBOX_FILTER%%MAIN_SUB_FILTER%[vout]" -map "[vout]" -an -sn -dn -c:v av1_nvenc -gpu %CUDA_DEVICE% -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune %ENCODER_TUNE% -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% %HDR_ENCODE_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
+"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=60" --arg "target_den=1" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -f yuv4mpegpipe -i pipe:0 -filter_complex "[0:v:0]%CROP_FILTER%%COLOR_FILTER%format=gbrp16le,split=2[lutorig][lutsrc];[lutsrc]lut3d=file=filmlook.cube:interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=p010le%LETTERBOX_FILTER%%MAIN_SUB_FILTER%[vout]" -map "[vout]" -an -sn -dn -c:v av1_nvenc -gpu %CUDA_DEVICE% -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune %ENCODER_TUNE% -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% %HDR_ENCODE_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
 set "RUN_LUT_RC=%ERRORLEVEL%"
 
 :RUN_LUT_AV1_DONE
@@ -5163,6 +5209,7 @@ echo ============================================================
 echo.
 echo Mode          : %MODE_LABEL%
 echo Film Look     : %LUT_LABEL%
+echo Color correct : %COLOR_LABEL%
 echo Speed mode    : %SPEED_LABEL%
 echo Bitrate       : %BITRATE%
 echo Frame rate    : %FPS_LABEL%
@@ -5237,7 +5284,7 @@ echo [Encode] "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %A
 goto SHOW_AV1_REMAINING_COMMANDS
 
 :SHOW_AV1_LUT_COMMAND
-echo [Encode] "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %ACTIVE_DEINT_HW_ARGS% -i "%INPUT%" -filter_complex "[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%CROP_FILTER%format=gbrp16le,split=2[lutorig][lutsrc];[lutsrc]lut3d=file=filmlook.cube:interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=p010le%LETTERBOX_FILTER%%MAIN_SUB_FILTER%[vout]" -map "[vout]" -an -sn -dn -c:v av1_nvenc -gpu %CUDA_DEVICE% -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune %ENCODER_TUNE% -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% %HDR_ENCODE_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
+echo [Encode] "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %ACTIVE_DEINT_HW_ARGS% -i "%INPUT%" -filter_complex "[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%CROP_FILTER%%COLOR_FILTER%format=gbrp16le,split=2[lutorig][lutsrc];[lutsrc]lut3d=file=filmlook.cube:interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=p010le%LETTERBOX_FILTER%%MAIN_SUB_FILTER%[vout]" -map "[vout]" -an -sn -dn -c:v av1_nvenc -gpu %CUDA_DEVICE% -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune %ENCODER_TUNE% -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% %HDR_ENCODE_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
 
 :SHOW_AV1_REMAINING_COMMANDS
 if /i "%GRAIN_MODE%"=="TABLE" (

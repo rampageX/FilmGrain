@@ -165,6 +165,8 @@ $LutPreviewCurrentReference = Join-Path $PackageRoot '_LUT_Tools\LUT_Reference_C
 $ConfigScript = Join-Path $ScriptRoot 'FilmGrain_Config.ps1'
 if (-not (Test-Path -LiteralPath $ConfigScript -PathType Leaf)) { throw "Film Grain configuration helper not found: $ConfigScript" }
 . $ConfigScript
+$ColorCorrectionScript = Join-Path $ScriptRoot 'FilmGrain_ColorCorrection.ps1'
+. $ColorCorrectionScript
 $LanguageScript = Join-Path $ScriptRoot 'FilmGrain_Language.ps1'
 if (-not (Test-Path -LiteralPath $LanguageScript -PathType Leaf)) { throw "Film Grain language helper not found: $LanguageScript" }
 . $LanguageScript
@@ -247,6 +249,7 @@ $script:SvpAlgo = 13
 $script:SvpAnalyse = 'ENCODEGUI'
 $script:SvpMaskArea = 100
 $script:CinematicCropPerSide = 0
+$script:ColorPreviewLargeUi = $false
 $script:H264High10 = $false
 $script:X264RateMode = 'VBR1'
 $script:X264Preset = 'faster'
@@ -258,6 +261,7 @@ $script:TempMode = 'VIDEO'
 $script:TempCustomDir = ''
 $script:OutputMode = 'VIDEO'
 $script:OutputCustomDir = ''
+$script:ColorCorrectionEnabled=$false; $script:ColorContrast=1.0; $script:ColorBrightness=0.0; $script:ColorSaturation=1.0; $script:ColorGamma=1.0; $script:ColorBlackWhite=$false
 
 # Load all persistent Advanced settings from the unified FilmGrain_Config.ini.
 try {
@@ -302,6 +306,14 @@ try {
     }
 
     $script:HevcTemporalAq = ([string]$cfg.NVENC_TEMPORAL_AQ -match '^(?i:true|1|yes|on)$')
+    $script:ColorCorrectionEnabled=([string]$cfg.COLOR_CORRECTION_ENABLED -match '^(?i:true|1|yes|on)$')
+    $cv=0.0
+    if([double]::TryParse([string]$cfg.COLOR_CONTRAST,[Globalization.NumberStyles]::Float,[Globalization.CultureInfo]::InvariantCulture,[ref]$cv)){$script:ColorContrast=$cv}
+    if([double]::TryParse([string]$cfg.COLOR_BRIGHTNESS,[Globalization.NumberStyles]::Float,[Globalization.CultureInfo]::InvariantCulture,[ref]$cv)){$script:ColorBrightness=$cv}
+    if([double]::TryParse([string]$cfg.COLOR_SATURATION,[Globalization.NumberStyles]::Float,[Globalization.CultureInfo]::InvariantCulture,[ref]$cv)){$script:ColorSaturation=$cv}
+    if([double]::TryParse([string]$cfg.COLOR_GAMMA,[Globalization.NumberStyles]::Float,[Globalization.CultureInfo]::InvariantCulture,[ref]$cv)){$script:ColorGamma=$cv}
+    $script:ColorBlackWhite=([string]$cfg.COLOR_BLACK_WHITE -match '^(?i:true|1|yes|on)$')
+    $script:ColorPreviewLargeUi=([string]$cfg.COLOR_PREVIEW_LARGE_UI -match '^(?i:true|1|yes|on)$')
     $script:TempMode = switch ([string]$cfg.TEMP_MODE) { 'SYSTEM' { 'SYSTEM'; break } 'CUSTOM' { 'CUSTOM'; break } default { 'VIDEO'; break } }
     $script:TempCustomDir = [string]$cfg.TEMP_CUSTOM_DIR
     $script:OutputMode = if ([string]$cfg.OUTPUT_MODE -eq 'CUSTOM') { 'CUSTOM' } else { 'VIDEO' }
@@ -755,6 +767,13 @@ function Show-AdvancedSettingsDialog {
     $lblCropInfo.Text = L 'advanced.crop_info'
     [void]$tabOther.Controls.Add($lblCropInfo)
 
+    $chkColorPreviewLarge = New-Object System.Windows.Forms.CheckBox
+    $chkColorPreviewLarge.Text = L 'advanced.color_preview_large'
+    $chkColorPreviewLarge.Checked = [bool]$script:ColorPreviewLargeUi
+    $chkColorPreviewLarge.Location = New-Object System.Drawing.Point -ArgumentList 28, 258
+    $chkColorPreviewLarge.Size = New-Object System.Drawing.Size -ArgumentList 500, 26
+    [void]$tabOther.Controls.Add($chkColorPreviewLarge)
+
     $btnOtherDefaults = New-Object System.Windows.Forms.Button
     $btnOtherDefaults.Text = L 'config.defaults'
     $btnOtherDefaults.Location = New-Object System.Drawing.Point -ArgumentList 190, 292
@@ -802,6 +821,7 @@ function Show-AdvancedSettingsDialog {
 
     $btnOtherDefaults.Add_Click({
         $numAdvCrop.Value = 0
+        $chkColorPreviewLarge.Checked = $false
     })
 
     $result = $dlg.ShowDialog($form)
@@ -814,6 +834,7 @@ function Show-AdvancedSettingsDialog {
         }
         $script:SvpMaskArea = [int]$numAdvMask.Value
         $script:CinematicCropPerSide = [int]$numAdvCrop.Value
+        $script:ColorPreviewLargeUi = [bool]$chkColorPreviewLarge.Checked
         $script:H264High10 = ([bool]$chkAdvH264High10.Checked -and $script:H264High10Available)
         $script:X264RateMode = if ($cmbAdvX264RateMode.SelectedIndex -eq 2) { '3PASS' } elseif ($cmbAdvX264RateMode.SelectedIndex -eq 1) { '2PASS' } else { 'VBR1' }
         $script:X264Preset = switch ($cmbAdvX264Preset.SelectedIndex) { 1 { 'medium' } 2 { 'slow' } default { 'faster' } }
@@ -835,6 +856,7 @@ function Show-AdvancedSettingsDialog {
                 HDR_POLICY = [string]$script:HdrPolicy
                 TONE_MAP_ALGO = [string]$script:ToneMapAlgo
                 CINEMATIC_CROP_PER_SIDE = [string]$script:CinematicCropPerSide
+                COLOR_PREVIEW_LARGE_UI = if ($script:ColorPreviewLargeUi) { 'true' } else { 'false' }
             }
             $script:PathConfig = Get-FilmGrainConfig
         } catch {
@@ -1017,7 +1039,7 @@ $statusVersion = New-Object System.Windows.Forms.ToolStripStatusLabel
 $statusVersion.Spring = $false
 $statusVersion.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
 $statusVersion.ForeColor = $ColorMuted
-$statusVersion.Text = 'v4.8.8'
+$statusVersion.Text = 'v4.8.9'
 $statusVersion.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 12, 0, 0, 0
 [void]$statusStrip.Items.Add($statusVersion)
 
@@ -1896,7 +1918,7 @@ $grpLut.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0, 5, 0, 
 $lutTable = New-Object System.Windows.Forms.TableLayoutPanel
 $lutTable.Dock = 'Fill'
 $lutTable.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 6, 5, 6, 5
-$lutTable.ColumnCount = 3
+$lutTable.ColumnCount = 4
 $lutTable.RowCount = 5
 $lutCol1 = New-Object System.Windows.Forms.ColumnStyle
 $lutCol1.SizeType = [System.Windows.Forms.SizeType]::Absolute
@@ -1910,6 +1932,7 @@ $lutCol3 = New-Object System.Windows.Forms.ColumnStyle
 $lutCol3.SizeType = [System.Windows.Forms.SizeType]::Absolute
 $lutCol3.Width = 106
 [void]$lutTable.ColumnStyles.Add($lutCol3)
+$lutCol4=New-Object System.Windows.Forms.ColumnStyle; $lutCol4.SizeType=[System.Windows.Forms.SizeType]::Absolute; $lutCol4.Width=58; [void]$lutTable.ColumnStyles.Add($lutCol4)
 Add-RowAbsolute $lutTable 34
 Add-RowAbsolute $lutTable 34
 Add-RowAbsolute $lutTable 34
@@ -1929,9 +1952,11 @@ $btnLutClear = New-Object System.Windows.Forms.Button
 $btnLutClear.Text = L 'button.clear_lut'
 $btnLutClear.Dock = 'Fill'
 $btnLutClear.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 3
+$btnColorCorrection=New-Object System.Windows.Forms.Button; $btnColorCorrection.Text=L 'button.color_correction'; $btnColorCorrection.Dock='Fill'; $btnColorCorrection.Margin=New-Object System.Windows.Forms.Padding -ArgumentList 3
 [void]$lutTable.Controls.Add($chkLut, 0, 0)
 [void]$lutTable.Controls.Add($btnLutGallery, 1, 0)
-[void]$lutTable.Controls.Add($btnLutClear, 2, 0)
+[void]$lutTable.Controls.Add($btnColorCorrection, 2, 0)
+[void]$lutTable.Controls.Add($btnLutClear, 3, 0)
 
 $lblRecentLut = New-Object System.Windows.Forms.Label
 $lblRecentLut.Text = L 'lut.recent'
@@ -1947,7 +1972,7 @@ $cmbRecentLut.DropDownWidth = 440
 $cmbRecentLut.MaxDropDownItems = 25
 [void]$lutTable.Controls.Add($lblRecentLut, 0, 1)
 [void]$lutTable.Controls.Add($cmbRecentLut, 1, 1)
-$lutTable.SetColumnSpan($cmbRecentLut, 2)
+$lutTable.SetColumnSpan($cmbRecentLut, 3)
 
 $lblFavoriteLut = New-Object System.Windows.Forms.Label
 $lblFavoriteLut.Text = L 'lut.favorite'
@@ -1963,7 +1988,7 @@ $cmbFavoriteLut.DropDownWidth = 440
 $cmbFavoriteLut.MaxDropDownItems = 25
 [void]$lutTable.Controls.Add($lblFavoriteLut, 0, 2)
 [void]$lutTable.Controls.Add($cmbFavoriteLut, 1, 2)
-$lutTable.SetColumnSpan($cmbFavoriteLut, 2)
+$lutTable.SetColumnSpan($cmbFavoriteLut, 3)
 
 $lutPreviewPanel = New-Object System.Windows.Forms.TableLayoutPanel
 $lutPreviewPanel.Dock = 'Fill'
@@ -1992,7 +2017,7 @@ $lblSelectedLut.ForeColor = $ColorMuted
 $lblSelectedLut.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 4, 0, 4, 0
 [void]$lutPreviewPanel.Controls.Add($lblSelectedLut, 0, 1)
 [void]$lutTable.Controls.Add($lutPreviewPanel, 0, 3)
-$lutTable.SetColumnSpan($lutPreviewPanel, 3)
+$lutTable.SetColumnSpan($lutPreviewPanel, 4)
 
 $lblLutStrengthTitle = New-Object System.Windows.Forms.Label
 $lblLutStrengthTitle.Text = L 'lut.strength'
@@ -2015,7 +2040,8 @@ $lblLutStrength.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
 $lblLutStrength.Enabled = $false
 [void]$lutTable.Controls.Add($lblLutStrengthTitle, 0, 4)
 [void]$lutTable.Controls.Add($trackLutStrength, 1, 4)
-[void]$lutTable.Controls.Add($lblLutStrength, 2, 4)
+$lutTable.SetColumnSpan($trackLutStrength,2)
+[void]$lutTable.Controls.Add($lblLutStrength, 3, 4)
 
 $toolTip = New-Object System.Windows.Forms.ToolTip
 $digitalGrainTip = L 'digital_grain.tip'
@@ -2023,6 +2049,7 @@ $toolTip.SetToolTip($trackAv1ProcStrength, $digitalGrainTip)
 $toolTip.SetToolTip($trackHevcProcStrength, $digitalGrainTip)
 $toolTip.SetToolTip($btnGrainRoot, (L 'tooltip.grain_root'))
 $toolTip.SetToolTip($btnRefreshGrain, (L 'tooltip.grain_refresh'))
+$toolTip.SetToolTip($btnLutClear, (L 'tooltip.clear_lut'))
 $toolTip.SetToolTip($cmbAv1GrainTable, (L 'tooltip.table_default'))
 $toolTip.SetToolTip($btnRefreshAv1Table, (L 'tooltip.table_refresh'))
 $toolTip.SetToolTip($chkShowAllAv1Tables, (L 'tooltip.table_all'))
@@ -4415,6 +4442,21 @@ function Open-LutGallery {
     }
 }
 
+function Update-ColorCorrectionUi { if($script:ColorCorrectionEnabled){$btnColorCorrection.Text=(L 'button.color_correction').TrimEnd([char]0x2026)+'  ✓'}else{$btnColorCorrection.Text=L 'button.color_correction'} }
+function Open-ColorCorrection {
+    $items=@($listFiles.SelectedItems); $path=''; if($items.Count -eq 1){$path=[string]$items[0].Tag}elseif($listFiles.Items.Count -eq 1){$path=[string]$listFiles.Items[0].Tag}
+    if(-not $path){Show-Info (L 'color.select_video');return}
+    $ls=@(25,50,75,100)
+    $r=Show-FilmGrainColorCorrectionDialog -Owner $form -VideoPath $path -FfmpegPath $Ffmpeg -FfprobePath $Ffprobe -LutSelectorPath $LutSelector -LutRoot $LutRoot -LutPreviewRoot $LutPreviewRoot -LutPath $(if($script:SelectedLutPath){[string]$script:SelectedLutPath}else{''}) -LutSource $script:SelectedLutSource -LutStrength $ls[$trackLutStrength.Value] -Enabled $script:ColorCorrectionEnabled -Contrast $script:ColorContrast -Brightness $script:ColorBrightness -Saturation $script:ColorSaturation -Gamma $script:ColorGamma -BlackWhite $script:ColorBlackWhite -UseLut $chkLut.Checked -LargeUi $script:ColorPreviewLargeUi -Language $script:FgLanguageCode
+    if($null -eq $r){return}
+    $script:ColorCorrectionEnabled=[bool]$r.Enabled; $script:ColorContrast=[double]$r.Contrast; $script:ColorBrightness=[double]$r.Brightness; $script:ColorSaturation=[double]$r.Saturation; $script:ColorGamma=[double]$r.Gamma; $script:ColorBlackWhite=[bool]$r.BlackWhite
+    $script:SelectedLutPath=if($r.LutPath){[string]$r.LutPath}else{$null}; $script:SelectedLutSource=if($script:SelectedLutPath){[string]$r.LutSource}else{'None'}
+    $trackLutStrength.Value=switch([int]$r.LutStrength){ 25 {0} 50 {1} 100 {3} default {2} }
+    $chkLut.Checked=([bool]$r.UseLut -and [bool]$script:SelectedLutPath)
+    Refresh-RecentLuts; Refresh-FavoriteLuts; Set-LutUi
+    Save-FilmGrainConfig -Values @{COLOR_CORRECTION_ENABLED=$(if($script:ColorCorrectionEnabled){'true'}else{'false'});COLOR_CONTRAST=$script:ColorContrast.ToString('0.00',[Globalization.CultureInfo]::InvariantCulture);COLOR_BRIGHTNESS=$script:ColorBrightness.ToString('0.00',[Globalization.CultureInfo]::InvariantCulture);COLOR_SATURATION=$script:ColorSaturation.ToString('0.00',[Globalization.CultureInfo]::InvariantCulture);COLOR_GAMMA=$script:ColorGamma.ToString('0.00',[Globalization.CultureInfo]::InvariantCulture);COLOR_BLACK_WHITE=$(if($script:ColorBlackWhite){'true'}else{'false'})}
+    Update-ColorCorrectionUi
+}
 function Set-RunMetrics {
     param(
         [string]$FpsText,
@@ -5009,6 +5051,10 @@ function Start-Encoding {
     $envs['FG_STUDIO_MODE'] = '1'
     $envs['FG_TEMP_MODE']=[string]$script:TempMode; $envs['FG_TEMP_CUSTOM_DIR']=[string]$script:TempCustomDir; $envs['FG_TEMP_SPACE_CONFIRMED']='1'; $envs['FG_OUTPUT_MODE']=[string]$script:OutputMode; $envs['FG_OUTPUT_CUSTOM_DIR']=[string]$script:OutputCustomDir; $envs['FG_OUTPUT_SPACE_CONFIRMED']='1'
     $envs['FG_MODE'] = $mode
+    $iv=[Globalization.CultureInfo]::InvariantCulture
+    $envs['FG_COLOR_ENABLED']=if($script:ColorCorrectionEnabled){'1'}else{'0'}
+    $envs['FG_COLOR_CONTRAST']=$script:ColorContrast.ToString('0.00',$iv); $envs['FG_COLOR_BRIGHTNESS']=$script:ColorBrightness.ToString('0.00',$iv); $envs['FG_COLOR_SATURATION']=$script:ColorSaturation.ToString('0.00',$iv); $envs['FG_COLOR_GAMMA']=$script:ColorGamma.ToString('0.00',$iv)
+    $envs['FG_COLOR_BLACK_WHITE']=if($script:ColorBlackWhite){'1'}else{'0'}
     $envs['FG_CONTAINER'] = if ($cmbContainer.SelectedIndex -eq 0) { 'MP4' } else { 'MKV' }
     $envs['FG_HDR_POLICY'] = [string]$script:HdrPolicy
     $envs['FG_TONEMAP_ALGO'] = [string]$script:ToneMapAlgo
@@ -6025,6 +6071,7 @@ $btnUploadSubtitle.Add_Click({ Show-UploadSubtitleDialog })
 
 $chkLut.Add_CheckedChanged({ Set-LutUi })
 $btnLutGallery.Add_Click({ Open-LutGallery })
+$btnColorCorrection.Add_Click({ Open-ColorCorrection })
 $cmbRecentLut.Add_SelectedIndexChanged({
     if ($script:LoadingRecentLuts) { return }
     $recentIndex = $cmbRecentLut.SelectedIndex - 1
@@ -6162,6 +6209,7 @@ Update-FramingUi
 Refresh-RecentLuts
 Refresh-FavoriteLuts
 Set-LutUi
+Update-ColorCorrectionUi
 
 if ($InputFiles) { Add-InputFiles $InputFiles }
 

@@ -1,12 +1,15 @@
-# Film Grain Studio v4.8.8
+# Film Grain Studio v4.8.9
 
-本次版本主要统一 AV1 / HEVC NVENC Standard 默认编码参数，并调整 NVENC AQ 默认策略，同时修复 FGSIM 在特殊字符路径下的 shader 路径解析问题。
+* 主界面“电影风格 / LUT 图库”新增独立 **色彩纠正** 功能，支持对比度、亮度、饱和度、Gamma 与黑白模式，并将结果正式接入 AV1、HEVC、x264 及相关 Grain 处理链。
+* 新增独立的色彩纠正与 LUT 实时预览窗口：默认视频预览为 720×480，可通过时间线选择任意视频帧；单击按方向逐帧移动、双击直接跳转、拖动滑块连续定位。
+* 色彩调整滑杆支持 0.01 步进及数值输入；双击任一滑杆可单独恢复默认值，并可按住按钮临时查看原图。
+* 实时预览窗口内可直接打开现有 LUT Gallery，切换当前 LUT，并以 25% / 50% / 75% / 100% 强度叠加预览色彩纠正与 LUT 的最终效果；确认后同步回主界面。
+* 高级设置 → 其他新增 **色彩调整使用 1280×700 大界面**；启用后实时预览画面扩大至 960×540，默认仍保持原有紧凑界面。
 
-## 更新内容
+### 改进与修复
 
-- 统一 AV1 / HEVC NVENC Standard 默认编码参数：P7、VBR、10-bit、Full Resolution Multipass、B-frames 4。
-- Spatial AQ 默认 Strength 8，Temporal AQ 默认关闭，并统一作用于 AV1 / HEVC。
-- NVENC Lookahead 调整为 27。
-- 精简高级编码设置中的 AQ 与 H.264 High10 说明。
-- 修复 FGSIM 在包含空格、单引号等特殊字符路径下的 shader 路径解析问题。
-- Benchmark README 增加 LG OLED DAYDREAMS 演示视频链接。
+* 新增色彩纠正参数持久化：启用状态、对比度、亮度、饱和度、Gamma 与黑白模式统一保存到根目录 `FilmGrain_Config.ini`；大界面选项也随高级设置保存。
+* 色彩纠正窗口内选择的 LUT、启用状态与强度仅在点击“确定”后同步到主界面；点击“取消”不会覆盖原设置，同时保留 Gallery 的最近使用与我的最爱逻辑。
+* 调整主界面 LUT 区域布局，缩小“清除”按钮并为其增加说明；该按钮只取消当前 LUT 和关闭 LUT 处理，不会删除 LUT 文件。
+* 修复原生时间线滑杆点击可能触发 `Value` 属性异常的问题，改用自绘时间线与独立状态管理；修复部分 Windows 环境中调整滑杆无法识别双击复位的问题。
+* 启用色彩纠正的输出文件追加 `_CC` 标识；任务日志记录 Contrast / Brightness / Saturation / Gamma 及黑白状态。

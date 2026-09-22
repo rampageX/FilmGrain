@@ -520,6 +520,25 @@ OpenSVPFlow 只处理逐行输入。隔行素材会自动旁路插帧并进入�
 
 ---
 
+## 色彩纠正与 LUT 实时预览
+
+主界面 **电影风格 / LUT 图库** 区域提供独立的 **色彩纠正** 按钮。选择单个输入视频后，可以直接用视频实际帧调整：
+
+- 对比度：-2.00–2.00，默认 1.00；
+- 亮度：-1.00–1.00，默认 0.00；
+- 饱和度：0.00–3.00，默认 1.00；
+- Gamma：0.01–3.00，默认 1.00；
+- 黑白模式：独立开关；
+- 所有数值步进均为 0.01；双击任一调整滑杆可单独恢复默认值。
+
+默认预览画面为 **720×480**。时间线支持单击向所点方向逐帧移动、双击直接跳转到所点位置，以及拖动滑块连续定位；“按住查看原图”可临时旁路色彩纠正和 LUT，方便比较。
+
+预览窗口直接复用现有 LUT Gallery，并提供 25% / 50% / 75% / 100% 强度，因此可以实时查看 **色彩纠正 → 黑白模式 → LUT** 的最终叠加效果。点击“确定”后，LUT 路径、启用状态和强度同步回主界面；点击“取消”不会覆盖主界面原设置。
+
+在 **高级 → 其他** 中可启用 **色彩调整使用 1280×700 大界面**，此时视频预览扩大为 960×540；默认仍使用紧凑界面。色彩纠正参数与该界面选项都保存在 `FilmGrain_Config.ini`。启用色彩纠正的输出文件增加 `_CC` 标识。
+
+---
+
 ## LUT Gallery 与 Film Look
 
 默认 LUT 根目录：
@@ -874,7 +893,7 @@ FilmGrain_Config.ini
 
 GUI 右上角的 **配置** 可以修改并保存。GUI、CLI、StudioBridge 与相关 Utils 工具读取同一份配置，不再分别维护硬编码路径。
 
-FilmGrain_Config.ini 同时是 FGS 唯一的用户自定义配置文件，不再使用独立的语言偏好配置文件。除外部工具路径外，还保存临时目录与输出目录策略、当前 GUI 语言、LUT Gallery“智能过滤”状态，以及“高级设置”中的全部可修改项目。高级设置按“编码 / 插帧 / HDR / 其他”分组保存；每个页面都有独立的“恢复默认”，只恢复当前页面，不影响其它页面。
+FilmGrain_Config.ini 同时是 FGS 唯一的用户自定义配置文件，不再使用独立的语言偏好配置文件。除外部工具路径外，还保存临时目录与输出目录策略、当前 GUI 语言、LUT Gallery“智能过滤”状态、“高级设置”中的全部可修改项目，以及色彩纠正参数。高级设置按“编码 / 插帧 / HDR / 其他”分组保存；每个页面都有独立的“恢复默认”，只恢复当前页面，不影响其它页面。
 
 主要配置分组：
 
@@ -884,7 +903,8 @@ FilmGrain_Config.ini 同时是 FGS 唯一的用户自定义配置文件，不再
 - [Advanced.Encoding]：H.264 High10、x264 Preset / VBR 模式、HEVC Spatial AQ / Temporal AQ；
 - [Advanced.Interpolation]：SmoothFps Algo、Analyse Profile、Artifact Mask Area；
 - [Advanced.HDR]：HDR 输入处理、Tone Mapping；
-- [Advanced.Other]：Cinematic Style 自定义画幅。
+- [Advanced.Other]：Cinematic Style 自定义画幅、色彩调整 1280×700 大界面；
+- [ColorCorrection]：色彩纠正启用状态、对比度、亮度、饱和度、Gamma 与黑白模式。
 
 升级旧版本时，如果检测到旧的 Lang\FilmGrain_Language.ini，启动时会自动把语言选择迁移到 FilmGrain_Config.ini。
 

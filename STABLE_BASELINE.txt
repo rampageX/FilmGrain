@@ -1,25 +1,26 @@
 Film Grain Studio formal stable baseline
 
 Baseline:
-v4.8.8
+v4.8.9
 Supersedes:
-v4.8.5
+v4.8.8
 
 Formal release:
-FilmGrain_Studio_v4.8.6_Stable.zip
+FilmGrain_Studio_v4.8.9_Stable.zip
 
 Release scope:
-- Unify all user settings in root FilmGrain_Config.ini.
-- Persist GUI language, LUT Gallery smart filter and all Advanced Settings pages.
-- Keep legacy Lang\FilmGrain_Language.ini only as a migration source; do not ship it.
+- Add real-time Color Correction and LUT preview on selectable video frames.
+- Persist Color Correction values and the optional 1280x700 preview-window setting.
+- Reuse the existing LUT Gallery and LUT strength controls inside the preview window.
 - Ship the verified OpenSVPFlow plugin DLLs and open-svpflow-version.txt.
 - Keep runtime .env, _PluginBackup and Utils\_HardwareCaps.json out of the formal package.
-- Keep release.bat as a local-only ignored release tool.
+- Keep tracked release infrastructure out of the formal Stable package.
 
 Encoding core:
-- Preserve AV1, HEVC and x264 encoding behavior and existing Grain, HDR, LUT, interpolation, deinterlace and bitrate logic.
+- Apply Color Correction before LUT processing across the supported AV1, HEVC and x264 pixel-processing paths.
+- Preserve existing Grain, HDR, interpolation, deinterlace and bitrate behavior outside this addition.
 - AAC remains 256k.
 
 Release:
 - Windows Server 2022 runner.
-- GUI status version is v4.8.6.
+- GUI status version is v4.8.9.

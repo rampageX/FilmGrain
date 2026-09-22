@@ -1,7 +1,7 @@
 Universal Film Grain Toolkit
 =============================
 
-当前正式稳定版：v4.8.6
+当前正式稳定版：v4.8.9
 
 版本与命名
 ----------
@@ -25,6 +25,7 @@ Lang\
 Utils\
     FilmGrain_Language.ps1
     FilmGrain_Config.ps1
+    FilmGrain_ColorCorrection.ps1
     FilmGrain_Config_Load.bat
     FilmGrain_Studio.ps1
     FilmGrain_Studio_Launcher.vbs
@@ -67,7 +68,7 @@ HEVC Grain 库：D:\Film_Grain
 LUT 根目录：E:\Adobe Portable\LUTs
 GPU：NVIDIA GPU 自动探测（已验证 RTX 4080 与 T600 Laptop）
 
-FilmGrain_Config.ini 同时保存所有 FGS 用户自定义配置，不再单独保存语言偏好。除路径外包括 GUI 语言、LUT Gallery“智能过滤”状态，以及高级设置“编码 / 插帧 / HDR / 其他”四页的全部可修改项目。每个高级设置页面均提供独立“恢复默认”按钮，只恢复当前页面。旧版本的 Lang\FilmGrain_Language.ini 如仍存在，会在启动时自动迁移到 FilmGrain_Config.ini。
+FilmGrain_Config.ini 同时保存所有 FGS 用户自定义配置，不再单独保存语言偏好。除路径外包括 GUI 语言、LUT Gallery“智能过滤”状态、高级设置“编码 / 插帧 / HDR / 其他”四页的全部可修改项目，以及色彩纠正参数。每个高级设置页面均提供独立“恢复默认”按钮，只恢复当前页面。旧版本的 Lang\FilmGrain_Language.ini 如仍存在，会在启动时自动迁移到 FilmGrain_Config.ini。
 
 1. 整合主脚本
 -------------
@@ -75,6 +76,8 @@ FilmGrain_Config.ini 同时保存所有 FGS 用户自定义配置，不再单独
 FilmGrain_Universal_CLI.bat
 
 功能：
+- v4.8.9：GUI 新增色彩纠正与 LUT 实时预览窗口，支持对比度、亮度、饱和度、Gamma、黑白模式、任意视频帧时间线、滑杆双击复位、原图对照，以及直接调用 LUT Gallery 和四档 LUT 强度；高级“其他”可切换 1280×700 大界面。
+- 色彩纠正参数与大界面选项统一保存到 FilmGrain_Config.ini；确认后 LUT 路径、开关和强度同步回主界面，启用色彩纠正的输出文件追加 _CC。
 - v4.8.0：GUI 界面字符串外置到 Lang\zh-CN.ini / en-US.ini，新增右上角语言切换与中文 fallback；英文界面使用独立窗口宽度。多语言仅作用于 GUI 显示，不改变 GUI/CLI 共用的 StudioBridge 编码核心。
 - v4.7.5 统一 Digital Grain / Grain Plate / GPU Film Grain (FGSIM) 的 Film Grain Strength 交互；FGSIM 内部仍映射已经验证的 Light / Medium / Heavy 三档。
 - HEVC + FGSIM 的视频码率可选 Standard CQ27 / QP18-26 或 High Quality CQ23 / QP18-24，默认仍按原逻辑使用自动或手动 VBR。若画面出现色带，可按界面提示尝试 CQ 方案。

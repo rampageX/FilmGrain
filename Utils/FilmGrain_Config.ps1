@@ -30,6 +30,14 @@ $script:FilmGrainConfigDefaults = [ordered]@{
     TONE_MAP_ALGO = 'hable'
 
     CINEMATIC_CROP_PER_SIDE = '0'
+    COLOR_PREVIEW_LARGE_UI = 'false'
+
+    COLOR_CORRECTION_ENABLED = 'false'
+    COLOR_CONTRAST = '1.00'
+    COLOR_BRIGHTNESS = '0.00'
+    COLOR_SATURATION = '1.00'
+    COLOR_GAMMA = '1.00'
+    COLOR_BLACK_WHITE = 'false'
 }
 
 $script:FilmGrainConfigSections = [ordered]@{
@@ -66,7 +74,16 @@ $script:FilmGrainConfigSections = [ordered]@{
         'TONE_MAP_ALGO'
     )
     'Advanced.Other' = @(
-        'CINEMATIC_CROP_PER_SIDE'
+        'CINEMATIC_CROP_PER_SIDE',
+        'COLOR_PREVIEW_LARGE_UI'
+    )
+    ColorCorrection = @(
+        'COLOR_CORRECTION_ENABLED',
+        'COLOR_CONTRAST',
+        'COLOR_BRIGHTNESS',
+        'COLOR_SATURATION',
+        'COLOR_GAMMA',
+        'COLOR_BLACK_WHITE'
     )
 }
 
@@ -264,6 +281,14 @@ function Get-FilmGrainConfig {
         TONE_MAP_ALGO = [string]$result['TONE_MAP_ALGO']
 
         CINEMATIC_CROP_PER_SIDE = [string]$result['CINEMATIC_CROP_PER_SIDE']
+        COLOR_PREVIEW_LARGE_UI = [string]$result['COLOR_PREVIEW_LARGE_UI']
+
+        COLOR_CORRECTION_ENABLED = [string]$result['COLOR_CORRECTION_ENABLED']
+        COLOR_CONTRAST = [string]$result['COLOR_CONTRAST']
+        COLOR_BRIGHTNESS = [string]$result['COLOR_BRIGHTNESS']
+        COLOR_SATURATION = [string]$result['COLOR_SATURATION']
+        COLOR_GAMMA = [string]$result['COLOR_GAMMA']
+        COLOR_BLACK_WHITE = [string]$result['COLOR_BLACK_WHITE']
 
         ConfigPath = $Path
     }
