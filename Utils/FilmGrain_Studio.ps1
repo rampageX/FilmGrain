@@ -2656,6 +2656,16 @@ function Get-Av1GrainTableSummary {
                 $hasChroma = $true
                 break
             }
+
+            # Photon ISO --chroma uses AV1 chroma_scaling_from_luma=1.
+            # In filmgrn1 this is the 5th numeric field on the p line; sCb/sCr stay 0.
+            if ($t -match '^p\s+') {
+                $parts = @($t -split '\s+')
+                if ($parts.Count -gt 5 -and $parts[0] -eq 'p' -and $parts[5] -eq '1') {
+                    $hasChroma = $true
+                    break
+                }
+            }
         }
         $plane = if ($hasChroma) { '亮度 + 色度' } else { '亮度' }
         return "AV1 胶片颗粒：$plane"
