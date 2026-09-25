@@ -1,7 +1,7 @@
 Film Grain Studio - 使用说明
 ============================
 
-当前正式稳定版：v4.8.9
+当前正式稳定版：v4.8.10
 
 这是 Universal Film Grain Toolkit 的图形前端。
 CLI 与 GUI Bridge 共享同一套编码逻辑，并分别提供交互菜单和图形界面。
@@ -10,6 +10,9 @@ CLI 与 GUI Bridge 共享同一套编码逻辑，并分别提供交互菜单和�
 启动方式
 --------
 双击：FilmGrain_Universal_GUI.bat
+
+可选 .NET 图形界面预览：dotnet\build\FilmGrain_Studio_NET_Preview.exe
+请保持整个发布包目录结构；.NET 预览版与正式 GUI 共用配置和编码后端。
 
 也可以把一个或多个视频直接拖到 FilmGrain_Universal_GUI.bat，
 Studio 打开后会自动加入文件列表。

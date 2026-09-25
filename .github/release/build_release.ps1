@@ -33,6 +33,8 @@ $RequiredPackageFiles = @(
     'README_FilmGrain_Studio.txt',
     'README_Toolkit.txt',
     'STABLE_BASELINE.txt',
+    'dotnet\build_NET_Preview.bat',
+    'dotnet\FilmGrain_Studio_NET_Preview.cs',
     'Utils\FilmGrain_Studio.ps1',
     'Utils\FilmGrain_ColorCorrection.ps1',
     'Utils\FGS_Benchmark.cmd',
@@ -48,6 +50,7 @@ $RequiredPackageFiles = @(
 
 $RequiredPackageDirectories = @(
     'images',
+    'dotnet',
     'Lang',
     'Utils',
     '_AV1_Grain_Tables',
@@ -275,12 +278,36 @@ function Normalize-PackageTextFiles {
         }
 }
 
+function Build-DotNetPreview {
+    param([Parameter(Mandatory = $true)][string]$StageRoot)
+
+    $script = Join-Path $StageRoot 'dotnet\build_NET_Preview.bat'
+    $buildDirectory = Join-Path $StageRoot 'dotnet\build'
+    $executable = Join-Path $buildDirectory 'FilmGrain_Studio_NET_Preview.exe'
+
+    # The release must compile committed source, never reuse a local test executable.
+    if (Test-Path -LiteralPath $buildDirectory) {
+        Remove-Item -LiteralPath $buildDirectory -Recurse -Force
+    }
+    Assert-File -Root $StageRoot -RelativePath 'dotnet\build_NET_Preview.bat'
+    Write-Host '[FGS] Building .NET Preview from staged source...'
+    & $script
+    if ($LASTEXITCODE -ne 0) {
+        throw ".NET Preview build failed with exit code $LASTEXITCODE"
+    }
+    Assert-File -Root $StageRoot -RelativePath 'dotnet\build\FilmGrain_Studio_NET_Preview.exe'
+    if ((Get-Item -LiteralPath $executable).Length -le 0) {
+        throw '.NET Preview executable is empty.'
+    }
+}
+
 function Test-PackageContent {
     param([Parameter(Mandatory = $true)][string]$StageRoot)
 
     foreach ($relative in $RequiredPackageFiles) {
         Assert-File -Root $StageRoot -RelativePath $relative
     }
+    Assert-File -Root $StageRoot -RelativePath 'dotnet\build\FilmGrain_Studio_NET_Preview.exe'
     foreach ($relative in $RequiredPackageDirectories) {
         Assert-Directory -Root $StageRoot -RelativePath $relative
     }
@@ -368,7 +395,7 @@ function Test-ZipContent {
     try {
         $entries = @($archive.Entries | ForEach-Object { $_.FullName.Replace('\', '/') })
 
-        foreach ($relative in $RequiredPackageFiles) {
+        foreach ($relative in @($RequiredPackageFiles) + @('dotnet\build\FilmGrain_Studio_NET_Preview.exe')) {
             $entry = $relative.Replace('\', '/')
             if ($entries -notcontains $entry) {
                 throw "Required ZIP entry missing: $entry"
@@ -463,6 +490,7 @@ try {
 
     Remove-PackageExclusions -StageRoot $stageRoot
     Normalize-PackageTextFiles -StageRoot $stageRoot
+    Build-DotNetPreview -StageRoot $stageRoot
     Test-PackageContent -StageRoot $stageRoot
 
     if (Test-Path -LiteralPath $zipPath) {

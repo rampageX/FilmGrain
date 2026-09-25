@@ -52,6 +52,14 @@ FilmGrain_Universal_GUI.bat
 
 GUI 输出默认保存在源视频所在目录，也可以在右上角“配置”中选择统一的自定义输出目录；已有同名输出时会跳过，不直接覆盖。
 
+### .NET 图形界面预览
+
+完整发布包另附可直接运行的 `dotnet\build\FilmGrain_Studio_NET_Preview.exe`。保持整个发布包目录结构，双击 EXE 即可使用 .NET 图形界面；根目录的 `FilmGrain_Universal_GUI.bat` 仍是正式 GUI 入口。
+
+.NET 界面使用原生 Windows 窗口实现媒体信息、LUT / 色彩纠正预览、字幕与设置；与正式 GUI 共享根目录的 `FilmGrain_Config.ini`、语言文件、编码 Bridge BAT、AV1 不重编码 BAT 和相关辅助工具。它不会调用 `Utils\FilmGrain_Studio.ps1` 作为主界面。仅复制 EXE 到其他目录无法找到完整程序资源。
+
+发布包同时保留 `dotnet\` 下的 C# 源码与 `build_NET_Preview.bat`，可在带有 .NET Framework C# 编译器的 Windows 系统重新构建预览 EXE。
+
 ### CLI 命令行
 
 将一个或多个视频拖到：
@@ -1029,6 +1037,11 @@ CHANGELOG.md
 README_FilmGrain_Studio.txt
 README_Toolkit.txt
 STABLE_BASELINE.txt
+
+dotnet\
+    FilmGrain_Studio_NET_Preview.cs
+    build_NET_Preview.bat
+    build\FilmGrain_Studio_NET_Preview.exe
 
 Lang\
     zh-CN.ini
