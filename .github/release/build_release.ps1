@@ -35,6 +35,8 @@ $RequiredPackageFiles = @(
     'STABLE_BASELINE.txt',
     'dotnet\build_NET_Preview.bat',
     'dotnet\FilmGrain_Studio_NET_Preview.cs',
+    'dotnet\FilmGrain_SetupPhase1.cs',
+    'dotnet\Setup_Dependencies.ps1',
     'Utils\FilmGrain_Studio.ps1',
     'Utils\FilmGrain_ColorCorrection.ps1',
     'Utils\FGS_Benchmark.cmd',

@@ -74,6 +74,10 @@ function Test-OpenSVPFlowPlugins {
         return
     }
 
+    $privateConfig = Join-Path $Root '_UserConfig\vapoursynth\vapoursynth.toml'
+    if (Test-Path -LiteralPath $privateConfig -PathType Leaf) {
+        $env:APPDATA = Join-Path $Root '_UserConfig'
+    }
     Write-Host "       CPU smoke test..."
     & $VSPipe --arg "plugin_dir=$PluginDir" --arg "gpu=0" --arg "algo=13" --start 0 --end 0 $CheckScript --
     Assert-LastExitCode "$Label CPU smoke test"

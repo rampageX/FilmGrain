@@ -14,6 +14,7 @@ $script:FilmGrainConfigDefaults = [ordered]@{
     OUTPUT_CUSTOM_DIR = ''
 
     LANGUAGE = 'zh-CN'
+    SETUP_VERSION = '0'
     SMART_FILTER_ENABLED = 'false'
 
     H264_HIGH10 = 'false'
@@ -52,7 +53,8 @@ $script:FilmGrainConfigSections = [ordered]@{
         'OUTPUT_CUSTOM_DIR'
     )
     General = @(
-        'LANGUAGE'
+        'LANGUAGE',
+        'SETUP_VERSION'
     )
     LUTGallery = @(
         'SMART_FILTER_ENABLED'

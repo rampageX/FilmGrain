@@ -38,7 +38,8 @@ function Invoke-ProcessCapture {
     param(
         [string]$FilePath,
         [string[]]$Arguments,
-        [int]$TimeoutSeconds = $ProbeTimeoutSeconds
+        [int]$TimeoutSeconds = $ProbeTimeoutSeconds,
+        [string]$AppData = ''
     )
 
     $psi = New-Object System.Diagnostics.ProcessStartInfo
@@ -48,6 +49,7 @@ function Invoke-ProcessCapture {
     $psi.CreateNoWindow = $true
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true
+    if ($AppData) { $psi.EnvironmentVariables['APPDATA'] = $AppData }
 
     $process = New-Object System.Diagnostics.Process
     $process.StartInfo = $psi
@@ -600,14 +602,18 @@ function Get-OpenSvpCapabilities {
     if (-not (Test-Path -LiteralPath $svp2 -PathType Leaf)) { return [pscustomobject]$result }
 
     $result.runtimeReady = $true
+    $privateAppData = Join-Path $Root '_UserConfig'
+    if (-not (Test-Path -LiteralPath (Join-Path $privateAppData 'vapoursynth\vapoursynth.toml') -PathType Leaf)) {
+        $privateAppData = ''
+    }
 
-    $cpuProbe = Invoke-ProcessCapture -FilePath $vspipe -Arguments @(
+    $cpuProbe = Invoke-ProcessCapture -FilePath $vspipe -AppData $privateAppData -Arguments @(
         '--arg', "plugin_dir=$plugins", '--arg', 'gpu=0', '--arg', 'algo=13',
         '--start', '0', '--end', '0', $check, 'NUL'
     )
     $result.cpu = ($cpuProbe.ExitCode -eq 0)
 
-    $gpuProbe = Invoke-ProcessCapture -FilePath $vspipe -Arguments @(
+    $gpuProbe = Invoke-ProcessCapture -FilePath $vspipe -AppData $privateAppData -Arguments @(
         '--arg', "plugin_dir=$plugins", '--arg', 'gpu=1', '--arg', 'algo=13',
         '--start', '0', '--end', '0', $check, 'NUL'
     )

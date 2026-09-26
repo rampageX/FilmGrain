@@ -35,6 +35,8 @@ set "HARDWARE_CAPS_SCRIPT=%~dp0FilmGrain_Hardware_Caps.ps1"
 set "SUBTITLE_HELPER=%~dp0FilmGrain_Subtitle_Prepare.ps1"
 set "TEMP_CHECK_SCRIPT=%~dp0FilmGrain_Temp_Check.ps1"
 set "OPEN_SVP_ROOT=%~dp0..\_OpenSVPFlow"
+rem VSScript reads APPDATA for the private Python binding; setlocal confines this to the bridge.
+if exist "%OPEN_SVP_ROOT%\_UserConfig\vapoursynth\vapoursynth.toml" set "APPDATA=%OPEN_SVP_ROOT%\_UserConfig"
 set "OPEN_SVP_VSPIPE=%OPEN_SVP_ROOT%\.venv\Scripts\vspipe.exe"
 set "OPEN_SVP_VPY=%OPEN_SVP_ROOT%\FilmGrain_OpenSVPFlow.vpy"
 set "OPEN_SVP_CHECK=%OPEN_SVP_ROOT%\Check_OpenSVPFlow.vpy"

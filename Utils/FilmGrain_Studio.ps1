@@ -1039,7 +1039,7 @@ $statusVersion = New-Object System.Windows.Forms.ToolStripStatusLabel
 $statusVersion.Spring = $false
 $statusVersion.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
 $statusVersion.ForeColor = $ColorMuted
-$statusVersion.Text = 'v4.8.10'
+$statusVersion.Text = 'v4.8.11'
 $statusVersion.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 12, 0, 0, 0
 [void]$statusStrip.Items.Add($statusVersion)
 
@@ -5414,7 +5414,7 @@ function Show-PathConfigurationDialog {
     $table.Padding = New-Object System.Windows.Forms.Padding -ArgumentList 12, 12, 12, 10
     $table.ColumnCount = 4
     $table.RowCount = 12
-    $c0 = New-Object System.Windows.Forms.ColumnStyle; $c0.SizeType='Absolute'; $c0.Width=108; [void]$table.ColumnStyles.Add($c0)
+    $c0 = New-Object System.Windows.Forms.ColumnStyle; $c0.SizeType='Absolute'; $c0.Width=150; [void]$table.ColumnStyles.Add($c0)
     $c1 = New-Object System.Windows.Forms.ColumnStyle; $c1.SizeType='Percent'; $c1.Width=100; [void]$table.ColumnStyles.Add($c1)
     $c2 = New-Object System.Windows.Forms.ColumnStyle; $c2.SizeType='Absolute'; $c2.Width=94; [void]$table.ColumnStyles.Add($c2)
     $c3 = New-Object System.Windows.Forms.ColumnStyle; $c3.SizeType='Absolute'; $c3.Width=38; [void]$table.ColumnStyles.Add($c3)
@@ -5436,6 +5436,29 @@ function Show-PathConfigurationDialog {
         $l=New-Object System.Windows.Forms.Label
         $l.Text=$Text; $l.Dock='Fill'; $l.TextAlign='MiddleLeft'; $l.Margin=New-Object System.Windows.Forms.Padding -ArgumentList 4,4,4,4
         [void]$table.Controls.Add($l,0,$Row)
+    }
+    function Open-ReadmeLink([string]$Fragment) {
+        $url = 'https://github.com/rampageX/FilmGrain/blob/master/README.md#' + $Fragment
+        try {
+            Start-Process -FilePath $url -ErrorAction Stop
+        } catch {
+            [void][System.Windows.Forms.MessageBox]::Show($dlg, $_.Exception.Message)
+        }
+    }
+    function Add-ConfigReadmeLabel([int]$Row,[string]$Text,[string]$Fragment) {
+        $panel = New-Object System.Windows.Forms.TableLayoutPanel
+        $panel.Dock = 'Fill'; $panel.Margin = New-Object System.Windows.Forms.Padding -ArgumentList 0
+        $panel.ColumnCount = 2
+        $first = New-Object System.Windows.Forms.ColumnStyle; $first.SizeType='Percent'; $first.Width=100
+        $last = New-Object System.Windows.Forms.ColumnStyle; $last.SizeType='Absolute'; $last.Width=32
+        [void]$panel.ColumnStyles.Add($first); [void]$panel.ColumnStyles.Add($last)
+        $label = New-Object System.Windows.Forms.Label
+        $label.Text=$Text; $label.Dock='Fill'; $label.TextAlign='MiddleLeft'
+        $link = New-Object System.Windows.Forms.LinkLabel
+        $link.Text='[?]'; $link.AutoSize=$false; $link.Dock='Fill'; $link.TextAlign='MiddleCenter'
+        $link.Add_LinkClicked({ Open-ReadmeLink $Fragment }.GetNewClosure())
+        [void]$panel.Controls.Add($label,0,0); [void]$panel.Controls.Add($link,1,0)
+        [void]$table.Controls.Add($panel,0,$Row)
     }
     function New-ConfigTextBox([string]$Value) {
         $t=New-Object System.Windows.Forms.TextBox
@@ -5493,7 +5516,7 @@ function Show-PathConfigurationDialog {
     $lblGravDetect = New-ConfigStatusLabel (L 'config.not_checked')
     [void]$table.Controls.Add($lblGravDetect,1,3); $table.SetColumnSpan($lblGravDetect,3)
 
-    Add-ConfigLabel 4 (L 'config.grain_root')
+    Add-ConfigReadmeLabel 4 (L 'config.grain_root') 'hevc真实扫描-grain-plate'
     [void]$table.Controls.Add($txtCfgGrain,1,4)
     [void]$table.Controls.Add($btnCfgGrain,2,4)
     [void]$table.Controls.Add($btnRefreshGrain,3,4)
@@ -5501,7 +5524,7 @@ function Show-PathConfigurationDialog {
     [void]$table.Controls.Add($lblGrainDetect,1,5)
     [void]$table.Controls.Add($btnBuildGrainCache,2,5); $table.SetColumnSpan($btnBuildGrainCache,2)
 
-    Add-ConfigLabel 6 (L 'config.lut_root')
+    Add-ConfigReadmeLabel 6 (L 'config.lut_root') 'lut-gallery-与-film-look'
     [void]$table.Controls.Add($txtCfgLut,1,6)
     [void]$table.Controls.Add($btnCfgLut,2,6)
     [void]$table.Controls.Add($btnRefreshLut,3,6)

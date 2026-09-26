@@ -25,6 +25,38 @@ namespace FilmGrainStudioPreview
             return l;
         }
 
+        private Control ConfigLabelWithReadme(string text, string fragment, Form owner)
+        {
+            TableLayoutPanel panel = new TableLayoutPanel();
+            panel.Dock = DockStyle.Fill;
+            panel.Margin = Padding.Empty;
+            panel.ColumnCount = 2;
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 32));
+            panel.Controls.Add(ConfigLabel(text), 0, 0);
+            LinkLabel help = new LinkLabel();
+            help.Text = "[?]"; help.AutoSize = false; help.Dock = DockStyle.Fill;
+            help.TextAlign = ContentAlignment.MiddleCenter;
+            help.LinkClicked += delegate { OpenReadmeLink(owner, fragment); };
+            panel.Controls.Add(help, 1, 0);
+            return panel;
+        }
+
+        private void OpenReadmeLink(Form owner, string fragment)
+        {
+            try
+            {
+                ProcessStartInfo psi = new ProcessStartInfo();
+                psi.FileName = "https://github.com/rampageX/FilmGrain/blob/master/README.md#" + fragment;
+                psi.UseShellExecute = true;
+                Process.Start(psi);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(owner, ex.Message);
+            }
+        }
+
         private TextBox ConfigTextBox(string value)
         {
             TextBox t = new TextBox();
@@ -162,7 +194,7 @@ namespace FilmGrainStudioPreview
                 table.Padding = new Padding(12, 12, 12, 10);
                 table.ColumnCount = 4;
                 table.RowCount = 12;
-                table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 108));
+                table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150));
                 table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
                 table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 104));
                 table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 38));
@@ -200,10 +232,10 @@ namespace FilmGrainStudioPreview
                 table.Controls.Add(ConfigLabel("grav1synth"), 0, 2);
                 table.Controls.Add(txtGrav, 1, 2); table.Controls.Add(btnGrav, 2, 2); table.Controls.Add(refreshGrav, 3, 2);
                 table.Controls.Add(statusGrav, 1, 3); table.SetColumnSpan(statusGrav, 3);
-                table.Controls.Add(ConfigLabel(lang.T("config.grain_root")), 0, 4);
+                table.Controls.Add(ConfigLabelWithReadme(lang.T("config.grain_root"), "hevc真实扫描-grain-plate", dlg), 0, 4);
                 table.Controls.Add(txtGrain, 1, 4); table.Controls.Add(btnGrain, 2, 4); table.Controls.Add(refreshGrain, 3, 4);
                 table.Controls.Add(statusGrain, 1, 5); table.Controls.Add(buildCache, 2, 5); table.SetColumnSpan(buildCache, 2);
-                table.Controls.Add(ConfigLabel(lang.T("config.lut_root")), 0, 6);
+                table.Controls.Add(ConfigLabelWithReadme(lang.T("config.lut_root"), "lut-gallery-与-film-look", dlg), 0, 6);
                 table.Controls.Add(txtLut, 1, 6); table.Controls.Add(btnLut, 2, 6); table.Controls.Add(refreshLut, 3, 6);
                 table.Controls.Add(statusLut, 1, 7); table.Controls.Add(buildThumbs, 2, 7); table.SetColumnSpan(buildThumbs, 2);
 

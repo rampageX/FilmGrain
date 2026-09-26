@@ -23,7 +23,7 @@ namespace FilmGrainStudioPreview
         private static readonly KeyValuePair<string, string[]>[] Sections = new KeyValuePair<string, string[]>[]
         {
             new KeyValuePair<string, string[]>("Paths", new string[] { "FFMPEG_DIR", "GRAV1SYNTH", "GRAIN_ROOT", "LUT_ROOT", "TEMP_MODE", "TEMP_CUSTOM_DIR", "OUTPUT_MODE", "OUTPUT_CUSTOM_DIR" }),
-            new KeyValuePair<string, string[]>("General", new string[] { "LANGUAGE" }),
+            new KeyValuePair<string, string[]>("General", new string[] { "LANGUAGE", "SETUP_VERSION" }),
             new KeyValuePair<string, string[]>("LUTGallery", new string[] { "SMART_FILTER_ENABLED" }),
             new KeyValuePair<string, string[]>("Advanced.Encoding", new string[] { "H264_HIGH10", "X264_RATE_MODE", "X264_PRESET", "NVENC_SPATIAL_AQ", "NVENC_TEMPORAL_AQ" }),
             new KeyValuePair<string, string[]>("Advanced.Interpolation", new string[] { "SVP_ALGO", "SVP_ANALYSE", "SVP_MASK_AREA" }),
@@ -34,9 +34,9 @@ namespace FilmGrainStudioPreview
 
         public string ConfigPath { get { return configPath; } }
 
-        public FgsConfig(string appRoot)
+        public FgsConfig(string appRoot, string overridePath)
         {
-            configPath = Path.Combine(appRoot, "FilmGrain_Config.ini");
+            configPath = overridePath ?? Path.Combine(appRoot, "FilmGrain_Config.ini");
             defaultPath = Path.Combine(appRoot, "FilmGrain_Config.default.ini");
             BuildDefaults();
             Load();
@@ -53,6 +53,7 @@ namespace FilmGrainStudioPreview
             defaults["OUTPUT_MODE"] = "VIDEO";
             defaults["OUTPUT_CUSTOM_DIR"] = "";
             defaults["LANGUAGE"] = "zh-CN";
+            defaults["SETUP_VERSION"] = "0";
             defaults["SMART_FILTER_ENABLED"] = "false";
             defaults["H264_HIGH10"] = "false";
             defaults["X264_RATE_MODE"] = "VBR1";

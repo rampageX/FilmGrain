@@ -62,6 +62,7 @@ if not exist "%COLORFORM%" exit /b 1
 if not exist "%LANGCORE%" exit /b 1
 if not exist "%CONFIGCORE%" exit /b 1
 if not exist "%SETTINGSDIALOGS%" exit /b 1
+if not exist "%~dp0FilmGrain_SetupPhase1.cs" exit /b 1
 if not exist "%OUT_DIR%" mkdir "%OUT_DIR%"
 if errorlevel 1 goto :mkdir_failed
 
@@ -85,11 +86,11 @@ if exist "%ICON%" goto :build_with_icon
 goto :build_without_icon
 
 :build_with_icon
-"%CSC%" /nologo /target:winexe /platform:anycpu /optimize+ /utf8output /out:"%OUT_EXE%" /win32icon:"%ICON%" /reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Web.Extensions.dll "%SRC%" "%CORE%" "%ENVCORE%" "%HWCORE%" "%STATECORE%" "%TASKCORE%" "%REQUESTCORE%" "%MEDIACORE%" "%MEDIASUMMARY%" "%WORKSPACECORE%" "%AV1INSPECTCORE%" "%SUBCORE%" "%SUBDIALOG%" "%CONFIGUTILITY%" "%BITRATECORE%" "%TABLECORE%" "%CATALOGCORE%" "%LUTCATALOG%" "%COLORFORM%" "%LANGCORE%" "%CONFIGCORE%" "%SETTINGSDIALOGS%"
+"%CSC%" /nologo /target:winexe /platform:anycpu /optimize+ /utf8output /out:"%OUT_EXE%" /win32icon:"%ICON%" /reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Web.Extensions.dll "%SRC%" "%CORE%" "%ENVCORE%" "%HWCORE%" "%STATECORE%" "%TASKCORE%" "%REQUESTCORE%" "%MEDIACORE%" "%MEDIASUMMARY%" "%WORKSPACECORE%" "%AV1INSPECTCORE%" "%SUBCORE%" "%SUBDIALOG%" "%CONFIGUTILITY%" "%BITRATECORE%" "%TABLECORE%" "%CATALOGCORE%" "%LUTCATALOG%" "%COLORFORM%" "%LANGCORE%" "%CONFIGCORE%" "%SETTINGSDIALOGS%" "%~dp0FilmGrain_SetupPhase1.cs"
 goto :build_done
 
 :build_without_icon
-"%CSC%" /nologo /target:winexe /platform:anycpu /optimize+ /utf8output /out:"%OUT_EXE%" /reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Web.Extensions.dll "%SRC%" "%CORE%" "%ENVCORE%" "%HWCORE%" "%STATECORE%" "%TASKCORE%" "%REQUESTCORE%" "%MEDIACORE%" "%MEDIASUMMARY%" "%WORKSPACECORE%" "%AV1INSPECTCORE%" "%SUBCORE%" "%SUBDIALOG%" "%CONFIGUTILITY%" "%BITRATECORE%" "%TABLECORE%" "%CATALOGCORE%" "%LUTCATALOG%" "%COLORFORM%" "%LANGCORE%" "%CONFIGCORE%" "%SETTINGSDIALOGS%"
+"%CSC%" /nologo /target:winexe /platform:anycpu /optimize+ /utf8output /out:"%OUT_EXE%" /reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Web.Extensions.dll "%SRC%" "%CORE%" "%ENVCORE%" "%HWCORE%" "%STATECORE%" "%TASKCORE%" "%REQUESTCORE%" "%MEDIACORE%" "%MEDIASUMMARY%" "%WORKSPACECORE%" "%AV1INSPECTCORE%" "%SUBCORE%" "%SUBDIALOG%" "%CONFIGUTILITY%" "%BITRATECORE%" "%TABLECORE%" "%CATALOGCORE%" "%LUTCATALOG%" "%COLORFORM%" "%LANGCORE%" "%CONFIGCORE%" "%SETTINGSDIALOGS%" "%~dp0FilmGrain_SetupPhase1.cs"
 
 :build_done
 if errorlevel 1 goto :compile_failed

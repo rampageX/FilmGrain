@@ -1,4 +1,10 @@
-﻿$ErrorActionPreference = "Stop"
+﻿param([string]$PythonExe = '', [switch]$SkipUserConfig)
+$ErrorActionPreference = "Stop"
+$WebProxy = @{}
+if ($env:FGS_SETUP_PROXY) {
+    $WebProxy['Proxy'] = $env:FGS_SETUP_PROXY
+    $env:PIP_PROXY = $env:FGS_SETUP_PROXY
+}
 
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 $OutputEncoding = [Console]::OutputEncoding
@@ -11,6 +17,7 @@ $VenvPython = Join-Path $VenvDir "Scripts\python.exe"
 $VSPipe = Join-Path $VenvDir "Scripts\vspipe.exe"
 $VSCLI = Join-Path $VenvDir "Scripts\vapoursynth.exe"
 $CheckScript = Join-Path $Root "Check_OpenSVPFlow.vpy"
+$PrivateAppData = Join-Path $Root '_UserConfig'
 
 $OpenSVPTag = "nightly-20260804-5ef4260"
 $OpenSVPBase = "https://github.com/Z1xus/open-svpflow/releases/download/$OpenSVPTag"
@@ -61,7 +68,7 @@ Write-Host " Film Grain Studio OpenSVPFlow Runtime Setup"
 Write-Host "============================================================"
 Write-Host ""
 
-$PythonExe = Find-CompatiblePython
+if (-not $PythonExe) { $PythonExe = Find-CompatiblePython }
 $PythonVersion = & $PythonExe -c "import sys; print(sys.version.split()[0])"
 Assert-LastExitCode "Python version check"
 Write-Host "[OK] Python: $PythonVersion"
@@ -83,13 +90,19 @@ Assert-LastExitCode "pip upgrade"
 & $VenvPython -m pip install --disable-pip-version-check "vapoursynth==79" "vapoursynth-bestsource==21.0"
 Assert-LastExitCode "VapourSynth / BestSource install"
 
-Write-Host "[3/5] Configuring VapourSynth..."
+Write-Host "[3/5] Configuring VapourSynth in FGS private profile..."
+New-Item -ItemType Directory -Force -Path $PrivateAppData | Out-Null
+# APPDATA is scoped to this installer process and its children; the user profile is untouched.
+$env:APPDATA = $PrivateAppData
 if (Test-Path $VSCLI) {
     & $VSCLI config
-    Assert-LastExitCode "vapoursynth config"
 } else {
     & $VenvPython -m vapoursynth config
-    Assert-LastExitCode "vapoursynth config"
+}
+Assert-LastExitCode "private vapoursynth config"
+$PrivateConfig = Join-Path $PrivateAppData 'vapoursynth\vapoursynth.toml'
+if (-not (Test-Path -LiteralPath $PrivateConfig -PathType Leaf)) {
+    throw "Private VapourSynth configuration was not created: $PrivateConfig"
 }
 
 New-Item -ItemType Directory -Force -Path $PluginsDir | Out-Null
@@ -97,8 +110,8 @@ $SVP1 = Join-Path $PluginsDir "svpflow1_vs.dll"
 $SVP2 = Join-Path $PluginsDir "svpflow2_vs.dll"
 
 Write-Host "[4/5] Downloading open-svpflow $OpenSVPTag..."
-Invoke-WebRequest -UseBasicParsing -Uri "$OpenSVPBase/svpflow1_vs.dll" -OutFile $SVP1
-Invoke-WebRequest -UseBasicParsing -Uri "$OpenSVPBase/svpflow2_vs.dll" -OutFile $SVP2
+Invoke-WebRequest @WebProxy -UseBasicParsing -Uri "$OpenSVPBase/svpflow1_vs.dll" -OutFile $SVP1
+Invoke-WebRequest @WebProxy -UseBasicParsing -Uri "$OpenSVPBase/svpflow2_vs.dll" -OutFile $SVP2
 
 if (-not (Test-Path $SVP1)) { throw "svpflow1_vs.dll download failed." }
 if (-not (Test-Path $SVP2)) { throw "svpflow2_vs.dll download failed." }
@@ -124,6 +137,6 @@ Write-Host "VapourSynth : R79"
 Write-Host "BestSource  : 21.0"
 Write-Host "open-svpflow: $OpenSVPTag"
 Write-Host "Plugin dir  : $PluginsDir"
-Write-Host "Config      : %APPDATA%\vapoursynth\vapoursynth.toml"
+Write-Host "Config      : $PrivateConfig"
 Write-Host ""
 Write-Host "Next: restart Film Grain Studio, then enable OpenSVPFlow interpolation."

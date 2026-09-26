@@ -31,6 +31,14 @@ Film Grain Studio 的目标不是只提供一种“加颗粒”方法，而是�
 
 ## 快速开始
 
+### 首次运行与依赖准备
+
+首次启动 .NET 图形界面时会检查已配置的 FFmpeg / ffprobe 与 grav1synth 路径，按需打开“首次运行设置”。FFmpeg 和 ffprobe 是主编码必需工具；grav1synth 用于 AV1 Film Grain。可以指定已有程序，也可以在 FGS 副本中下载：FFmpeg 采用 gyan.dev 的 Full 构建，grav1synth 使用 [Windows 修订版发布包](https://github.com/rampageX/grav1synth/releases/latest) 的完整文件目录。新工具默认安装在 FGS 根目录的 `_Dependencies` 下。发现系统 PATH 中的 FFmpeg 时，由用户决定是否使用。
+
+OpenSVPFlow 是可选的 60 fps 插帧功能，需要 Python 3.12+、VapourSynth 和插件。安装时默认使用 FGS 内的 Python，只有勾选“使用系统 Python”才尝试系统现有安装；插帧的虚拟环境位于 `_OpenSVPFlow\.venv`，VapourSynth 的 Python 路径配置保存在 `_OpenSVPFlow\_UserConfig`。启用插帧但环境缺失时，.NET 界面会提示打开设置。Grain Plate 与 LUT 是自备素材目录，无须在首次运行时安装；“配置”中的两个 `[?]` 分别指向本 README 的 [扫描 Grain Plate](#hevc真实扫描-grain-plate) 和 [LUT Gallery](#lut-gallery-与-film-look) 章节。
+
+下载界面可填写本次安装使用的 HTTP 代理。先在**复制出的完整 FGS 目录**进行真实下载安装测试；`--setup-test=missing` 只模拟首次扫描缺失，使用独立临时配置，可测试指定路径和界面流程，不会在该模式执行安装。常规启动继续使用根目录 `FilmGrain_Config.ini`；已完成设置后仍会快速检查核心工具路径，路径失效会重新提示，耗时硬件能力检测沿用现有缓存。正式 PS1 GUI 和 CLI 继续与 .NET 共用配置和编码后端。
+
 ### GUI 图形界面
 
 双击：
@@ -930,6 +938,7 @@ LUT 根目录：E:\Adobe Portable\LUTs
 
 配置界面中：
 
+- Grain 与 LUT 路径标签旁的 `[?]` 使用系统默认浏览器打开项目 README 的对应说明；
 - FFmpeg / FFprobe 显示版本；
 - grav1synth 显示版本；
 - Grain 根目录统计原始 MOV、原分辨率 Cache 与 1080p Cache；

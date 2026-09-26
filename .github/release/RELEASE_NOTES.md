@@ -1,11 +1,12 @@
-# Film Grain Studio v4.8.10
+# Film Grain Studio v4.8.11
 
-* 正式 ZIP 增加可直接运行的 .NET 图形界面预览版 `dotnet\build\FilmGrain_Studio_NET_Preview.exe`，并附带 C# 源码和本地编译脚本；原 `FilmGrain_Universal_GUI.bat` 仍为正式入口。
-* .NET 界面恢复 AV1 / HEVC / x264 编码、AV1 不重编码更换颗粒、媒体信息及 AV1 颗粒检查、字幕、LUT 图库与色彩纠正、路径和高级设置；继续复用已验证的编码 BAT、辅助工具与统一配置。
+* .NET 界面增加首次运行设置：检查 FFmpeg / ffprobe 和 grav1synth 路径；提供指定位置或下载并安装。FFmpeg 可由用户选择是否使用系统 PATH 中的版本。设置版本与快速路径检查共同决定是否再次提示；耗时硬件能力测试继续使用缓存。
+* 新增 `--setup-test=missing` 启动参数：首次扫描模拟外部依赖缺失，指定路径后可真实验证；使用独立临时配置，不覆盖日常 `FilmGrain_Config.ini`，测试模式不执行真实安装。
+* 可选 OpenSVPFlow 插帧安装采用 `_OpenSVPFlow\.venv`；Python 默认安装在 FGS 的 `_Dependencies` 中，只有用户主动勾选时才尝试系统 Python。插帧环境缺失且用户启用插帧时，.NET 界面提示进入设置。
 
 ### 改进与修复
 
-* .NET 界面为 HEVC + FGSIM 提供 VBR、Standard CQ27 / QP18-26、High Quality CQ23 / QP18-24 三种码率选择；选用 CQ 时禁用不适用的自动码率和高动态控件。
-* 编码启动前检查临时目录和输出目录的写入权限与可用空间；找不到完整程序目录时显示明确的启动位置提示。
-* .NET 保存 `FilmGrain_Config.ini` 时先写同目录临时文件，再替换原文件；配置键继续与正式 GUI 共用。
-* Windows 发布构建从已提交的 .NET 源码编译预览 EXE，并在生成 ZIP 前检查文件存在；dry-run 使用同一构建核心，避免复用本机旧的编译产物。
+* FFmpeg 使用 gyan.dev Full 构建，grav1synth 下载 Windows 修订版的完整运行目录；下载支持本次安装的 HTTP 代理，成功后更新配置中的工具路径。
+* VapourSynth 配置保存在 FGS 内的 `_OpenSVPFlow\_UserConfig`，安装验证、硬件能力检测及插帧编码使用相同私有配置，避免写入用户个人 VapourSynth 配置。
+* .NET 和正式 PS1 的路径配置窗口在 Grain Plate、LUT 标签旁增加 `[?]`，通过系统默认浏览器打开项目 README 相应章节；加宽标签列，修正中文标签换行。
+* Grain Plate 和 LUT 继续作为用户自备素材目录；.NET、正式 PS1 GUI 与 CLI 沿用共享配置及原有编码后端。

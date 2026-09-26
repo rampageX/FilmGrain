@@ -1,7 +1,7 @@
 Film Grain Studio - 使用说明
 ============================
 
-当前正式稳定版：v4.8.10
+当前正式稳定版：v4.8.11
 
 这是 Universal Film Grain Toolkit 的图形前端。
 CLI 与 GUI Bridge 共享同一套编码逻辑，并分别提供交互菜单和图形界面。
@@ -13,6 +13,9 @@ CLI 与 GUI Bridge 共享同一套编码逻辑，并分别提供交互菜单和�
 
 可选 .NET 图形界面预览：dotnet\build\FilmGrain_Studio_NET_Preview.exe
 请保持整个发布包目录结构；.NET 预览版与正式 GUI 共用配置和编码后端。
+首次使用 .NET 界面时会提示设置 FFmpeg / ffprobe 和 grav1synth；
+60 fps OpenSVPFlow 插帧可选。Grain Plate 与 LUT 为自备素材目录，
+在配置窗口的路径标签旁点击 [?] 可查看项目 README 的相关章节。
 
 也可以把一个或多个视频直接拖到 FilmGrain_Universal_GUI.bat，
 Studio 打开后会自动加入文件列表。

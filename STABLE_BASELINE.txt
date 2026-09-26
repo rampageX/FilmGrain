@@ -1,12 +1,12 @@
 Film Grain Studio formal stable baseline
 
 Baseline:
-v4.8.10
+v4.8.11
 Supersedes:
-v4.8.9
+v4.8.10
 
 Formal release:
-FilmGrain_Studio_v4.8.10_Stable.zip
+FilmGrain_Studio_v4.8.11_Stable.zip
 
 Release scope:
 - Ship the .NET GUI Preview executable, its C# source and its Windows build script alongside the existing formal PS1 GUI and CLI entry points.
@@ -14,6 +14,7 @@ Release scope:
 - Build and validate the .NET Preview executable on the Windows Server 2022 runner from committed source.
 - Keep runtime .env, _PluginBackup, Utils\_HardwareCaps.json and the local FilmGrain_Config.ini out of the formal package.
 - Keep tracked release infrastructure out of the formal Stable package.
+- Ship the .NET first-run setup and dependency installer scripts; optional OpenSVPFlow keeps its venv and private VapourSynth profile under _OpenSVPFlow.
 
 Encoding core:
 - Retain the verified AV1, HEVC and x264 encoding paths and Color Correction before LUT processing.
@@ -22,4 +23,4 @@ Encoding core:
 
 Release:
 - Windows Server 2022 runner.
-- GUI status version is v4.8.10.
+- GUI status version is v4.8.11.

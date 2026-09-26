@@ -22,7 +22,8 @@ namespace FilmGrainStudioPreview
             Application.SetCompatibleTextRenderingDefault(false);
             try
             {
-                Application.Run(new MainForm());
+                bool setupTest = Array.Exists(Environment.GetCommandLineArgs(), a => string.Equals(a, "--setup-test=missing", StringComparison.OrdinalIgnoreCase));
+                Application.Run(new MainForm(setupTest));
             }
             catch (AppRootNotFoundException ex)
             {
@@ -78,6 +79,7 @@ namespace FilmGrainStudioPreview
 
         private readonly string appRoot;
         private readonly FgsConfig config;
+        private readonly bool setupTestMode;
         private readonly LanguagePack lang;
         private readonly List<LanguageChoice> languages;
         private readonly Dictionary<string, MediaProbeInfo> mediaProbeCache = new Dictionary<string, MediaProbeInfo>(StringComparer.OrdinalIgnoreCase);
@@ -184,10 +186,12 @@ namespace FilmGrainStudioPreview
         private double colorGamma = 1.0;
         private bool colorBlackWhite;
 
-        public MainForm()
+        public MainForm(bool setupTest)
         {
             appRoot = FindAppRoot(AppDomain.CurrentDomain.BaseDirectory);
-            config = new FgsConfig(appRoot);
+            setupTestMode = setupTest;
+            string testConfig = setupTest ? Path.Combine(Path.GetTempPath(), "FGS_Setup_Test_" + Process.GetCurrentProcess().Id.ToString(CultureInfo.InvariantCulture) + ".ini") : null;
+            config = new FgsConfig(appRoot, testConfig);
             lang = new LanguagePack(appRoot);
             languages = lang.GetChoices();
             colorCorrectionEnabled = config.GetBool("COLOR_CORRECTION_ENABLED");
@@ -197,6 +201,7 @@ namespace FilmGrainStudioPreview
             colorGamma = config.GetDouble("COLOR_GAMMA", 1.0);
             colorBlackWhite = config.GetBool("COLOR_BLACK_WHITE");
             BuildUi();
+            if (setupTest) Text = "[设置测试模式] " + Text;
             UpdateSpeedChoices();
             bridgeTaskCoordinator = new BridgeTaskCoordinator();
             bridgeTaskCoordinator.StateChanged += OnBridgeTaskStateChanged;
@@ -215,6 +220,7 @@ namespace FilmGrainStudioPreview
             UpdateStatusCount();
             UpdateMediaDrivenUi(null);
             BeginHardwareDetection();
+            Shown += delegate { SetupPhase1.ShowIfNeeded(this, appRoot, config, setupTest); };
             FormClosed += delegate
             {
                 if (mediaProbeCore != null)
@@ -524,7 +530,20 @@ namespace FilmGrainStudioPreview
             FlowLayoutPanel interp = new FlowLayoutPanel(); interp.Dock = DockStyle.Fill; interp.WrapContents = false; interp.Margin = Padding.Empty;
             chkInterpolation = Check(lang.T("encode.enable"), false); chkInterpolation.Dock = DockStyle.None;
             cmbInterpolationMode = Combo(new string[] { lang.T("interp.smooth"), lang.T("interp.adaptive") }, 0); cmbInterpolationMode.Width = 150; cmbInterpolationMode.Enabled = false;
-            chkInterpolation.CheckedChanged += delegate { cmbInterpolationMode.Enabled = chkInterpolation.Checked; UpdateMediaDrivenUi(GetSelectedMediaInfo()); UpdateBitrateDisplays(); };
+            chkInterpolation.CheckedChanged += delegate {
+                if (chkInterpolation.Checked && (setupTestMode || !File.Exists(Path.Combine(appRoot, "_OpenSVPFlow", ".venv", "Scripts", "vspipe.exe"))))
+                {
+                    chkInterpolation.Checked = false;
+                    if (MessageBox.Show(this,
+                        UiText("OpenSVPFlow 插帧运行环境缺失。现在打开首次运行设置安装吗？", "OpenSVPFlow is not installed. Open setup now?"),
+                        Text, MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes)
+                        SetupPhase1.ShowForInterpolation(this, appRoot, config, setupTestMode);
+                    return;
+                }
+                cmbInterpolationMode.Enabled = chkInterpolation.Checked;
+                UpdateMediaDrivenUi(GetSelectedMediaInfo());
+                UpdateBitrateDisplays();
+            };
             interp.Controls.Add(chkInterpolation); interp.Controls.Add(cmbInterpolationMode);
 
             cmbDeint = Combo(new string[] { lang.T("deint.auto"), lang.T("deint.off") }, 0);
@@ -1046,7 +1065,7 @@ namespace FilmGrainStudioPreview
         {
             StatusStrip strip = new StatusStrip(); strip.Dock = DockStyle.Fill; strip.SizingGrip = false; strip.BackColor = ColorSubtle; strip.Padding = new Padding(8, 1, 8, 1);
             statusHardware = new ToolStripStatusLabel(); statusHardware.AutoSize = false; statusHardware.Width = 1; statusHardware.Spring = true; statusHardware.TextAlign = ContentAlignment.MiddleLeft; statusHardware.ForeColor = ColorMuted; statusHardware.Text = lang.T("hardware.detecting");
-            ToolStripStatusLabel version = new ToolStripStatusLabel(); version.Spring = false; version.TextAlign = ContentAlignment.MiddleRight; version.ForeColor = ColorMuted; version.Text = ".NET Preview P35_Z5K2HM"; version.Margin = new Padding(12, 0, 0, 0);
+            ToolStripStatusLabel version = new ToolStripStatusLabel(); version.Spring = false; version.TextAlign = ContentAlignment.MiddleRight; version.ForeColor = ColorMuted; version.Text = "v4.8.11 .NET Preview"; version.Margin = new Padding(12, 0, 0, 0);
             strip.Items.Add(statusHardware); strip.Items.Add(version); return strip;
         }
 

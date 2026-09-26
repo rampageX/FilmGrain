@@ -226,12 +226,18 @@ if errorlevel 1 (
 )
 
 echo [3/6] 正在暂存本次 FGS 源码与发布文档...
-git add -A -- "images" "Lang" "Utils" "_AV1_Grain_Tables" "_LUT_Tools" "_OpenSVPFlow" ".gitattributes" ".gitignore" "CHANGELOG.md" "FilmGrain_Config.default.ini" "FilmGrain_Universal_CLI.bat" "FilmGrain_Universal_GUI.bat" "LICENSE" "README.md" "README_FilmGrain_Studio.txt" "README_Toolkit.txt" "release.bat" "STABLE_BASELINE.txt" ".github/release/version.txt" ".github/release/RELEASE_NOTES.md" ".github/release/build_release.ps1" ".github/release/release_core.bat" ".github/workflows/release.yml" "dotnet/*.cs" "dotnet/build_NET_Preview.bat"
+git add -A -- "images" "Lang" "Utils" "_AV1_Grain_Tables" "_LUT_Tools" "_OpenSVPFlow" ".gitattributes" ".gitignore" "CHANGELOG.md" "FilmGrain_Config.default.ini" "FilmGrain_Universal_CLI.bat" "FilmGrain_Universal_GUI.bat" "LICENSE" "README.md" "README_FilmGrain_Studio.txt" "README_Toolkit.txt" "release.bat" "STABLE_BASELINE.txt" ".github/release/version.txt" ".github/release/RELEASE_NOTES.md" ".github/release/build_release.ps1" ".github/release/release_core.bat" ".github/workflows/release.yml" "dotnet/*.cs" "dotnet/build_NET_Preview.bat" "dotnet/Setup_Dependencies.ps1"
 if errorlevel 1 (
     echo [错误] Git 暂存正式发布文件失败。
     goto :FAIL
 )
 set "INDEX_TOUCHED=1"
+
+git ls-files --error-unmatch -- "dotnet/FilmGrain_SetupPhase1.cs" "dotnet/Setup_Dependencies.ps1" >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] Required setup source was not staged; release stopped.
+    goto :FAIL
+)
 
 rem Runtime and user-state files must never enter a source commit.
 git reset -q HEAD -- "FilmGrain_Config.ini" "Utils/_HardwareCaps.json" "_LUT_Tools/LUT_Reference_Current.jpg" "_OpenSVPFlow/_PluginBackup" >nul 2>&1
