@@ -1,4 +1,4 @@
-﻿@echo off
+@echo off
 setlocal EnableExtensions DisableDelayedExpansion
 
 set "SCRIPT_DIR=%~dp0"
