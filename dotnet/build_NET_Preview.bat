@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 setlocal EnableExtensions DisableDelayedExpansion
 
 set "SCRIPT_DIR=%~dp0"
@@ -10,6 +10,11 @@ set "HWCORE=%SCRIPT_DIR%FilmGrain_HardwareCapabilityCore.cs"
 set "STATECORE=%SCRIPT_DIR%FilmGrain_BridgeStateCapture.cs"
 set "TASKCORE=%SCRIPT_DIR%FilmGrain_BridgeTaskCoordinator.cs"
 set "REQUESTCORE=%SCRIPT_DIR%FilmGrain_BridgeRequestPreparationCore.cs"
+set "NATIVEX264=%SCRIPT_DIR%FilmGrain_NativeX264DigitalGrainCore.cs"
+set "NATIVEHEVC=%SCRIPT_DIR%FilmGrain_NativeHevcCore.cs"
+set "NATIVEAV1=%SCRIPT_DIR%FilmGrain_NativeAv1Core.cs"
+set "NATIVEAV1COPY=%SCRIPT_DIR%FilmGrain_NativeAv1GrainReplaceCore.cs"
+set "NATIVESUB=%SCRIPT_DIR%FilmGrain_NativeSubtitlePrepareCore.cs"
 set "MEDIACORE=%SCRIPT_DIR%FilmGrain_MediaProbeCore.cs"
 set "MEDIASUMMARY=%SCRIPT_DIR%FilmGrain_MediaSummaryCore.cs"
 set "WORKSPACECORE=%SCRIPT_DIR%FilmGrain_WorkspacePreflightCore.cs"
@@ -18,6 +23,7 @@ set "SUBCORE=%SCRIPT_DIR%FilmGrain_SubtitleCore.cs"
 set "SUBDIALOG=%SCRIPT_DIR%FilmGrain_SubtitleDialog.cs"
 set "CONFIGUTILITY=%SCRIPT_DIR%FilmGrain_ConfigUtility.cs"
 set "BITRATECORE=%SCRIPT_DIR%FilmGrain_BitrateRecommendationCore.cs"
+set "INTERPOLATIONCORE=%SCRIPT_DIR%FilmGrain_InterpolationFrameRateCore.cs"
 set "TABLECORE=%SCRIPT_DIR%FilmGrain_Av1GrainTableSelectionCore.cs"
 set "CATALOGCORE=%SCRIPT_DIR%FilmGrain_GrainFileCatalogCore.cs"
 set "LUTCATALOG=%SCRIPT_DIR%FilmGrain_LutCatalogCore.cs"
@@ -25,6 +31,8 @@ set "COLORFORM=%SCRIPT_DIR%FilmGrain_NativeColorCorrectionForm.cs"
 set "LANGCORE=%SCRIPT_DIR%FilmGrain_LanguagePack.cs"
 set "CONFIGCORE=%SCRIPT_DIR%FilmGrain_ConfigCore.cs"
 set "SETTINGSDIALOGS=%SCRIPT_DIR%FilmGrain_SettingsDialogs.cs"
+set "NETWORKPROXY=%SCRIPT_DIR%FilmGrain_NetworkProxyCore.cs"
+set "FGSIMTEXTURE=%SCRIPT_DIR%FilmGrain_FgsimTextureCore.cs"
 set "OUT_DIR=%SCRIPT_DIR%build"
 set "OUT_EXE=%OUT_DIR%\FilmGrain_Studio_NET_Preview.exe"
 set "ICON=%ROOT_DIR%\Utils\FGS.ico"
@@ -47,6 +55,11 @@ if not exist "%HWCORE%" goto :missing_hwcore
 if not exist "%STATECORE%" goto :missing_statecore
 if not exist "%TASKCORE%" goto :missing_taskcore
 if not exist "%REQUESTCORE%" goto :missing_requestcore
+if not exist "%NATIVEX264%" exit /b 1
+if not exist "%NATIVEHEVC%" exit /b 1
+if not exist "%NATIVEAV1%" exit /b 1
+if not exist "%NATIVEAV1COPY%" exit /b 1
+if not exist "%NATIVESUB%" exit /b 1
 if not exist "%MEDIACORE%" goto :missing_mediacore
 if not exist "%MEDIASUMMARY%" exit /b 1
 if not exist "%WORKSPACECORE%" exit /b 1
@@ -55,6 +68,7 @@ if not exist "%SUBCORE%" exit /b 1
 if not exist "%SUBDIALOG%" exit /b 1
 if not exist "%CONFIGUTILITY%" exit /b 1
 if not exist "%BITRATECORE%" exit /b 1
+if not exist "%INTERPOLATIONCORE%" exit /b 1
 if not exist "%TABLECORE%" exit /b 1
 if not exist "%CATALOGCORE%" exit /b 1
 if not exist "%LUTCATALOG%" exit /b 1
@@ -62,6 +76,8 @@ if not exist "%COLORFORM%" exit /b 1
 if not exist "%LANGCORE%" exit /b 1
 if not exist "%CONFIGCORE%" exit /b 1
 if not exist "%SETTINGSDIALOGS%" exit /b 1
+if not exist "%NETWORKPROXY%" exit /b 1
+if not exist "%FGSIMTEXTURE%" exit /b 1
 if not exist "%~dp0FilmGrain_SetupPhase1.cs" exit /b 1
 if not exist "%OUT_DIR%" mkdir "%OUT_DIR%"
 if errorlevel 1 goto :mkdir_failed
@@ -79,6 +95,7 @@ echo Task    : "%TASKCORE%"
 echo Request : "%REQUESTCORE%"
 echo Media   : "%MEDIACORE%"
 echo AV1 Ins : "%AV1INSPECTCORE%"
+echo Proxy   : "%NETWORKPROXY%"
 echo Output  : "%OUT_EXE%"
 echo.
 
@@ -86,11 +103,11 @@ if exist "%ICON%" goto :build_with_icon
 goto :build_without_icon
 
 :build_with_icon
-"%CSC%" /nologo /target:winexe /platform:anycpu /optimize+ /utf8output /out:"%OUT_EXE%" /win32icon:"%ICON%" /reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Web.Extensions.dll "%SRC%" "%CORE%" "%ENVCORE%" "%HWCORE%" "%STATECORE%" "%TASKCORE%" "%REQUESTCORE%" "%MEDIACORE%" "%MEDIASUMMARY%" "%WORKSPACECORE%" "%AV1INSPECTCORE%" "%SUBCORE%" "%SUBDIALOG%" "%CONFIGUTILITY%" "%BITRATECORE%" "%TABLECORE%" "%CATALOGCORE%" "%LUTCATALOG%" "%COLORFORM%" "%LANGCORE%" "%CONFIGCORE%" "%SETTINGSDIALOGS%" "%~dp0FilmGrain_SetupPhase1.cs"
+"%CSC%" /nologo /target:winexe /platform:anycpu /optimize+ /utf8output /out:"%OUT_EXE%" /win32icon:"%ICON%" /reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Web.Extensions.dll "%SRC%" "%CORE%" "%ENVCORE%" "%HWCORE%" "%STATECORE%" "%TASKCORE%" "%REQUESTCORE%" "%NATIVEX264%" "%NATIVEHEVC%" "%NATIVEAV1%" "%NATIVEAV1COPY%" "%NATIVESUB%" "%MEDIACORE%" "%MEDIASUMMARY%" "%WORKSPACECORE%" "%AV1INSPECTCORE%" "%SUBCORE%" "%SUBDIALOG%" "%CONFIGUTILITY%" "%BITRATECORE%" "%INTERPOLATIONCORE%" "%TABLECORE%" "%CATALOGCORE%" "%LUTCATALOG%" "%COLORFORM%" "%LANGCORE%" "%CONFIGCORE%" "%SETTINGSDIALOGS%" "%NETWORKPROXY%" "%FGSIMTEXTURE%" "%~dp0FilmGrain_SetupPhase1.cs"
 goto :build_done
 
 :build_without_icon
-"%CSC%" /nologo /target:winexe /platform:anycpu /optimize+ /utf8output /out:"%OUT_EXE%" /reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Web.Extensions.dll "%SRC%" "%CORE%" "%ENVCORE%" "%HWCORE%" "%STATECORE%" "%TASKCORE%" "%REQUESTCORE%" "%MEDIACORE%" "%MEDIASUMMARY%" "%WORKSPACECORE%" "%AV1INSPECTCORE%" "%SUBCORE%" "%SUBDIALOG%" "%CONFIGUTILITY%" "%BITRATECORE%" "%TABLECORE%" "%CATALOGCORE%" "%LUTCATALOG%" "%COLORFORM%" "%LANGCORE%" "%CONFIGCORE%" "%SETTINGSDIALOGS%" "%~dp0FilmGrain_SetupPhase1.cs"
+"%CSC%" /nologo /target:winexe /platform:anycpu /optimize+ /utf8output /out:"%OUT_EXE%" /reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Web.Extensions.dll "%SRC%" "%CORE%" "%ENVCORE%" "%HWCORE%" "%STATECORE%" "%TASKCORE%" "%REQUESTCORE%" "%NATIVEX264%" "%NATIVEHEVC%" "%NATIVEAV1%" "%NATIVEAV1COPY%" "%NATIVESUB%" "%MEDIACORE%" "%MEDIASUMMARY%" "%WORKSPACECORE%" "%AV1INSPECTCORE%" "%SUBCORE%" "%SUBDIALOG%" "%CONFIGUTILITY%" "%BITRATECORE%" "%INTERPOLATIONCORE%" "%TABLECORE%" "%CATALOGCORE%" "%LUTCATALOG%" "%COLORFORM%" "%LANGCORE%" "%CONFIGCORE%" "%SETTINGSDIALOGS%" "%NETWORKPROXY%" "%FGSIMTEXTURE%" "%~dp0FilmGrain_SetupPhase1.cs"
 
 :build_done
 if errorlevel 1 goto :compile_failed

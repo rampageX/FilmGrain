@@ -21,9 +21,8 @@ namespace FilmGrainStudioPreview
             return double.TryParse(info.AvgFrameRate, NumberStyles.Float, CultureInfo.InvariantCulture, out fps) ? fps : 0.0;
         }
 
-        internal static double GetRecommendedOutputFps(MediaProbeInfo info, bool interpolate, bool deinterlaceAuto, bool keepSourceFps)
+        internal static double GetRecommendedOutputFps(MediaProbeInfo info, bool deinterlaceAuto, bool keepSourceFps)
         {
-            if (interpolate) return 60.0;
             double sourceFps = ParseMediaFps(info);
             if (sourceFps <= 0.0) return 60.0;
             if (deinterlaceAuto && info != null && info.IsInterlaced) return sourceFps * 2.0;

@@ -13,6 +13,7 @@ namespace FilmGrainStudioPreview
     {
         public BridgeExecutionRequest ExecutionRequest { get; set; }
         public bool NoReencode { get; set; }
+        public bool NativeBackend { get; set; }
         public double RecommendedOutputFps { get; set; }
     }
 

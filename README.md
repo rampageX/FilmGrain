@@ -37,7 +37,7 @@ Film Grain Studio 的目标不是只提供一种“加颗粒”方法，而是�
 
 OpenSVPFlow 是可选的 60 fps 插帧功能，需要 Python 3.12+、VapourSynth 和插件。安装时默认使用 FGS 内的 Python，只有勾选“使用系统 Python”才尝试系统现有安装；插帧的虚拟环境位于 `_OpenSVPFlow\.venv`，VapourSynth 的 Python 路径配置保存在 `_OpenSVPFlow\_UserConfig`。启用插帧但环境缺失时，.NET 界面会提示打开设置。Grain Plate 与 LUT 是自备素材目录，无须在首次运行时安装；“配置”中的两个 `[?]` 分别指向本 README 的 [扫描 Grain Plate](#hevc真实扫描-grain-plate) 和 [LUT Gallery](#lut-gallery-与-film-look) 章节。
 
-下载界面可填写本次安装使用的 HTTP 代理。先在**复制出的完整 FGS 目录**进行真实下载安装测试；`--setup-test=missing` 只模拟首次扫描缺失，使用独立临时配置，可测试指定路径和界面流程，不会在该模式执行安装。常规启动继续使用根目录 `FilmGrain_Config.ini`；已完成设置后仍会快速检查核心工具路径，路径失效会重新提示，耗时硬件能力检测沿用现有缓存。正式 PS1 GUI 和 CLI 继续与 .NET 共用配置和编码后端。
+下载界面可填写本次安装使用的 HTTP 代理。先在**复制出的完整 FGS 目录**进行真实下载安装测试；`--setup-test=missing` 只模拟首次扫描缺失，使用独立临时配置，可测试指定路径和界面流程，不会在该模式执行安装。常规启动继续使用根目录 `FilmGrain_Config.ini`；已完成设置后仍会快速检查核心工具路径，路径失效会重新提示，耗时硬件能力检测沿用现有缓存。正式 PS1 GUI 和 CLI 与 .NET 共用配置；前两者沿用 Legacy Bridge，.NET Preview 则按 Native 支持范围选择执行路线。
 
 ### GUI 图形界面
 
@@ -64,7 +64,11 @@ GUI 输出默认保存在源视频所在目录，也可以在右上角“配置�
 
 完整发布包另附可直接运行的 `dotnet\build\FilmGrain_Studio_NET_Preview.exe`。保持整个发布包目录结构，双击 EXE 即可使用 .NET 图形界面；根目录的 `FilmGrain_Universal_GUI.bat` 仍是正式 GUI 入口。
 
-.NET 界面使用原生 Windows 窗口实现媒体信息、LUT / 色彩纠正预览、字幕与设置；与正式 GUI 共享根目录的 `FilmGrain_Config.ini`、语言文件、编码 Bridge BAT、AV1 不重编码 BAT 和相关辅助工具。它不会调用 `Utils\FilmGrain_Studio.ps1` 作为主界面。仅复制 EXE 到其他目录无法找到完整程序资源。
+.NET 界面使用原生 Windows 窗口实现媒体信息、LUT / 色彩纠正预览、字幕与设置。它与正式 GUI 共用根目录的 `FilmGrain_Config.ini`、语言文件和相关辅助工具；仅复制 EXE 到其他目录无法找到完整程序资源。
+
+.NET Preview 为 AV1、HEVC 与 x264 提供 Native 单文件编码路线。程序仅在当前路线覆盖的组合中使用 Native；未覆盖的组合继续由 Legacy Bridge 执行。AV1 Native 已覆盖的功能包括三种颗粒路径、色彩校正 / LUT / Cinematic / 硬字幕、高动态与受硬件能力门控的 SFE、自动反交错与 Field-rate、已覆盖的 HDR Preserve / HDR→SDR 组合，以及 SDR H.264 上传副本。AV1 不重编码添加 / 替换颗粒仍是独立的 stream-copy 工作流。
+
+Native 支持范围按编码器和具体组合判断，不能据此推断所有选项都可任意叠加。多文件队列、共享预处理、Bridge 阶段状态和 FRUC Vulkan 音画同步共享执行链路继续使用既有路径。根目录 `FilmGrain_Universal_GUI.bat` 与 CLI 仍是正式入口，并沿用 Legacy Bridge 编码路线。
 
 发布包同时保留 `dotnet\` 下的 C# 源码与 `build_NET_Preview.bat`，可在带有 .NET Framework C# 编译器的 Windows 系统重新构建预览 EXE。
 
@@ -1222,6 +1226,6 @@ ffmpeg -hide_banner -h decoder=libdav1d
 
 - `Nature_AV1_UHQ_6000k_24p_GS_Classic35.mp4`
 - `Nature_X264_SLOW_3PASS_18000k_24p_FG_DG68.mp4`
-- `Nature_HEVC_FAST_12000k_24p_FG_CT35_V20.mp4`
+- `Nature_HEVC_FAST_12000k_24p_FG_CT35_STR85.mp4`
 
 AV1 无重编码替换兼容旧版与当前名称，只更新颗粒部分，并保留单个 `_REPLACED` / `_ADDED`。上传副本以实际 X264 参数开头，末尾标识来源。旧顺序文件不会自动改名；新任务按当前名称判断是否已存在。

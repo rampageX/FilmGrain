@@ -271,6 +271,12 @@ namespace FilmGrainStudioPreview
 
             DisposeProcess(process);
             if (!IsCurrent(serial)) return;
+            if (info != null && info.HasVideo && NeedsFrameFieldOrder(info.FieldOrder))
+            {
+                string frameOrder = ProbeFrameFieldOrder(path, ffprobePath, serial);
+                if (!IsCurrent(serial)) return;
+                if (!string.IsNullOrEmpty(frameOrder)) info.FieldOrder = frameOrder;
+            }
 
             MediaProbeResult result = new MediaProbeResult();
             result.PathValue = path;
@@ -285,6 +291,55 @@ namespace FilmGrainStudioPreview
             {
                 try { handler(result); } catch { }
             }
+        }
+
+        private static bool NeedsFrameFieldOrder(string value)
+        {
+            return string.IsNullOrWhiteSpace(value) || string.Equals(value, "unknown", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private string ProbeFrameFieldOrder(string path, string ffprobePath, int serial)
+        {
+            Process process = null;
+            try
+            {
+                ProcessStartInfo psi = new ProcessStartInfo();
+                psi.FileName = ffprobePath;
+                psi.UseShellExecute = false;
+                psi.CreateNoWindow = true;
+                psi.RedirectStandardOutput = true;
+                psi.RedirectStandardError = true;
+                psi.Arguments = "-v error -select_streams v:0 -read_intervals \"%+#16\" -show_frames -show_entries frame=interlaced_frame,top_field_first -of csv=p=0 " + QuoteArgument(path);
+                process = new Process();
+                process.StartInfo = psi;
+                lock (sync)
+                {
+                    if (disposed || serial != requestSerial) return "";
+                    currentProcess = process;
+                }
+                if (!process.Start()) return "";
+                string frames = process.StandardOutput.ReadToEnd();
+                process.StandardError.ReadToEnd();
+                process.WaitForExit();
+                if (process.ExitCode != 0) return "";
+                int total = 0, interlaced = 0, topFirst = 0;
+                foreach (string raw in frames.Split(new char[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    string[] flags = raw.Trim().Split(',');
+                    if (flags.Length < 2 || (flags[0] != "0" && flags[0] != "1") || (flags[1] != "0" && flags[1] != "1")) continue;
+                    total++;
+                    if (flags[0] == "1") { interlaced++; if (flags[1] == "1") topFirst++; }
+                }
+                if (total >= 3 && interlaced * 4 >= total * 3)
+                    return topFirst * 2 >= interlaced ? "tt" : "bb";
+            }
+            catch { }
+            finally
+            {
+                lock (sync) { if (object.ReferenceEquals(currentProcess, process)) currentProcess = null; }
+                DisposeProcess(process);
+            }
+            return "";
         }
 
         private bool IsCurrent(int serial)

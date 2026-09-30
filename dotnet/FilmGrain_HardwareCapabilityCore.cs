@@ -27,11 +27,30 @@ namespace FilmGrainStudioPreview
         public string DriverVersion { get; set; }
         public bool Av1Available { get; set; }
         public bool Av1UhqAvailable { get; set; }
+        public bool Av1BFrames { get; set; }
+        public bool Av1BReference { get; set; }
+        public bool Av1SpatialAq { get; set; }
+        public bool Av1TemporalAq { get; set; }
+        public bool Av1Lookahead { get; set; }
+        public bool Av1AdaptiveB { get; set; }
+        public bool Av1SceneCut { get; set; }
+        public bool Av1MultipassQres { get; set; }
+        public bool Av1MultipassFullres { get; set; }
         public int Av1SplitEncodeMaxEngines { get; set; }
         public bool Grav1synthSfeCompatible { get; set; }
         public string Grav1synthVersion { get; set; }
         public bool HevcAvailable { get; set; }
+        public bool HevcBFrames { get; set; }
+        public bool HevcBReference { get; set; }
+        public bool HevcSpatialAq { get; set; }
+        public bool HevcTemporalAq { get; set; }
+        public bool HevcLookahead { get; set; }
+        public bool HevcAdaptiveB { get; set; }
+        public bool HevcSceneCut { get; set; }
+        public bool HevcMultipassQres { get; set; }
+        public bool HevcMultipassFullres { get; set; }
         public bool X264Available { get; set; }
+        public bool X264BStrategy2 { get; set; }
         public bool X264High10Available { get; set; }
         public bool OpenSvpGpuAvailable { get; set; }
     }
@@ -203,6 +222,7 @@ namespace FilmGrainStudioPreview
             Dictionary<string, object> grav = Child(root, "grav1synth");
             Dictionary<string, object> caps = Child(root, "caps");
             Dictionary<string, object> av1 = Child(caps, "av1");
+            Dictionary<string, object> hevc = Child(caps, "hevc");
             Dictionary<string, object> x264 = Child(caps, "x264");
             Dictionary<string, object> svp = Child(caps, "openSvp");
 
@@ -213,11 +233,30 @@ namespace FilmGrainStudioPreview
             result.DriverVersion = GetString(gpu, "driverVersion");
             result.Av1Available = GetBool(av1, "available");
             result.Av1UhqAvailable = GetBool(av1, "uhq");
+            result.Av1BFrames = GetBool(av1, "bFrames");
+            result.Av1BReference = GetBool(av1, "bReference");
+            result.Av1SpatialAq = GetBool(av1, "spatialAQ");
+            result.Av1TemporalAq = GetBool(av1, "temporalAQ");
+            result.Av1Lookahead = GetBool(av1, "lookahead");
+            result.Av1AdaptiveB = GetBool(av1, "adaptiveB");
+            result.Av1SceneCut = GetBool(av1, "sceneCut");
+            result.Av1MultipassQres = GetBool(av1, "multipassQres");
+            result.Av1MultipassFullres = GetBool(av1, "multipassFullres");
             result.Av1SplitEncodeMaxEngines = Math.Max(1, GetInt(av1, "splitEncodeMaxEngines", 1));
             result.Grav1synthSfeCompatible = GetBool(grav, "sfeCompatible");
             result.Grav1synthVersion = GetString(grav, "version");
             result.HevcAvailable = GetBool(caps, "hevcPipeline");
+            result.HevcBFrames = GetBool(hevc, "bFrames");
+            result.HevcBReference = GetBool(hevc, "bReference");
+            result.HevcSpatialAq = GetBool(hevc, "spatialAQ");
+            result.HevcTemporalAq = GetBool(hevc, "temporalAQ");
+            result.HevcLookahead = GetBool(hevc, "lookahead");
+            result.HevcAdaptiveB = GetBool(hevc, "adaptiveB");
+            result.HevcSceneCut = GetBool(hevc, "sceneCut");
+            result.HevcMultipassQres = GetBool(hevc, "multipassQres");
+            result.HevcMultipassFullres = GetBool(hevc, "multipassFullres");
             result.X264Available = GetBool(caps, "x264Pipeline");
+            result.X264BStrategy2 = GetBool(x264, "bStrategy2");
             result.X264High10Available = GetBool(x264, "high10");
             result.OpenSvpGpuAvailable = GetBool(svp, "gpu");
             return result;
@@ -266,11 +305,23 @@ namespace FilmGrainStudioPreview
         private static string ParseFfmpegVersion(string line)
         {
             if (string.IsNullOrWhiteSpace(line)) return "";
-            Match numeric = Regex.Match(line, @"^ffmpeg version\s+([0-9]+(?:\.[0-9]+){1,3})", RegexOptions.IgnoreCase);
-            if (numeric.Success) return numeric.Groups[1].Value;
             Match token = Regex.Match(line, @"^ffmpeg version\s+([^\s]+)", RegexOptions.IgnoreCase);
-            if (token.Success) return token.Groups[1].Value;
+            if (token.Success) return ShortFfmpegVersionToken(token.Groups[1].Value);
             return FirstToken(line);
+        }
+
+        internal static string ShortFfmpegVersionToken(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return "";
+            Match git = Regex.Match(value, @"^(\d{4}-\d{2}-\d{2}-git)(?:-|$)", RegexOptions.IgnoreCase);
+            return git.Success ? git.Groups[1].Value : value;
+        }
+
+        internal static string ShortFfmpegVersionLine(string line)
+        {
+            if (string.IsNullOrWhiteSpace(line)) return line;
+            Match match = Regex.Match(line, @"^(ff(?:mpeg|probe) version\s+)([^\s]+)", RegexOptions.IgnoreCase);
+            return match.Success ? match.Groups[1].Value + ShortFfmpegVersionToken(match.Groups[2].Value) : line.Trim();
         }
 
         private static string FirstToken(string value)

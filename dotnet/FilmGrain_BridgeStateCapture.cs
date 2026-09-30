@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Windows.Forms;
 
 namespace FilmGrainStudioPreview
 {
@@ -93,10 +94,38 @@ namespace FilmGrainStudioPreview
             snapshot.HighMotion = chkHighMotion != null && chkHighMotion.Checked;
             snapshot.FpsMode = cmbFps != null && cmbFps.SelectedIndex == 1 ? "SOURCE" : "AUTO";
             snapshot.SvpInterpolate = chkInterpolation != null && chkInterpolation.Checked;
+            snapshot.InterpolationEngine = cmbInterpolationMode != null && cmbInterpolationMode.SelectedIndex == 2 ? "FRUC" : "SVP";
+            snapshot.FrucUseMainFfmpeg = config.FrucUsesMainFfmpeg();
+            snapshot.FrucFfmpegPath = snapshot.FrucUseMainFfmpeg ? "" : config.Get("FRUC_FFMPEG_PATH");
             snapshot.SvpAlgo = config.Get("SVP_ALGO");
             snapshot.SvpAnalyse = config.Get("SVP_ANALYSE");
             snapshot.SvpSceneMode = cmbInterpolationMode != null && cmbInterpolationMode.SelectedIndex == 1 ? "3" : "0";
             snapshot.SvpMaskArea = config.Get("SVP_MASK_AREA");
+            snapshot.InterpolationTargetFps = cmbInterpolationFps == null ? config.Get("INTERPOLATION_TARGET_FPS") : cmbInterpolationFps.Text.Trim();
+            snapshot.FrucPerf = config.Get("FRUC_PERF");
+            snapshot.FrucGrid = config.Get("FRUC_GRID");
+            if (snapshot.SvpInterpolate)
+            {
+                if (listFiles != null)
+                {
+                    foreach (ListViewItem item in listFiles.Items)
+                    {
+                        string sourcePath = item.Tag as string;
+                        MediaProbeInfo sourceInfo;
+                        if (string.IsNullOrEmpty(sourcePath) || !mediaProbeCache.TryGetValue(sourcePath, out sourceInfo))
+                        { error = UiText("无法读取源视频帧率，不能解析插帧目标帧率。", "Cannot read source frame rate to resolve interpolation target."); return null; }
+                        InterpolationFrameRate parsedRate; string rateError;
+                        if (!InterpolationFrameRateCore.TryParse(snapshot.InterpolationTargetFps, sourceInfo.AvgFrameRate, out parsedRate, out rateError))
+                        { error = UiText("插帧目标帧率无效：", "Invalid interpolation target frame rate: ") + rateError; return null; }
+                    }
+                }
+                else
+                {
+                    InterpolationFrameRate parsedRate; string rateError;
+                    if (!InterpolationFrameRateCore.TryParse(snapshot.InterpolationTargetFps, "60", out parsedRate, out rateError))
+                    { error = UiText("插帧目标帧率无效：", "Invalid interpolation target frame rate: ") + rateError; return null; }
+                }
+            }
             snapshot.Deinterlace = cmbDeint != null && cmbDeint.SelectedIndex == 1 ? "OFF" : "AUTO";
             snapshot.DeintMethod = deintMethods[deintIndex];
             snapshot.CinematicFrame = chkCinematic != null && chkCinematic.Checked;

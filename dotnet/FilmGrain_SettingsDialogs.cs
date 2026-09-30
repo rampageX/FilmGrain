@@ -15,6 +15,65 @@ namespace FilmGrainStudioPreview
 {
     internal sealed partial class MainForm
     {
+        private void ShowNetworkProxyDialog()
+        {
+            config.Load();
+            using (Form dlg = new Form())
+            {
+                dlg.Text = UiText("网络代理设置", "Network proxy settings");
+                dlg.StartPosition = FormStartPosition.CenterParent;
+                dlg.FormBorderStyle = FormBorderStyle.FixedDialog;
+                dlg.MaximizeBox = false; dlg.MinimizeBox = false; dlg.ShowInTaskbar = false;
+                dlg.ClientSize = new Size(540, 245); dlg.Font = UiFont(9f, FontStyle.Regular);
+                Label modeLabel = new Label { Text = UiText("代理方式", "Proxy mode"), Left = 22, Top = 22, Width = 110, Height = 26, TextAlign = ContentAlignment.MiddleLeft };
+                ComboBox mode = new ComboBox { Left = 140, Top = 20, Width = 370, DropDownStyle = ComboBoxStyle.DropDownList };
+                mode.Items.Add(new ProxyModeItem("SYSTEM", UiText("系统代理 / 环境变量", "System proxy / environment")));
+                mode.Items.Add(new ProxyModeItem("CUSTOM", UiText("自定义 HTTP(S) 代理", "Custom HTTP(S) proxy")));
+                mode.Items.Add(new ProxyModeItem("DIRECT", UiText("直连", "Direct connection")));
+                string savedMode = config.Get("NETWORK_PROXY_MODE").ToUpperInvariant();
+                int selected = savedMode == "CUSTOM" ? 1 : (savedMode == "DIRECT" ? 2 : 0); mode.SelectedIndex = selected;
+                Label urlLabel = new Label { Text = UiText("代理地址", "Proxy URL"), Left = 22, Top = 66, Width = 110, Height = 26, TextAlign = ContentAlignment.MiddleLeft };
+                TextBox url = new TextBox { Left = 140, Top = 64, Width = 370, Text = config.Get("NETWORK_PROXY_URL") };
+                Label help = new Label { Left = 140, Top = 96, Width = 370, Height = 48, ForeColor = ColorMuted, Text = UiText("例如 http://127.0.0.1:7890。设置会用于 FGS 下载、安装向导及其子进程。", "Example: http://127.0.0.1:7890. Applies to FGS downloads, setup, and child processes.") };
+                Label status = new Label { Left = 140, Top = 144, Width = 370, Height = 24, ForeColor = ColorMuted, Text = "" };
+                Button test = new Button { Left = 140, Top = 179, Width = 112, Height = 30, Text = UiText("测试代理", "Test proxy") };
+                Button save = new Button { Left = 310, Top = 179, Width = 92, Height = 30, Text = UiText("保存", "Save"), DialogResult = DialogResult.None };
+                Button cancel = new Button { Left = 410, Top = 179, Width = 100, Height = 30, Text = UiText("取消", "Cancel"), DialogResult = DialogResult.Cancel };
+                dlg.Controls.Add(modeLabel); dlg.Controls.Add(mode); dlg.Controls.Add(urlLabel); dlg.Controls.Add(url); dlg.Controls.Add(help); dlg.Controls.Add(status); dlg.Controls.Add(test); dlg.Controls.Add(save); dlg.Controls.Add(cancel);
+                dlg.CancelButton = cancel;
+                EventHandler enabled = delegate { ProxyModeItem item = mode.SelectedItem as ProxyModeItem; url.Enabled = item != null && item.Value == NetworkProxyCore.CustomMode; test.Enabled = item != null; };
+                mode.SelectedIndexChanged += enabled; enabled(null, EventArgs.Empty);
+                test.Click += delegate {
+                    ProxyModeItem item = mode.SelectedItem as ProxyModeItem;
+                    string proxy = url.Text.Trim(), error = "";
+                    if (item == null) return;
+                    if (item.Value == NetworkProxyCore.CustomMode && !NetworkProxyCore.TryValidateProxy(proxy, out proxy, out error)) { MessageBox.Show(dlg, error, "Film Grain Studio"); return; }
+                    test.Enabled = false; status.Text = UiText("正在测试…", "Testing...");
+                    ThreadPool.QueueUserWorkItem(delegate {
+                        string result; bool ok = NetworkProxyCore.TestProxy(item.Value, proxy, out result);
+                        if (dlg.IsDisposed || !dlg.IsHandleCreated) return;
+                        try { dlg.BeginInvoke((MethodInvoker)delegate { test.Enabled = true; status.Text = (ok ? "✓ " : "✗ ") + result; status.ForeColor = ok ? Color.DarkGreen : Color.Firebrick; }); } catch (InvalidOperationException) { }
+                    });
+                };
+                save.Click += delegate {
+                    ProxyModeItem item = mode.SelectedItem as ProxyModeItem;
+                    if (item == null) return;
+                    string proxy = url.Text.Trim(), error = "";
+                    if (item.Value == NetworkProxyCore.CustomMode && !NetworkProxyCore.TryValidateProxy(proxy, out proxy, out error)) { MessageBox.Show(dlg, error, "Film Grain Studio"); return; }
+                    try { config.Save(new Dictionary<string, string> { { "NETWORK_PROXY_MODE", item.Value }, { "NETWORK_PROXY_URL", item.Value == NetworkProxyCore.CustomMode ? proxy : "" } }); NetworkProxyCore.Apply(item.Value, proxy); dlg.DialogResult = DialogResult.OK; dlg.Close(); }
+                    catch (Exception ex) { MessageBox.Show(dlg, ex.Message, "Film Grain Studio", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+                };
+                dlg.ShowDialog(this);
+            }
+        }
+
+        private sealed class ProxyModeItem
+        {
+            internal readonly string Value; private readonly string label;
+            internal ProxyModeItem(string value, string text) { Value = value; label = text; }
+            public override string ToString() { return label; }
+        }
+
         private Label ConfigLabel(string text)
         {
             Label l = new Label();
@@ -149,7 +208,14 @@ namespace FilmGrainStudioPreview
                     using (StringReader reader = new StringReader(text))
                     {
                         string first = reader.ReadLine();
-                        if (!string.IsNullOrWhiteSpace(first)) return first.Trim();
+                        if (!string.IsNullOrWhiteSpace(first))
+                        {
+                            string line = first.Trim();
+                            string name = Path.GetFileName(exePath);
+                            if (string.Equals(name, "ffmpeg.exe", StringComparison.OrdinalIgnoreCase) || string.Equals(name, "ffprobe.exe", StringComparison.OrdinalIgnoreCase))
+                                return HardwareCapabilityCore.ShortFfmpegVersionLine(line);
+                            return line;
+                        }
                     }
                     return ok ? lang.T("config.version_unknown") : lang.T("config.version_cannot_run");
                 }
@@ -186,37 +252,52 @@ namespace FilmGrainStudioPreview
                 dlg.MaximizeBox = false;
                 dlg.MinimizeBox = false;
                 dlg.ShowInTaskbar = false;
-                dlg.ClientSize = new Size(850, 590);
+                dlg.ClientSize = new Size(850, 664);
                 dlg.Font = UiFont(9f, FontStyle.Regular);
 
                 TableLayoutPanel table = new TableLayoutPanel();
                 table.Dock = DockStyle.Fill;
                 table.Padding = new Padding(12, 12, 12, 10);
                 table.ColumnCount = 4;
-                table.RowCount = 12;
+                table.RowCount = 14;
                 table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150));
                 table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
                 table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 104));
                 table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 38));
-                float[] rowHeights = new float[] { 42, 50, 42, 36, 42, 36, 42, 36, 46, 46 };
+                float[] rowHeights = new float[] { 42, 50, 42, 36, 42, 36, 42, 36, 42, 36, 46, 46 };
                 foreach (float h in rowHeights) table.RowStyles.Add(new RowStyle(SizeType.Absolute, h));
                 table.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
                 table.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
                 dlg.Controls.Add(table);
 
                 TextBox txtFfmpeg = ConfigTextBox(config.Get("FFMPEG_DIR"));
+                string savedFrucExe = config.Get("FRUC_FFMPEG_PATH");
+                string customFrucDir = "";
+                try { if (!string.IsNullOrWhiteSpace(savedFrucExe)) customFrucDir = Path.GetDirectoryName(savedFrucExe) ?? ""; } catch { }
+                CheckBox chkFrucSame = new CheckBox(); chkFrucSame.Text = UiText("与正式版使用相同 FFmpeg", "Use main FFmpeg");
+                chkFrucSame.Checked = config.FrucUsesMainFfmpeg(); chkFrucSame.Dock = DockStyle.Fill; chkFrucSame.AutoSize = true;
+                chkFrucSame.Margin = new Padding(4, 7, 3, 3);
+                TextBox txtFruc = ConfigTextBox(chkFrucSame.Checked ? config.Get("FFMPEG_DIR") : customFrucDir);
+                TableLayoutPanel frucPanel = new TableLayoutPanel(); frucPanel.Dock = DockStyle.Fill;
+                frucPanel.Margin = Padding.Empty; frucPanel.ColumnCount = 2;
+                frucPanel.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+                frucPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+                frucPanel.Controls.Add(chkFrucSame, 0, 0); frucPanel.Controls.Add(txtFruc, 1, 0);
                 TextBox txtGrav = ConfigTextBox(config.Get("GRAV1SYNTH"));
                 TextBox txtGrain = ConfigTextBox(config.Get("GRAIN_ROOT"));
                 TextBox txtLut = ConfigTextBox(config.Get("LUT_ROOT"));
                 Button btnFfmpeg = ConfigButton(lang.T("config.browse"));
+                Button btnFruc = ConfigButton(lang.T("config.browse"));
                 Button btnGrav = ConfigButton(lang.T("config.browse"));
                 Button btnGrain = ConfigButton(lang.T("config.browse"));
                 Button btnLut = ConfigButton(lang.T("config.browse"));
                 Button refreshFfmpeg = RefreshButton();
+                Button refreshFruc = RefreshButton();
                 Button refreshGrav = RefreshButton();
                 Button refreshGrain = RefreshButton();
                 Button refreshLut = RefreshButton();
                 Label statusFfmpeg = ConfigStatusLabel(lang.T("config.not_checked"));
+                Label statusFruc = ConfigStatusLabel(lang.T("config.not_checked"));
                 Label statusGrav = ConfigStatusLabel(lang.T("config.not_checked"));
                 Label statusGrain = ConfigStatusLabel(lang.T("config.not_checked"));
                 Label statusLut = ConfigStatusLabel(lang.T("config.not_checked"));
@@ -229,15 +310,18 @@ namespace FilmGrainStudioPreview
                 table.Controls.Add(ConfigLabel(lang.T("config.ffmpeg_dir")), 0, 0);
                 table.Controls.Add(txtFfmpeg, 1, 0); table.Controls.Add(btnFfmpeg, 2, 0); table.Controls.Add(refreshFfmpeg, 3, 0);
                 table.Controls.Add(statusFfmpeg, 1, 1); table.SetColumnSpan(statusFfmpeg, 3);
-                table.Controls.Add(ConfigLabel("grav1synth"), 0, 2);
-                table.Controls.Add(txtGrav, 1, 2); table.Controls.Add(btnGrav, 2, 2); table.Controls.Add(refreshGrav, 3, 2);
-                table.Controls.Add(statusGrav, 1, 3); table.SetColumnSpan(statusGrav, 3);
-                table.Controls.Add(ConfigLabelWithReadme(lang.T("config.grain_root"), "hevc真实扫描-grain-plate", dlg), 0, 4);
-                table.Controls.Add(txtGrain, 1, 4); table.Controls.Add(btnGrain, 2, 4); table.Controls.Add(refreshGrain, 3, 4);
-                table.Controls.Add(statusGrain, 1, 5); table.Controls.Add(buildCache, 2, 5); table.SetColumnSpan(buildCache, 2);
-                table.Controls.Add(ConfigLabelWithReadme(lang.T("config.lut_root"), "lut-gallery-与-film-look", dlg), 0, 6);
-                table.Controls.Add(txtLut, 1, 6); table.Controls.Add(btnLut, 2, 6); table.Controls.Add(refreshLut, 3, 6);
-                table.Controls.Add(statusLut, 1, 7); table.Controls.Add(buildThumbs, 2, 7); table.SetColumnSpan(buildThumbs, 2);
+                table.Controls.Add(ConfigLabel("FRUC Vulkan FFmpeg"), 0, 2);
+                table.Controls.Add(frucPanel, 1, 2); table.Controls.Add(btnFruc, 2, 2); table.Controls.Add(refreshFruc, 3, 2);
+                table.Controls.Add(statusFruc, 1, 3); table.SetColumnSpan(statusFruc, 3);
+                table.Controls.Add(ConfigLabel("grav1synth"), 0, 4);
+                table.Controls.Add(txtGrav, 1, 4); table.Controls.Add(btnGrav, 2, 4); table.Controls.Add(refreshGrav, 3, 4);
+                table.Controls.Add(statusGrav, 1, 5); table.SetColumnSpan(statusGrav, 3);
+                table.Controls.Add(ConfigLabelWithReadme(lang.T("config.grain_root"), "hevc真实扫描-grain-plate", dlg), 0, 6);
+                table.Controls.Add(txtGrain, 1, 6); table.Controls.Add(btnGrain, 2, 6); table.Controls.Add(refreshGrain, 3, 6);
+                table.Controls.Add(statusGrain, 1, 7); table.Controls.Add(buildCache, 2, 7); table.SetColumnSpan(buildCache, 2);
+                table.Controls.Add(ConfigLabelWithReadme(lang.T("config.lut_root"), "lut-gallery-与-film-look", dlg), 0, 8);
+                table.Controls.Add(txtLut, 1, 8); table.Controls.Add(btnLut, 2, 8); table.Controls.Add(refreshLut, 3, 8);
+                table.Controls.Add(statusLut, 1, 9); table.Controls.Add(buildThumbs, 2, 9); table.SetColumnSpan(buildThumbs, 2);
 
                 TableLayoutPanel tempPanel = new TableLayoutPanel();
                 tempPanel.Dock = DockStyle.Fill; tempPanel.ColumnCount = 2; tempPanel.Margin = Padding.Empty;
@@ -248,7 +332,7 @@ namespace FilmGrainStudioPreview
                 TextBox txtTemp = ConfigTextBox(config.Get("TEMP_CUSTOM_DIR"));
                 tempPanel.Controls.Add(cmbTemp, 0, 0); tempPanel.Controls.Add(txtTemp, 1, 0);
                 Button btnTemp = ConfigButton(lang.T("config.browse"));
-                table.Controls.Add(ConfigLabel(lang.T("config.temp_dir")), 0, 8); table.Controls.Add(tempPanel, 1, 8); table.Controls.Add(btnTemp, 2, 8);
+                table.Controls.Add(ConfigLabel(lang.T("config.temp_dir")), 0, 10); table.Controls.Add(tempPanel, 1, 10); table.Controls.Add(btnTemp, 2, 10);
 
                 TableLayoutPanel outputPanel = new TableLayoutPanel();
                 outputPanel.Dock = DockStyle.Fill; outputPanel.ColumnCount = 2; outputPanel.Margin = Padding.Empty;
@@ -259,12 +343,12 @@ namespace FilmGrainStudioPreview
                 TextBox txtOutput = ConfigTextBox(config.Get("OUTPUT_CUSTOM_DIR"));
                 outputPanel.Controls.Add(cmbOutput, 0, 0); outputPanel.Controls.Add(txtOutput, 1, 0);
                 Button btnOutput = ConfigButton(lang.T("config.browse"));
-                table.Controls.Add(ConfigLabel(lang.T("config.output_dir")), 0, 9); table.Controls.Add(outputPanel, 1, 9); table.Controls.Add(btnOutput, 2, 9);
+                table.Controls.Add(ConfigLabel(lang.T("config.output_dir")), 0, 11); table.Controls.Add(outputPanel, 1, 11); table.Controls.Add(btnOutput, 2, 11);
 
                 Label note = new Label();
                 note.Dock = DockStyle.Fill; note.ForeColor = ColorMuted; note.TextAlign = ContentAlignment.TopLeft; note.Padding = new Padding(4, 8, 4, 0);
                 note.Text = LF("config.note", config.ConfigPath);
-                table.Controls.Add(note, 0, 10); table.SetColumnSpan(note, 4);
+                table.Controls.Add(note, 0, 12); table.SetColumnSpan(note, 4);
 
                 FlowLayoutPanel buttons = new FlowLayoutPanel();
                 buttons.Dock = DockStyle.Fill; buttons.FlowDirection = FlowDirection.RightToLeft; buttons.WrapContents = false;
@@ -272,7 +356,7 @@ namespace FilmGrainStudioPreview
                 Button cancel = new Button(); cancel.Text = lang.T("config.cancel"); cancel.Width = 82; cancel.DialogResult = DialogResult.Cancel;
                 Button restore = new Button(); restore.Text = lang.T("config.defaults"); restore.Width = 104;
                 buttons.Controls.Add(save); buttons.Controls.Add(cancel); buttons.Controls.Add(restore);
-                table.Controls.Add(buttons, 0, 11); table.SetColumnSpan(buttons, 4);
+                table.Controls.Add(buttons, 0, 13); table.SetColumnSpan(buttons, 4);
                 dlg.CancelButton = cancel;
 
                 EventHandler updateStorage = delegate
@@ -285,6 +369,26 @@ namespace FilmGrainStudioPreview
                 cmbTemp.SelectedIndexChanged += updateStorage;
                 cmbOutput.SelectedIndexChanged += updateStorage;
                 updateStorage(null, EventArgs.Empty);
+
+                txtFruc.Enabled = !chkFrucSame.Checked; btnFruc.Enabled = !chkFrucSame.Checked;
+                chkFrucSame.CheckedChanged += delegate
+                {
+                    if (chkFrucSame.Checked)
+                    {
+                        customFrucDir = txtFruc.Text.Trim();
+                        txtFruc.Text = txtFfmpeg.Text;
+                    }
+                    else txtFruc.Text = customFrucDir;
+                    txtFruc.Enabled = !chkFrucSame.Checked;
+                    btnFruc.Enabled = !chkFrucSame.Checked;
+                    statusFruc.Text = lang.T("config.path_changed");
+                };
+                txtFfmpeg.TextChanged += delegate { if (chkFrucSame.Checked) txtFruc.Text = txtFfmpeg.Text; };
+                txtFruc.TextChanged += delegate
+                {
+                    if (!chkFrucSame.Checked) customFrucDir = txtFruc.Text;
+                    statusFruc.Text = lang.T("config.path_changed");
+                };
 
                 EventHandler markFfmpeg = delegate { statusFfmpeg.Text = lang.T("config.path_changed"); };
                 EventHandler markGrav = delegate { statusGrav.Text = lang.T("config.path_changed"); };
@@ -300,6 +404,16 @@ namespace FilmGrainStudioPreview
                     string ff = GetToolVersion(Path.Combine(dir, "ffmpeg.exe"), "-version", out ffOk);
                     string fp = GetToolVersion(Path.Combine(dir, "ffprobe.exe"), "-version", out fpOk);
                     statusFfmpeg.Text = "ffmpeg.exe   " + (ffOk ? "✔ " : "✘ ") + ff + Environment.NewLine + "ffprobe.exe  " + (fpOk ? "✔ " : "✘ ") + fp;
+                };
+                Action updateFruc = delegate
+                {
+                    string ff = Path.Combine(txtFruc.Text.Trim().TrimEnd('\\'), "ffmpeg.exe");
+                    statusFruc.Text = lang.T("config.detect.ffmpeg"); Application.DoEvents();
+                    bool ok;
+                    string version = GetToolVersion(ff, "-version", out ok);
+                    bool filter = ok && NativeHevcCore.HasFrucFilter(ff);
+                    statusFruc.Text = "ffmpeg.exe  " + (ok ? "✔ " : "✘ ") + version +
+                        "    fruc_vulkan " + (filter ? "✔" : "✘");
                 };
                 Action updateGrav = delegate
                 {
@@ -360,10 +474,12 @@ namespace FilmGrainStudioPreview
                 };
 
                 refreshFfmpeg.Click += delegate { updateFfmpeg(); };
+                refreshFruc.Click += delegate { updateFruc(); };
                 refreshGrav.Click += delegate { updateGrav(); };
                 refreshGrain.Click += delegate { updateGrain(); };
                 refreshLut.Click += delegate { updateLut(); };
                 btnFfmpeg.Click += delegate { if (PickFolder(dlg, txtFfmpeg, lang.T("dialog.ffmpeg_folder"), false)) updateFfmpeg(); };
+                btnFruc.Click += delegate { if (PickFolder(dlg, txtFruc, lang.T("dialog.ffmpeg_folder"), false)) updateFruc(); };
                 btnGrav.Click += delegate { if (PickExe(dlg, txtGrav, lang.T("dialog.grav_exe"), "grav1synth.exe")) updateGrav(); };
                 btnGrain.Click += delegate { if (PickFolder(dlg, txtGrain, lang.T("dialog.grain_root"), false)) updateGrain(); };
                 btnLut.Click += delegate { if (PickFolder(dlg, txtLut, lang.T("dialog.lut_root"), false)) updateLut(); };
@@ -376,6 +492,7 @@ namespace FilmGrainStudioPreview
                 restore.Click += delegate
                 {
                     txtFfmpeg.Text = config.GetDefault("FFMPEG_DIR");
+                    chkFrucSame.Checked = true; customFrucDir = ""; savedFrucExe = ""; txtFruc.Text = txtFfmpeg.Text;
                     txtGrav.Text = config.GetDefault("GRAV1SYNTH");
                     txtGrain.Text = config.GetDefault("GRAIN_ROOT");
                     txtLut.Text = config.GetDefault("LUT_ROOT");
@@ -390,6 +507,22 @@ namespace FilmGrainStudioPreview
                     foreach (string exe in new string[] { "ffmpeg.exe", "ffprobe.exe" })
                     {
                         if (!File.Exists(Path.Combine(ffdir, exe))) { MessageBox.Show(dlg, LF("config.ffmpeg_exe_missing", exe, ffdir), lang.T("config.path_title"), MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+                    }
+                    string frucExe = "";
+                    if (!chkFrucSame.Checked)
+                    {
+                        string frucDir = txtFruc.Text.Trim().TrimEnd('\\');
+                        frucExe = Path.Combine(frucDir, "ffmpeg.exe");
+                        if (!Directory.Exists(frucDir) || !File.Exists(frucExe))
+                        {
+                            MessageBox.Show(dlg, LF("config.ffmpeg_exe_missing", "ffmpeg.exe", frucDir), lang.T("config.path_title"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                            return;
+                        }
+                        if (!NativeHevcCore.HasFrucFilter(frucExe))
+                        {
+                            MessageBox.Show(dlg, UiText("选定的 ffmpeg.exe 不包含 fruc_vulkan 滤镜。", "The selected ffmpeg.exe does not provide fruc_vulkan."), lang.T("config.path_title"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                            return;
+                        }
                     }
                     if (!File.Exists(txtGrav.Text.Trim())) { MessageBox.Show(dlg, LF("config.grav_missing", txtGrav.Text.Trim()), lang.T("config.path_title"), MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
                     if (!Directory.Exists(txtGrain.Text.Trim())) { MessageBox.Show(dlg, LF("config.item_missing", lang.T("config.item_grain_root"), txtGrain.Text.Trim()), lang.T("config.path_title"), MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
@@ -413,6 +546,9 @@ namespace FilmGrainStudioPreview
                     {
                         Dictionary<string, string> updates = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                         updates["FFMPEG_DIR"] = ffdir; updates["GRAV1SYNTH"] = txtGrav.Text.Trim(); updates["GRAIN_ROOT"] = txtGrain.Text.Trim(); updates["LUT_ROOT"] = txtLut.Text.Trim();
+                        updates["FRUC_FFMPEG_SAME_AS_MAIN"] = chkFrucSame.Checked ? "true" : "false";
+                        updates["FRUC_FFMPEG_PATH"] = chkFrucSame.Checked ?
+                            (customFrucDir.Length > 0 ? Path.Combine(customFrucDir, "ffmpeg.exe") : savedFrucExe) : frucExe;
                         updates["TEMP_MODE"] = tempMode; updates["TEMP_CUSTOM_DIR"] = tempCustom; updates["OUTPUT_MODE"] = outputMode; updates["OUTPUT_CUSTOM_DIR"] = outputCustom;
                         config.Save(updates);
                         dlg.DialogResult = DialogResult.OK;
@@ -490,7 +626,14 @@ namespace FilmGrainStudioPreview
                 analyse.Items.Add(lang.T("advanced.analyse_recommended")); analyse.Items.Add(lang.T("advanced.analyse_baseline")); analyse.SelectedIndex = string.Equals(config.Get("SVP_ANALYSE"), "BASE", StringComparison.OrdinalIgnoreCase) ? 1 : 0; interp.Controls.Add(analyse);
                 Label maskLabel = new Label(); maskLabel.Text = "Artifact Mask Area"; maskLabel.Location = new Point(28, 130); maskLabel.Size = new Size(150, 24); interp.Controls.Add(maskLabel);
                 NumericUpDown mask = new NumericUpDown(); mask.Location = new Point(190, 126); mask.Size = new Size(120, 26); mask.Minimum = 0; mask.Maximum = 100; mask.Increment = 5; mask.Value = Math.Max(mask.Minimum, Math.Min(mask.Maximum, config.GetInt("SVP_MASK_AREA", 100))); interp.Controls.Add(mask);
-                Label interpInfo = new Label(); interpInfo.Location = new Point(28, 182); interpInfo.Size = new Size(610, 92); interpInfo.ForeColor = ColorMuted; interpInfo.Text = lang.T("advanced.interp_info"); interp.Controls.Add(interpInfo);
+                Label interpInfo = new Label(); interpInfo.Location = new Point(28, 238); interpInfo.Size = new Size(610, 44); interpInfo.ForeColor = ColorMuted; interpInfo.Text = lang.T("advanced.interp_info"); interp.Controls.Add(interpInfo);
+                Label frucPerfLabel = new Label(); frucPerfLabel.Text = UiText("FRUC Vulkan 性能档位", "FRUC Vulkan perf"); frucPerfLabel.Location = new Point(28, 166); frucPerfLabel.Size = new Size(150, 24); interp.Controls.Add(frucPerfLabel);
+                ComboBox frucPerf = new ComboBox(); frucPerf.DropDownStyle = ComboBoxStyle.DropDownList; frucPerf.Location = new Point(190, 162); frucPerf.Size = new Size(160, 26);
+                frucPerf.Items.Add("slow"); frucPerf.Items.Add("medium"); frucPerf.Items.Add("fast"); string savedPerf = config.Get("FRUC_PERF").ToLowerInvariant(); frucPerf.SelectedIndex = savedPerf == "slow" ? 0 : (savedPerf == "fast" ? 2 : 1); interp.Controls.Add(frucPerf);
+                Label frucGridLabel = new Label(); frucGridLabel.Text = UiText("FRUC Vulkan 光流网格", "FRUC Vulkan grid"); frucGridLabel.Location = new Point(28, 202); frucGridLabel.Size = new Size(150, 24); interp.Controls.Add(frucGridLabel);
+                ComboBox frucGrid = new ComboBox(); frucGrid.DropDownStyle = ComboBoxStyle.DropDownList; frucGrid.Location = new Point(190, 198); frucGrid.Size = new Size(160, 26);
+                frucGrid.Items.Add("auto"); frucGrid.Items.Add("1"); frucGrid.Items.Add("2"); frucGrid.Items.Add("4"); frucGrid.Items.Add("8"); int gridIndex = frucGrid.Items.IndexOf(config.Get("FRUC_GRID").ToLowerInvariant()); frucGrid.SelectedIndex = gridIndex >= 0 ? gridIndex : 0; interp.Controls.Add(frucGrid);
+                Label frucInfo = new Label(); frucInfo.Location = new Point(370, 162); frucInfo.Size = new Size(280, 56); frucInfo.ForeColor = ColorMuted; frucInfo.Text = UiText("perf 控制质量/速度；grid 控制光流网格，auto 交由滤镜选择。", "perf controls quality/speed; grid selects the optical-flow grid."); interp.Controls.Add(frucInfo);
                 Button interpDefaults = new Button(); interpDefaults.Text = lang.T("config.defaults"); interpDefaults.Location = new Point(190, 292); interpDefaults.Size = new Size(112, 30); interp.Controls.Add(interpDefaults);
 
                 Label hdrLabel = new Label(); hdrLabel.Text = lang.T("advanced.hdr_policy"); hdrLabel.Location = new Point(28, 34); hdrLabel.Size = new Size(150, 24); hdr.Controls.Add(hdrLabel);
@@ -517,7 +660,7 @@ namespace FilmGrainStudioPreview
                 dlg.CancelButton = cancel;
 
                 encDefaults.Click += delegate { high10.Checked = false; rate.SelectedIndex = 0; preset.SelectedIndex = 0; aq.SelectedIndex = 2; temporal.Checked = false; };
-                interpDefaults.Click += delegate { algo.SelectedItem = "13"; analyse.SelectedIndex = 0; mask.Value = 100; };
+                interpDefaults.Click += delegate { algo.SelectedItem = "13"; analyse.SelectedIndex = 0; mask.Value = 100; frucPerf.SelectedIndex = 1; frucGrid.SelectedIndex = 0; };
                 hdrDefaults.Click += delegate { hdrPolicy.SelectedIndex = 0; tone.SelectedIndex = 0; updateHdr(null, EventArgs.Empty); };
                 otherDefaults.Click += delegate { crop.Value = 0; largeColor.Checked = false; };
 
@@ -532,6 +675,8 @@ namespace FilmGrainStudioPreview
                     updates["SVP_ALGO"] = Convert.ToString(algo.SelectedItem, CultureInfo.InvariantCulture);
                     updates["SVP_ANALYSE"] = analyse.SelectedIndex == 1 ? "BASE" : "ENCODEGUI";
                     updates["SVP_MASK_AREA"] = ((int)mask.Value).ToString(CultureInfo.InvariantCulture);
+                    updates["FRUC_PERF"] = Convert.ToString(frucPerf.SelectedItem, CultureInfo.InvariantCulture);
+                    updates["FRUC_GRID"] = Convert.ToString(frucGrid.SelectedItem, CultureInfo.InvariantCulture);
                     updates["HDR_POLICY"] = hdrPolicy.SelectedIndex == 1 ? "PRESERVE" : (hdrPolicy.SelectedIndex == 2 ? "SDR" : "AUTO");
                     string[] toneValues = new string[] { "hable", "mobius", "reinhard", "gamma", "linear", "clip" }; updates["TONE_MAP_ALGO"] = toneValues[Math.Max(0, Math.Min(toneValues.Length - 1, tone.SelectedIndex))];
                     updates["CINEMATIC_CROP_PER_SIDE"] = ((int)crop.Value).ToString(CultureInfo.InvariantCulture);
@@ -549,6 +694,7 @@ namespace FilmGrainStudioPreview
                 {
                     config.Load();
                     UpdateSpeedChoices();
+                    UpdateHdrRouteStatus(GetSelectedMediaInfo());
                     if (log != null) log.AppendText("[Config] Advanced settings saved." + Environment.NewLine);
                 }
             }

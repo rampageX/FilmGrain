@@ -150,9 +150,9 @@ namespace FilmGrainStudioPreview
                     string t = (line ?? "").Trim();
                     if (chroma.IsMatch(t)) return "AV1 胶片颗粒：亮度 + 色度";
 
-                    // Photon ISO --chroma uses AV1 chroma_scaling_from_luma=1.
-                    // In the filmgrn1 table this is the 5th numeric field on the p line,
-                    // while sCb/sCr legitimately remain 0.
+                    // p fields: ar_coeff_lag, ar_coeff_shift, grain_scale_shift, scaling_shift,
+                    // chroma_scaling_from_luma, overlap_flag, then Cb/Cr multipliers.
+                    // The chroma flag is parts[5]; parts[6] is overlap_flag.
                     if (t.StartsWith("p ", StringComparison.OrdinalIgnoreCase) || string.Equals(t, "p", StringComparison.OrdinalIgnoreCase))
                     {
                         string[] parts = t.Split(new char[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);

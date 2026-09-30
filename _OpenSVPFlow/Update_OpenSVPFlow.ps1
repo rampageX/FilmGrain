@@ -3,6 +3,21 @@
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 $OutputEncoding = [Console]::OutputEncoding
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+$WebProxy = @{}
+if ($env:FGS_PROXY_MODE -eq 'DIRECT') {
+    [Net.WebRequest]::DefaultWebProxy = $null
+    $env:PIP_PROXY = ''; $env:NO_PROXY = ''; $env:no_proxy = ''
+} elseif ($env:FGS_SETUP_PROXY) {
+    $WebProxy['Proxy'] = $env:FGS_SETUP_PROXY
+    $env:PIP_PROXY = $env:FGS_SETUP_PROXY
+    $env:NO_PROXY = ''; $env:no_proxy = ''
+} else {
+    $SystemProxy = $env:HTTPS_PROXY
+    if (-not $SystemProxy) { $SystemProxy = $env:https_proxy }
+    if (-not $SystemProxy) { $SystemProxy = $env:HTTP_PROXY }
+    if (-not $SystemProxy) { $SystemProxy = $env:http_proxy }
+    if ($SystemProxy) { $WebProxy['Proxy'] = $SystemProxy; $env:FGS_SETUP_PROXY = $SystemProxy; $env:NO_PROXY = ''; $env:no_proxy = '' }
+}
 
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $PluginsDir = Join-Path $Root "Plugins"
@@ -120,7 +135,7 @@ try {
     }
 
     Write-Host "[1/7] Checking latest GitHub release..."
-    $Release = Invoke-RestMethod -UseBasicParsing -Uri $ApiUrl -Headers $Headers
+    $Release = Invoke-RestMethod @WebProxy -UseBasicParsing -Uri $ApiUrl -Headers $Headers
     $LatestTag = [string]$Release.tag_name
 
     if ([string]::IsNullOrWhiteSpace($LatestTag)) {
@@ -153,7 +168,7 @@ try {
     New-Item -ItemType Directory -Force -Path $StagePlugins | Out-Null
 
     Write-Host "[2/7] Downloading $WindowsAssetName..."
-    Invoke-WebRequest -UseBasicParsing -Uri $Asset.browser_download_url -Headers $Headers -OutFile $DownloadZip
+    Invoke-WebRequest @WebProxy -UseBasicParsing -Uri $Asset.browser_download_url -Headers $Headers -OutFile $DownloadZip
 
     if (-not (Test-Path $DownloadZip)) {
         throw "Download failed: $DownloadZip"

@@ -56,12 +56,32 @@ namespace FilmGrainStudioPreview
         }
     }
 
+    internal sealed class BridgeExecutionStage
+    {
+        public string PipeProducerPath { get; set; }
+        public string PipeProducerArguments { get; set; }
+        public string ToolPath { get; set; }
+        public string WorkingDirectory { get; set; }
+        public string DirectArguments { get; set; }
+        public double ProgressDurationSeconds { get; set; }
+        public int StageCurrent { get; set; }
+        public int StageTotal { get; set; }
+        public string StageText { get; set; }
+    }
+
     internal sealed class BridgeExecutionRequest
     {
         public string ToolPath { get; set; }
         public string WorkingDirectory { get; set; }
         public IList<string> InputFiles { get; set; }
         public IDictionary<string, string> Environment { get; set; }
+        public bool DirectProcess { get; set; }
+        public string DirectArguments { get; set; }
+        public IList<BridgeExecutionStage> DirectStages { get; set; }
+        public IList<string> OutputFiles { get; set; }
+        public IList<string> TemporaryFiles { get; set; }
+        public Func<string> PostRunValidation { get; set; }
+        public double ProgressDurationSeconds { get; set; }
     }
 
     internal sealed class BridgeExecutionResult
@@ -92,7 +112,12 @@ namespace FilmGrainStudioPreview
     {
         private readonly object sync = new object();
         private readonly object progressSync = new object();
+        private readonly ManualResetEventSlim legacyKillFinished = new ManualResetEventSlim(true);
         private Process activeProcess;
+        private Process activePipeProducer;
+        private bool activeDirectRequest;
+        private string pendingLegacyX264Output;
+        private BridgeExecutionRequest activeRequest;
         private Thread workerThread;
         private volatile bool cancelRequested;
         private bool disposed;
@@ -122,8 +147,19 @@ namespace FilmGrainStudioPreview
         public void Start(BridgeExecutionRequest request)
         {
             if (request == null) throw new ArgumentNullException("request");
-            if (string.IsNullOrWhiteSpace(request.ToolPath)) throw new ArgumentException("ToolPath is required.", "request");
-            if (!File.Exists(request.ToolPath)) throw new FileNotFoundException("Bridge execution tool was not found.", request.ToolPath);
+            if (request.DirectStages != null && request.DirectStages.Count > 0)
+            {
+                foreach (BridgeExecutionStage stage in request.DirectStages)
+                {
+                    if (stage == null || string.IsNullOrWhiteSpace(stage.ToolPath)) throw new ArgumentException("Direct stage ToolPath is required.", "request");
+                    if (!File.Exists(stage.ToolPath)) throw new FileNotFoundException("Direct stage execution tool was not found.", stage.ToolPath);
+                }
+            }
+            else
+            {
+                if (string.IsNullOrWhiteSpace(request.ToolPath)) throw new ArgumentException("ToolPath is required.", "request");
+                if (!File.Exists(request.ToolPath)) throw new FileNotFoundException("Bridge execution tool was not found.", request.ToolPath);
+            }
             if (request.InputFiles == null || request.InputFiles.Count == 0) throw new ArgumentException("At least one input file is required.", "request");
 
             lock (sync)
@@ -131,7 +167,11 @@ namespace FilmGrainStudioPreview
                 if (disposed) throw new ObjectDisposedException("BridgeExecutionCore");
                 if (activeProcess != null || (workerThread != null && workerThread.IsAlive)) throw new InvalidOperationException("A Bridge process is already running.");
                 cancelRequested = false;
-                ResetProgressState();
+                activeRequest = request;
+                pendingLegacyX264Output = null;
+                legacyKillFinished.Set();
+                activeDirectRequest = request.DirectProcess || (request.DirectStages != null && request.DirectStages.Count > 0);
+                ResetProgressState(request.ProgressDurationSeconds);
                 workerThread = new Thread(new ThreadStart(delegate { RunWorker(request); }));
                 workerThread.IsBackground = true;
                 workerThread.Name = "FGS Bridge Execution";
@@ -143,9 +183,13 @@ namespace FilmGrainStudioPreview
         {
             cancelRequested = true;
             Process process = null;
+            bool direct = false;
             lock (sync)
             {
                 process = activeProcess;
+                direct = activeDirectRequest;
+                if (activePipeProducer != null)
+                    try { if (!activePipeProducer.HasExited) activePipeProducer.Kill(); } catch { }
             }
             if (process == null) return;
 
@@ -153,17 +197,27 @@ namespace FilmGrainStudioPreview
             try { pid = process.Id; }
             catch { }
 
+            // Native stages start the encoder directly: wait for that process to exit
+            // before RunWorker removes its registered output files.
+            if (direct)
+            {
+                try { if (!process.HasExited) process.Kill(); } catch { }
+                return;
+            }
+
             if (pid > 0)
             {
+                legacyKillFinished.Reset();
                 RaiseLog(BridgeLogStream.System, "cancel requested; terminating process tree PID " + pid.ToString(CultureInfo.InvariantCulture));
                 ThreadPool.QueueUserWorkItem(delegate
                 {
-                    TryTaskKillTree(pid);
                     try
                     {
+                        TryTaskKillTree(pid);
                         if (!process.HasExited) process.Kill();
                     }
                     catch { }
+                    finally { legacyKillFinished.Set(); }
                 });
                 return;
             }
@@ -179,11 +233,93 @@ namespace FilmGrainStudioPreview
         {
             int exitCode = -1;
             Exception failure = null;
-            Process process = null;
             DateTime runStartedUtc = DateTime.UtcNow;
             try
             {
-                ProcessStartInfo psi = BuildStartInfo(request);
+                if (request.DirectStages != null && request.DirectStages.Count > 0)
+                {
+                    foreach (BridgeExecutionStage stage in request.DirectStages)
+                    {
+                        if (cancelRequested) break;
+                        PrepareStageProgress(stage);
+                        string stageMode;
+                        string stagePrefix = request.Environment != null && request.Environment.TryGetValue("FG_MODE", out stageMode) && string.Equals(stageMode, "HEVC", StringComparison.OrdinalIgnoreCase) ? "HEVC step " : "x264 step ";
+                        RaiseLog(BridgeLogStream.System, stagePrefix + stage.StageCurrent.ToString(CultureInfo.InvariantCulture) + "/" + stage.StageTotal.ToString(CultureInfo.InvariantCulture) + " - " + (stage.StageText ?? ""));
+                        exitCode = string.IsNullOrEmpty(stage.PipeProducerPath)
+                            ? RunProcess(BuildStartInfo(request, stage), stage.ToolPath, out failure)
+                            : RunPipedProcess(request, stage, out failure);
+                        if (failure != null || exitCode != 0 || cancelRequested) break;
+                    }
+                    if (cancelRequested && exitCode == 0) exitCode = -1;
+                }
+                else
+                {
+                    exitCode = RunProcess(BuildStartInfo(request, null), request.ToolPath, out failure);
+                }
+                if (!cancelRequested && exitCode == 0 && failure == null && request.PostRunValidation != null)
+                {
+                    string validationError = request.PostRunValidation();
+                    if (!string.IsNullOrEmpty(validationError)) throw new InvalidDataException(validationError);
+                    RaiseLog(BridgeLogStream.System, "HDR signaling verification passed");
+                }
+            }
+            catch (Exception ex)
+            {
+                failure = ex;
+                RaiseLog(BridgeLogStream.System, "exception: " + ex.Message);
+            }
+            finally
+            {
+                if (cancelRequested && !request.DirectProcess && (request.DirectStages == null || request.DirectStages.Count == 0))
+                    if (!legacyKillFinished.Wait(6500)) RaiseLog(BridgeLogStream.System, "cancel cleanup warning: process-tree termination timed out");
+                if (cancelRequested) CleanupCancelledX264TempFiles(request, runStartedUtc);
+                if (cancelRequested) CleanupPendingLegacyX264Output();
+                bool failedRun = cancelRequested || exitCode != 0 || failure != null;
+                bool keepFailedOutputs = failedRun && !cancelRequested &&
+                    string.Equals(Environment.GetEnvironmentVariable("FGS_KEEP_FAILED_OUTPUTS"), "1", StringComparison.OrdinalIgnoreCase);
+                if (failedRun && request.OutputFiles != null)
+                {
+                    if (keepFailedOutputs)
+                    {
+                        foreach (string outputFile in request.OutputFiles)
+                        {
+                            if (!string.IsNullOrWhiteSpace(outputFile) && File.Exists(outputFile))
+                                RaiseLog(BridgeLogStream.System, "diagnostic output retention enabled; preserved failed output: " + outputFile);
+                        }
+                    }
+                    else foreach (string outputFile in request.OutputFiles)
+                    {
+                        if (string.IsNullOrWhiteSpace(outputFile)) continue;
+                        for (int attempt = 0; attempt < 20 && File.Exists(outputFile); attempt++)
+                        {
+                            try { File.Delete(outputFile); }
+                            catch (IOException) { if (attempt < 19) Thread.Sleep(100); }
+                            catch (UnauthorizedAccessException) { break; }
+                            catch (Exception ex) { RaiseLog(BridgeLogStream.System, "output cleanup error: " + ex.Message); break; }
+                        }
+                        if (File.Exists(outputFile)) RaiseLog(BridgeLogStream.System, "output cleanup warning: could not remove " + outputFile);
+                    }
+                }
+                CleanupTemporaryFiles(request);
+
+                lock (sync)
+                {
+                    activeProcess = null;
+                    activeDirectRequest = false;
+                    activeRequest = null;
+                    workerThread = null;
+                }
+                RaiseCompleted(new BridgeExecutionResult(exitCode, cancelRequested, failure));
+            }
+        }
+
+        private int RunProcess(ProcessStartInfo psi, string toolPath, out Exception failure)
+        {
+            failure = null;
+            Process process = null;
+            int exitCode = -1;
+            try
+            {
                 process = new Process();
                 process.StartInfo = psi;
                 process.EnableRaisingEvents = false;
@@ -191,6 +327,7 @@ namespace FilmGrainStudioPreview
                 {
                     if (e.Data != null)
                     {
+                        TrackLegacyX264Output(e.Data);
                         RaiseLog(BridgeLogStream.StandardOutput, e.Data);
                         HandleProcessLine(e.Data);
                     }
@@ -210,14 +347,12 @@ namespace FilmGrainStudioPreview
                     activeProcess = process;
                 }
 
-                RaiseLog(BridgeLogStream.System, "starting: " + request.ToolPath);
+                RaiseLog(BridgeLogStream.System, "starting: " + toolPath);
                 if (!process.Start()) throw new InvalidOperationException("Process.Start returned false.");
                 RaiseLog(BridgeLogStream.System, "PID " + process.Id.ToString(CultureInfo.InvariantCulture));
                 process.BeginOutputReadLine();
                 process.BeginErrorReadLine();
-
                 if (cancelRequested) Cancel();
-
                 process.WaitForExit();
                 exitCode = process.ExitCode;
             }
@@ -232,27 +367,118 @@ namespace FilmGrainStudioPreview
                 {
                     try { process.CancelOutputRead(); } catch { }
                     try { process.CancelErrorRead(); } catch { }
+                    lock (sync)
+                    {
+                        if (object.ReferenceEquals(activeProcess, process)) activeProcess = null;
+                    }
+                    process.Dispose();
                 }
+            }
+            return exitCode;
+        }
 
-                if (cancelRequested) CleanupCancelledX264TempFiles(request, runStartedUtc);
-
-                lock (sync)
+        // Binary Y4M stream: never use cmd.exe or line-based stdout reading here.
+        private int RunPipedProcess(BridgeExecutionRequest request, BridgeExecutionStage stage, out Exception failure)
+        {
+            failure = null;
+            Process producer = null, encoder = null;
+            Exception copyFailure = null;
+            Thread copyThread = null;
+            try
+            {
+                ProcessStartInfo sourceInfo = new ProcessStartInfo();
+                sourceInfo.FileName = stage.PipeProducerPath;
+                sourceInfo.Arguments = stage.PipeProducerArguments;
+                sourceInfo.WorkingDirectory = stage.WorkingDirectory;
+                sourceInfo.UseShellExecute = false;
+                sourceInfo.CreateNoWindow = true;
+                sourceInfo.RedirectStandardOutput = true;
+                sourceInfo.RedirectStandardError = true;
+                if (request.Environment != null)
+                    foreach (KeyValuePair<string,string> pair in request.Environment)
+                        SetEnvironmentVariable(sourceInfo.EnvironmentVariables, pair.Key, pair.Value ?? "");
+                producer = new Process(); producer.StartInfo = sourceInfo;
+                encoder = new Process(); encoder.StartInfo = BuildStartInfo(request, stage);
+                encoder.StartInfo.RedirectStandardInput = true;
+                producer.ErrorDataReceived += delegate(object sender, DataReceivedEventArgs e)
+                { if (e.Data != null) RaiseLog(BridgeLogStream.StandardError, "[vspipe] " + e.Data); };
+                encoder.OutputDataReceived += delegate(object sender, DataReceivedEventArgs e)
+                { if (e.Data != null) { RaiseLog(BridgeLogStream.StandardOutput, e.Data); HandleProcessLine(e.Data); } };
+                encoder.ErrorDataReceived += delegate(object sender, DataReceivedEventArgs e)
+                { if (e.Data != null) { RaiseLog(BridgeLogStream.StandardError, e.Data); HandleProcessLine(e.Data); } };
+                lock (sync) { activePipeProducer = producer; activeProcess = encoder; }
+                RaiseLog(BridgeLogStream.System, "starting pipe: " + sourceInfo.FileName + " -> " + encoder.StartInfo.FileName);
+                if (!encoder.Start()) throw new InvalidOperationException("FFmpeg did not start");
+                encoder.BeginOutputReadLine(); encoder.BeginErrorReadLine();
+                if (!producer.Start()) throw new InvalidOperationException("vspipe did not start");
+                producer.BeginErrorReadLine();
+                if (cancelRequested) Cancel();
+                Process pipeSource = producer, pipeTarget = encoder;
+                copyThread = new Thread(delegate()
                 {
-                    if (object.ReferenceEquals(activeProcess, process)) activeProcess = null;
-                    workerThread = null;
-                }
-
-                if (process != null) process.Dispose();
-                RaiseCompleted(new BridgeExecutionResult(exitCode, cancelRequested, failure));
+                    try { pipeSource.StandardOutput.BaseStream.CopyTo(pipeTarget.StandardInput.BaseStream); }
+                    catch (Exception ex) { copyFailure = ex; }
+                    finally { try { pipeTarget.StandardInput.Close(); } catch { } }
+                });
+                copyThread.IsBackground = true; copyThread.Start();
+                encoder.WaitForExit();
+                if (encoder.ExitCode != 0 || cancelRequested)
+                    try { if (!producer.HasExited) producer.Kill(); } catch { }
+                producer.WaitForExit();
+                copyThread.Join();
+                if (!cancelRequested && encoder.ExitCode == 0 && producer.ExitCode != 0)
+                    throw new InvalidDataException("vspipe exited with code " + producer.ExitCode.ToString(CultureInfo.InvariantCulture));
+                if (!cancelRequested && encoder.ExitCode == 0 && copyFailure != null)
+                    throw new IOException("vspipe stream failed", copyFailure);
+                return encoder.ExitCode;
+            }
+            catch (Exception ex)
+            {
+                failure = ex;
+                RaiseLog(BridgeLogStream.System, "pipe exception: " + ex.Message);
+                return -1;
+            }
+            finally
+            {
+                if (producer != null) try { if (!producer.HasExited) producer.Kill(); } catch { }
+                if (encoder != null) try { if (!encoder.HasExited) encoder.Kill(); } catch { }
+                if (copyThread != null && copyThread.IsAlive) copyThread.Join(5000);
+                if (producer != null) { try { producer.WaitForExit(); } catch { } try { producer.CancelErrorRead(); } catch { } }
+                if (encoder != null) { try { encoder.WaitForExit(); } catch { } try { encoder.CancelOutputRead(); } catch { } try { encoder.CancelErrorRead(); } catch { } }
+                lock (sync) { if (ReferenceEquals(activePipeProducer, producer)) activePipeProducer = null; if (ReferenceEquals(activeProcess, encoder)) activeProcess = null; }
+                if (producer != null) producer.Dispose();
+                if (encoder != null) encoder.Dispose();
             }
         }
 
-        private void ResetProgressState()
+        private void PrepareStageProgress(BridgeExecutionStage stage)
+        {
+            int stageCurrent = stage == null ? 0 : stage.StageCurrent;
+            int stageTotal = stage == null ? 0 : stage.StageTotal;
+            double duration = stage == null ? 0.0 : stage.ProgressDurationSeconds;
+            lock (progressSync)
+            {
+                currentDurationSeconds = duration > 0.0 ? duration : 0.0;
+                currentDurationLocked = duration > 0.0;
+                progressFpsText = "";
+                progressOutTimeText = "";
+                progressSpeedText = "";
+                currentStage = stageCurrent;
+                currentStageTotal = stageTotal;
+            }
+            if (stageTotal > 0 && stageCurrent > 0)
+            {
+                int stagePermille = Math.Max(0, Math.Min(1000, ((stageCurrent - 1) * 1000) / stageTotal));
+                RaiseProgress(new BridgeProgressEventArgs(true, stagePermille, false, "", "", "", true, stageCurrent, stageTotal, stage == null ? "" : (stage.StageText ?? "")));
+            }
+        }
+
+        private void ResetProgressState(double requestedDurationSeconds)
         {
             lock (progressSync)
             {
-                currentDurationSeconds = 0.0;
-                currentDurationLocked = false;
+                currentDurationSeconds = requestedDurationSeconds > 0.0 ? requestedDurationSeconds : 0.0;
+                currentDurationLocked = requestedDurationSeconds > 0.0;
                 progressFpsText = "";
                 progressOutTimeText = "";
                 progressSpeedText = "";
@@ -469,6 +695,78 @@ namespace FilmGrainStudioPreview
             }
         }
 
+        private void TrackLegacyX264Output(string line)
+        {
+            BridgeExecutionRequest current = activeRequest;
+            if (current == null || current.DirectProcess ||
+                !string.Equals(GetRequestEnvironment(current, "FG_MODE"), "X264", StringComparison.OrdinalIgnoreCase)) return;
+            string value = (line ?? "").Trim();
+            if (value == "DONE:")
+            {
+                lock (sync) pendingLegacyX264Output = null;
+                return;
+            }
+            if (!value.StartsWith("Final file", StringComparison.OrdinalIgnoreCase)) return;
+            int colon = value.IndexOf(':');
+            if (colon < 0) return;
+            string quoted = value.Substring(colon + 1).Trim();
+            if (quoted.Length < 3 || quoted[0] != '"' || quoted[quoted.Length - 1] != '"') return;
+            string candidate = quoted.Substring(1, quoted.Length - 2);
+            try
+            {
+                candidate = Path.GetFullPath(candidate);
+                string extension = Path.GetExtension(candidate);
+                if (!string.Equals(extension, ".mp4", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(extension, ".mkv", StringComparison.OrdinalIgnoreCase)) return;
+                // The Bridge prints this line before starting FFmpeg. Only register a
+                // new output in the selected destination with an input-based x264 name.
+                if (File.Exists(candidate)) return;
+                string outputDir = Path.GetDirectoryName(candidate);
+                bool custom = string.Equals(GetRequestEnvironment(current, "FG_OUTPUT_MODE"), "CUSTOM", StringComparison.OrdinalIgnoreCase);
+                string customDir = GetRequestEnvironment(current, "FG_OUTPUT_CUSTOM_DIR");
+                bool belongsToInput = false;
+                foreach (string input in current.InputFiles)
+                {
+                    string expectedDir = custom ? customDir : Path.GetDirectoryName(input);
+                    if (string.IsNullOrWhiteSpace(expectedDir) ||
+                        !string.Equals(outputDir.TrimEnd('\\'), Path.GetFullPath(expectedDir).TrimEnd('\\'), StringComparison.OrdinalIgnoreCase)) continue;
+                    if (Path.GetFileName(candidate).StartsWith(Path.GetFileNameWithoutExtension(input) + "_X264", StringComparison.OrdinalIgnoreCase))
+                    { belongsToInput = true; break; }
+                }
+                if (belongsToInput) lock (sync) pendingLegacyX264Output = candidate;
+            }
+            catch (Exception ex) { RaiseLog(BridgeLogStream.System, "legacy output tracking warning: " + ex.Message); }
+        }
+
+        private void CleanupPendingLegacyX264Output()
+        {
+            string candidate;
+            lock (sync) { candidate = pendingLegacyX264Output; pendingLegacyX264Output = null; }
+            if (string.IsNullOrEmpty(candidate)) return;
+            for (int attempt = 0; attempt < 20 && File.Exists(candidate); attempt++)
+            {
+                try { File.Delete(candidate); }
+                catch (IOException) { if (attempt < 19) Thread.Sleep(100); }
+                catch (UnauthorizedAccessException) { break; }
+                catch (Exception ex) { RaiseLog(BridgeLogStream.System, "legacy output cleanup error: " + ex.Message); break; }
+            }
+            if (File.Exists(candidate)) RaiseLog(BridgeLogStream.System, "legacy output cleanup warning: could not remove " + candidate);
+            else RaiseLog(BridgeLogStream.System, "legacy cancel cleanup: checked " + candidate);
+        }
+
+        internal static void CleanupTemporaryFiles(BridgeExecutionRequest request)
+        {
+            if (request == null || request.TemporaryFiles == null) return;
+            foreach (string tempFile in request.TemporaryFiles)
+            {
+                try
+                {
+                    if (!string.IsNullOrWhiteSpace(tempFile) && File.Exists(tempFile)) File.Delete(tempFile);
+                }
+                catch { }
+            }
+        }
+
         private static string GetRequestEnvironment(BridgeExecutionRequest request, string key)
         {
             if (request == null || request.Environment == null || string.IsNullOrEmpty(key)) return "";
@@ -494,8 +792,28 @@ namespace FilmGrainStudioPreview
             }
         }
 
-        private static ProcessStartInfo BuildStartInfo(BridgeExecutionRequest request)
+        private static ProcessStartInfo BuildStartInfo(BridgeExecutionRequest request, BridgeExecutionStage stage)
         {
+            if (stage != null || request.DirectProcess)
+            {
+                string toolPath = stage == null ? request.ToolPath : stage.ToolPath;
+                string arguments = stage == null ? request.DirectArguments : stage.DirectArguments;
+                string workingDirectory = stage == null ? request.WorkingDirectory : stage.WorkingDirectory;
+                ProcessStartInfo direct = new ProcessStartInfo();
+                direct.FileName = toolPath;
+                direct.Arguments = arguments ?? "";
+                direct.UseShellExecute = false;
+                direct.CreateNoWindow = true;
+                direct.RedirectStandardOutput = true;
+                direct.RedirectStandardError = true;
+                direct.RedirectStandardInput = false;
+                direct.WorkingDirectory = string.IsNullOrWhiteSpace(workingDirectory) ? Path.GetDirectoryName(toolPath) : workingDirectory;
+                if (request.Environment != null)
+                    foreach (KeyValuePair<string, string> pair in request.Environment)
+                        SetEnvironmentVariable(direct.EnvironmentVariables, pair.Key, pair.Value ?? "");
+                return direct;
+            }
+
             string comSpec = Environment.GetEnvironmentVariable("ComSpec");
             if (string.IsNullOrWhiteSpace(comSpec))
                 comSpec = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "cmd.exe");

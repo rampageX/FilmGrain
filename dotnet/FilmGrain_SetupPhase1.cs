@@ -40,7 +40,7 @@ namespace FilmGrainStudioPreview
                 form.Text = test ? "设置测试模式 - 首次运行设置" : "Film Grain Studio - 首次运行设置";
                 form.Width = 1020; form.Height = 495; form.StartPosition = FormStartPosition.CenterParent;
                 form.FormBorderStyle = FormBorderStyle.FixedDialog; form.MaximizeBox = false;
-                Label header = new Label { Left = 20, Top = 15, Width = 975, Height = 52, Text = test ? "测试模式：初次扫描模拟缺失。指定路径或刷新后进行真实验证。\r\n测试模式禁止安装；配置只保存在本次运行的临时 INI。" : "优先复用现有工具；下载的新工具放在 FGS\\_Dependencies。60 fps 插帧可选。\r\n下载与安装请在复制出的完整 FGS 目录中测试；成功后窗口自动关闭。" };
+                Label header = new Label { Left = 20, Top = 15, Width = 975, Height = 52, Text = test ? "测试模式：初次扫描模拟缺失。指定路径或刷新后进行真实验证。\r\n测试模式禁止安装；配置只保存在本次运行的临时 INI。" : "优先复用现有工具；下载的新工具放在 FGS\\_Dependencies。OpenSVPFlow 插帧可选。\r\n下载与安装请在复制出的完整 FGS 目录中测试；成功后窗口自动关闭。" };
                 form.Controls.Add(header);
                 Label ff = new Label { Left = 20, Top = 78, Width = 460, Height = 44 };
                 Label grav = new Label { Left = 20, Top = 140, Width = 460, Height = 44 };
@@ -55,35 +55,38 @@ namespace FilmGrainStudioPreview
                     if (Exists(pipe)) simulatedSvp = false;
                     ff.Text = "FFmpeg + ffprobe（必需）：" + (simulatedFf ? "模拟缺失" : Ffmpeg(c) ? "可用" : "缺失") + "\r\n" + c.Get("FFMPEG_DIR");
                     grav.Text = "grav1synth（AV1 颗粒）：" + (simulatedGrav ? "模拟缺失" : Grav(c) ? "可用" : "缺失") + "\r\n" + c.Get("GRAV1SYNTH");
-                    svp.Text = "OpenSVPFlow（可选 60 fps）：" + (simulatedSvp ? "模拟缺失" : Exists(pipe) ? "已检测到 vspipe；实际能力由硬件检测确认" : "未安装") + "\r\n默认使用 FGS 内的 Python；勾选下方选项才检测系统 Python。";
+                    svp.Text = "OpenSVPFlow（可选）：" + (simulatedSvp ? "模拟缺失" : Exists(pipe) ? "已检测到 vspipe；实际能力由硬件检测确认" : "未安装") + "\r\n默认使用 FGS 内的 Python；勾选下方选项才检测系统 Python。";
                 };
                 string ffPath = FfmpegOnPath();
-                Label proxyLabel = new Label { Left = 20, Top = 312, Width = 470, Height = 22, Text = "下载代理（可选，HTTP/Mixed 端口；仅本次安装使用）：" };
-                TextBox proxyInput = new TextBox { Left = 500, Top = 308, Width = 470, Text = Environment.GetEnvironmentVariable("FGS_SETUP_PROXY") ?? "" };
+                string configuredProxy = c.Get("NETWORK_PROXY_MODE").Equals("CUSTOM", StringComparison.OrdinalIgnoreCase) ? c.Get("NETWORK_PROXY_URL") : "";
+                if (configuredProxy.Length == 0) configuredProxy = Environment.GetEnvironmentVariable("FGS_SETUP_PROXY") ?? Environment.GetEnvironmentVariable("HTTPS_PROXY") ?? Environment.GetEnvironmentVariable("https_proxy") ?? "";
+                Label proxyLabel = new Label { Left = 20, Top = 312, Width = 470, Height = 22, Text = "FGS 网络代理（可选；留空使用系统设置）：" };
+                TextBox proxyInput = new TextBox { Left = 500, Top = 308, Width = 470, Text = configuredProxy };
                 CheckBox useSystemPython = new CheckBox { Left = 500, Top = 268, Width = 470, Height = 29, Text = "使用系统 Python（需 3.12+、能创建 venv；默认不使用）", Checked = false };
                 form.Controls.Add(proxyLabel); form.Controls.Add(proxyInput); form.Controls.Add(useSystemPython);
                 bool installing = false;
+                Action<string> saveProxy = delegate(string value) {
+                    string trimmed = (value ?? "").Trim();
+                    string mode = String.IsNullOrWhiteSpace(trimmed) ? NetworkProxyCore.SystemMode : NetworkProxyCore.CustomMode;
+                    string normalized = "", error = "";
+                    if (mode == NetworkProxyCore.CustomMode && !NetworkProxyCore.TryValidateProxy(trimmed, out normalized, out error)) throw new InvalidDataException(error);
+                    c.Save(new System.Collections.Generic.Dictionary<string, string> { { "NETWORK_PROXY_MODE", mode }, { "NETWORK_PROXY_URL", normalized } });
+                    NetworkProxyCore.Apply(mode, normalized);
+                };
                 form.FormClosing += delegate(object sender, FormClosingEventArgs e) { if (installing) { e.Cancel = true; MessageBox.Show(form, "请等待安装窗口结束，失败时先按回车关闭该窗口。", "安装进行中"); } };
                 Action<string> install = delegate(string tool) {
                     if (test) { MessageBox.Show(form, "测试模式只验证界面和路径。真实安装请复制 FGS 目录后普通启动。", "设置测试模式"); return; }
                     if (installing) { MessageBox.Show(form, "当前安装尚未结束。"); return; }
                     if (MessageBox.Show(form, "将在当前 FGS 目录安装 " + tool + "。确认当前目录是测试副本？\r\n不会修改系统 PATH 或已有 Python。", "真实安装", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
                     string proxy = proxyInput.Text.Trim();
-                    if (proxy.Length > 0) {
-                        Uri parsed;
-                        if (!Uri.TryCreate(proxy, UriKind.Absolute, out parsed) ||
-                            (parsed.Scheme != "http" && parsed.Scheme != "https") ||
-                            parsed.UserInfo.Length > 0 || proxy.IndexOf('"') >= 0) {
-                            MessageBox.Show(form, "请输入不含账号密码的 HTTP 代理地址，例如 http://127.0.0.1:7890。SOCKS 专用端口不适用。");
-                            return;
-                        }
-                    }
+                    try { saveProxy(proxy); } catch (Exception ex) { MessageBox.Show(form, ex.Message); return; }
                     string script = Path.Combine(root, "dotnet", "Setup_Dependencies.ps1");
                     if (!Exists(script)) { MessageBox.Show(form, "找不到安装脚本：" + script); return; }
                     try {
                         ProcessStartInfo info = new ProcessStartInfo();
                         info.FileName = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
                         info.Arguments = "-NoProfile -ExecutionPolicy Bypass -File \"" + script + "\" -Tool " + tool +
+                            " -ProxyMode " + (proxy.Length > 0 ? "CUSTOM" : "SYSTEM") +
                             (proxy.Length > 0 ? " -ProxyUrl \"" + proxy + "\"" : "") +
                             (tool == "OpenSVPFlow" && useSystemPython.Checked ? " -UseSystemPython" : "") + " -PauseOnFailure";
                         info.UseShellExecute = true;
@@ -127,7 +130,7 @@ namespace FilmGrainStudioPreview
                 Button refreshButton = new Button { Left = 660, Top = 209, Width = 150, Text = "刷新检测" };
                 refreshButton.Click += delegate { simulatedFf = false; simulatedGrav = false; simulatedSvp = false; refresh(); };
                 Button done = new Button { Left = 675, Top = 382, Width = 145, Text = "保存并继续" };
-                done.Click += delegate { if (installing) { MessageBox.Show(form, "请等待安装结束。"); return; } if (!Ffmpeg(c)) MessageBox.Show(form, "FFmpeg / ffprobe 尚未就绪，编码功能暂不可用。"); else if (!test) c.SaveValue("SETUP_VERSION", Version); form.Close(); };
+                done.Click += delegate { if (installing) { MessageBox.Show(form, "请等待安装结束。"); return; } try { saveProxy(proxyInput.Text); } catch (Exception ex) { MessageBox.Show(form, ex.Message); return; } if (!Ffmpeg(c)) MessageBox.Show(form, "FFmpeg / ffprobe 尚未就绪，编码功能暂不可用。"); else if (!test) c.SaveValue("SETUP_VERSION", Version); form.Close(); };
                 Button later = new Button { Left = 830, Top = 382, Width = 140, Text = "稍后设置" };
                 later.Click += delegate { form.Close(); };
                 form.Controls.Add(ffChoose); form.Controls.Add(ffPathChoice); form.Controls.Add(ffInstall); form.Controls.Add(gravChoose); form.Controls.Add(gravInstall);

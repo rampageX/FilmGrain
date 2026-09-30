@@ -1,9 +1,19 @@
 ﻿param([string]$PythonExe = '', [switch]$SkipUserConfig)
 $ErrorActionPreference = "Stop"
 $WebProxy = @{}
-if ($env:FGS_SETUP_PROXY) {
+if ($env:FGS_PROXY_MODE -eq 'DIRECT') {
+    [Net.WebRequest]::DefaultWebProxy = $null
+    $env:PIP_PROXY = ''; $env:NO_PROXY = ''; $env:no_proxy = ''
+} elseif ($env:FGS_SETUP_PROXY) {
     $WebProxy['Proxy'] = $env:FGS_SETUP_PROXY
     $env:PIP_PROXY = $env:FGS_SETUP_PROXY
+    $env:NO_PROXY = ''; $env:no_proxy = ''
+} else {
+    $SystemProxy = $env:HTTPS_PROXY
+    if (-not $SystemProxy) { $SystemProxy = $env:https_proxy }
+    if (-not $SystemProxy) { $SystemProxy = $env:HTTP_PROXY }
+    if (-not $SystemProxy) { $SystemProxy = $env:http_proxy }
+    if ($SystemProxy) { $WebProxy['Proxy'] = $SystemProxy; $env:PIP_PROXY = $SystemProxy; $env:NO_PROXY = ''; $env:no_proxy = '' }
 }
 
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)

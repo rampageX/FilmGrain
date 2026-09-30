@@ -30,23 +30,11 @@ if (-not $FFmpeg) { throw 'ffmpeg.exe not found for FilmGrainSimplified noise pr
 $templatePath = Join-Path $Root 'FilmGrainSimplified.hook.template'
 $fallback = Join-Path $Root 'NoiseFallback_512x512_RGBA8.rgba'
 $raw = Join-Path $Generated 'Noise_512x512_RGBA8.rgba'
-$png = Join-Path $Generated 'LDR_RGBA_0.png'
-$source = 'FALLBACK_PERF_ONLY'
+$source = 'BUNDLED_FALLBACK'
 
 if (-not (Test-Path -LiteralPath $raw) -or (Get-Item -LiteralPath $raw).Length -ne 1048576) {
     Copy-Item -LiteralPath $fallback -Destination $raw -Force
-    try {
-        $url = 'https://raw.githubusercontent.com/kanzwataru/filmgrain-simplified/master/resources/LDR_RGBA_0.png'
-        Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $png -TimeoutSec 20
-        & $FFmpeg -hide_banner -loglevel error -y -i $png -frames:v 1 -pix_fmt rgba -f rawvideo $raw
-        if ($LASTEXITCODE -ne 0) { throw 'FFmpeg failed to decode upstream noise PNG.' }
-        if ((Get-Item -LiteralPath $raw).Length -ne 1048576) { throw 'Unexpected upstream noise size.' }
-        $source = 'ORIGINAL_UPSTREAM_LDR_RGBA_0'
-    } catch {
-        Copy-Item -LiteralPath $fallback -Destination $raw -Force
-        Write-Host ('[FGSIM WARN] Original upstream noise unavailable: ' + $_.Exception.Message)
-        Write-Host '[FGSIM WARN] Using bundled fallback texture. Visual appearance may differ from the validated upstream-noise tests.'
-    }
+    Write-Host '[FGSIM] Using bundled local texture. Online texture updates are started from the .NET interface.'
 } else {
     $sourceFile = Join-Path $Generated 'NOISE_SOURCE.txt'
     if (Test-Path -LiteralPath $sourceFile) {

@@ -1,13 +1,15 @@
 ﻿param(
     [ValidateSet('FFmpeg','Grav1synth','Python','OpenSVPFlow')]
     [string]$Tool,
+    [ValidateSet('SYSTEM','CUSTOM','DIRECT')]
+    [string]$ProxyMode = 'SYSTEM',
     [string]$ProxyUrl = '',
     [switch]$UseSystemPython,
     [switch]$PauseOnFailure
 )
 $ErrorActionPreference = 'Stop'
 $WebProxy = @{}
-if ($ProxyUrl) {
+if ($ProxyMode -eq 'CUSTOM' -or $ProxyUrl) {
     $parsed = $null
     if (-not [Uri]::TryCreate($ProxyUrl, [UriKind]::Absolute, [ref]$parsed) -or
         $parsed.Scheme -notin @('http','https') -or -not $parsed.Host -or $parsed.UserInfo) {
@@ -15,7 +17,24 @@ if ($ProxyUrl) {
     }
     $WebProxy['Proxy'] = $ProxyUrl
     $env:FGS_SETUP_PROXY = $ProxyUrl
+    $env:FGS_PROXY_MODE = 'CUSTOM'
+    $env:HTTP_PROXY = $ProxyUrl; $env:HTTPS_PROXY = $ProxyUrl; $env:ALL_PROXY = $ProxyUrl
+    $env:http_proxy = $ProxyUrl; $env:https_proxy = $ProxyUrl; $env:all_proxy = $ProxyUrl
+    $env:PIP_PROXY = $ProxyUrl; $env:NO_PROXY = ''; $env:no_proxy = ''
     Write-Host ('Using proxy: ' + $ProxyUrl)
+} elseif ($ProxyMode -eq 'DIRECT') {
+    [Net.WebRequest]::DefaultWebProxy = $null
+    $env:FGS_PROXY_MODE = 'DIRECT'; $env:FGS_SETUP_PROXY = ''; $env:PIP_PROXY = ''
+    $env:HTTP_PROXY = ''; $env:HTTPS_PROXY = ''; $env:ALL_PROXY = ''
+    $env:http_proxy = ''; $env:https_proxy = ''; $env:all_proxy = ''
+    $env:NO_PROXY = ''; $env:no_proxy = ''
+} else {
+    $env:FGS_PROXY_MODE = 'SYSTEM'
+    $systemProxy = $env:HTTPS_PROXY
+    if (-not $systemProxy) { $systemProxy = $env:https_proxy }
+    if (-not $systemProxy) { $systemProxy = $env:HTTP_PROXY }
+    if (-not $systemProxy) { $systemProxy = $env:http_proxy }
+    if ($systemProxy) { $WebProxy['Proxy'] = $systemProxy; $env:FGS_SETUP_PROXY = $systemProxy; $env:PIP_PROXY = $systemProxy; $env:NO_PROXY = ''; $env:no_proxy = '' }
 }
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $Root = Split-Path -Parent $PSScriptRoot

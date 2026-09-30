@@ -152,7 +152,7 @@ call :SELECT_FRAMING
 call :SELECT_DEINTERLACE
 call :SELECT_FPS
 set "REQUESTED_FPS_MODE=%FPS_MODE%"
-if /i "%FPS_MODE%"=="SVP60" call :CHECK_OPEN_SVP_TOOLS
+if /i "%FPS_MODE%"=="SVP" call :CHECK_OPEN_SVP_TOOLS
 if errorlevel 1 goto FATAL_END
 call :SELECT_CONTAINER
 call :SELECT_HDR_POLICY
@@ -707,7 +707,7 @@ echo Output frame rate:
 echo.
 echo   [1] Keep source FPS for progressive input
 echo   [2] Auto cinematic FPS for progressive input   ^(default^)
-if "%FG_CAP_SVP_GPU%"=="1" echo   [3] OpenSVPFlow GPU interpolation - 60 fps
+if "%FG_CAP_SVP_GPU%"=="1" echo   [3] OpenSVPFlow GPU interpolation - configurable target FPS
 if not "%FG_CAP_SVP_GPU%"=="1" echo   [3] OpenSVPFlow GPU interpolation - runtime unavailable
 echo.
 echo       Auto deinterlace and OpenSVPFlow are mutually exclusive in this
@@ -725,7 +725,7 @@ if "%FG_STUDIO_MODE%"=="1" (
     set /p "FPS_SEL=Select [1-3, default 2]: "
 )
 if "%FPS_SEL%"=="3" (
-    set "FPS_MODE=SVP60"
+    set "FPS_MODE=SVP"
     set "OPEN_SVP_ALGO=13"
     set "OPEN_SVP_ANALYSE=ENCODEGUI"
     set "OPEN_SVP_SCENE_MODE=0"
@@ -738,7 +738,7 @@ if "%FPS_SEL%"=="3" (
     if "%OPEN_SVP_SCENE_MODE%"=="3" set "OPEN_SVP_SCENE_LABEL=Adaptive"
     set "OPEN_SVP_ANALYSE_LABEL=EncodeGUI Analyse"
     if /i "%OPEN_SVP_ANALYSE%"=="BASE" set "OPEN_SVP_ANALYSE_LABEL=Baseline Analyse"
-    set "FPS_LABEL=OpenSVPFlow 60 fps for progressive input / interlaced input uses field-rate deinterlace"
+    set "FPS_LABEL=OpenSVPFlow configurable target FPS for progressive input / interlaced input uses field-rate deinterlace"
     exit /b 0
 )
 if "%FPS_SEL%"=="1" (
@@ -1506,41 +1506,41 @@ set "HEVC_SUFFIX="
 
 if "%PSEL%"=="1"  set "GRAIN_PATTERN=CT 35mm Grain 4K DCI.mov"
 if "%PSEL%"=="1"  set "GRAIN_LABEL=Cinema Tools 35mm 4K DCI"
-if "%PSEL%"=="1"  set "HEVC_SUFFIX=_FG_CT35_V20_HEVC"
+if "%PSEL%"=="1"  set "HEVC_SUFFIX=_FG_CT35_STR_HEVC"
 if "%PSEL%"=="2"  set "GRAIN_PATTERN=Filmgrain_4KDCI_35mm_24fps.mov"
 if "%PSEL%"=="2"  set "GRAIN_LABEL=TDCAT 35mm Light"
-if "%PSEL%"=="2"  set "HEVC_SUFFIX=_FG_35L_V20_HEVC"
+if "%PSEL%"=="2"  set "HEVC_SUFFIX=_FG_35L_STR_HEVC"
 if "%PSEL%"=="3"  set "GRAIN_PATTERN=Filmgrain_4KDCI_Super_35mm_24fps.mov"
 if "%PSEL%"=="3"  set "GRAIN_LABEL=TDCAT Super 35 Light"
-if "%PSEL%"=="3"  set "HEVC_SUFFIX=_FG_S35L_V20_HEVC"
+if "%PSEL%"=="3"  set "HEVC_SUFFIX=_FG_S35L_STR_HEVC"
 if "%PSEL%"=="4"  set "GRAIN_PATTERN=Filmgrain_4KDCI_16mm_24fps.mov"
 if "%PSEL%"=="4"  set "GRAIN_LABEL=TDCAT 16mm Light"
-if "%PSEL%"=="4"  set "HEVC_SUFFIX=_FG_16L_V20_HEVC"
+if "%PSEL%"=="4"  set "HEVC_SUFFIX=_FG_16L_STR_HEVC"
 if "%PSEL%"=="5"  set "GRAIN_PATTERN=Filmgrain_4KDCI_Super_16mm_24fps.mov"
 if "%PSEL%"=="5"  set "GRAIN_LABEL=TDCAT Super 16 Light"
-if "%PSEL%"=="5"  set "HEVC_SUFFIX=_FG_S16L_V20_HEVC"
+if "%PSEL%"=="5"  set "HEVC_SUFFIX=_FG_S16L_STR_HEVC"
 if "%PSEL%"=="6"  set "GRAIN_PATTERN=Filmgrain_4KDCI_8mm_24fps.mov"
 if "%PSEL%"=="6"  set "GRAIN_LABEL=TDCAT 8mm Light"
-if "%PSEL%"=="6"  set "HEVC_SUFFIX=_FG_8L_V20_HEVC"
+if "%PSEL%"=="6"  set "HEVC_SUFFIX=_FG_8L_STR_HEVC"
 if "%PSEL%"=="7"  set "GRAIN_PATTERN=Filmgrain_4KDCI_35mm_24fps_Heavy.mov"
 if "%PSEL%"=="7"  set "GRAIN_LABEL=TDCAT 35mm Heavy"
-if "%PSEL%"=="7"  set "HEVC_SUFFIX=_FG_35H_V20_HEVC"
+if "%PSEL%"=="7"  set "HEVC_SUFFIX=_FG_35H_STR_HEVC"
 if "%PSEL%"=="8"  set "GRAIN_PATTERN=Filmgrain_4KDCI_Super_35mm_24fps_Heavy.mov"
 if "%PSEL%"=="8"  set "GRAIN_LABEL=TDCAT Super 35 Heavy"
-if "%PSEL%"=="8"  set "HEVC_SUFFIX=_FG_S35H_V20_HEVC"
+if "%PSEL%"=="8"  set "HEVC_SUFFIX=_FG_S35H_STR_HEVC"
 if "%PSEL%"=="9"  set "GRAIN_PATTERN=Filmgrain_4KDCI_16mm_24fps_Heavy.mov"
 if "%PSEL%"=="9"  set "GRAIN_LABEL=TDCAT 16mm Heavy"
-if "%PSEL%"=="9"  set "HEVC_SUFFIX=_FG_16H_V20_HEVC"
+if "%PSEL%"=="9"  set "HEVC_SUFFIX=_FG_16H_STR_HEVC"
 if "%PSEL%"=="10" set "GRAIN_PATTERN=Filmgrain_4KDCI_Super_16mm_24fps_Heavy.mov"
 if "%PSEL%"=="10" set "GRAIN_LABEL=TDCAT Super 16 Heavy"
-if "%PSEL%"=="10" set "HEVC_SUFFIX=_FG_S16H_V20_HEVC"
+if "%PSEL%"=="10" set "HEVC_SUFFIX=_FG_S16H_STR_HEVC"
 if "%PSEL%"=="11" set "GRAIN_PATTERN=Filmgrain_4KDCI_8mm_24fps_Heavy.mov"
 if "%PSEL%"=="11" set "GRAIN_LABEL=TDCAT 8mm Heavy"
-if "%PSEL%"=="11" set "HEVC_SUFFIX=_FG_8H_V20_HEVC"
+if "%PSEL%"=="11" set "HEVC_SUFFIX=_FG_8H_STR_HEVC"
 
 if not defined GRAIN_PATTERN set "GRAIN_PATTERN=CT 35mm Grain 4K DCI.mov"
 if not defined GRAIN_LABEL set "GRAIN_LABEL=Cinema Tools 35mm 4K DCI"
-if not defined HEVC_SUFFIX set "HEVC_SUFFIX=_FG_CT35_V20_HEVC"
+if not defined HEVC_SUFFIX set "HEVC_SUFFIX=_FG_CT35_STR_HEVC"
 
 set "GRAIN_FIND=%TEMP%\FilmGrain_find_%RANDOM%_%RANDOM%.txt"
 dir /b /s /a-d "%GRAIN_ROOT%\%GRAIN_PATTERN%" > "%GRAIN_FIND%" 2>nul
@@ -1573,19 +1573,19 @@ if not exist "%GRAIN%" (
 )
 for %%G in ("%GRAIN%") do set "GRAIN_PATTERN=%%~nxG"
 for %%G in ("%GRAIN%") do set "GRAIN_LABEL=%%~nG"
-set "HEVC_SUFFIX=_FG_SCAN_V20_HEVC"
-if defined FG_HEVC_GRAIN_TAG set "HEVC_SUFFIX=_FG_%FG_HEVC_GRAIN_TAG%_V20_HEVC"
-if /i "%GRAIN_PATTERN%"=="CT 35mm Grain 4K DCI.mov" set "HEVC_SUFFIX=_FG_CT35_V20_HEVC"
-if /i "%GRAIN_PATTERN%"=="Filmgrain_4KDCI_35mm_24fps.mov" set "HEVC_SUFFIX=_FG_35L_V20_HEVC"
-if /i "%GRAIN_PATTERN%"=="Filmgrain_4KDCI_Super_35mm_24fps.mov" set "HEVC_SUFFIX=_FG_S35L_V20_HEVC"
-if /i "%GRAIN_PATTERN%"=="Filmgrain_4KDCI_16mm_24fps.mov" set "HEVC_SUFFIX=_FG_16L_V20_HEVC"
-if /i "%GRAIN_PATTERN%"=="Filmgrain_4KDCI_Super_16mm_24fps.mov" set "HEVC_SUFFIX=_FG_S16L_V20_HEVC"
-if /i "%GRAIN_PATTERN%"=="Filmgrain_4KDCI_8mm_24fps.mov" set "HEVC_SUFFIX=_FG_8L_V20_HEVC"
-if /i "%GRAIN_PATTERN%"=="Filmgrain_4KDCI_35mm_24fps_Heavy.mov" set "HEVC_SUFFIX=_FG_35H_V20_HEVC"
-if /i "%GRAIN_PATTERN%"=="Filmgrain_4KDCI_Super_35mm_24fps_Heavy.mov" set "HEVC_SUFFIX=_FG_S35H_V20_HEVC"
-if /i "%GRAIN_PATTERN%"=="Filmgrain_4KDCI_16mm_24fps_Heavy.mov" set "HEVC_SUFFIX=_FG_16H_V20_HEVC"
-if /i "%GRAIN_PATTERN%"=="Filmgrain_4KDCI_Super_16mm_24fps_Heavy.mov" set "HEVC_SUFFIX=_FG_S16H_V20_HEVC"
-if /i "%GRAIN_PATTERN%"=="Filmgrain_4KDCI_8mm_24fps_Heavy.mov" set "HEVC_SUFFIX=_FG_8H_V20_HEVC"
+set "HEVC_SUFFIX=_FG_SCAN_STR_HEVC"
+if defined FG_HEVC_GRAIN_TAG set "HEVC_SUFFIX=_FG_%FG_HEVC_GRAIN_TAG%_STR_HEVC"
+if /i "%GRAIN_PATTERN%"=="CT 35mm Grain 4K DCI.mov" set "HEVC_SUFFIX=_FG_CT35_STR_HEVC"
+if /i "%GRAIN_PATTERN%"=="Filmgrain_4KDCI_35mm_24fps.mov" set "HEVC_SUFFIX=_FG_35L_STR_HEVC"
+if /i "%GRAIN_PATTERN%"=="Filmgrain_4KDCI_Super_35mm_24fps.mov" set "HEVC_SUFFIX=_FG_S35L_STR_HEVC"
+if /i "%GRAIN_PATTERN%"=="Filmgrain_4KDCI_16mm_24fps.mov" set "HEVC_SUFFIX=_FG_16L_STR_HEVC"
+if /i "%GRAIN_PATTERN%"=="Filmgrain_4KDCI_Super_16mm_24fps.mov" set "HEVC_SUFFIX=_FG_S16L_STR_HEVC"
+if /i "%GRAIN_PATTERN%"=="Filmgrain_4KDCI_8mm_24fps.mov" set "HEVC_SUFFIX=_FG_8L_STR_HEVC"
+if /i "%GRAIN_PATTERN%"=="Filmgrain_4KDCI_35mm_24fps_Heavy.mov" set "HEVC_SUFFIX=_FG_35H_STR_HEVC"
+if /i "%GRAIN_PATTERN%"=="Filmgrain_4KDCI_Super_35mm_24fps_Heavy.mov" set "HEVC_SUFFIX=_FG_S35H_STR_HEVC"
+if /i "%GRAIN_PATTERN%"=="Filmgrain_4KDCI_16mm_24fps_Heavy.mov" set "HEVC_SUFFIX=_FG_16H_STR_HEVC"
+if /i "%GRAIN_PATTERN%"=="Filmgrain_4KDCI_Super_16mm_24fps_Heavy.mov" set "HEVC_SUFFIX=_FG_S16H_STR_HEVC"
+if /i "%GRAIN_PATTERN%"=="Filmgrain_4KDCI_8mm_24fps_Heavy.mov" set "HEVC_SUFFIX=_FG_8H_STR_HEVC"
 
 :HEVC_GRAIN_RESOLVED
 
@@ -1630,10 +1630,11 @@ if "%GSEL%"=="1" set "GRAIN_OPACITY=0.65"
 if "%GSEL%"=="2" set "GRAIN_OPACITY=0.75"
 if "%GSEL%"=="3" set "GRAIN_OPACITY=0.85"
 if "%GSEL%"=="4" set "GRAIN_OPACITY=1.00"
+set "HEVC_SUFFIX=%HEVC_SUFFIX:_STR_HEVC=_STR85_HEVC%"
+if "%GSEL%"=="1" set "HEVC_SUFFIX=%HEVC_SUFFIX:_STR85_HEVC=_STR65_HEVC%"
+if "%GSEL%"=="2" set "HEVC_SUFFIX=%HEVC_SUFFIX:_STR85_HEVC=_STR75_HEVC%"
+if "%GSEL%"=="4" set "HEVC_SUFFIX=%HEVC_SUFFIX:_STR85_HEVC=_STR100_HEVC%"
 
-if /i "%SPEED_LABEL%"=="FAST" (
-    set "HEVC_SUFFIX=%HEVC_SUFFIX:_V20_HEVC=_V20FAST_HEVC%"
-)
 exit /b 0
 
 
@@ -2200,9 +2201,9 @@ set "UPLOAD_BUFSIZE=6x auto"
 set "UPLOAD_FILE_TAG=X264AUTO"
 set "UPLOAD_CODEC_ARGS="
 if /i "%MODE%"=="AV1" set "TOTAL_STAGES=4"
-if /i "%FPS_MODE%"=="SVP60" (
+if /i "%FPS_MODE%"=="SVP" (
     echo.
-    echo H.264 upload copy: OpenSVPFlow 60 fps main output will be reused.
+    echo H.264 upload copy: OpenSVPFlow selected target-FPS main output will be reused.
 )
 
 echo.
@@ -2681,7 +2682,7 @@ echo Speed mode    : %SPEED_LABEL%
 echo Bitrate       : %BITRATE%
 echo Max bitrate   : %MAXRATE%
 echo Frame rate    : %FPS_LABEL%
-if /i "%FPS_MODE%"=="SVP60" echo Interpolation : OpenSVPFlow GPU / %OPEN_SVP_SCENE_LABEL% / Algo %OPEN_SVP_ALGO% / %OPEN_SVP_ANALYSE_LABEL% / Mask %OPEN_SVP_MASK_AREA%
+if /i "%FPS_MODE%"=="SVP" echo Interpolation : OpenSVPFlow GPU / %OPEN_SVP_SCENE_LABEL% / Algo %OPEN_SVP_ALGO% / %OPEN_SVP_ANALYSE_LABEL% / Mask %OPEN_SVP_MASK_AREA%
 echo Deinterlace   : %DEINT_LABEL%
 echo Cinema frame  : %FRAME_LABEL%
 echo Container     : %CONTAINER_LABEL%
@@ -2968,7 +2969,7 @@ if "%HDR_ACTIVE%"=="1" if /i "%HDR_POLICY%"=="AUTO" if /i "%MODE%"=="X264" set "
 if "%HDR_ACTIVE%"=="1" if /i "%HDR_POLICY%"=="AUTO" if "%LUT_ENABLED%"=="1" set "HDR_CONVERT_TO_SDR=1"
 if "%HDR_ACTIVE%"=="1" if /i "%HDR_POLICY%"=="AUTO" if "%COLOR_ENABLED%"=="1" set "HDR_CONVERT_TO_SDR=1"
 if "%HDR_ACTIVE%"=="1" if /i "%HDR_POLICY%"=="AUTO" if "%ENABLE_UPLOAD_BAKE%"=="1" set "HDR_CONVERT_TO_SDR=1"
-if "%HDR_ACTIVE%"=="1" if /i "%HDR_POLICY%"=="AUTO" if /i "%REQUESTED_FPS_MODE%"=="SVP60" set "HDR_CONVERT_TO_SDR=1"
+if "%HDR_ACTIVE%"=="1" if /i "%HDR_POLICY%"=="AUTO" if /i "%REQUESTED_FPS_MODE%"=="SVP" set "HDR_CONVERT_TO_SDR=1"
 
 call :CHECK_TEMP_SPACE
 if errorlevel 1 (
@@ -3055,7 +3056,7 @@ if /i "%GRAIN_ENGINE%"=="FGSIM" (
 
 set "FPS_MODE=%REQUESTED_FPS_MODE%"
 set "SVP_FILE_BYPASS=0"
-if "%HDR_ACTIVE%"=="1" if /i "%FPS_MODE%"=="SVP60" (
+if "%HDR_ACTIVE%"=="1" if /i "%FPS_MODE%"=="SVP" (
     set "FPS_MODE=HDRKEEP"
     set "SVP_FILE_BYPASS=1"
     echo.
@@ -3063,7 +3064,7 @@ if "%HDR_ACTIVE%"=="1" if /i "%FPS_MODE%"=="SVP60" (
     echo       Current OpenSVPFlow integration uses YUV420P8 and is not HDR-preserving.
     echo       Source frame rate and the 10-bit HDR path are kept instead.
 )
-if /i "%FPS_MODE%"=="SVP60" (
+if /i "%FPS_MODE%"=="SVP" (
     call :IS_CURRENT_INPUT_INTERLACED
     if not errorlevel 1 (
         if /i not "%DEINT_MODE%"=="AUTO" (
@@ -3090,7 +3091,7 @@ set "FPS_FILTER="
 set "FPS_DECISION=Source FPS"
 set "FPS_SUFFIX="
 if "%FPS_MODE%"=="AUTO" call :AUTO_CINEMA_FPS
-if /i "%FPS_MODE%"=="SVP60" (
+if /i "%FPS_MODE%"=="SVP" (
     call :VALIDATE_OPEN_SVP_INPUT
     if errorlevel 1 (
         set /a FAIL_COUNT+=1
@@ -3103,11 +3104,28 @@ if /i "%FPS_MODE%"=="SVP60" (
         shift
         goto PROCESS_NEXT
     )
-    set "OUT_FPS=60"
+    set "SVP_TARGET_NUM="
+    set "SVP_TARGET_DEN="
+    set "SVP_TARGET_LABEL="
+    for /f "tokens=1-3 delims=|" %%A in ('powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0FilmGrain_InterpolationRate.ps1"') do (
+        set "SVP_TARGET_NUM=%%A"
+        set "SVP_TARGET_DEN=%%B"
+        set "SVP_TARGET_LABEL=%%C"
+    )
+    if not defined SVP_TARGET_NUM (
+        echo.
+        echo ERROR: Invalid interpolation target frame rate. Use a positive FPS, a ratio, or a source multiplier such as 1.5x.
+        set "LAST_ERROR_STAGE=OpenSVPFlow target FPS"
+        set /a FAIL_COUNT+=1
+        shift
+        goto PROCESS_NEXT
+    )
     set "FPS_FILTER="
-    set "FPS_DECISION=OpenSVPFlow 60 fps / %OPEN_SVP_SCENE_LABEL% / Algo %OPEN_SVP_ALGO% / %OPEN_SVP_ANALYSE_LABEL% / Mask %OPEN_SVP_MASK_AREA%"
-    set "FPS_SUFFIX=_SVP60"
 )
+
+if /i "%FPS_MODE%"=="SVP" set "OUT_FPS=%SVP_TARGET_NUM%/%SVP_TARGET_DEN%"
+if /i "%FPS_MODE%"=="SVP" set "FPS_DECISION=OpenSVPFlow %OUT_FPS% fps / %OPEN_SVP_SCENE_LABEL% / Algo %OPEN_SVP_ALGO% / %OPEN_SVP_ANALYSE_LABEL% / Mask %OPEN_SVP_MASK_AREA%"
+if /i "%FPS_MODE%"=="SVP" set "FPS_SUFFIX=_SVP%SVP_TARGET_LABEL%"
 
 set "ACTIVE_DEINT_FILTER="
 set "ACTIVE_DEINT_HW_ARGS="
@@ -3230,7 +3248,41 @@ if not defined FPS set "FPS=30000/1001"
 if "%FPS%"=="0/0" set "FPS=30000/1001"
 if /i "%DURATION%"=="N/A" set "DURATION="
 if not defined FIELD_ORDER set "FIELD_ORDER=unknown"
+if /i "%FIELD_ORDER%"=="unknown" call :PROBE_FIELD_ORDER_FRAMES
 call :CONFIGURE_HDR_INPUT
+exit /b 0
+
+:PROBE_FIELD_ORDER_FRAMES
+rem Some MP4 files omit stream field_order although decoded frames carry the flags.
+rem Limit decoding to 16 frames and require at least 75 percent interlaced.
+set "FG_FRAME_PROBE_FILE=%TEMP_JOB_ROOT%\FGU_frames_%RANDOM%_%RANDOM%.txt"
+"%FFPROBE%" -v error -select_streams v:0 -read_intervals "%%+#16" -show_frames -show_entries frame=interlaced_frame,top_field_first -of csv=p=0 "%INPUT%" > "%FG_FRAME_PROBE_FILE%" 2>nul
+if errorlevel 1 (
+    del /q "%FG_FRAME_PROBE_FILE%" >nul 2>&1
+    exit /b 0
+)
+set "FG_FRAME_TOTAL=0"
+set "FG_FRAME_INTERLACED=0"
+set "FG_FRAME_TOP=0"
+for /f "usebackq tokens=1,2 delims=," %%A in ("%FG_FRAME_PROBE_FILE%") do (
+    if "%%A"=="0" set /a "FG_FRAME_TOTAL+=1" >nul
+    if "%%A"=="1" (
+        set /a "FG_FRAME_TOTAL+=1" >nul
+        if "%%B"=="0" set /a "FG_FRAME_INTERLACED+=1" >nul
+        if "%%B"=="1" (
+            set /a "FG_FRAME_INTERLACED+=1" >nul
+            set /a "FG_FRAME_TOP+=1" >nul
+        )
+    )
+)
+del /q "%FG_FRAME_PROBE_FILE%" >nul 2>&1
+if %FG_FRAME_TOTAL% LSS 3 exit /b 0
+set /a "FG_FRAME_REQUIRED=(FG_FRAME_TOTAL*3+3)/4" >nul
+if %FG_FRAME_INTERLACED% LSS %FG_FRAME_REQUIRED% exit /b 0
+set "FIELD_ORDER=bb"
+set /a "FG_FRAME_TOP_DOUBLE=FG_FRAME_TOP*2" >nul
+if %FG_FRAME_TOP_DOUBLE% GEQ %FG_FRAME_INTERLACED% set "FIELD_ORDER=tt"
+echo INFO: Stream field_order was unknown; decoded frames indicate %FIELD_ORDER%.
 exit /b 0
 
 
@@ -3401,7 +3453,6 @@ rem ============================================================
 :RESOLVE_PIXEL_GRAIN_NAME
 rem Naming only: keep encoder/Grain selection and FFmpeg arguments unchanged.
 set "PIXEL_GRAIN_NAME=%HEVC_SUFFIX:_HEVC=%"
-set "PIXEL_GRAIN_NAME=%PIXEL_GRAIN_NAME:V20FAST=V20%"
 set "PIXEL_GRAIN_NAME=%PIXEL_GRAIN_NAME:_FAST=%"
 set "GRAIN_RC_NAME="
 if /i not "%GRAIN_MODE%"=="FGSIM" exit /b 0
@@ -3502,7 +3553,7 @@ set "SVP_GRAIN_FILTER=[2:v:0]fps=%OUT_FPS%,format=p010le,setpts=PTS-STARTPTS,hwu
 if "%GRAIN_SCALE_REQUIRED%"=="1" set "SVP_GRAIN_FILTER=%SVP_GRAIN_FILTER%,scale_vulkan=w=%WIDTH%:h=%HEIGHT%:scaler=bilinear"
 set "SVP_GRAIN_FILTER=%SVP_GRAIN_FILTER%[grainvk]"
 
-rem No-LUT mode keeps the verified V20 branch.
+rem No-LUT mode keeps the verified grain composition branch.
 set "BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%COLOR_FILTER%format=p010le,setpts=PTS-STARTPTS,hwupload[basevk]"
 if "%LUT_ENABLED%"=="1" set "BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%COLOR_FILTER%format=gbrp16le,setpts=PTS-STARTPTS,split=2[lutorig][lutsrc];[lutsrc]lut3d=file='%LUT_FILTER_PATH%':interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=p010le,hwupload[basevk]"
 
@@ -3527,13 +3578,13 @@ rem variable makes CMD reparse special filename characters such as ampersand.
 call :PREPARE_UPLOAD_SUBTITLE "%INDIR%"
 if errorlevel 1 exit /b 1
 pushd "%INDIR%"
-if /i "%FPS_MODE%"=="SVP60" goto HEVC_MAIN_OPEN_SVP
+if /i "%FPS_MODE%"=="SVP" goto HEVC_MAIN_OPEN_SVP
 "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk %MAIN_HWACCEL_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%FRAME_POST_FILTER%%MAIN_SUB_FILTER%%HDR_FRAME_FILTER%[vout]" -map "[vout]" %HEVC_STREAM_MAP_ARGS% -map_metadata 0 -map_chapters 0 -c:v hevc_nvenc -pix_fmt p010le -gpu %CUDA_DEVICE% -profile:v main10 -preset %PRESET% -tune hq -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% %HDR_ENCODE_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %HEVC_AUDIO_MUX_ARGS% %HEVC_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
 set "MAIN_RUN_RC=%ERRORLEVEL%"
 goto HEVC_MAIN_DONE
 
 :HEVC_MAIN_OPEN_SVP
-"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=60" --arg "target_den=1" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %SVP_SYNC_GLOBAL_ARGS% -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%SVP_GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%FRAME_POST_FILTER%%MAIN_SUB_FILTER%%HDR_FRAME_FILTER%[vout]" -map "[vout]" %SVP_HEVC_STREAM_MAP_ARGS% -map_metadata 1 -map_chapters 1 -c:v hevc_nvenc -pix_fmt p010le -gpu %CUDA_DEVICE% -profile:v main10 -preset %PRESET% -tune hq -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% %HDR_ENCODE_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %HEVC_AUDIO_MUX_ARGS% %HEVC_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
+"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=%SVP_TARGET_NUM%" --arg "target_den=%SVP_TARGET_DEN%" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %SVP_SYNC_GLOBAL_ARGS% -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%SVP_GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%FRAME_POST_FILTER%%MAIN_SUB_FILTER%%HDR_FRAME_FILTER%[vout]" -map "[vout]" %SVP_HEVC_STREAM_MAP_ARGS% -map_metadata 1 -map_chapters 1 -c:v hevc_nvenc -pix_fmt p010le -gpu %CUDA_DEVICE% -profile:v main10 -preset %PRESET% -tune hq -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% %HDR_ENCODE_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %HEVC_AUDIO_MUX_ARGS% %HEVC_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
 set "MAIN_RUN_RC=%ERRORLEVEL%"
 
 :HEVC_MAIN_DONE
@@ -3558,7 +3609,7 @@ if not exist "%OUTPUT%" (
 
 rem A CMD pipe can hide an FFmpeg-side failure behind VSPipe's exit status.
 rem Verify the OpenSVPFlow path; leave the stable non-SVP path unchanged.
-if /i "%FPS_MODE%"=="SVP60" (
+if /i "%FPS_MODE%"=="SVP" (
     "%FFPROBE%" -v error -select_streams v:0 -show_entries stream=codec_name -of csv=p=0 "%OUTPUT%" >nul 2>&1
     if errorlevel 1 (
         echo.
@@ -3618,13 +3669,13 @@ set "FGSIM_BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%COLOR_FILTER%for
 if "%LUT_ENABLED%"=="1" set "FGSIM_BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%COLOR_FILTER%format=gbrp16le,setpts=PTS-STARTPTS,split=2[lutorig][lutsrc];[lutsrc]lut3d=file='%LUT_FILTER_PATH%':interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=yuv420p[fgsimbase]"
 set "FGSIM_FILTER=%FGSIM_BASE_FILTER%;[fgsimbase]hwupload,libplacebo=format=yuv420p:custom_shader_path=%FGSIM_HOOK_FILTER_PATH%,hwdownload,format=yuv420p%FRAME_POST_FILTER%%MAIN_SUB_FILTER%,format=p010le[vout]"
 pushd "%INDIR%"
-if /i "%FPS_MODE%"=="SVP60" goto HEVC_FGSIM_OPEN_SVP
+if /i "%FPS_MODE%"=="SVP" goto HEVC_FGSIM_OPEN_SVP
 "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -i "%INPUT%" -filter_complex "%FGSIM_FILTER%" -map "[vout]" %HEVC_STREAM_MAP_ARGS% -map_metadata 0 -map_chapters 0 -c:v hevc_nvenc -pix_fmt p010le -gpu %CUDA_DEVICE% -profile:v main10 -preset %PRESET% -tune hq -rc vbr %FGSIM_RC_ARGS% -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %HEVC_AUDIO_MUX_ARGS% %HEVC_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
 set "MAIN_RUN_RC=%ERRORLEVEL%"
 goto HEVC_MAIN_DONE
 
 :HEVC_FGSIM_OPEN_SVP
-"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=60" --arg "target_den=1" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %SVP_SYNC_GLOBAL_ARGS% -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -filter_complex "%FGSIM_FILTER%" -map "[vout]" %SVP_HEVC_STREAM_MAP_ARGS% -map_metadata 1 -map_chapters 1 -c:v hevc_nvenc -pix_fmt p010le -gpu %CUDA_DEVICE% -profile:v main10 -preset %PRESET% -tune hq -rc vbr %FGSIM_RC_ARGS% -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %HEVC_AUDIO_MUX_ARGS% %HEVC_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
+"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=%SVP_TARGET_NUM%" --arg "target_den=%SVP_TARGET_DEN%" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %SVP_SYNC_GLOBAL_ARGS% -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -filter_complex "%FGSIM_FILTER%" -map "[vout]" %SVP_HEVC_STREAM_MAP_ARGS% -map_metadata 1 -map_chapters 1 -c:v hevc_nvenc -pix_fmt p010le -gpu %CUDA_DEVICE% -profile:v main10 -preset %PRESET% -tune hq -rc vbr %FGSIM_RC_ARGS% -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %HEVC_AUDIO_MUX_ARGS% %HEVC_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
 set "MAIN_RUN_RC=%ERRORLEVEL%"
 goto HEVC_MAIN_DONE
 
@@ -3668,13 +3719,13 @@ if "%HDR_ACTIVE%"=="1" set "PROC_FILTER=%PROC_BASE_FILTER%;[procbase]split=3[see
 if "%HDR_ACTIVE%"=="1" echo HDR Digital Grain: 10-bit luma-only path / slider %PROC_MASK% / scaled 8-bit mask model
 
 pushd "%INDIR%"
-if /i "%FPS_MODE%"=="SVP60" goto HEVC_PROC_OPEN_SVP
+if /i "%FPS_MODE%"=="SVP" goto HEVC_PROC_OPEN_SVP
 "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %ACTIVE_DEINT_HW_ARGS% -i "%INPUT%" -filter_complex "%PROC_FILTER%" -map "[vout]" %HEVC_STREAM_MAP_ARGS% -map_metadata 0 -map_chapters 0 -c:v hevc_nvenc -pix_fmt p010le -gpu %CUDA_DEVICE% -profile:v main10 -preset %PRESET% -tune hq -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% %HDR_ENCODE_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %HEVC_AUDIO_MUX_ARGS% %HEVC_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
 set "MAIN_RUN_RC=%ERRORLEVEL%"
 goto HEVC_MAIN_DONE
 
 :HEVC_PROC_OPEN_SVP
-"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=60" --arg "target_den=1" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %SVP_SYNC_GLOBAL_ARGS% -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -filter_complex "%PROC_FILTER%" -map "[vout]" %SVP_HEVC_STREAM_MAP_ARGS% -map_metadata 1 -map_chapters 1 -c:v hevc_nvenc -pix_fmt p010le -gpu %CUDA_DEVICE% -profile:v main10 -preset %PRESET% -tune hq -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% %HDR_ENCODE_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %HEVC_AUDIO_MUX_ARGS% %HEVC_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
+"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=%SVP_TARGET_NUM%" --arg "target_den=%SVP_TARGET_DEN%" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %SVP_SYNC_GLOBAL_ARGS% -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -filter_complex "%PROC_FILTER%" -map "[vout]" %SVP_HEVC_STREAM_MAP_ARGS% -map_metadata 1 -map_chapters 1 -c:v hevc_nvenc -pix_fmt p010le -gpu %CUDA_DEVICE% -profile:v main10 -preset %PRESET% -tune hq -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% %HDR_ENCODE_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %HEVC_AUDIO_MUX_ARGS% %HEVC_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
 set "MAIN_RUN_RC=%ERRORLEVEL%"
 goto HEVC_MAIN_DONE
 
@@ -3778,7 +3829,7 @@ if exist "%OUTPUT%" (
 call :PREPARE_UPLOAD_SUBTITLE "%INDIR%"
 if errorlevel 1 exit /b 1
 pushd "%INDIR%"
-if /i "%FPS_MODE%"=="SVP60" goto X264_MAIN_OPEN_SVP
+if /i "%FPS_MODE%"=="SVP" goto X264_MAIN_OPEN_SVP
 if /i "%X264_PASS_MODE%"=="2PASS" goto X264_MAIN_2PASS
 if /i "%X264_PASS_MODE%"=="3PASS" goto X264_MAIN_2PASS
 
@@ -3809,25 +3860,25 @@ goto X264_MAIN_DONE
 if /i "%X264_PASS_MODE%"=="2PASS" goto X264_MAIN_OPEN_SVP_2PASS
 if /i "%X264_PASS_MODE%"=="3PASS" goto X264_MAIN_OPEN_SVP_2PASS
 echo x264 VBR single-pass: OpenSVPFlow final encode...
-"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=60" --arg "target_den=1" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %SVP_SYNC_GLOBAL_ARGS% -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%SVP_GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%FRAME_POST_FILTER%%X264_SUB_FILTER%,%X264_DEPTH_FILTER%[vout]" -map "[vout]" %SVP_H264_STREAM_MAP_ARGS% -map_metadata 1 -map_chapters 1 -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %H264_AUDIO_MUX_ARGS% %H264_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
+"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=%SVP_TARGET_NUM%" --arg "target_den=%SVP_TARGET_DEN%" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %SVP_SYNC_GLOBAL_ARGS% -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%SVP_GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%FRAME_POST_FILTER%%X264_SUB_FILTER%,%X264_DEPTH_FILTER%[vout]" -map "[vout]" %SVP_H264_STREAM_MAP_ARGS% -map_metadata 1 -map_chapters 1 -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %H264_AUDIO_MUX_ARGS% %H264_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
 set "X264_MAIN_RC=%ERRORLEVEL%"
 goto X264_MAIN_DONE
 
 :X264_MAIN_OPEN_SVP_2PASS
 set "X264_PASSLOG=%TEMP_JOB_ROOT%\__FGS_X264_%RANDOM%_%RANDOM%"
 echo x264 step 1/%X264_PASS_COUNT% - pass 1: OpenSVPFlow analysis...
-"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=60" --arg "target_den=1" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%SVP_GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%FRAME_POST_FILTER%%X264_SUB_FILTER%,%X264_DEPTH_FILTER%[vout]" -map "[vout]" -an -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -pass 1 -passlogfile "%X264_PASSLOG%" -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f null NUL
+"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=%SVP_TARGET_NUM%" --arg "target_den=%SVP_TARGET_DEN%" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%SVP_GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%FRAME_POST_FILTER%%X264_SUB_FILTER%,%X264_DEPTH_FILTER%[vout]" -map "[vout]" -an -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -pass 1 -passlogfile "%X264_PASSLOG%" -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f null NUL
 set "X264_PASS1_RC=%ERRORLEVEL%"
 if not "%X264_PASS1_RC%"=="0" goto X264_MAIN_FAIL_PASS1
 
 if /i not "%X264_PASS_MODE%"=="3PASS" goto X264_PASS3_DONE_2
 echo x264 step 2/3: pass 3 stats refinement...
-"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=60" --arg "target_den=1" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%SVP_GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%FRAME_POST_FILTER%%X264_SUB_FILTER%,%X264_DEPTH_FILTER%[vout]" -map "[vout]" -an -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -pass 3 -passlogfile "%X264_PASSLOG%" -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f null NUL
+"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=%SVP_TARGET_NUM%" --arg "target_den=%SVP_TARGET_DEN%" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%SVP_GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%FRAME_POST_FILTER%%X264_SUB_FILTER%,%X264_DEPTH_FILTER%[vout]" -map "[vout]" -an -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -pass 3 -passlogfile "%X264_PASSLOG%" -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f null NUL
 set "X264_MAIN_RC=%ERRORLEVEL%"
 if not "%X264_MAIN_RC%"=="0" goto X264_MAIN_DONE
 :X264_PASS3_DONE_2
 echo x264 step %X264_PASS_COUNT%/%X264_PASS_COUNT% - pass 2: OpenSVPFlow final encode...
-"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=60" --arg "target_den=1" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %SVP_SYNC_GLOBAL_ARGS% -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%SVP_GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%FRAME_POST_FILTER%%X264_SUB_FILTER%,%X264_DEPTH_FILTER%[vout]" -map "[vout]" %SVP_H264_STREAM_MAP_ARGS% -map_metadata 1 -map_chapters 1 -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -pass 2 -passlogfile "%X264_PASSLOG%" -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %H264_AUDIO_MUX_ARGS% %H264_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
+"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=%SVP_TARGET_NUM%" --arg "target_den=%SVP_TARGET_DEN%" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %SVP_SYNC_GLOBAL_ARGS% -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -stream_loop -1 %GRAIN_TIME_ARGS% %GRAIN_HWACCEL_ARGS% -i "%GRAIN_INPUT%" -filter_complex "%BASE_FILTER%;%SVP_GRAIN_FILTER%;[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=%GRAIN_OPACITY%,hwdownload,format=p010le%FRAME_POST_FILTER%%X264_SUB_FILTER%,%X264_DEPTH_FILTER%[vout]" -map "[vout]" %SVP_H264_STREAM_MAP_ARGS% -map_metadata 1 -map_chapters 1 -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -pass 2 -passlogfile "%X264_PASSLOG%" -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %H264_AUDIO_MUX_ARGS% %H264_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
 set "X264_MAIN_RC=%ERRORLEVEL%"
 goto X264_MAIN_DONE
 
@@ -3881,7 +3932,7 @@ set "FGSIM_BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%COLOR_FILTER%for
 if "%LUT_ENABLED%"=="1" set "FGSIM_BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%COLOR_FILTER%format=gbrp16le,setpts=PTS-STARTPTS,split=2[lutorig][lutsrc];[lutsrc]lut3d=file='%LUT_FILTER_PATH%':interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=yuv420p[fgsimbase]"
 set "FGSIM_FILTER=%FGSIM_BASE_FILTER%;[fgsimbase]hwupload,libplacebo=format=yuv420p:custom_shader_path=%FGSIM_HOOK_FILTER_PATH%,hwdownload,format=yuv420p%FRAME_POST_FILTER%%X264_SUB_FILTER%,%X264_DEPTH_FILTER%[vout]"
 pushd "%INDIR%"
-if /i "%FPS_MODE%"=="SVP60" goto X264_FGSIM_OPEN_SVP
+if /i "%FPS_MODE%"=="SVP" goto X264_FGSIM_OPEN_SVP
 if /i "%X264_PASS_MODE%"=="2PASS" goto X264_FGSIM_2PASS
 if /i "%X264_PASS_MODE%"=="3PASS" goto X264_FGSIM_2PASS
 "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -i "%INPUT%" -filter_complex "%FGSIM_FILTER%" -map "[vout]" %H264_STREAM_MAP_ARGS% -map_metadata 0 -map_chapters 0 -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %H264_AUDIO_MUX_ARGS% %H264_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
@@ -3904,21 +3955,21 @@ goto X264_MAIN_DONE
 :X264_FGSIM_OPEN_SVP
 if /i "%X264_PASS_MODE%"=="2PASS" goto X264_FGSIM_OPEN_SVP_2PASS
 if /i "%X264_PASS_MODE%"=="3PASS" goto X264_FGSIM_OPEN_SVP_2PASS
-"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=60" --arg "target_den=1" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %SVP_SYNC_GLOBAL_ARGS% -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -filter_complex "%FGSIM_FILTER%" -map "[vout]" %SVP_H264_STREAM_MAP_ARGS% -map_metadata 1 -map_chapters 1 -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %H264_AUDIO_MUX_ARGS% %H264_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
+"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=%SVP_TARGET_NUM%" --arg "target_den=%SVP_TARGET_DEN%" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %SVP_SYNC_GLOBAL_ARGS% -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -filter_complex "%FGSIM_FILTER%" -map "[vout]" %SVP_H264_STREAM_MAP_ARGS% -map_metadata 1 -map_chapters 1 -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %H264_AUDIO_MUX_ARGS% %H264_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
 set "X264_MAIN_RC=%ERRORLEVEL%"
 goto X264_MAIN_DONE
 :X264_FGSIM_OPEN_SVP_2PASS
 set "X264_PASSLOG=%TEMP_JOB_ROOT%\__FGS_X264_FGSIM_%RANDOM%_%RANDOM%"
-"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=60" --arg "target_den=1" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -filter_complex "%FGSIM_FILTER%" -map "[vout]" -an -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -pass 1 -passlogfile "%X264_PASSLOG%" -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f null NUL
+"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=%SVP_TARGET_NUM%" --arg "target_den=%SVP_TARGET_DEN%" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -filter_complex "%FGSIM_FILTER%" -map "[vout]" -an -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -pass 1 -passlogfile "%X264_PASSLOG%" -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f null NUL
 set "X264_PASS1_RC=%ERRORLEVEL%"
 if not "%X264_PASS1_RC%"=="0" goto X264_MAIN_FAIL_PASS1
 if /i not "%X264_PASS_MODE%"=="3PASS" goto X264_PASS3_DONE_4
 echo x264 step 2/3: pass 3 stats refinement...
-"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=60" --arg "target_den=1" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -filter_complex "%FGSIM_FILTER%" -map "[vout]" -an -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -pass 3 -passlogfile "%X264_PASSLOG%" -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f null NUL
+"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=%SVP_TARGET_NUM%" --arg "target_den=%SVP_TARGET_DEN%" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -filter_complex "%FGSIM_FILTER%" -map "[vout]" -an -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -pass 3 -passlogfile "%X264_PASSLOG%" -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f null NUL
 set "X264_MAIN_RC=%ERRORLEVEL%"
 if not "%X264_MAIN_RC%"=="0" goto X264_MAIN_DONE
 :X264_PASS3_DONE_4
-"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=60" --arg "target_den=1" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %SVP_SYNC_GLOBAL_ARGS% -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -filter_complex "%FGSIM_FILTER%" -map "[vout]" %SVP_H264_STREAM_MAP_ARGS% -map_metadata 1 -map_chapters 1 -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -pass 2 -passlogfile "%X264_PASSLOG%" -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %H264_AUDIO_MUX_ARGS% %H264_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
+"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=%SVP_TARGET_NUM%" --arg "target_den=%SVP_TARGET_DEN%" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %SVP_SYNC_GLOBAL_ARGS% -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -filter_complex "%FGSIM_FILTER%" -map "[vout]" %SVP_H264_STREAM_MAP_ARGS% -map_metadata 1 -map_chapters 1 -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -pass 2 -passlogfile "%X264_PASSLOG%" -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %H264_AUDIO_MUX_ARGS% %H264_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
 set "X264_MAIN_RC=%ERRORLEVEL%"
 goto X264_MAIN_DONE
 
@@ -3942,7 +3993,7 @@ if "%LUT_ENABLED%"=="1" set "PROC_BASE_FILTER=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_F
 set "PROC_FILTER=%PROC_BASE_FILTER%;[procbase]split=4[seed][masksrc][base][blacksrc];[seed]scale=%PROC_W%:%PROC_H%,lutyuv=y=128:u=128:v=128,noise=c0s=100:c0f=t+u,deflate=threshold0=15,dilation=threshold0=10,eq=contrast=3,scale=%WIDTH%:%HEIGHT%[n];[masksrc]lutyuv=y='%PROC_MASK%*(182-abs(75-val))':u=128:v=128[o];[n][o]blend=c0_mode=multiply,negate[a];[base][a]alphamerge[c];[blacksrc]drawbox=color=black:t=fill[black];[black][c]overlay=shortest=1%FRAME_POST_FILTER%%X264_SUB_FILTER%,%X264_DEPTH_FILTER%[vout]"
 
 pushd "%INDIR%"
-if /i "%FPS_MODE%"=="SVP60" goto X264_PROC_OPEN_SVP
+if /i "%FPS_MODE%"=="SVP" goto X264_PROC_OPEN_SVP
 if /i "%X264_PASS_MODE%"=="2PASS" goto X264_PROC_2PASS
 if /i "%X264_PASS_MODE%"=="3PASS" goto X264_PROC_2PASS
 
@@ -3972,24 +4023,24 @@ goto X264_MAIN_DONE
 if /i "%X264_PASS_MODE%"=="2PASS" goto X264_PROC_OPEN_SVP_2PASS
 if /i "%X264_PASS_MODE%"=="3PASS" goto X264_PROC_OPEN_SVP_2PASS
 echo x264 VBR single-pass: Digital Grain OpenSVPFlow final encode...
-"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=60" --arg "target_den=1" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %SVP_SYNC_GLOBAL_ARGS% -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -filter_complex "%PROC_FILTER%" -map "[vout]" %SVP_H264_STREAM_MAP_ARGS% -map_metadata 1 -map_chapters 1 -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %H264_AUDIO_MUX_ARGS% %H264_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
+"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=%SVP_TARGET_NUM%" --arg "target_den=%SVP_TARGET_DEN%" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %SVP_SYNC_GLOBAL_ARGS% -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -filter_complex "%PROC_FILTER%" -map "[vout]" %SVP_H264_STREAM_MAP_ARGS% -map_metadata 1 -map_chapters 1 -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %H264_AUDIO_MUX_ARGS% %H264_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
 set "X264_MAIN_RC=%ERRORLEVEL%"
 goto X264_MAIN_DONE
 
 :X264_PROC_OPEN_SVP_2PASS
 set "X264_PASSLOG=%TEMP_JOB_ROOT%\__FGS_X264_PROC_%RANDOM%_%RANDOM%"
 echo x264 step 1/%X264_PASS_COUNT% - pass 1: Digital Grain OpenSVPFlow analysis...
-"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=60" --arg "target_den=1" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -filter_complex "%PROC_FILTER%" -map "[vout]" -an -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -pass 1 -passlogfile "%X264_PASSLOG%" -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f null NUL
+"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=%SVP_TARGET_NUM%" --arg "target_den=%SVP_TARGET_DEN%" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -filter_complex "%PROC_FILTER%" -map "[vout]" -an -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -pass 1 -passlogfile "%X264_PASSLOG%" -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f null NUL
 set "X264_PASS1_RC=%ERRORLEVEL%"
 if not "%X264_PASS1_RC%"=="0" goto X264_MAIN_FAIL_PASS1
 if /i not "%X264_PASS_MODE%"=="3PASS" goto X264_PASS3_DONE_6
 echo x264 step 2/3: pass 3 stats refinement...
-"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=60" --arg "target_den=1" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -filter_complex "%PROC_FILTER%" -map "[vout]" -an -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -pass 3 -passlogfile "%X264_PASSLOG%" -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f null NUL
+"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=%SVP_TARGET_NUM%" --arg "target_den=%SVP_TARGET_DEN%" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -filter_complex "%PROC_FILTER%" -map "[vout]" -an -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -pass 3 -passlogfile "%X264_PASSLOG%" -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f null NUL
 set "X264_MAIN_RC=%ERRORLEVEL%"
 if not "%X264_MAIN_RC%"=="0" goto X264_MAIN_DONE
 :X264_PASS3_DONE_6
 echo x264 step %X264_PASS_COUNT%/%X264_PASS_COUNT% - pass 2: Digital Grain OpenSVPFlow final encode...
-"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=60" --arg "target_den=1" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %SVP_SYNC_GLOBAL_ARGS% -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -filter_complex "%PROC_FILTER%" -map "[vout]" %SVP_H264_STREAM_MAP_ARGS% -map_metadata 1 -map_chapters 1 -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -pass 2 -passlogfile "%X264_PASSLOG%" -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %H264_AUDIO_MUX_ARGS% %H264_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
+"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=%SVP_TARGET_NUM%" --arg "target_den=%SVP_TARGET_DEN%" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %SVP_SYNC_GLOBAL_ARGS% -f yuv4mpegpipe -i pipe:0 %SVP_SYNC_SOURCE_ARGS% -i "%INPUT%" -filter_complex "%PROC_FILTER%" -map "[vout]" %SVP_H264_STREAM_MAP_ARGS% -map_metadata 1 -map_chapters 1 -c:v libx264 -profile:v %X264_PROFILE% -pix_fmt %X264_PIX_FMT% -preset %X264_PRESET% -tune grain %X264_MOTION_ARGS% -b:v %BITRATE% -maxrate %MAXRATE% -bufsize %BUFSIZE% -pass 2 -passlogfile "%X264_PASSLOG%" -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% %H264_AUDIO_MUX_ARGS% %H264_CONTAINER_EXTRA_ARGS% "%OUTPUT%"
 set "X264_MAIN_RC=%ERRORLEVEL%"
 goto X264_MAIN_DONE
 
@@ -4120,13 +4171,13 @@ if /i "%GRAIN_ENGINE%"=="FGSIM" goto AV1_STAGE1_FGSIM
 if /i "%GRAIN_ENGINE%"=="PROCEDURAL" goto AV1_STAGE1_PROCEDURAL
 if "%LUT_ENABLED%"=="1" goto AV1_STAGE1_LUT
 pushd "%INDIR%"
-if /i "%FPS_MODE%"=="SVP60" goto AV1_STAGE1_OPEN_SVP
+if /i "%FPS_MODE%"=="SVP" goto AV1_STAGE1_OPEN_SVP
 "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %ACTIVE_DEINT_HW_ARGS% %MAIN_HWACCEL_ARGS% -i "%INPUT%" -vf "%VIDEO_FILTER%%MAIN_SUB_FILTER%" -map 0:v:0 -an -sn -dn -c:v av1_nvenc -gpu %CUDA_DEVICE% -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune %ENCODER_TUNE% -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% %HDR_ENCODE_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
 set "STAGE_RC=%ERRORLEVEL%"
 goto AV1_STAGE1_DONE_NO_LUT
 
 :AV1_STAGE1_OPEN_SVP
-"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=60" --arg "target_den=1" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -f yuv4mpegpipe -i pipe:0 -vf "%VIDEO_FILTER%%MAIN_SUB_FILTER%" -map 0:v:0 -an -sn -dn -c:v av1_nvenc -gpu %CUDA_DEVICE% -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune %ENCODER_TUNE% -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% %HDR_ENCODE_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
+"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=%SVP_TARGET_NUM%" --arg "target_den=%SVP_TARGET_DEN%" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -f yuv4mpegpipe -i pipe:0 -vf "%VIDEO_FILTER%%MAIN_SUB_FILTER%" -map 0:v:0 -an -sn -dn -c:v av1_nvenc -gpu %CUDA_DEVICE% -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune %ENCODER_TUNE% -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% %HDR_ENCODE_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
 set "STAGE_RC=%ERRORLEVEL%"
 
 :AV1_STAGE1_DONE_NO_LUT
@@ -4138,12 +4189,12 @@ set "FGSIM_AV1_BASE=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%CROP_FILTER%%COLOR_
 if "%LUT_ENABLED%"=="1" set "FGSIM_AV1_BASE=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%CROP_FILTER%%COLOR_FILTER%format=gbrp16le,split=2[lutorig][lutsrc];[lutsrc]lut3d=file=filmlook.cube:interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=yuv420p%LETTERBOX_FILTER%%MAIN_SUB_FILTER%[fgsimbase]"
 set "FGSIM_AV1_FILTER=%FGSIM_AV1_BASE%;[fgsimbase]hwupload,libplacebo=format=yuv420p:custom_shader_path=%FGSIM_HOOK_FILTER_PATH%,hwdownload,format=yuv420p,format=p010le[vout]"
 pushd "%JOBDIR%"
-if /i "%FPS_MODE%"=="SVP60" goto AV1_FGSIM_OPEN_SVP
+if /i "%FPS_MODE%"=="SVP" goto AV1_FGSIM_OPEN_SVP
 "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -i "%INPUT%" -filter_complex "%FGSIM_AV1_FILTER%" -map "[vout]" -an -sn -dn -c:v av1_nvenc -gpu %CUDA_DEVICE% -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune %ENCODER_TUNE% -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
 set "STAGE_RC=%ERRORLEVEL%"
 goto AV1_FGSIM_DONE
 :AV1_FGSIM_OPEN_SVP
-"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=60" --arg "target_den=1" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -f yuv4mpegpipe -i pipe:0 -filter_complex "%FGSIM_AV1_FILTER%" -map "[vout]" -an -sn -dn -c:v av1_nvenc -gpu %CUDA_DEVICE% -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune %ENCODER_TUNE% -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
+"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=%SVP_TARGET_NUM%" --arg "target_den=%SVP_TARGET_DEN%" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -init_hw_device vulkan=vk:%VULKAN_DEVICE% -filter_hw_device vk -f yuv4mpegpipe -i pipe:0 -filter_complex "%FGSIM_AV1_FILTER%" -map "[vout]" -an -sn -dn -c:v av1_nvenc -gpu %CUDA_DEVICE% -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune %ENCODER_TUNE% -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
 set "STAGE_RC=%ERRORLEVEL%"
 :AV1_FGSIM_DONE
 popd
@@ -4160,13 +4211,13 @@ if "%HDR_ACTIVE%"=="1" set "PROC_AV1_BASE=[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTE
 if "%HDR_ACTIVE%"=="1" set "PROC_AV1_FILTER=%PROC_AV1_BASE%;[procbase]split=3[seedsrc][masksrc][base];[seedsrc]format=yuv420p,scale=%PROC_W%:%PROC_H%,lutyuv=y=128:u=128:v=128,noise=c0s=100:c0f=t+u,deflate=threshold0=15,dilation=threshold0=10,eq=contrast=3,scale=%ACTIVE_WIDTH%:%ACTIVE_HEIGHT%[n8];[masksrc]scale=in_range=%COLOR_RANGE%:out_range=tv,format=yuv420p,lutyuv=y='%PROC_MASK%*(182-abs(75-val))':u=128:v=128[o8];[n8][o8]blend=c0_mode=multiply,negate,format=gray,format=gray10le[alpha10];[base]extractplanes=planes=y+u+v[yb][ub][vb];[yb][alpha10]lut2=c0='%PROC_HDR_BLACK%+(x-%PROC_HDR_BLACK%)*y/1023':d=10[yout];[yout][ub][vb]mergeplanes=map0s=0:map0p=0:map1s=1:map1p=0:map2s=2:map2p=0:format=yuv420p10le%HDR_FRAME_FILTER%,format=p010le[vout]"
 if "%HDR_ACTIVE%"=="1" echo HDR Digital Grain: 10-bit luma-only path / slider %PROC_MASK% / scaled 8-bit mask model
 pushd "%JOBDIR%"
-if /i "%FPS_MODE%"=="SVP60" goto AV1_PROC_OPEN_SVP
+if /i "%FPS_MODE%"=="SVP" goto AV1_PROC_OPEN_SVP
 "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %ACTIVE_DEINT_HW_ARGS% -i "%INPUT%" -filter_complex "%PROC_AV1_FILTER%" -map "[vout]" -an -sn -dn -c:v av1_nvenc -gpu %CUDA_DEVICE% -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune %ENCODER_TUNE% -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% %HDR_ENCODE_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
 set "STAGE_RC=%ERRORLEVEL%"
 goto AV1_PROC_DONE
 
 :AV1_PROC_OPEN_SVP
-"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=60" --arg "target_den=1" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -f yuv4mpegpipe -i pipe:0 -filter_complex "%PROC_AV1_FILTER%" -map "[vout]" -an -sn -dn -c:v av1_nvenc -gpu %CUDA_DEVICE% -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune %ENCODER_TUNE% -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% %HDR_ENCODE_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
+"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=%SVP_TARGET_NUM%" --arg "target_den=%SVP_TARGET_DEN%" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -f yuv4mpegpipe -i pipe:0 -filter_complex "%PROC_AV1_FILTER%" -map "[vout]" -an -sn -dn -c:v av1_nvenc -gpu %CUDA_DEVICE% -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune %ENCODER_TUNE% -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% %HDR_ENCODE_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
 set "STAGE_RC=%ERRORLEVEL%"
 
 :AV1_PROC_DONE
@@ -4196,7 +4247,7 @@ if not exist "%TMP_BASE%" (
 )
 
 rem As above, verify only the new VSPipe pipe path before grain injection.
-if /i "%FPS_MODE%"=="SVP60" (
+if /i "%FPS_MODE%"=="SVP" (
     "%FFPROBE%" -v error -select_streams v:0 -show_entries stream=codec_name -of csv=p=0 "%TMP_BASE%" >nul 2>&1
     if errorlevel 1 (
         echo.
@@ -4382,13 +4433,13 @@ exit /b 0
 
 :RUN_LUT_AV1_ENCODE
 pushd "%JOBDIR%"
-if /i "%FPS_MODE%"=="SVP60" goto RUN_LUT_AV1_OPEN_SVP
+if /i "%FPS_MODE%"=="SVP" goto RUN_LUT_AV1_OPEN_SVP
 "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y %ACTIVE_DEINT_HW_ARGS% -i "%INPUT%" -filter_complex "[0:v:0]%ACTIVE_DEINT_FILTER%%FPS_FILTER%%CROP_FILTER%%COLOR_FILTER%format=gbrp16le,split=2[lutorig][lutsrc];[lutsrc]lut3d=file=filmlook.cube:interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=p010le%LETTERBOX_FILTER%%MAIN_SUB_FILTER%[vout]" -map "[vout]" -an -sn -dn -c:v av1_nvenc -gpu %CUDA_DEVICE% -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune %ENCODER_TUNE% -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% %HDR_ENCODE_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
 set "RUN_LUT_RC=%ERRORLEVEL%"
 goto RUN_LUT_AV1_DONE
 
 :RUN_LUT_AV1_OPEN_SVP
-"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=60" --arg "target_den=1" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -f yuv4mpegpipe -i pipe:0 -filter_complex "[0:v:0]%CROP_FILTER%%COLOR_FILTER%format=gbrp16le,split=2[lutorig][lutsrc];[lutsrc]lut3d=file=filmlook.cube:interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=p010le%LETTERBOX_FILTER%%MAIN_SUB_FILTER%[vout]" -map "[vout]" -an -sn -dn -c:v av1_nvenc -gpu %CUDA_DEVICE% -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune %ENCODER_TUNE% -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% %HDR_ENCODE_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
+"%OPEN_SVP_VSPIPE%" --progress -c y4m --arg "input=%INPUT%" --arg "plugin_dir=%OPEN_SVP_PLUGIN_DIR%" --arg "target_num=%SVP_TARGET_NUM%" --arg "target_den=%SVP_TARGET_DEN%" --arg "algo=%OPEN_SVP_ALGO%" --arg "analyse_profile=%OPEN_SVP_ANALYSE%" --arg "scene_mode=%OPEN_SVP_SCENE_MODE%" --arg "mask_area=%OPEN_SVP_MASK_AREA%" "%OPEN_SVP_VPY%" - | "%FFMPEG%" -hide_banner -stats %STUDIO_FFMPEG_PROGRESS_ARGS% -y -f yuv4mpegpipe -i pipe:0 -filter_complex "[0:v:0]%CROP_FILTER%%COLOR_FILTER%format=gbrp16le,split=2[lutorig][lutsrc];[lutsrc]lut3d=file=filmlook.cube:interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=%LUT_OPACITY%,format=p010le%LETTERBOX_FILTER%%MAIN_SUB_FILTER%[vout]" -map "[vout]" -an -sn -dn -c:v av1_nvenc -gpu %CUDA_DEVICE% -pix_fmt p010le -highbitdepth 1 -preset %PRESET% -tune %ENCODER_TUNE% -rc vbr -b:v %BITRATE% -maxrate:v %MAXRATE% -bufsize:v %BUFSIZE% %ENCODER_CAP_ARGS% %HDR_ENCODE_ARGS% -r %OUT_FPS% -fps_mode:v cfr %DURATION_ARGS% -f ivf "%TMP_BASE%"
 set "RUN_LUT_RC=%ERRORLEVEL%"
 
 :RUN_LUT_AV1_DONE
@@ -4465,7 +4516,7 @@ if exist "%UPLOAD_OUTPUT%" (
 
 if /i "%GRAIN_ENGINE%"=="FGSIM" goto RUN_HEVC_UPLOAD_SVP_MAIN
 if /i "%GRAIN_ENGINE%"=="PROCEDURAL" goto RUN_HEVC_UPLOAD_SVP_MAIN
-if /i "%FPS_MODE%"=="SVP60" goto RUN_HEVC_UPLOAD_SVP_MAIN
+if /i "%FPS_MODE%"=="SVP" goto RUN_HEVC_UPLOAD_SVP_MAIN
 
 call :PREPARE_UPLOAD_SUBTITLE "%INDIR%"
 if errorlevel 1 exit /b 1

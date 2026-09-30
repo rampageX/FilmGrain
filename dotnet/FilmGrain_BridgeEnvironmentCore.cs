@@ -27,6 +27,12 @@ namespace FilmGrainStudioPreview
         public bool HighMotion;
         public string FpsMode = "";
         public bool SvpInterpolate;
+        public string InterpolationEngine = "SVP";
+        public string InterpolationTargetFps = "60";
+        public string FrucPerf = "medium";
+        public string FrucGrid = "auto";
+        public string FrucFfmpegPath = "";
+        public bool FrucUseMainFfmpeg = true;
         public string SvpAlgo = "";
         public string SvpAnalyse = "";
         public string SvpSceneMode = "";
@@ -112,6 +118,12 @@ namespace FilmGrainStudioPreview
             state["FG_HIGH_MOTION"] = snapshot.HighMotion ? "1" : "0";
             state["FG_FPS_MODE"] = snapshot.FpsMode;
             state["FG_SVP_INTERPOLATE"] = snapshot.SvpInterpolate ? "1" : "0";
+            state["FG_INTERPOLATION_ENGINE"] = snapshot.InterpolationEngine;
+            state["FG_INTERPOLATION_TARGET_FPS"] = snapshot.InterpolationTargetFps;
+            state["FG_FRUC_PERF"] = snapshot.FrucPerf;
+            state["FG_FRUC_GRID"] = snapshot.FrucGrid;
+            state["FG_FRUC_FFMPEG_PATH"] = snapshot.FrucFfmpegPath;
+            state["FG_FRUC_USE_MAIN_FFMPEG"] = snapshot.FrucUseMainFfmpeg ? "1" : "0";
             state["FG_SVP_ALGO"] = snapshot.SvpAlgo;
             state["FG_SVP_ANALYSE"] = snapshot.SvpAnalyse;
             state["FG_SVP_SCENE_MODE"] = snapshot.SvpSceneMode;

@@ -22,11 +22,11 @@ namespace FilmGrainStudioPreview
 
         private static readonly KeyValuePair<string, string[]>[] Sections = new KeyValuePair<string, string[]>[]
         {
-            new KeyValuePair<string, string[]>("Paths", new string[] { "FFMPEG_DIR", "GRAV1SYNTH", "GRAIN_ROOT", "LUT_ROOT", "TEMP_MODE", "TEMP_CUSTOM_DIR", "OUTPUT_MODE", "OUTPUT_CUSTOM_DIR" }),
-            new KeyValuePair<string, string[]>("General", new string[] { "LANGUAGE", "SETUP_VERSION" }),
+            new KeyValuePair<string, string[]>("Paths", new string[] { "FFMPEG_DIR", "FRUC_FFMPEG_SAME_AS_MAIN", "FRUC_FFMPEG_PATH", "GRAV1SYNTH", "GRAIN_ROOT", "LUT_ROOT", "TEMP_MODE", "TEMP_CUSTOM_DIR", "OUTPUT_MODE", "OUTPUT_CUSTOM_DIR" }),
+            new KeyValuePair<string, string[]>("General", new string[] { "LANGUAGE", "SETUP_VERSION", "NETWORK_PROXY_MODE", "NETWORK_PROXY_URL" }),
             new KeyValuePair<string, string[]>("LUTGallery", new string[] { "SMART_FILTER_ENABLED" }),
             new KeyValuePair<string, string[]>("Advanced.Encoding", new string[] { "H264_HIGH10", "X264_RATE_MODE", "X264_PRESET", "NVENC_SPATIAL_AQ", "NVENC_TEMPORAL_AQ" }),
-            new KeyValuePair<string, string[]>("Advanced.Interpolation", new string[] { "SVP_ALGO", "SVP_ANALYSE", "SVP_MASK_AREA" }),
+            new KeyValuePair<string, string[]>("Advanced.Interpolation", new string[] { "SVP_ALGO", "SVP_ANALYSE", "SVP_MASK_AREA", "FRUC_PERF", "FRUC_GRID", "INTERPOLATION_TARGET_FPS" }),
             new KeyValuePair<string, string[]>("Advanced.HDR", new string[] { "HDR_POLICY", "TONE_MAP_ALGO" }),
             new KeyValuePair<string, string[]>("Advanced.Other", new string[] { "CINEMATIC_CROP_PER_SIDE", "COLOR_PREVIEW_LARGE_UI" }),
             new KeyValuePair<string, string[]>("ColorCorrection", new string[] { "COLOR_CORRECTION_ENABLED", "COLOR_CONTRAST", "COLOR_BRIGHTNESS", "COLOR_SATURATION", "COLOR_GAMMA", "COLOR_BLACK_WHITE" })
@@ -54,6 +54,11 @@ namespace FilmGrainStudioPreview
             defaults["OUTPUT_CUSTOM_DIR"] = "";
             defaults["LANGUAGE"] = "zh-CN";
             defaults["SETUP_VERSION"] = "0";
+            defaults["NETWORK_PROXY_MODE"] = "SYSTEM";
+            defaults["NETWORK_PROXY_URL"] = "";
+            defaults["FRUC_FFMPEG_PATH"] = "";
+            // Empty means infer from an older configuration: a saved FRUC path implies custom mode.
+            defaults["FRUC_FFMPEG_SAME_AS_MAIN"] = "";
             defaults["SMART_FILTER_ENABLED"] = "false";
             defaults["H264_HIGH10"] = "false";
             defaults["X264_RATE_MODE"] = "VBR1";
@@ -63,6 +68,9 @@ namespace FilmGrainStudioPreview
             defaults["SVP_ALGO"] = "13";
             defaults["SVP_ANALYSE"] = "ENCODEGUI";
             defaults["SVP_MASK_AREA"] = "100";
+            defaults["FRUC_PERF"] = "medium";
+            defaults["FRUC_GRID"] = "auto";
+            defaults["INTERPOLATION_TARGET_FPS"] = "60";
             defaults["HDR_POLICY"] = "AUTO";
             defaults["TONE_MAP_ALGO"] = "hable";
             defaults["CINEMATIC_CROP_PER_SIDE"] = "0";
@@ -130,6 +138,14 @@ namespace FilmGrainStudioPreview
             if (values.TryGetValue(key, out value)) return value;
             if (defaults.TryGetValue(key, out value)) return value;
             return "";
+        }
+
+        public bool FrucUsesMainFfmpeg()
+        {
+            string setting = Get("FRUC_FFMPEG_SAME_AS_MAIN");
+            if (setting.Equals("true", StringComparison.OrdinalIgnoreCase) || setting == "1") return true;
+            if (setting.Equals("false", StringComparison.OrdinalIgnoreCase) || setting == "0") return false;
+            return string.IsNullOrWhiteSpace(Get("FRUC_FFMPEG_PATH"));
         }
 
         public string GetDefault(string key)
@@ -200,7 +216,8 @@ namespace FilmGrainStudioPreview
         private static string Normalize(string key, string value)
         {
             string text = value ?? "";
-            if (key == "FFMPEG_DIR" || key == "GRAV1SYNTH" || key == "GRAIN_ROOT" || key == "LUT_ROOT" || key == "TEMP_CUSTOM_DIR" || key == "OUTPUT_CUSTOM_DIR")
+            if (key == "NETWORK_PROXY_URL") text = text.Trim().Trim('"');
+            else if (key == "FFMPEG_DIR" || key == "GRAV1SYNTH" || key == "GRAIN_ROOT" || key == "LUT_ROOT" || key == "TEMP_CUSTOM_DIR" || key == "OUTPUT_CUSTOM_DIR")
             {
                 text = text.Trim().Trim('"');
                 if (key == "FFMPEG_DIR") text = text.TrimEnd('\\');

@@ -89,6 +89,7 @@ namespace FilmGrainStudioPreview
 
         private ListView listFiles;
         private Label lblMediaInfo;
+        private Label lblHdrRoute;
         private Label lblStatus;
         private Label lblRunStage;
         private Label lblRunMetric;
@@ -103,10 +104,12 @@ namespace FilmGrainStudioPreview
         private ComboBox cmbFps;
         private CheckBox chkInterpolation;
         private ComboBox cmbInterpolationMode;
+        private ComboBox cmbInterpolationFps;
         private ComboBox cmbDeint;
         private ComboBox cmbDeintMethod;
         private CheckBox chkCinematic;
         private ComboBox cmbFrameMode;
+        private Label lblUploadX264Settings;
         private CheckBox chkUpload;
         private ComboBox cmbUploadBitrate;
         private CheckBox chkUploadBitrateAuto;
@@ -117,6 +120,7 @@ namespace FilmGrainStudioPreview
         private Button btnSubtitle;
         private Label lblFrameHelp;
         private Button btnStart;
+        private CheckBox chkNativeBackend;
         private Button btnCancelTask;
         private ProgressBar progressRun;
         private ComboBox cmbGpu;
@@ -128,6 +132,8 @@ namespace FilmGrainStudioPreview
         private bool hardwareDetectionInProgress;
         private bool changingCodecForHardware;
         private bool noReencodeUiActive;
+        private bool activeRunNativeBackend;
+        private string activeRunCodecName = "";
         private TrackBar trackFilmGrainStrength;
         private Label lblFilmGrainValue;
         private ComboBox cmbGrainFormat;
@@ -166,6 +172,8 @@ namespace FilmGrainStudioPreview
         private readonly ToolTip lutToolTip = new ToolTip();
         private readonly ToolTip sfeToolTip = new ToolTip();
         private ComboBox cmbLanguage;
+        private Button btnFgsimTextureUpdate;
+        private Label lblFgsimTextureStatus;
 
         private bool loadingLutLists;
         private bool updatingBitrateUi;
@@ -192,6 +200,8 @@ namespace FilmGrainStudioPreview
             setupTestMode = setupTest;
             string testConfig = setupTest ? Path.Combine(Path.GetTempPath(), "FGS_Setup_Test_" + Process.GetCurrentProcess().Id.ToString(CultureInfo.InvariantCulture) + ".ini") : null;
             config = new FgsConfig(appRoot, testConfig);
+            try { NetworkProxyCore.Apply(config.Get("NETWORK_PROXY_MODE"), config.Get("NETWORK_PROXY_URL")); }
+            catch (Exception ex) { NetworkProxyCore.Apply(NetworkProxyCore.SystemMode, ""); MessageBox.Show("网络代理配置无效，已改用系统代理：\r\n" + ex.Message, "Film Grain Studio", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
             lang = new LanguagePack(appRoot);
             languages = lang.GetChoices();
             colorCorrectionEnabled = config.GetBool("COLOR_CORRECTION_ENABLED");
@@ -274,8 +284,8 @@ namespace FilmGrainStudioPreview
         {
             Text = "Film Grain Studio";
             StartPosition = FormStartPosition.CenterScreen;
-            ClientSize = new Size(1320, 960);
-            MinimumSize = new Size(1280, 950);
+            ClientSize = new Size(1320, 994);
+            MinimumSize = new Size(1280, 984);
             AutoScaleMode = AutoScaleMode.Dpi;
             Font = UiFont(9f, FontStyle.Regular);
             AllowDrop = true;
@@ -329,10 +339,13 @@ namespace FilmGrainStudioPreview
 
             Button btnConfig = HeaderButton(lang.T("button.config"), 92);
             Button btnAdvanced = HeaderButton(lang.T("button.advanced"), 92);
+            Button btnProxy = HeaderButton(UiText("网络代理", "Network"), 92);
             btnConfig.Click += delegate { ShowPathConfigurationDialog(); };
             btnAdvanced.Click += delegate { ShowAdvancedSettingsDialog(); };
+            btnProxy.Click += delegate { ShowNetworkProxyDialog(); };
             header.Controls.Add(btnConfig);
             header.Controls.Add(btnAdvanced);
+            header.Controls.Add(btnProxy);
 
             cmbLanguage = new ComboBox();
             cmbLanguage.DropDownStyle = ComboBoxStyle.DropDownList;
@@ -381,7 +394,9 @@ namespace FilmGrainStudioPreview
                 btnConfig.Top = 19;
                 btnAdvanced.Left = btnConfig.Left - btnAdvanced.Width - 8;
                 btnAdvanced.Top = 19;
-                cmbLanguage.Left = btnAdvanced.Left - cmbLanguage.Width - 8;
+                btnProxy.Left = btnAdvanced.Left - btnProxy.Width - 8;
+                btnProxy.Top = 19;
+                cmbLanguage.Left = btnProxy.Left - cmbLanguage.Width - 8;
                 cmbLanguage.Top = 20;
                 baseline.Left = cmbLanguage.Left - baseline.Width - 18;
                 baseline.Top = 27;
@@ -482,12 +497,28 @@ namespace FilmGrainStudioPreview
             info.Controls.Add(lblMediaInfo);
             layout.Controls.Add(info, 0, 2);
 
+            TableLayoutPanel inputStatus = new TableLayoutPanel();
+            inputStatus.Dock = DockStyle.Fill;
+            inputStatus.ColumnCount = 1;
+            inputStatus.RowCount = 2;
+            inputStatus.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));
+            inputStatus.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             Label note = new Label();
             note.Dock = DockStyle.Fill;
             note.ForeColor = ColorMuted;
-            note.Padding = new Padding(6, 5, 4, 0);
+            note.Padding = new Padding(6, 3, 4, 0);
+            note.AutoEllipsis = true;
             note.Text = lang.T("input.note");
-            layout.Controls.Add(note, 0, 3);
+            inputStatus.Controls.Add(note, 0, 0);
+            lblHdrRoute = new Label();
+            lblHdrRoute.Dock = DockStyle.Fill;
+            lblHdrRoute.ForeColor = ColorMuted;
+            lblHdrRoute.Font = UiFont(8.5f, FontStyle.Bold);
+            lblHdrRoute.Padding = new Padding(6, 0, 4, 0);
+            lblHdrRoute.AutoEllipsis = true;
+            lblHdrRoute.Text = lang.T("input.hdr_route_pending");
+            inputStatus.Controls.Add(lblHdrRoute, 0, 1);
+            layout.Controls.Add(inputStatus, 0, 3);
             return box;
         }
 
@@ -502,10 +533,10 @@ namespace FilmGrainStudioPreview
             t.Dock = DockStyle.Fill;
             t.Padding = new Padding(5, 7, 5, 5);
             t.ColumnCount = 2;
-            t.RowCount = 16;
+            t.RowCount = 17;
             t.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 112));
             t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            for (int i = 0; i < 15; i++) t.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
+            for (int i = 0; i < 16; i++) t.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
             t.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             box.Controls.Add(t);
 
@@ -527,11 +558,43 @@ namespace FilmGrainStudioPreview
             bitrate.Controls.Add(cmbBitrate, 0, 0); bitrate.Controls.Add(chkBitrateAuto, 1, 0); bitrate.Controls.Add(chkHighMotion, 2, 0);
 
             cmbFps = Combo(new string[] { lang.T("fps.auto_interlaced"), lang.T("fps.keep_source") }, 0);
-            FlowLayoutPanel interp = new FlowLayoutPanel(); interp.Dock = DockStyle.Fill; interp.WrapContents = false; interp.Margin = Padding.Empty;
-            chkInterpolation = Check(lang.T("encode.enable"), false); chkInterpolation.Dock = DockStyle.None;
-            cmbInterpolationMode = Combo(new string[] { lang.T("interp.smooth"), lang.T("interp.adaptive") }, 0); cmbInterpolationMode.Width = 150; cmbInterpolationMode.Enabled = false;
+            TableLayoutPanel interp = new TableLayoutPanel(); interp.Dock = DockStyle.Fill; interp.Margin = Padding.Empty;
+            interp.ColumnCount = 3; interp.RowCount = 1;
+            interp.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            interp.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            interp.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120));
+            chkInterpolation = Check(lang.T("encode.enable"), false); chkInterpolation.Dock = DockStyle.Fill;
+            cmbInterpolationMode = Combo(new string[] { "OpenSVP · " + lang.T("interp.smooth"), "OpenSVP · " + lang.T("interp.adaptive"), "FRUC Vulkan" }, 0);
+            cmbInterpolationMode.Dock = DockStyle.Fill; cmbInterpolationMode.DropDownWidth = 220;
+            cmbInterpolationFps = ComboEditable(new string[] { "60", "59.94", "60000/1001", "2x", "1.5x" }, config.Get("INTERPOLATION_TARGET_FPS"));
+            cmbInterpolationFps.Dock = DockStyle.Fill; cmbInterpolationFps.DropDownWidth = 130;
+            lutToolTip.SetToolTip(cmbInterpolationFps, UiText("目标帧率：绝对帧率、分数帧率或源帧率倍率；默认 60。", "Target rate: absolute FPS, a rational rate, or source-rate multiplier; default 60."));
+            cmbInterpolationFps.Text = config.Get("INTERPOLATION_TARGET_FPS"); cmbInterpolationFps.Enabled = false;
+            cmbInterpolationFps.TextChanged += delegate { if (config.Get("INTERPOLATION_TARGET_FPS") != cmbInterpolationFps.Text.Trim()) try { config.Save(new Dictionary<string,string> { { "INTERPOLATION_TARGET_FPS", cmbInterpolationFps.Text.Trim() } }); } catch { } UpdateMediaDrivenUi(GetSelectedMediaInfo()); UpdateBitrateDisplays(); };
+            cmbInterpolationMode.SelectedIndexChanged += delegate {
+                if (cmbInterpolationMode.SelectedIndex == 2 &&
+                    (config.FrucUsesMainFfmpeg()
+                        ? !NativeHevcCore.HasFrucFilter(Path.Combine(config.Get("FFMPEG_DIR"), "ffmpeg.exe"))
+                        : string.IsNullOrWhiteSpace(config.Get("FRUC_FFMPEG_PATH"))))
+                {
+                    using (OpenFileDialog dialog = new OpenFileDialog())
+                    {
+                        dialog.Title = UiText("选择包含 fruc_vulkan 滤镜的 ffmpeg.exe", "Select ffmpeg.exe with fruc_vulkan support");
+                        dialog.Filter = "ffmpeg.exe|ffmpeg.exe|Executable (*.exe)|*.exe";
+                        if (dialog.ShowDialog(this) == DialogResult.OK && NativeHevcCore.HasFrucFilter(dialog.FileName))
+                            config.Save(new Dictionary<string,string> { { "FRUC_FFMPEG_PATH", dialog.FileName }, { "FRUC_FFMPEG_SAME_AS_MAIN", "false" } });
+                        else
+                        {
+                            cmbInterpolationMode.SelectedIndex = 0;
+                            MessageBox.Show(this, UiText("未选中支持 fruc_vulkan 的 ffmpeg.exe。可在配置路径界面设置开发版目录。", "Select an ffmpeg.exe with fruc_vulkan support in Path Configuration."), Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                            return;
+                        }
+                    }
+                }
+                if (chkInterpolation.Checked) UpdateMediaDrivenUi(GetSelectedMediaInfo());
+            };
             chkInterpolation.CheckedChanged += delegate {
-                if (chkInterpolation.Checked && (setupTestMode || !File.Exists(Path.Combine(appRoot, "_OpenSVPFlow", ".venv", "Scripts", "vspipe.exe"))))
+                if (chkInterpolation.Checked && cmbInterpolationMode.SelectedIndex != 2 && (setupTestMode || !File.Exists(Path.Combine(appRoot, "_OpenSVPFlow", ".venv", "Scripts", "vspipe.exe"))))
                 {
                     chkInterpolation.Checked = false;
                     if (MessageBox.Show(this,
@@ -540,11 +603,11 @@ namespace FilmGrainStudioPreview
                         SetupPhase1.ShowForInterpolation(this, appRoot, config, setupTestMode);
                     return;
                 }
-                cmbInterpolationMode.Enabled = chkInterpolation.Checked;
+                cmbInterpolationMode.Enabled = true;
                 UpdateMediaDrivenUi(GetSelectedMediaInfo());
                 UpdateBitrateDisplays();
             };
-            interp.Controls.Add(chkInterpolation); interp.Controls.Add(cmbInterpolationMode);
+            interp.Controls.Add(chkInterpolation, 0, 0); interp.Controls.Add(cmbInterpolationMode, 1, 0); interp.Controls.Add(cmbInterpolationFps, 2, 0);
 
             cmbDeint = Combo(new string[] { lang.T("deint.auto"), lang.T("deint.off") }, 0);
             cmbDeintMethod = Combo(new string[] { lang.T("deint.vulkan"), lang.T("deint.cuda"), lang.T("deint.w3fdif") }, 0);
@@ -558,7 +621,7 @@ namespace FilmGrainStudioPreview
             chkUpload = Check(lang.T("encode.upload_h264"), false);
             cmbUploadBitrate = ComboEditable(new string[] { "3000", "3500", "4000", "5000", "6000", "7500", "9000", "11000", "15000", "22000", "30000" }, "7500"); cmbUploadBitrate.Enabled = false;
             chkUploadBitrateAuto = Check(lang.T("encode.auto"), true); chkUploadBitrateAuto.Enabled = false;
-            chkUpload.CheckedChanged += delegate { cmbUploadBitrate.Enabled = chkUpload.Checked; chkUploadBitrateAuto.Enabled = chkUpload.Checked; UpdateBitrateDisplays(); };
+            chkUpload.CheckedChanged += delegate { cmbUploadBitrate.Enabled = chkUpload.Checked; chkUploadBitrateAuto.Enabled = chkUpload.Checked; UpdateBitrateDisplays(); UpdateHdrRouteStatus(GetSelectedMediaInfo()); };
             upload.Controls.Add(chkUpload, 0, 0); upload.Controls.Add(cmbUploadBitrate, 1, 0); upload.Controls.Add(chkUploadBitrateAuto, 2, 0);
 
             btnSubtitle = new Button(); btnSubtitle.Text = lang.T("button.subtitle"); btnSubtitle.Dock = DockStyle.Fill; btnSubtitle.Margin = new Padding(3, 4, 8, 4);
@@ -580,8 +643,12 @@ namespace FilmGrainStudioPreview
             t.Controls.Add(chkCinematic, 0, 10); t.SetColumnSpan(chkCinematic, 2);
             AddLabeledRow(t, 11, lang.T("encode.framing"), cmbFrameMode);
             t.Controls.Add(upload, 0, 12); t.SetColumnSpan(upload, 2);
-            t.Controls.Add(btnSubtitle, 0, 13); t.SetColumnSpan(btnSubtitle, 2);
-            t.Controls.Add(lblFrameHelp, 0, 14); t.SetColumnSpan(lblFrameHelp, 2);
+            lblUploadX264Settings = new Label(); lblUploadX264Settings.Dock = DockStyle.Fill;
+            lblUploadX264Settings.ForeColor = ColorMuted; lblUploadX264Settings.TextAlign = ContentAlignment.MiddleLeft;
+            lblUploadX264Settings.Padding = new Padding(3, 0, 0, 0);
+            t.Controls.Add(lblUploadX264Settings, 0, 13); t.SetColumnSpan(lblUploadX264Settings, 2);
+            t.Controls.Add(btnSubtitle, 0, 14); t.SetColumnSpan(btnSubtitle, 2);
+            t.Controls.Add(lblFrameHelp, 0, 15); t.SetColumnSpan(lblFrameHelp, 2);
 
             cmbCodec.SelectedIndexChanged += delegate
             {
@@ -685,6 +752,7 @@ namespace FilmGrainStudioPreview
                 if (cmbCodec != null && cmbCodec.SelectedIndex == 0) av1GrainModeIndex = Math.Max(0, cmbGrainMode.SelectedIndex);
                 else pixelGrainModeIndex = Math.Max(0, cmbGrainMode.SelectedIndex);
                 BuildGrainContent();
+                UpdateHdrRouteStatus(GetSelectedMediaInfo());
             };
             RefreshGrainFileCaches();
             UpdateGrainForCodec();
@@ -747,7 +815,7 @@ namespace FilmGrainStudioPreview
             if (grainContent == null || cmbGrainMode == null || cmbCodec == null) return;
             grainContent.Controls.Clear();
             cmbGrainFormat = null; cmbGrainStock = null; numGrainIso = null; chkGrainChroma = null; cmbGrainTable = null; chkShowAllAv1Tables = null; cmbGrainPlate = null;
-            trackFilmGrainStrength = null; lblFilmGrainValue = null;
+            trackFilmGrainStrength = null; lblFilmGrainValue = null; btnFgsimTextureUpdate = null; lblFgsimTextureStatus = null;
 
             TableLayoutPanel t = new TableLayoutPanel();
             t.Dock = DockStyle.Fill; t.ColumnCount = 2; t.RowCount = 4;
@@ -882,11 +950,59 @@ namespace FilmGrainStudioPreview
                 if (cmbCodec.SelectedIndex == 1)
                 {
                     Label note = MutedLabel(lang.T("grain.fgsim_hint"));
-                    t.Controls.Add(note, 0, 1); t.SetColumnSpan(note, 2); t.SetRowSpan(note, 3);
+                    t.Controls.Add(note, 0, 1); t.SetColumnSpan(note, 2);
                 }
+                btnFgsimTextureUpdate = new Button();
+                btnFgsimTextureUpdate.Text = UiText("在线更新纹理", "Update texture online");
+                btnFgsimTextureUpdate.Dock = DockStyle.Fill;
+                btnFgsimTextureUpdate.Margin = new Padding(4, 2, 6, 2);
+                btnFgsimTextureUpdate.Click += delegate { StartFgsimTextureUpdate(); };
+                t.Controls.Add(btnFgsimTextureUpdate, 0, 2); t.SetColumnSpan(btnFgsimTextureUpdate, 2);
+                lblFgsimTextureStatus = MutedLabel(UiText("默认使用本地纹理", "Using local texture by default"));
+                lblFgsimTextureStatus.AutoEllipsis = true;
+                t.Controls.Add(lblFgsimTextureStatus, 0, 3); t.SetColumnSpan(lblFgsimTextureStatus, 2);
             }
             grainContent.Controls.Add(t);
             UpdateFgsimBitrateUi();
+        }
+
+        private void StartFgsimTextureUpdate()
+        {
+            if (bridgeTaskCoordinator != null && bridgeTaskCoordinator.IsActive)
+            {
+                MessageBox.Show(this, UiText("编码任务运行时不能更新纹理。", "Texture update is unavailable during encoding."), Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            string ffmpeg = Path.Combine(config.Get("FFMPEG_DIR"), "ffmpeg.exe");
+            if (!File.Exists(ffmpeg))
+            {
+                MessageBox.Show(this, UiText("找不到 ffmpeg.exe，请先在设置中配置 FFmpeg。", "ffmpeg.exe is missing. Configure FFmpeg first."), Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            string proxyMode = config.Get("NETWORK_PROXY_MODE");
+            string proxyUrl = config.Get("NETWORK_PROXY_URL");
+            Button button = btnFgsimTextureUpdate;
+            Label status = lblFgsimTextureStatus;
+            if (button == null || status == null) return;
+            button.Enabled = false;
+            status.Text = UiText("正在通过当前网络代理下载纹理…", "Downloading texture using the configured proxy...");
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                string detail;
+                bool ok = FgsimTextureCore.TryUpdateOnline(appRoot, ffmpeg, proxyMode, proxyUrl, out detail);
+                if (IsDisposed || !IsHandleCreated) return;
+                try
+                {
+                    BeginInvoke((MethodInvoker)delegate
+                    {
+                        if (button.IsDisposed || status.IsDisposed) return;
+                        button.Enabled = true;
+                        status.Text = detail;
+                        status.ForeColor = ok ? Color.FromArgb(40, 135, 90) : Color.FromArgb(180, 70, 55);
+                    });
+                }
+                catch (InvalidOperationException) { }
+            });
         }
 
         private void BuildUnifiedGrainSlider(TableLayoutPanel t, int row, string kind)
@@ -1001,7 +1117,7 @@ namespace FilmGrainStudioPreview
             lblLutStrengthTitle = MidLabel(lang.T("lut.strength"));
             trackLutStrength = new TrackBar(); trackLutStrength.Minimum = 0; trackLutStrength.Maximum = 3; trackLutStrength.Value = 2; trackLutStrength.TickStyle = TickStyle.BottomRight; trackLutStrength.Dock = DockStyle.Fill; trackLutStrength.Margin = Padding.Empty; trackLutStrength.Enabled = false;
             lblLutStrength = new Label(); lblLutStrength.Text = "75%"; lblLutStrength.Dock = DockStyle.Fill; lblLutStrength.TextAlign = ContentAlignment.MiddleLeft; lblLutStrength.Enabled = false;
-            chkLut.CheckedChanged += delegate { UpdateLutUi(); };
+            chkLut.CheckedChanged += delegate { UpdateLutUi(); UpdateHdrRouteStatus(GetSelectedMediaInfo()); };
             trackLutStrength.ValueChanged += delegate
             {
                 int[] values = new int[] { 25, 50, 75, 100 };
@@ -1034,10 +1150,10 @@ namespace FilmGrainStudioPreview
             layout.Controls.Add(toolbar, 0, 0);
 
             log = new RichTextBox(); log.Dock = DockStyle.Fill; log.ReadOnly = true; log.WordWrap = false; log.DetectUrls = false; log.BackColor = Color.FromArgb(28, 30, 34); log.ForeColor = Color.Gainsboro; log.Font = new Font("Consolas", 9f); log.BorderStyle = BorderStyle.FixedSingle;
-            log.AppendText("Film Grain Studio .NET Preview P35_Z5K2HM" + Environment.NewLine);
-            log.AppendText("Baseline: v4.8.9 Stable" + Environment.NewLine);
+            log.AppendText("Film Grain Studio .NET Preview NATIVE_P1" + Environment.NewLine);
+            log.AppendText("Baseline: v4.8.11 Stable" + Environment.NewLine);
             log.AppendText("App root: " + appRoot + Environment.NewLine);
-            log.AppendText("Phase 3.5.8: AV1 grain inspect process lifecycle moved to Av1GrainInspectCore; validated MediaProbe/SFE/Bridge paths retained." + Environment.NewLine);
+            log.AppendText(".NET execution modules: Native AV1 grain inspection, Native codecs, and Legacy Bridge fallback." + Environment.NewLine);
             layout.Controls.Add(log, 0, 1);
             return box;
         }
@@ -1048,6 +1164,8 @@ namespace FilmGrainStudioPreview
             lblStatus = new Label(); lblStatus.AutoSize = false; lblStatus.Size = new Size(560, 30); lblStatus.Location = new Point(14, 14); lblStatus.TextAlign = ContentAlignment.MiddleLeft; footer.Controls.Add(lblStatus);
             progressRun = new ProgressBar(); progressRun.Style = ProgressBarStyle.Blocks; progressRun.Minimum = 0; progressRun.Maximum = 1000; progressRun.Value = 0; progressRun.Size = new Size(220, 20); progressRun.Anchor = AnchorStyles.Top | AnchorStyles.Right; footer.Controls.Add(progressRun);
             btnCancelTask = new Button(); btnCancelTask.Text = lang.T("button.cancel_task"); btnCancelTask.Enabled = false; btnCancelTask.Size = new Size(94, 34); btnCancelTask.Anchor = AnchorStyles.Top | AnchorStyles.Right; footer.Controls.Add(btnCancelTask);
+            chkNativeBackend = new CheckBox(); chkNativeBackend.Text = UiText("原生 .NET（实验）", "Native .NET (experimental)"); chkNativeBackend.AutoSize = true; chkNativeBackend.Checked = true; chkNativeBackend.Location = new Point(575, 20); footer.Controls.Add(chkNativeBackend);
+            chkNativeBackend.CheckedChanged += delegate { UpdateHdrRouteStatus(GetSelectedMediaInfo()); };
             btnStart = new Button(); btnStart.Text = lang.T("button.start_encode"); btnStart.ForeColor = Color.White; btnStart.BackColor = ColorAccent; btnStart.FlatStyle = FlatStyle.Flat; btnStart.FlatAppearance.BorderSize = 0; btnStart.Size = new Size(126, 36); btnStart.Anchor = AnchorStyles.Top | AnchorStyles.Right; footer.Controls.Add(btnStart);
             btnStart.Click += delegate { StartBridgeExecution(); };
             btnCancelTask.Click += delegate { CancelBridgeExecution(); };
@@ -1298,24 +1416,34 @@ namespace FilmGrainStudioPreview
             }
         }
 
+        private string GetX264SettingsLabel()
+        {
+            string presetValue = config.Get("X264_PRESET");
+            string presetLabel = string.Equals(presetValue, "medium", StringComparison.OrdinalIgnoreCase) ? "Medium" :
+                (string.Equals(presetValue, "slow", StringComparison.OrdinalIgnoreCase) ? "Slow" : "Faster");
+            string rateValue = config.Get("X264_RATE_MODE");
+            string passLabel = string.Equals(rateValue, "3PASS", StringComparison.OrdinalIgnoreCase) ? lang.T("advanced.vbr3") :
+                (string.Equals(rateValue, "2PASS", StringComparison.OrdinalIgnoreCase) ? lang.T("advanced.vbr2") : lang.T("speed.vbr1"));
+
+            return "x264 · " + presetLabel + " / tune grain / " + passLabel;
+        }
+
         private void UpdateSpeedChoices()
         {
             if (cmbCodec == null || cmbSpeed == null) return;
+            if (lblUploadX264Settings != null)
+            {
+                lblUploadX264Settings.Text = GetX264SettingsLabel();
+                lblUploadX264Settings.Visible = cmbCodec.SelectedIndex == 0 || cmbCodec.SelectedIndex == 1;
+            }
 
             if (cmbCodec.SelectedIndex == 2)
             {
-                string presetValue = config.Get("X264_PRESET");
-                string presetLabel = string.Equals(presetValue, "medium", StringComparison.OrdinalIgnoreCase) ? "Medium" :
-                    (string.Equals(presetValue, "slow", StringComparison.OrdinalIgnoreCase) ? "Slow" : "Faster");
-                string rateValue = config.Get("X264_RATE_MODE");
-                string passLabel = string.Equals(rateValue, "3PASS", StringComparison.OrdinalIgnoreCase) ? lang.T("advanced.vbr3") :
-                    (string.Equals(rateValue, "2PASS", StringComparison.OrdinalIgnoreCase) ? lang.T("advanced.vbr2") : lang.T("speed.vbr1"));
-
                 cmbSpeed.BeginUpdate();
                 try
                 {
                     cmbSpeed.Items.Clear();
-                    cmbSpeed.Items.Add("x264 · " + presetLabel + " / tune grain / " + passLabel);
+                    cmbSpeed.Items.Add(GetX264SettingsLabel());
                     cmbSpeed.SelectedIndex = 0;
                 }
                 finally { cmbSpeed.EndUpdate(); }
@@ -1397,6 +1525,7 @@ namespace FilmGrainStudioPreview
                 if (cmbFps != null) cmbFps.Enabled = false;
                 if (chkInterpolation != null) { chkInterpolation.Checked = false; chkInterpolation.Enabled = false; }
                 if (cmbInterpolationMode != null) cmbInterpolationMode.Enabled = false;
+                if (cmbInterpolationFps != null) cmbInterpolationFps.Enabled = false;
                 if (cmbDeint != null) cmbDeint.Enabled = false;
                 if (cmbDeintMethod != null) cmbDeintMethod.Enabled = false;
                 if (chkCinematic != null) chkCinematic.Enabled = false;
@@ -1528,8 +1657,14 @@ namespace FilmGrainStudioPreview
 
         private double GetRecommendedOutputFps(MediaProbeInfo info)
         {
+            bool interpolate = chkInterpolation != null && chkInterpolation.Checked;
+            if (interpolate)
+            {
+                InterpolationFrameRate parsed; string error;
+                if (!InterpolationFrameRateCore.TryParse(cmbInterpolationFps == null ? config.Get("INTERPOLATION_TARGET_FPS") : cmbInterpolationFps.Text, info == null ? "" : info.AvgFrameRate, out parsed, out error)) return 0.0;
+                return parsed.Fps;
+            }
             return BitrateRecommendationCore.GetRecommendedOutputFps(info,
-                chkInterpolation != null && chkInterpolation.Checked,
                 cmbDeint != null && cmbDeint.SelectedIndex == 0,
                 cmbFps != null && cmbFps.SelectedIndex == 1);
         }
@@ -1569,7 +1704,7 @@ namespace FilmGrainStudioPreview
             double fps = GetRecommendedOutputFps(info);
             bool highMotion = chkHighMotion != null && chkHighMotion.Checked;
 
-            if (modeBitrateAuto[codecIndex])
+            if (fps > 0.0 && modeBitrateAuto[codecIndex])
             {
                 int recommended = BitrateRecommendationCore.GetRecommendedBitrate(codecIndex, width, height, fps, highMotion);
                 modeBitrate[codecIndex] = recommended.ToString(CultureInfo.InvariantCulture);
@@ -1582,7 +1717,7 @@ namespace FilmGrainStudioPreview
                 finally { updatingBitrateUi = false; }
             }
 
-            if (chkUpload != null && chkUpload.Checked && uploadBitrateAuto && cmbUploadBitrate != null && chkUploadBitrateAuto != null)
+            if (fps > 0.0 && chkUpload != null && chkUpload.Checked && uploadBitrateAuto && cmbUploadBitrate != null && chkUploadBitrateAuto != null)
             {
                 int recommendedUpload = BitrateRecommendationCore.GetRecommendedBitrate(2, width, height, fps, highMotion);
                 updatingBitrateUi = true;
@@ -1916,9 +2051,93 @@ namespace FilmGrainStudioPreview
                 if (!string.IsNullOrWhiteSpace(path)) inputs.Add(path);
             }
 
-            BridgePreparedExecution prepared;
-            BridgeRequestPreparationFailure preparationFailure;
-            if (!BridgeRequestPreparationCore.TryPrepareExecution(appRoot, inputs, state, noReencode, out prepared, out preparationFailure))
+            bool nativeRequested = chkNativeBackend != null && chkNativeBackend.Checked && !noReencode;
+            bool nativeAv1NoReencodeRequested = chkNativeBackend != null && chkNativeBackend.Checked && noReencode;
+            bool hdrFgsimPreserveRequested = !noReencode &&
+                (string.Equals(state["FG_MODE"], "HEVC", StringComparison.OrdinalIgnoreCase) || string.Equals(state["FG_MODE"], "AV1", StringComparison.OrdinalIgnoreCase)) &&
+                string.Equals(state["FG_GRAIN_ENGINE"], "FGSIM", StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(state["FG_HDR_POLICY"], "PRESERVE", StringComparison.OrdinalIgnoreCase);
+            bool hasHdrFgsimPreserveInput = false;
+            if (hdrFgsimPreserveRequested)
+            {
+                foreach (string inputPath in inputs)
+                {
+                    MediaProbeInfo hdrInfo;
+                    if (!mediaProbeCache.TryGetValue(inputPath, out hdrInfo))
+                    {
+                        MessageBox.Show(this, UiText("HDR 信息尚未检测完成，请稍后重试。", "HDR probe is not ready; please retry."), Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return;
+                    }
+                    if (!hdrInfo.IsHdr) continue;
+                    hasHdrFgsimPreserveInput = true;
+                    bool av1HdrFgsim = string.Equals(state["FG_MODE"], "AV1", StringComparison.OrdinalIgnoreCase);
+                    if (!nativeRequested || (hdrInfo.IsInterlaced && !av1HdrFgsim))
+                    {
+                        string why = hdrInfo.IsInterlaced && !av1HdrFgsim
+                            ? UiText("当前 Native HEVC FGSIM HDR Preserve 路径暂不支持隔行 HDR。", "The Native HEVC FGSIM HDR Preserve route does not support interlaced HDR.")
+                            : UiText("Legacy FGSIM 会把 HDR 转为 SDR；此组合需要启用 Native .NET 才能保留 HDR。", "Legacy FGSIM converts HDR to SDR; enable Native .NET to preserve HDR for this combination.");
+                        MessageBox.Show(this, why, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return;
+                    }
+                }
+            }
+
+            BridgePreparedExecution prepared = null;
+            BridgeRequestPreparationFailure preparationFailure = null;
+            bool frucRequested = state.ContainsKey("FG_SVP_INTERPOLATE") && state["FG_SVP_INTERPOLATE"] == "1" &&
+                state.ContainsKey("FG_INTERPOLATION_ENGINE") && state["FG_INTERPOLATION_ENGINE"] == "FRUC";
+            if (frucRequested && (!nativeRequested || inputs.Count != 1 || (state["FG_MODE"] != "HEVC" && state["FG_MODE"] != "X264")))
+            {
+                MessageBox.Show(this, UiText("FRUC Vulkan 当前仅支持单文件 HEVC/x264 Native。", "FRUC Vulkan currently requires single-file HEVC/x264 Native."), Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            string nativeReason = "";
+            bool nativePrepared = false;
+            if (nativeAv1NoReencodeRequested && inputs.Count == 1)
+            {
+                MediaProbeInfo copyInfo;
+                if (mediaProbeCache.TryGetValue(inputs[0], out copyInfo))
+                {
+                    nativePrepared = NativeAv1GrainReplaceCore.TryPrepare(appRoot, inputs[0], copyInfo, state, out prepared, out nativeReason);
+                    if (nativePrepared) state["FG_MODE"] = "AV1";
+                }
+                else nativeReason = "media probe cache is not ready";
+            }
+            else if (nativeAv1NoReencodeRequested) nativeReason = "native AV1 no-reencode currently accepts one input at a time";
+            if (!nativePrepared && nativeRequested && inputs.Count == 1)
+            {
+                MediaProbeInfo nativeInfo;
+                if (mediaProbeCache.TryGetValue(inputs[0], out nativeInfo))
+                {
+                    if (string.Equals(state["FG_MODE"], "HEVC", StringComparison.OrdinalIgnoreCase))
+                        nativePrepared = NativeHevcCore.TryPrepare(appRoot, inputs[0], nativeInfo, state, hardwareCaps, out prepared, out nativeReason);
+                    else if (string.Equals(state["FG_MODE"], "AV1", StringComparison.OrdinalIgnoreCase))
+                        nativePrepared = NativeAv1Core.TryPrepare(appRoot, inputs[0], nativeInfo, state, hardwareCaps, out prepared, out nativeReason);
+                    else
+                        nativePrepared = NativeX264DigitalGrainCore.TryPrepare(appRoot, inputs[0], nativeInfo, state, out prepared, out nativeReason);
+                }
+                else nativeReason = "media probe cache is not ready";
+            }
+            else if (!nativePrepared && nativeRequested) nativeReason = string.Equals(state["FG_MODE"], "HEVC", StringComparison.OrdinalIgnoreCase)
+                ? "native HEVC currently accepts one input at a time"
+                : string.Equals(state["FG_MODE"], "AV1", StringComparison.OrdinalIgnoreCase)
+                    ? "native AV1 currently accepts one input at a time" : "native x264 currently accepts one input at a time";
+            bool x264NativeInterpolation = nativeRequested && state["FG_MODE"] == "X264" && state["FG_SVP_INTERPOLATE"] == "1";
+            if ((frucRequested || x264NativeInterpolation) && !nativePrepared)
+            {
+                MessageBox.Show(this, nativeReason, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            if (hasHdrFgsimPreserveInput && !nativePrepared)
+            {
+                string stopMessage = UiText("FGSIM HDR Preserve 的 Native 10-bit 路径未能准备，任务已停止；为避免 Legacy 把输出转成 SDR，不会回退。原因：", "The Native 10-bit FGSIM HDR Preserve route could not be prepared. The job was stopped to avoid Legacy converting the output to SDR; no fallback was started. Reason: ") + nativeReason;
+                if (log != null) log.AppendText("[" + state["FG_MODE"] + "] HDR FGSIM Preserve stopped; Legacy fallback blocked: " + nativeReason + Environment.NewLine);
+                MessageBox.Show(this, stopMessage, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            if ((nativeRequested || nativeAv1NoReencodeRequested) && !nativePrepared && log != null)
+                log.AppendText("[Native .NET] fallback to legacy Bridge: " + nativeReason + Environment.NewLine);
+            if (!nativePrepared && !BridgeRequestPreparationCore.TryPrepareExecution(appRoot, inputs, state, noReencode, out prepared, out preparationFailure))
             {
                 if (preparationFailure != null && preparationFailure.Kind == BridgeRequestPreparationFailureKind.MissingTool)
                 {
@@ -1957,21 +2176,35 @@ namespace FilmGrainStudioPreview
             {
                 if (workspaceIssue != null)
                     MessageBox.Show(this, LF(workspaceIssue.Key, workspaceIssue.Path, workspaceIssue.Detail), Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
+                BridgeExecutionCore.CleanupTemporaryFiles(prepared.ExecutionRequest);
                 return;
             }
 
             MediaProbeInfo info = GetBitrateMediaContext();
             double outputFps = GetRecommendedOutputFps(info);
             BridgeTaskRequest taskRequest = BridgeRequestPreparationCore.CreateTask(prepared, outputFps);
+            taskRequest.NativeBackend = nativePrepared;
+            activeRunNativeBackend = nativePrepared;
+            string runCodecMode;
+            if (!state.TryGetValue("FG_MODE", out runCodecMode))
+                runCodecMode = noReencode ? "AV1" : "";
+            activeRunCodecName = string.Equals(runCodecMode, "HEVC", StringComparison.OrdinalIgnoreCase) ? "HEVC" :
+                string.Equals(runCodecMode, "AV1", StringComparison.OrdinalIgnoreCase) ? "AV1" : "x264";
             if (log != null)
             {
                 log.AppendText(Environment.NewLine + "============================================================" + Environment.NewLine);
-                log.AppendText(noReencode
+                log.AppendText(nativePrepared
+                    ? (string.Equals(state["FG_MODE"], "AV1", StringComparison.OrdinalIgnoreCase)
+                        ? UiText("[Native .NET AV1] AV1 原生执行", "[Native .NET AV1] Native AV1 execution")
+                        : string.Equals(state["FG_MODE"], "HEVC", StringComparison.OrdinalIgnoreCase)
+                        ? UiText("[Native .NET HEVC] HEVC 原生执行", "[Native .NET HEVC] Native HEVC execution")
+                        : UiText("[Native .NET Phase 2C] x264 原生执行", "[Native .NET Phase 2C] Native x264 execution")) + Environment.NewLine
+                    : (noReencode
                     ? UiText("[Phase 3.5.8 AV1 No-Reencode] 启动真实处理", "[Phase 3.5.8 AV1 No-Reencode] Starting real processing") + Environment.NewLine
-                    : UiText("[Phase 3.5.8 Bridge] 启动真实编码", "[Phase 3.5.8 Bridge] Starting real encoding") + Environment.NewLine);
+                    : UiText("[Phase 3.5.8 Bridge] 启动真实编码", "[Phase 3.5.8 Bridge] Starting real encoding") + Environment.NewLine));
                 log.AppendText(UiText("输入文件数：", "Input files: ") + prepared.InputFiles.Count.ToString(CultureInfo.InvariantCulture) + Environment.NewLine);
                 if (!noReencode) log.AppendText(UiText("推荐输出 FPS：", "Recommended output FPS: ") + outputFps.ToString("0.###", CultureInfo.InvariantCulture) + Environment.NewLine);
-                log.AppendText((noReencode ? UiText("No-Reencode 工具：", "No-Reencode tool: ") : UiText("Bridge：", "Bridge: ")) + prepared.ToolPath + Environment.NewLine);
+                log.AppendText((noReencode ? UiText("No-Reencode 工具：", "No-Reencode tool: ") : nativePrepared ? UiText("Native 执行工具：", "Native execution tool: ") : UiText("Bridge：", "Bridge: ")) + prepared.ToolPath + Environment.NewLine);
                 foreach (KeyValuePair<string, string> pair in state)
                     log.AppendText(pair.Key + "=" + pair.Value + Environment.NewLine);
                 log.AppendText("------------------------------------------------------------" + Environment.NewLine);
@@ -1984,6 +2217,7 @@ namespace FilmGrainStudioPreview
             }
             catch (Exception ex)
             {
+                BridgeExecutionCore.CleanupTemporaryFiles(prepared.ExecutionRequest);
                 if (progressRun != null)
                 {
                     progressRun.MarqueeAnimationSpeed = 0;
@@ -2020,9 +2254,18 @@ namespace FilmGrainStudioPreview
                         BridgeTaskRequest task = e.Task;
                         bool noReencode = task != null && task.NoReencode;
                         IDictionary<string, string> state = task != null && task.ExecutionRequest != null ? task.ExecutionRequest.Environment : null;
-                        if (lblRunStage != null) lblRunStage.Text = noReencode
-                            ? UiText("Phase 3.5.8 AV1 不重编码处理中", "Phase 3.5.8 AV1 no-reencode running")
-                            : UiText("Phase 3.5.8 Bridge 编码处理中", "Phase 3.5.8 Bridge encoding running");
+                        if (lblRunStage != null)
+                        {
+                            if (noReencode)
+                                lblRunStage.Text = UiText("Phase 3.5.8 AV1 不重编码处理中", "Phase 3.5.8 AV1 no-reencode running");
+                            else if (activeRunNativeBackend || (task != null && task.NativeBackend))
+                            {
+                                string codecName = string.IsNullOrWhiteSpace(activeRunCodecName) ? "x264" : activeRunCodecName;
+                                lblRunStage.Text = UiText("Native .NET " + codecName + " 编码处理中", "Native .NET " + codecName + " encoding");
+                            }
+                            else
+                                lblRunStage.Text = UiText("Phase 3.5.8 Bridge 编码处理中", "Phase 3.5.8 Bridge encoding running");
+                        }
                         if (lblRunMetric != null)
                         {
                             string value;
@@ -2081,7 +2324,8 @@ namespace FilmGrainStudioPreview
 
                     if (e.HasStage && lblRunStage != null)
                     {
-                        lblRunStage.Text = UiText("阶段 ", "Stage ") + e.StageCurrent.ToString(CultureInfo.InvariantCulture) + "/" + e.StageTotal.ToString(CultureInfo.InvariantCulture) + " · " + e.StageText;
+                        lblRunStage.Text = (activeRunNativeBackend ? "Native .NET " + (string.IsNullOrWhiteSpace(activeRunCodecName) ? "" : activeRunCodecName + " · ") : "") +
+                            UiText("阶段 ", "Stage ") + e.StageCurrent.ToString(CultureInfo.InvariantCulture) + "/" + e.StageTotal.ToString(CultureInfo.InvariantCulture) + " · " + e.StageText;
                     }
 
                     if (e.HasMetrics && lblRunMetric != null)
@@ -2156,8 +2400,131 @@ namespace FilmGrainStudioPreview
             catch (InvalidOperationException) { }
         }
 
+        private void UpdateHdrRouteStatus(MediaProbeInfo info)
+        {
+            if (lblHdrRoute == null) return;
+            string text;
+            string detail;
+            if (listFiles != null && listFiles.SelectedItems.Count > 1)
+            {
+                text = lang.T("input.hdr_route_multi");
+                detail = text;
+            }
+            else if (info == null)
+            {
+                text = lang.T("input.hdr_route_pending");
+                detail = text;
+            }
+            else if (!info.IsHdr)
+            {
+                text = lang.T("input.hdr_route_sdr");
+                detail = text;
+            }
+            else
+            {
+                int codec = cmbCodec == null ? 0 : cmbCodec.SelectedIndex;
+                bool noReencode = codec == 3;
+                bool av1 = codec == 0;
+                bool hevc = codec == 1;
+                bool x264 = codec == 2;
+                bool fgsim = (hevc && IsHevcFgsim()) ||
+                    (av1 && cmbGrainMode != null && cmbGrainMode.SelectedIndex == 4);
+                bool upload = chkUpload != null && chkUpload.Checked && !noReencode;
+                bool color = colorCorrectionEnabled;
+                bool lut = chkLut != null && chkLut.Checked && !string.IsNullOrWhiteSpace(selectedLutPath);
+                bool interpolate = chkInterpolation != null && chkInterpolation.Checked && !noReencode;
+                bool fruc = interpolate && cmbInterpolationMode != null && cmbInterpolationMode.SelectedIndex == 2;
+                string policy = config.Get("HDR_POLICY").ToUpperInvariant();
+                if (policy != "PRESERVE" && policy != "SDR") policy = "AUTO";
+                string tone = config.Get("TONE_MAP_ALGO").ToLowerInvariant();
+                if (tone != "mobius" && tone != "reinhard" && tone != "gamma" && tone != "linear" && tone != "clip") tone = "hable";
+                string toneLabel = char.ToUpperInvariant(tone[0]) + tone.Substring(1);
+                bool preserve = false;
+                bool toSdr = false;
+                bool unsupported = false;
+
+                if (fruc && !hevc && !x264)
+                {
+                    unsupported = true;
+                    detail = lang.T("input.hdr_route_detail_fruc");
+                }
+                else if (noReencode)
+                {
+                    preserve = true;
+                    detail = UiText("AV1 不重编码只更换颗粒元数据，不执行色调映射。", "AV1 no-reencode only changes grain metadata; tone mapping is not run.");
+                }
+                else if (policy == "SDR")
+                {
+                    toSdr = true;
+                    detail = LF("input.hdr_route_detail_sdr", toneLabel);
+                }
+                else if (policy == "PRESERVE")
+                {
+                    bool nativeSelected = chkNativeBackend != null && chkNativeBackend.Checked;
+                    bool av1FgsimPreserveReady = av1 && nativeSelected &&
+                        (!info.IsInterlaced || (cmbDeint != null && cmbDeint.SelectedIndex == 0));
+                    if (x264 || (hevc && fgsim && (!nativeSelected || info.IsInterlaced)) ||
+                        (av1 && fgsim && !av1FgsimPreserveReady) || fruc)
+                    {
+                        unsupported = true;
+                        detail = x264
+                            ? lang.T("input.hdr_route_detail_x264")
+                            : (av1 && fgsim
+                                ? UiText("AV1 FGSIM 的 HDR Preserve 需要启用 Native .NET；隔行素材还需启用 Auto 反交错。Legacy 会将其转为 SDR。", "AV1 FGSIM HDR Preserve requires Native .NET; interlaced sources also require Auto deinterlace. Legacy converts it to SDR.")
+                                : (fgsim ? lang.T("input.hdr_route_detail_fgsim") : lang.T("input.hdr_route_detail_fruc")));
+                    }
+                    else if (fgsim && !hevc && !av1FgsimPreserveReady)
+                    {
+                        toSdr = true;
+                        detail = lang.T("input.hdr_route_detail_fgsim_auto");
+                    }
+                    else
+                    {
+                        preserve = true;
+                        detail = av1 && fgsim
+                            ? UiText("AV1 Native 使用 10-bit FGSIM 亮度颗粒路径，保留 HDR 信号。", "AV1 Native uses the 10-bit FGSIM luma-grain path and preserves the HDR signal.")
+                            : (hevc && fgsim
+                                ? UiText("HEVC Native 将使用 10-bit FGSIM 亮度颗粒路径，保留 HDR 信号。", "HEVC Native will use the 10-bit FGSIM luma-grain path and preserve the HDR signal.")
+                                : lang.T("input.hdr_route_detail_preserve"));
+                        if (hevc && (lut || color))
+                            detail += " " + UiText("BT.709 LUT 会跳过；启用的色彩纠正仍会应用。", "The BT.709 LUT is skipped; enabled color correction is still applied.");
+                        if (upload || (interpolate && !fruc))
+                            detail += " " + lang.T("input.hdr_route_detail_bypass");
+                    }
+                }
+                else
+                {
+                    bool autoToSdr = x264 || lut || color || upload || (interpolate && !fruc) || fgsim;
+                    if (fruc && !autoToSdr)
+                    {
+                        unsupported = true;
+                        detail = lang.T("input.hdr_route_detail_fruc");
+                    }
+                    else if (autoToSdr)
+                    {
+                        toSdr = true;
+                        detail = LF("input.hdr_route_detail_auto_sdr", toneLabel);
+                    }
+                    else
+                    {
+                        preserve = true;
+                        detail = lang.T("input.hdr_route_detail_auto_preserve");
+                    }
+                }
+
+                text = unsupported ? lang.T("input.hdr_route_unsupported") :
+                    (toSdr ? LF("input.hdr_route_tosdr", toneLabel) : lang.T("input.hdr_route_passthrough"));
+                bool hasPreserveBypass = hevc ? (lut || upload || interpolate) : (lut || color || upload || interpolate);
+                if (preserve && !noReencode && hasPreserveBypass)
+                    text += " " + lang.T("input.hdr_route_bypass_short");
+            }
+            lblHdrRoute.Text = text;
+            lutToolTip.SetToolTip(lblHdrRoute, detail ?? text);
+        }
+
         private void UpdateMediaDrivenUi(MediaProbeInfo info)
         {
+            UpdateHdrRouteStatus(info);
             if (cmbFps == null || cmbDeint == null || cmbDeintMethod == null) return;
             if (cmbCodec != null && cmbCodec.SelectedIndex == 3)
             {
@@ -2165,9 +2532,11 @@ namespace FilmGrainStudioPreview
                 cmbDeint.Enabled = false;
                 cmbDeintMethod.Enabled = false;
                 if (cmbInterpolationMode != null) cmbInterpolationMode.Enabled = false;
+                if (cmbInterpolationFps != null) cmbInterpolationFps.Enabled = false;
                 return;
             }
             bool interpolating = chkInterpolation != null && chkInterpolation.Checked;
+            if (cmbInterpolationFps != null) cmbInterpolationFps.Enabled = interpolating;
 
             if (interpolating)
             {
@@ -2177,14 +2546,22 @@ namespace FilmGrainStudioPreview
                 cmbDeintMethod.Enabled = true;
                 if (cmbFps.Items.Count > 0)
                 {
-                    cmbFps.Items[0] = lang.T("fps.interpolation");
+                    InterpolationFrameRate targetRate; string rateError;
+                    string requestedRate = cmbInterpolationFps == null ? config.Get("INTERPOLATION_TARGET_FPS") : cmbInterpolationFps.Text;
+                    if (InterpolationFrameRateCore.TryParse(requestedRate, info == null ? "" : info.AvgFrameRate, out targetRate, out rateError))
+                    {
+                        string engineLabel = cmbInterpolationMode != null && cmbInterpolationMode.SelectedIndex == 2 ? "FRUC Vulkan" : "OpenSVPFlow";
+                        cmbFps.Items[0] = engineLabel + " · " + targetRate.Fps.ToString("0.###", CultureInfo.InvariantCulture) + " fps";
+                    }
+                    else cmbFps.Items[0] = UiText("插帧目标帧率无效", "Invalid interpolation target FPS");
                     cmbFps.SelectedIndex = 0;
                     cmbFps.Enabled = false;
                 }
                 return;
             }
 
-            if (cmbInterpolationMode != null) cmbInterpolationMode.Enabled = false;
+            if (cmbInterpolationMode != null) cmbInterpolationMode.Enabled = true;
+            if (cmbInterpolationFps != null) cmbInterpolationFps.Enabled = false;
             cmbDeint.Enabled = true;
             bool autoDeint = cmbDeint.SelectedIndex == 0;
             cmbDeintMethod.Enabled = autoDeint;
@@ -2408,6 +2785,7 @@ namespace FilmGrainStudioPreview
             trackLutStrength.Enabled = enabled;
             lblLutStrength.Enabled = enabled;
             if (lblLutStrengthTitle != null) lblLutStrengthTitle.Enabled = enabled;
+            UpdateHdrRouteStatus(GetSelectedMediaInfo());
         }
 
         private void SetLutPreview(string lutPath)
@@ -2512,6 +2890,7 @@ namespace FilmGrainStudioPreview
             if (btnColorCorrection == null) return;
             string baseText = lang.T("button.color_correction");
             btnColorCorrection.Text = colorCorrectionEnabled ? baseText.TrimEnd('\u2026') + "  ✓" : baseText;
+            UpdateHdrRouteStatus(GetSelectedMediaInfo());
         }
 
         private string GetPreviewVideoPath()
@@ -2602,6 +2981,7 @@ namespace FilmGrainStudioPreview
                 RefreshLutLists();
                 UpdateLutUi();
                 UpdateColorCorrectionUi();
+                UpdateHdrRouteStatus(GetSelectedMediaInfo());
                 if (log != null) log.AppendText("[Preview] Native color correction closed." + Environment.NewLine);
             }
         }
