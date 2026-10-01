@@ -23,7 +23,7 @@ namespace FilmGrainStudioPreview
         private static readonly KeyValuePair<string, string[]>[] Sections = new KeyValuePair<string, string[]>[]
         {
             new KeyValuePair<string, string[]>("Paths", new string[] { "FFMPEG_DIR", "FRUC_FFMPEG_SAME_AS_MAIN", "FRUC_FFMPEG_PATH", "GRAV1SYNTH", "GRAIN_ROOT", "LUT_ROOT", "TEMP_MODE", "TEMP_CUSTOM_DIR", "OUTPUT_MODE", "OUTPUT_CUSTOM_DIR" }),
-            new KeyValuePair<string, string[]>("General", new string[] { "LANGUAGE", "SETUP_VERSION", "NETWORK_PROXY_MODE", "NETWORK_PROXY_URL" }),
+            new KeyValuePair<string, string[]>("General", new string[] { "LANGUAGE", "SETUP_VERSION", "NETWORK_PROXY_MODE", "NETWORK_PROXY_URL", "LOG_ENTRY_LIMIT" }),
             new KeyValuePair<string, string[]>("LUTGallery", new string[] { "SMART_FILTER_ENABLED" }),
             new KeyValuePair<string, string[]>("Advanced.Encoding", new string[] { "H264_HIGH10", "X264_RATE_MODE", "X264_PRESET", "NVENC_SPATIAL_AQ", "NVENC_TEMPORAL_AQ" }),
             new KeyValuePair<string, string[]>("Advanced.Interpolation", new string[] { "SVP_ALGO", "SVP_ANALYSE", "SVP_MASK_AREA", "FRUC_PERF", "FRUC_GRID", "INTERPOLATION_TARGET_FPS" }),
@@ -56,6 +56,7 @@ namespace FilmGrainStudioPreview
             defaults["SETUP_VERSION"] = "0";
             defaults["NETWORK_PROXY_MODE"] = "SYSTEM";
             defaults["NETWORK_PROXY_URL"] = "";
+            defaults["LOG_ENTRY_LIMIT"] = "100";
             defaults["FRUC_FFMPEG_PATH"] = "";
             // Empty means infer from an older configuration: a saved FRUC path implies custom mode.
             defaults["FRUC_FFMPEG_SAME_AS_MAIN"] = "";

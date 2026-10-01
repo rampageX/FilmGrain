@@ -13,6 +13,69 @@ using System.Web.Script.Serialization;
 
 namespace FilmGrainStudioPreview
 {
+    // A session log survives visible-log trimming/clearing and is flushed before UI updates.
+    internal sealed class FullLogFileCore : IDisposable
+    {
+        private readonly object sync = new object();
+        private StreamWriter writer;
+        public string FilePath { get; private set; }
+        public string Error { get; private set; }
+        public FullLogFileCore(string appRoot, string kind = "Session", int entryLimit = 100)
+        {
+            string name = "FGS_" + kind + "_" + DateTime.Now.ToString("yyyyMMdd_HHmmss_fff", CultureInfo.InvariantCulture) + "_" + Guid.NewGuid().ToString("N") + ".log";
+            string[] dirs = new string[] { Path.Combine(appRoot, "Logs"), Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FilmGrainStudio", "Logs") };
+            foreach (string dir in dirs)
+            {
+                try
+                {
+                    Directory.CreateDirectory(dir);
+                    FilePath = Path.Combine(dir, name);
+                    writer = new StreamWriter(new FileStream(FilePath, FileMode.CreateNew, FileAccess.Write, FileShare.Read), new UTF8Encoding(true));
+                    writer.AutoFlush = true;
+                    Error = "";
+                    PruneOldLogs(dir, FilePath, entryLimit);
+                    return;
+                }
+                catch (Exception ex) { Error = ex.Message; }
+            }
+        }
+        private static void PruneOldLogs(string dir, string currentFile, int entryLimit)
+        {
+            if (entryLimit <= 0) return;
+            try
+            {
+                FileInfo[] files = new DirectoryInfo(dir).GetFiles("FGS_*.log", SearchOption.TopDirectoryOnly);
+                Array.Sort(files, delegate(FileInfo a, FileInfo b)
+                {
+                    int byTime = b.LastWriteTimeUtc.CompareTo(a.LastWriteTimeUtc);
+                    return byTime != 0 ? byTime : string.Compare(b.Name, a.Name, StringComparison.OrdinalIgnoreCase);
+                });
+                int kept = 0;
+                foreach (FileInfo file in files)
+                {
+                    if (string.Equals(file.FullName, currentFile, StringComparison.OrdinalIgnoreCase)) { kept++; continue; }
+                    if (kept < entryLimit) { kept++; continue; }
+                    try { file.Delete(); } catch { }
+                }
+            }
+            catch { }
+        }
+
+        public void Write(string text)
+        {
+            lock (sync)
+            {
+                if (writer == null) return;
+                try { writer.Write(text); }
+                catch (Exception ex) { Error = ex.Message; try { writer.Dispose(); } catch { } writer = null; }
+            }
+        }
+        public void Dispose()
+        {
+            lock (sync) { if (writer != null) { try { writer.Dispose(); } catch { } writer = null; } }
+        }
+    }
+
     internal static class Program
     {
         [STAThread]
@@ -93,7 +156,10 @@ namespace FilmGrainStudioPreview
         private Label lblStatus;
         private Label lblRunStage;
         private Label lblRunMetric;
-        private RichTextBox log;
+        private TextBox log;
+        private FullLogFileCore fullLog;
+        private FullLogFileCore taskLog;
+        private bool fullLogErrorReported;
         private ComboBox cmbCodec;
         private ComboBox cmbContainer;
         private ComboBox cmbSpeed;
@@ -260,6 +326,8 @@ namespace FilmGrainStudioPreview
                     hardwareCapabilityCore.Dispose();
                     hardwareCapabilityCore = null;
                 }
+                if (fullLog != null) fullLog.Dispose();
+                if (taskLog != null) taskLog.Dispose();
             };
         }
 
@@ -371,7 +439,7 @@ namespace FilmGrainStudioPreview
                 try
                 {
                     config.SaveValue("LANGUAGE", selected.Code);
-                    if (log != null) log.AppendText("[Config] LANGUAGE=" + selected.Code + Environment.NewLine);
+                    if (log != null) AppendLog("[Config] LANGUAGE=" + selected.Code + Environment.NewLine);
                     MessageBox.Show(this, lang.T("language.restart_required"), lang.T("language.title"), MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
                 catch (Exception ex)
@@ -1138,8 +1206,9 @@ namespace FilmGrainStudioPreview
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 28)); layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             box.Controls.Add(layout);
 
-            TableLayoutPanel toolbar = new TableLayoutPanel(); toolbar.Dock = DockStyle.Fill; toolbar.ColumnCount = 4; toolbar.RowCount = 1; toolbar.Padding = new Padding(3, 0, 0, 0);
-            toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 320)); toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 84)); toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 84));
+            TableLayoutPanel toolbar = new TableLayoutPanel(); toolbar.Dock = DockStyle.Fill; toolbar.ColumnCount = 6; toolbar.RowCount = 1; toolbar.Padding = new Padding(3, 0, 0, 0);
+            toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 220)); toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 84)); toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 84));
+            toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 92)); toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 92));
             lblRunStage = new Label(); lblRunStage.Text = lang.T("log.waiting"); lblRunStage.Dock = DockStyle.Fill; lblRunStage.TextAlign = ContentAlignment.MiddleLeft; lblRunStage.AutoEllipsis = true;
             lblRunMetric = new Label(); lblRunMetric.Text = "fps: —   speed: —"; lblRunMetric.Dock = DockStyle.Fill; lblRunMetric.TextAlign = ContentAlignment.MiddleLeft; lblRunMetric.ForeColor = ColorMuted; lblRunMetric.AutoEllipsis = true;
             Button copy = new Button(); copy.Text = lang.T("button.copy_log"); copy.Size = new Size(78, 24); copy.Anchor = AnchorStyles.Top | AnchorStyles.Right;
@@ -1147,13 +1216,26 @@ namespace FilmGrainStudioPreview
             copy.Click += delegate { if (log.TextLength > 0) Clipboard.SetText(log.Text); };
             clear.Click += delegate { log.Clear(); };
             toolbar.Controls.Add(lblRunStage, 0, 0); toolbar.Controls.Add(lblRunMetric, 1, 0); toolbar.Controls.Add(copy, 2, 0); toolbar.Controls.Add(clear, 3, 0);
+            Button openLog = new Button(); openLog.Text = UiText("完整日志", "Full log"); openLog.Size = new Size(88, 24);
+            Button openFolder = new Button(); openFolder.Text = UiText("日志目录", "Log folder"); openFolder.Size = new Size(88, 24);
+            openLog.Click += delegate { OpenFullLog(false); };
+            openFolder.Click += delegate { OpenFullLog(true); };
+            ContextMenuStrip logFolderMenu = new ContextMenuStrip();
+            ToolStripMenuItem clearLogFolder = new ToolStripMenuItem(UiText("清空日志目录", "Clear log folder"));
+            clearLogFolder.Click += delegate { ClearLogFolder(); };
+            logFolderMenu.Items.Add(clearLogFolder);
+            openFolder.ContextMenuStrip = logFolderMenu;
+            toolbar.Controls.Add(openLog, 4, 0); toolbar.Controls.Add(openFolder, 5, 0);
             layout.Controls.Add(toolbar, 0, 0);
 
-            log = new RichTextBox(); log.Dock = DockStyle.Fill; log.ReadOnly = true; log.WordWrap = false; log.DetectUrls = false; log.BackColor = Color.FromArgb(28, 30, 34); log.ForeColor = Color.Gainsboro; log.Font = new Font("Consolas", 9f); log.BorderStyle = BorderStyle.FixedSingle;
-            log.AppendText("Film Grain Studio .NET Preview NATIVE_P1" + Environment.NewLine);
-            log.AppendText("Baseline: v4.8.11 Stable" + Environment.NewLine);
-            log.AppendText("App root: " + appRoot + Environment.NewLine);
-            log.AppendText(".NET execution modules: Native AV1 grain inspection, Native codecs, and Legacy Bridge fallback." + Environment.NewLine);
+            log = new TextBox(); log.Multiline = true; log.ScrollBars = ScrollBars.Both; log.MaxLength = 0; log.Dock = DockStyle.Fill; log.ReadOnly = true; log.WordWrap = false; log.BackColor = Color.FromArgb(28, 30, 34); log.ForeColor = Color.Gainsboro; log.Font = new Font("Consolas", 9f); log.BorderStyle = BorderStyle.FixedSingle;
+            fullLog = new FullLogFileCore(appRoot, "Session", GetLogEntryLimit());
+            AppendLog("Film Grain Studio .NET Preview NATIVE_P1" + Environment.NewLine);
+            AppendLog("Baseline: v4.8.12 Stable / InspectLogFix TaskLog T9P3HZ" + Environment.NewLine);
+            AppendLog("App root: " + appRoot + Environment.NewLine);
+            AppendLog(".NET execution modules: Native AV1 grain inspection, Native codecs, and Legacy Bridge fallback." + Environment.NewLine);
+            AppendLog("[Full log] " + fullLog.FilePath + Environment.NewLine);
+            if (!string.IsNullOrEmpty(fullLog.Error)) AppendVisibleLog("[Full log ERROR] " + fullLog.Error + Environment.NewLine);
             layout.Controls.Add(log, 0, 1);
             return box;
         }
@@ -1583,14 +1665,15 @@ namespace FilmGrainStudioPreview
             }
 
             string grav = config.Get("GRAV1SYNTH");
-            if (string.IsNullOrWhiteSpace(grav) || !File.Exists(grav))
+            string ffmpeg = Path.Combine(config.Get("FFMPEG_DIR"), "ffmpeg.exe");
+            if (!File.Exists(ffmpeg))
             {
-                SetMediaInfoText(baseSummary + Environment.NewLine + lang.T("av1grain.grav_missing"), false);
+                SetMediaInfoText(baseSummary + Environment.NewLine + LF("media.ffmpeg_missing", ffmpeg), false);
                 return;
             }
 
             SetMediaInfoText(baseSummary + Environment.NewLine + lang.T("av1grain.detecting"), false);
-            if (av1GrainInspectCore != null) av1GrainInspectCore.Start(path, grav);
+            if (av1GrainInspectCore != null) av1GrainInspectCore.Start(path, grav, ffmpeg);
         }
 
         private void OnAv1GrainInspectCompleted(Av1GrainInspectResult result)
@@ -1609,9 +1692,17 @@ namespace FilmGrainStudioPreview
                     if (string.IsNullOrEmpty(state))
                     {
                         string detail = result.FailureMessage;
-                        if (string.IsNullOrEmpty(detail)) detail = FirstLine(result.StandardError);
+                        if (string.IsNullOrEmpty(detail)) detail = Av1GrainInspectCore.GetFailureDetail(result.StandardError);
                         if (string.IsNullOrEmpty(detail)) detail = LF("media.return_code", result.ExitCode);
                         state = "AV1 胶片颗粒：检测失败 · " + detail;
+                        if (log != null)
+                        {
+                            AppendLog("[AV1 Inspect] path=" + result.PathValue + Environment.NewLine);
+                            AppendLog("[AV1 Inspect] exit_code=" + result.ExitCode.ToString(CultureInfo.InvariantCulture) + " · " + detail + Environment.NewLine);
+                            if (!string.IsNullOrWhiteSpace(result.StandardError))
+                                AppendLog(result.StandardError.TrimEnd() + Environment.NewLine);
+                            ScrollLogToEnd();
+                        }
                     }
 
                     av1GrainInspectCache[result.PathValue] = state;
@@ -1813,7 +1904,7 @@ namespace FilmGrainStudioPreview
                 hardwareDetectionInProgress = false;
                 if (btnStart != null && (bridgeTaskCoordinator == null || !bridgeTaskCoordinator.IsActive)) btnStart.Enabled = true;
                 if (statusHardware != null) statusHardware.Text = "FFmpeg " + lang.T("hardware.not_detected") + " · " + lang.T("hardware.pending");
-                if (log != null) log.AppendText("[Hardware] detection start failed: " + ex.Message + Environment.NewLine);
+                if (log != null) AppendLog("[Hardware] detection start failed: " + ex.Message + Environment.NewLine);
             }
         }
 
@@ -1832,7 +1923,7 @@ namespace FilmGrainStudioPreview
                         hardwareCapsReady = true;
                         ApplyHardwareCapabilities();
                         if (log != null)
-                            log.AppendText("[Hardware] " + caps.GpuName + " · AV1=" + (caps.Av1Available ? "1" : "0") + " · HEVC=" + (caps.HevcAvailable ? "1" : "0") + " · x264=" + (caps.X264Available ? "1" : "0") + Environment.NewLine);
+                            AppendLog("[Hardware] " + caps.GpuName + " · AV1=" + (caps.Av1Available ? "1" : "0") + " · HEVC=" + (caps.HevcAvailable ? "1" : "0") + " · x264=" + (caps.X264Available ? "1" : "0") + Environment.NewLine);
                     }
                     else
                     {
@@ -1840,7 +1931,7 @@ namespace FilmGrainStudioPreview
                         hardwareCapsReady = false;
                         ResetHardwareUiToPending();
                         if (log != null && caps != null && !string.IsNullOrWhiteSpace(caps.Error))
-                            log.AppendText("[Hardware] detection failed: " + caps.Error + Environment.NewLine);
+                            AppendLog("[Hardware] detection failed: " + caps.Error + Environment.NewLine);
                     }
                     if (btnStart != null && (bridgeTaskCoordinator == null || !bridgeTaskCoordinator.IsActive)) btnStart.Enabled = true;
                     ScrollLogToEnd();
@@ -2051,6 +2142,14 @@ namespace FilmGrainStudioPreview
                 if (!string.IsNullOrWhiteSpace(path)) inputs.Add(path);
             }
 
+            if (taskLog != null) taskLog.Dispose();
+            taskLog = new FullLogFileCore(appRoot, "Task", GetLogEntryLimit());
+            fullLogErrorReported = false;
+            AppendTaskLog("[Task log] " + taskLog.FilePath + Environment.NewLine);
+            AppendTaskLog("[Task] started=" + DateTime.Now.ToString("o", CultureInfo.InvariantCulture) + " build=T9P3HZ" + Environment.NewLine);
+            foreach (string input in inputs) AppendTaskLog("[Task input] " + input + Environment.NewLine);
+            foreach (KeyValuePair<string, string> setting in state) AppendTaskLog(setting.Key + "=" + setting.Value + Environment.NewLine);
+
             bool nativeRequested = chkNativeBackend != null && chkNativeBackend.Checked && !noReencode;
             bool nativeAv1NoReencodeRequested = chkNativeBackend != null && chkNativeBackend.Checked && noReencode;
             bool hdrFgsimPreserveRequested = !noReencode &&
@@ -2131,12 +2230,12 @@ namespace FilmGrainStudioPreview
             if (hasHdrFgsimPreserveInput && !nativePrepared)
             {
                 string stopMessage = UiText("FGSIM HDR Preserve 的 Native 10-bit 路径未能准备，任务已停止；为避免 Legacy 把输出转成 SDR，不会回退。原因：", "The Native 10-bit FGSIM HDR Preserve route could not be prepared. The job was stopped to avoid Legacy converting the output to SDR; no fallback was started. Reason: ") + nativeReason;
-                if (log != null) log.AppendText("[" + state["FG_MODE"] + "] HDR FGSIM Preserve stopped; Legacy fallback blocked: " + nativeReason + Environment.NewLine);
+                if (log != null) AppendTaskLog("[" + state["FG_MODE"] + "] HDR FGSIM Preserve stopped; Legacy fallback blocked: " + nativeReason + Environment.NewLine);
                 MessageBox.Show(this, stopMessage, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
             if ((nativeRequested || nativeAv1NoReencodeRequested) && !nativePrepared && log != null)
-                log.AppendText("[Native .NET] fallback to legacy Bridge: " + nativeReason + Environment.NewLine);
+                AppendTaskLog("[Native .NET] fallback to legacy Bridge: " + nativeReason + Environment.NewLine);
             if (!nativePrepared && !BridgeRequestPreparationCore.TryPrepareExecution(appRoot, inputs, state, noReencode, out prepared, out preparationFailure))
             {
                 if (preparationFailure != null && preparationFailure.Kind == BridgeRequestPreparationFailureKind.MissingTool)
@@ -2145,7 +2244,7 @@ namespace FilmGrainStudioPreview
                 }
                 else if (preparationFailure != null && preparationFailure.Kind == BridgeRequestPreparationFailureKind.MissingInput)
                 {
-                    if (log != null) log.AppendText("[Runner] input preflight: exists=0 path=\"" + preparationFailure.Path + "\"" + Environment.NewLine);
+                    if (log != null) AppendTaskLog("[Runner] input preflight: exists=0 path=\"" + preparationFailure.Path + "\"" + Environment.NewLine);
                     MessageBox.Show(this, UiText("输入文件不存在或当前无法访问：", "Input file does not exist or is not currently accessible:") + Environment.NewLine + preparationFailure.Path, Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
                     ScrollLogToEnd();
                 }
@@ -2158,7 +2257,7 @@ namespace FilmGrainStudioPreview
 
             foreach (string inputPath in prepared.InputFiles)
             {
-                if (log != null) log.AppendText("[Runner] input preflight: exists=1 path=\"" + inputPath + "\"" + Environment.NewLine);
+                if (log != null) AppendTaskLog("[Runner] input preflight: exists=1 path=\"" + inputPath + "\"" + Environment.NewLine);
             }
 
             WorkspacePreflightIssue workspaceIssue;
@@ -2192,8 +2291,8 @@ namespace FilmGrainStudioPreview
                 string.Equals(runCodecMode, "AV1", StringComparison.OrdinalIgnoreCase) ? "AV1" : "x264";
             if (log != null)
             {
-                log.AppendText(Environment.NewLine + "============================================================" + Environment.NewLine);
-                log.AppendText(nativePrepared
+                AppendTaskLog(Environment.NewLine + "============================================================" + Environment.NewLine);
+                AppendTaskLog(nativePrepared
                     ? (string.Equals(state["FG_MODE"], "AV1", StringComparison.OrdinalIgnoreCase)
                         ? UiText("[Native .NET AV1] AV1 原生执行", "[Native .NET AV1] Native AV1 execution")
                         : string.Equals(state["FG_MODE"], "HEVC", StringComparison.OrdinalIgnoreCase)
@@ -2202,12 +2301,12 @@ namespace FilmGrainStudioPreview
                     : (noReencode
                     ? UiText("[Phase 3.5.8 AV1 No-Reencode] 启动真实处理", "[Phase 3.5.8 AV1 No-Reencode] Starting real processing") + Environment.NewLine
                     : UiText("[Phase 3.5.8 Bridge] 启动真实编码", "[Phase 3.5.8 Bridge] Starting real encoding") + Environment.NewLine));
-                log.AppendText(UiText("输入文件数：", "Input files: ") + prepared.InputFiles.Count.ToString(CultureInfo.InvariantCulture) + Environment.NewLine);
-                if (!noReencode) log.AppendText(UiText("推荐输出 FPS：", "Recommended output FPS: ") + outputFps.ToString("0.###", CultureInfo.InvariantCulture) + Environment.NewLine);
-                log.AppendText((noReencode ? UiText("No-Reencode 工具：", "No-Reencode tool: ") : nativePrepared ? UiText("Native 执行工具：", "Native execution tool: ") : UiText("Bridge：", "Bridge: ")) + prepared.ToolPath + Environment.NewLine);
+                AppendTaskLog(UiText("输入文件数：", "Input files: ") + prepared.InputFiles.Count.ToString(CultureInfo.InvariantCulture) + Environment.NewLine);
+                if (!noReencode) AppendTaskLog(UiText("推荐输出 FPS：", "Recommended output FPS: ") + outputFps.ToString("0.###", CultureInfo.InvariantCulture) + Environment.NewLine);
+                AppendTaskLog((noReencode ? UiText("No-Reencode 工具：", "No-Reencode tool: ") : nativePrepared ? UiText("Native 执行工具：", "Native execution tool: ") : UiText("Bridge：", "Bridge: ")) + prepared.ToolPath + Environment.NewLine);
                 foreach (KeyValuePair<string, string> pair in state)
-                    log.AppendText(pair.Key + "=" + pair.Value + Environment.NewLine);
-                log.AppendText("------------------------------------------------------------" + Environment.NewLine);
+                    AppendTaskLog(pair.Key + "=" + pair.Value + Environment.NewLine);
+                AppendTaskLog("------------------------------------------------------------" + Environment.NewLine);
             }
 
             try
@@ -2224,6 +2323,7 @@ namespace FilmGrainStudioPreview
                     progressRun.Style = ProgressBarStyle.Blocks;
                     progressRun.Value = 0;
                 }
+                AppendTaskLog("[Task] start failed: " + ex.ToString() + Environment.NewLine);
                 if (lblRunStage != null) lblRunStage.Text = UiText("启动失败", "Start failed");
                 MessageBox.Show(this, ex.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
@@ -2288,7 +2388,7 @@ namespace FilmGrainStudioPreview
                         if (lblRunStage != null) lblRunStage.Text = UiText("正在取消任务...", "Cancelling task...");
                         if (log != null)
                         {
-                            log.AppendText(UiText("[Runner] 正在请求终止进程树...", "[Runner] Requesting process-tree termination...") + Environment.NewLine);
+                            AppendTaskLog(UiText("[Runner] 正在请求终止进程树...", "[Runner] Requesting process-tree termination...") + Environment.NewLine);
                             ScrollLogToEnd();
                         }
                     }
@@ -2299,14 +2399,17 @@ namespace FilmGrainStudioPreview
 
         private void OnBridgeExecutionLogLine(object sender, BridgeLogLineEventArgs e)
         {
+            string prefix = e.Stream == BridgeLogStream.StandardError ? "[stderr] " : (e.Stream == BridgeLogStream.StandardOutput ? "[stdout] " : "[runner] ");
+            string line = prefix + e.Line + Environment.NewLine;
+            FullLogFileCore currentLog = taskLog;
+            if (currentLog != null) currentLog.Write(line);
             if (IsDisposed || Disposing || !IsHandleCreated) return;
             try
             {
                 BeginInvoke((MethodInvoker)delegate
                 {
                     if (IsDisposed || Disposing || log == null) return;
-                    string prefix = e.Stream == BridgeLogStream.StandardError ? "[stderr] " : (e.Stream == BridgeLogStream.StandardOutput ? "[stdout] " : "[runner] ");
-                    log.AppendText(prefix + e.Line + Environment.NewLine);
+                    AppendVisibleLog(line);
                     ScrollLogToEnd();
                 });
             }
@@ -2347,9 +2450,96 @@ namespace FilmGrainStudioPreview
             catch (InvalidOperationException) { }
         }
 
+        private void AppendTaskLog(string text)
+        {
+            if (taskLog != null) taskLog.Write(text);
+            AppendVisibleLog(text);
+        }
+
+        private void AppendLog(string text)
+        {
+            if (fullLog != null) fullLog.Write(text);
+            AppendVisibleLog(text);
+        }
+
+        private void AppendVisibleLog(string text)
+        {
+            if (log == null || log.IsDisposed || log.Disposing) return;
+            log.AppendText(text);
+            FullLogFileCore failedLog = taskLog != null && !string.IsNullOrEmpty(taskLog.Error) ? taskLog : fullLog;
+            if (failedLog != null && !string.IsNullOrEmpty(failedLog.Error) && !fullLogErrorReported)
+            {
+                fullLogErrorReported = true;
+                log.AppendText("[Full log ERROR] " + failedLog.Error + Environment.NewLine);
+            }
+        }
+
+        private int GetLogEntryLimit()
+        {
+            int value = config == null ? 100 : config.GetInt("LOG_ENTRY_LIMIT", 100);
+            return Math.Max(0, Math.Min(10000, value));
+        }
+
+        private void ClearLogFolder()
+        {
+            string dir = Path.Combine(appRoot, "Logs");
+            if (!Directory.Exists(dir))
+            {
+                MessageBox.Show(this, UiText("日志目录为空。", "The log folder is empty."), UiText("日志", "Log"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            DialogResult confirm = MessageBox.Show(this,
+                UiText("确定清空 FGS Logs 目录中的日志文件吗？\n\n当前正在使用的日志会保留。", "Clear log files from the FGS Logs folder?\n\nLogs currently in use will be kept."),
+                UiText("清空日志目录", "Clear log folder"), MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2);
+            if (confirm != DialogResult.Yes) return;
+
+            int deleted = 0, kept = 0;
+            try
+            {
+                foreach (string file in Directory.GetFiles(dir, "FGS_*.log", SearchOption.TopDirectoryOnly))
+                {
+                    try { File.Delete(file); deleted++; }
+                    catch { kept++; }
+                }
+                AppendLog("[Log] cleanup: deleted=" + deleted.ToString(CultureInfo.InvariantCulture) + " kept=" + kept.ToString(CultureInfo.InvariantCulture) + Environment.NewLine);
+                MessageBox.Show(this,
+                    UiText("日志清理完成。删除：", "Log cleanup completed. Deleted: ") + deleted.ToString(CultureInfo.InvariantCulture) +
+                    UiText("，保留：", ", kept: ") + kept.ToString(CultureInfo.InvariantCulture),
+                    UiText("日志", "Log"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, ex.Message, UiText("日志", "Log"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
+
+        private void OpenFullLog(bool folder)
+        {
+            FullLogFileCore selected = taskLog ?? fullLog;
+            if (selected == null) return;
+            try
+            {
+                string target = folder ? Path.GetDirectoryName(selected.FilePath) : selected.FilePath;
+                Process.Start(new ProcessStartInfo(target) { UseShellExecute = true });
+            }
+            catch (Exception ex) { MessageBox.Show(this, ex.Message, UiText("日志", "Log"), MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+        }
+
         private void ScrollLogToEnd()
         {
-            if (log == null || log.IsDisposed) return;
+            if (log == null || log.IsDisposed || log.Disposing || !log.IsHandleCreated) return;
+            // Use the standard EDIT control, not RichEdit (RichEd20.dll).
+            // Keep long encoding runs from growing the visible log indefinitely.
+            const int maxVisibleChars = 512 * 1024;
+            if (log.TextLength > maxVisibleChars)
+            {
+                string text = log.Text;
+                int cut = text.IndexOf('\n', text.Length - maxVisibleChars);
+                if (cut < 0) cut = text.Length - maxVisibleChars;
+                else cut++;
+                log.Select(0, cut);
+                log.SelectedText = "";
+            }
             log.SelectionStart = log.TextLength;
             log.SelectionLength = 0;
             log.ScrollToCaret();
@@ -2357,6 +2547,12 @@ namespace FilmGrainStudioPreview
 
         private void OnBridgeExecutionCompleted(object sender, BridgeExecutionCompletedEventArgs e)
         {
+            string completion = (e.Result.Exception == null ? "" : "[runner] exception=" + e.Result.Exception.ToString() + Environment.NewLine) +
+                "[runner] exit_code=" + e.Result.ExitCode.ToString(CultureInfo.InvariantCulture) + " cancelled=" + (e.Result.Cancelled ? "1" : "0") + Environment.NewLine +
+                "[Task] finished=" + DateTime.Now.ToString("o", CultureInfo.InvariantCulture) + Environment.NewLine +
+                "============================================================" + Environment.NewLine;
+            FullLogFileCore completedLog = taskLog;
+            if (completedLog != null) completedLog.Write(completion);
             if (IsDisposed || Disposing || !IsHandleCreated) return;
             try
             {
@@ -2389,10 +2585,7 @@ namespace FilmGrainStudioPreview
 
                     if (log != null)
                     {
-                        if (e.Result.Exception != null)
-                            log.AppendText("[runner] exception=" + e.Result.Exception.Message + Environment.NewLine);
-                        log.AppendText("[runner] exit_code=" + e.Result.ExitCode.ToString(CultureInfo.InvariantCulture) + " cancelled=" + (e.Result.Cancelled ? "1" : "0") + Environment.NewLine);
-                        log.AppendText("============================================================" + Environment.NewLine);
+                        AppendVisibleLog(completion);
                         ScrollLogToEnd();
                     }
                 });
@@ -2677,7 +2870,7 @@ namespace FilmGrainStudioPreview
             try { return LutCatalogCore.ReadLutRecordList(jsonPath, LutRoot); }
             catch (Exception ex)
             {
-                if (log != null) log.AppendText("[LUT] Failed to read " + jsonPath + ": " + ex.Message + Environment.NewLine);
+                if (log != null) AppendLog("[LUT] Failed to read " + jsonPath + ": " + ex.Message + Environment.NewLine);
                 return new List<LutChoice>();
             }
         }
@@ -2749,7 +2942,7 @@ namespace FilmGrainStudioPreview
             chkLut.Checked = false;
             colorCorrectionEnabled = false;
             try { config.SaveValue("COLOR_CORRECTION_ENABLED", "false"); }
-            catch (Exception ex) { if (log != null) log.AppendText("[Color] Failed to save disabled state: " + ex.Message + Environment.NewLine); }
+            catch (Exception ex) { if (log != null) AppendLog("[Color] Failed to save disabled state: " + ex.Message + Environment.NewLine); }
             RefreshLutLists();
             UpdateLutUi();
             UpdateColorCorrectionUi();
@@ -2810,7 +3003,7 @@ namespace FilmGrainStudioPreview
             }
             catch (Exception ex)
             {
-                if (log != null) log.AppendText("[LUT Preview] " + ex.Message + Environment.NewLine);
+                if (log != null) AppendLog("[LUT Preview] " + ex.Message + Environment.NewLine);
             }
         }
 
@@ -2922,7 +3115,7 @@ namespace FilmGrainStudioPreview
             int[] strengths = new int[] { 25, 50, 75, 100 };
             int lutStrength = strengths[Math.Max(0, Math.Min(3, trackLutStrength.Value))];
             btnColorCorrection.Enabled = false;
-            if (log != null) log.AppendText("[Preview] Opening native .NET color correction..." + Environment.NewLine);
+            if (log != null) AppendLog("[Preview] Opening native .NET color correction..." + Environment.NewLine);
 
             try
             {
@@ -2982,13 +3175,13 @@ namespace FilmGrainStudioPreview
                 UpdateLutUi();
                 UpdateColorCorrectionUi();
                 UpdateHdrRouteStatus(GetSelectedMediaInfo());
-                if (log != null) log.AppendText("[Preview] Native color correction closed." + Environment.NewLine);
+                if (log != null) AppendLog("[Preview] Native color correction closed." + Environment.NewLine);
             }
         }
 
         private void PreviewOnly(string message)
         {
-            if (log != null) log.AppendText("[Preview] " + message + Environment.NewLine);
+            if (log != null) AppendLog("[Preview] " + message + Environment.NewLine);
             if (lblRunStage != null) lblRunStage.Text = ".NET Preview · no encoding";
             MessageBox.Show(this, message, "Film Grain Studio .NET Preview", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }

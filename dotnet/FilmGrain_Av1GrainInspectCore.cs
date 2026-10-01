@@ -25,10 +25,10 @@ namespace FilmGrainStudioPreview
 
         public event Action<Av1GrainInspectResult> Completed;
 
-        public void Start(string path, string grav1synthPath)
+        public void Start(string path, string grav1synthPath, string ffmpegPath)
         {
             if (string.IsNullOrEmpty(path)) throw new ArgumentException("Input path is empty.", "path");
-            if (string.IsNullOrEmpty(grav1synthPath)) throw new ArgumentException("grav1synth path is empty.", "grav1synthPath");
+            if (string.IsNullOrEmpty(ffmpegPath)) throw new ArgumentException("ffmpeg path is empty.", "ffmpegPath");
 
             int serial;
             Process oldProcess;
@@ -41,7 +41,7 @@ namespace FilmGrainStudioPreview
             }
             KillProcessAsync(oldProcess);
 
-            Thread worker = new Thread(new ThreadStart(delegate { RunInspect(path, grav1synthPath, serial); }));
+            Thread worker = new Thread(new ThreadStart(delegate { RunInspect(path, grav1synthPath, ffmpegPath, serial); }));
             worker.IsBackground = true;
             worker.Name = "FGS AV1 Grain Inspect Core";
             worker.Start();
@@ -59,7 +59,7 @@ namespace FilmGrainStudioPreview
             KillProcessAsync(process);
         }
 
-        private void RunInspect(string path, string grav1synthPath, int serial)
+        private void RunInspect(string path, string grav1synthPath, string ffmpegPath, int serial)
         {
             string tempTable = Path.Combine(Path.GetTempPath(), "FilmGrainStudio_Inspect_" + Guid.NewGuid().ToString("N") + ".txt");
             Process process = null;
@@ -70,40 +70,49 @@ namespace FilmGrainStudioPreview
 
             try
             {
-                ProcessStartInfo psi = new ProcessStartInfo();
-                psi.FileName = grav1synthPath;
-                psi.Arguments = "inspect " + QuoteArgument(path) + " -o " + QuoteArgument(tempTable) + " -y";
-                psi.UseShellExecute = false;
-                psi.CreateNoWindow = true;
-                psi.RedirectStandardOutput = true;
-                psi.RedirectStandardError = true;
+                bool? filmGrainPresent = ProbeFilmGrainMetadata(path, ffmpegPath, serial, out process, out exitCode, out errorText, out failureMessage);
+                if (!IsCurrent(serial)) return;
 
-                process = new Process();
-                process.StartInfo = psi;
-                lock (sync)
+                if (filmGrainPresent.HasValue && !filmGrainPresent.Value)
                 {
-                    if (disposed || serial != requestSerial)
-                    {
-                        process.Dispose();
-                        return;
-                    }
-                    currentProcess = process;
-                }
-
-                if (!process.Start())
-                {
-                    failureMessage = "Unable to start grav1synth inspect.";
+                    state = "未发现 AV1 Film Grain metadata";
+                    exitCode = 0;
+                    errorText = "";
+                    failureMessage = "";
                 }
                 else
                 {
-                    var outputTask = process.StandardOutput.ReadToEndAsync();
-                    var errorTask = process.StandardError.ReadToEndAsync();
-                    process.WaitForExit();
-                    exitCode = process.ExitCode;
-                    outputTask.Wait();
-                    errorTask.Wait();
-                    errorText = errorTask.Result ?? "";
-                    if (exitCode == 0) state = ReadTableSummary(tempTable);
+                    // If trace_headers cannot make a definite decision, retain the original
+                    // grav1synth inspect behavior so real Film Grain files are not regressed.
+                    if (string.IsNullOrWhiteSpace(grav1synthPath) || !File.Exists(grav1synthPath))
+                    {
+                        failureMessage = "grav1synth is missing.";
+                    }
+                    else
+                    {
+                        process = CreateProcess(grav1synthPath, "inspect " + QuoteArgument(path) + " -o " + QuoteArgument(tempTable) + " -y");
+                        if (!SetCurrentProcess(process, serial))
+                        {
+                            process.Dispose();
+                            return;
+                        }
+
+                        if (!process.Start())
+                        {
+                            failureMessage = "Unable to start grav1synth inspect.";
+                        }
+                        else
+                        {
+                            var outputTask = process.StandardOutput.ReadToEndAsync();
+                            var errorTask = process.StandardError.ReadToEndAsync();
+                            process.WaitForExit();
+                            exitCode = process.ExitCode;
+                            outputTask.Wait();
+                            errorTask.Wait();
+                            errorText = errorTask.Result ?? "";
+                            if (exitCode == 0) state = ReadTableSummary(tempTable);
+                        }
+                    }
                 }
             }
             catch (Exception ex)
@@ -112,10 +121,7 @@ namespace FilmGrainStudioPreview
             }
             finally
             {
-                lock (sync)
-                {
-                    if (object.ReferenceEquals(currentProcess, process)) currentProcess = null;
-                }
+                ClearCurrentProcess(process);
                 DisposeProcess(process);
                 try { if (File.Exists(tempTable)) File.Delete(tempTable); } catch { }
             }
@@ -134,6 +140,115 @@ namespace FilmGrainStudioPreview
             {
                 try { handler(result); } catch { }
             }
+        }
+
+        private bool? ProbeFilmGrainMetadata(string path, string ffmpegPath, int serial, out Process process, out int exitCode, out string errorText, out string failureMessage)
+        {
+            process = null;
+            exitCode = -1;
+            errorText = "";
+            failureMessage = "";
+
+            if (string.IsNullOrWhiteSpace(ffmpegPath) || !File.Exists(ffmpegPath))
+            {
+                failureMessage = "ffmpeg is missing for AV1 Film Grain metadata precheck.";
+                return null;
+            }
+
+            try
+            {
+                string arguments = "-hide_banner -loglevel trace -i " + QuoteArgument(path) + " -map 0:v:0 -c:v copy -bsf:v trace_headers -frames:v 1 -an -sn -dn -f null -";
+                process = CreateProcess(ffmpegPath, arguments);
+                if (!SetCurrentProcess(process, serial)) return null;
+
+                if (!process.Start())
+                {
+                    failureMessage = "Unable to start FFmpeg AV1 Film Grain metadata precheck.";
+                    return null;
+                }
+
+                var outputTask = process.StandardOutput.ReadToEndAsync();
+                var errorTask = process.StandardError.ReadToEndAsync();
+                process.WaitForExit();
+                exitCode = process.ExitCode;
+                outputTask.Wait();
+                errorTask.Wait();
+                errorText = errorTask.Result ?? "";
+
+                bool foundZero = false;
+                foreach (string line in errorText.Split(new char[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    if (line.IndexOf("film_grain_params_present", StringComparison.OrdinalIgnoreCase) < 0) continue;
+                    Match match = Regex.Match(line, @"film_grain_params_present.*=\s*([01])\s*$", RegexOptions.IgnoreCase);
+                    if (!match.Success) continue;
+                    if (match.Groups[1].Value == "1") return true;
+                    foundZero = true;
+                }
+
+                if (foundZero && exitCode == 0) return false;
+                return null;
+            }
+            catch (Exception ex)
+            {
+                failureMessage = ex.Message;
+                return null;
+            }
+            finally
+            {
+                ClearCurrentProcess(process);
+                DisposeProcess(process);
+                process = null;
+            }
+        }
+
+        private static Process CreateProcess(string fileName, string arguments)
+        {
+            ProcessStartInfo psi = new ProcessStartInfo();
+            psi.FileName = fileName;
+            psi.Arguments = arguments;
+            psi.UseShellExecute = false;
+            psi.CreateNoWindow = true;
+            psi.RedirectStandardOutput = true;
+            psi.RedirectStandardError = true;
+            Process process = new Process();
+            process.StartInfo = psi;
+            return process;
+        }
+
+        private bool SetCurrentProcess(Process process, int serial)
+        {
+            lock (sync)
+            {
+                if (disposed || serial != requestSerial) return false;
+                currentProcess = process;
+                return true;
+            }
+        }
+
+        private void ClearCurrentProcess(Process process)
+        {
+            lock (sync)
+            {
+                if (object.ReferenceEquals(currentProcess, process)) currentProcess = null;
+            }
+        }
+
+        internal static string GetFailureDetail(string errorText)
+        {
+            string first = "";
+            string last = "";
+            foreach (string line in (errorText ?? "").Split(new char[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                string value = line.Trim();
+                if (value.Length == 0) continue;
+                if (first.Length == 0) first = value;
+                last = value;
+                if (value.StartsWith("Error:", StringComparison.OrdinalIgnoreCase) ||
+                    value.StartsWith("error:", StringComparison.OrdinalIgnoreCase) ||
+                    value.IndexOf("code: TagBits", StringComparison.OrdinalIgnoreCase) >= 0)
+                    return value;
+            }
+            return last.Length > 0 ? last : first;
         }
 
         private static string ReadTableSummary(string tablePath)

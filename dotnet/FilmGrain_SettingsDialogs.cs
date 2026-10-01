@@ -259,12 +259,12 @@ namespace FilmGrainStudioPreview
                 table.Dock = DockStyle.Fill;
                 table.Padding = new Padding(12, 12, 12, 10);
                 table.ColumnCount = 4;
-                table.RowCount = 14;
+                table.RowCount = 15;
                 table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150));
                 table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
                 table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 104));
                 table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 38));
-                float[] rowHeights = new float[] { 42, 50, 42, 36, 42, 36, 42, 36, 42, 36, 46, 46 };
+                float[] rowHeights = new float[] { 42, 50, 42, 36, 42, 36, 42, 36, 42, 36, 46, 46, 46 };
                 foreach (float h in rowHeights) table.RowStyles.Add(new RowStyle(SizeType.Absolute, h));
                 table.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
                 table.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
@@ -345,10 +345,15 @@ namespace FilmGrainStudioPreview
                 Button btnOutput = ConfigButton(lang.T("config.browse"));
                 table.Controls.Add(ConfigLabel(lang.T("config.output_dir")), 0, 11); table.Controls.Add(outputPanel, 1, 11); table.Controls.Add(btnOutput, 2, 11);
 
+                NumericUpDown logEntryLimit = new NumericUpDown(); logEntryLimit.Minimum = 0; logEntryLimit.Maximum = 10000; logEntryLimit.Increment = 10; logEntryLimit.Dock = DockStyle.Left; logEntryLimit.Width = 120; logEntryLimit.Margin = new Padding(4, 8, 4, 6);
+                logEntryLimit.Value = Math.Max(logEntryLimit.Minimum, Math.Min(logEntryLimit.Maximum, config.GetInt("LOG_ENTRY_LIMIT", 100)));
+                Label logLimitInfo = new Label(); logLimitInfo.Text = UiText("0 = 不限制", "0 = unlimited"); logLimitInfo.Dock = DockStyle.Fill; logLimitInfo.TextAlign = ContentAlignment.MiddleLeft; logLimitInfo.ForeColor = ColorMuted;
+                table.Controls.Add(ConfigLabel(UiText("日志条目限制", "Log entry limit")), 0, 12); table.Controls.Add(logEntryLimit, 1, 12); table.Controls.Add(logLimitInfo, 2, 12); table.SetColumnSpan(logLimitInfo, 2);
+
                 Label note = new Label();
                 note.Dock = DockStyle.Fill; note.ForeColor = ColorMuted; note.TextAlign = ContentAlignment.TopLeft; note.Padding = new Padding(4, 8, 4, 0);
                 note.Text = LF("config.note", config.ConfigPath);
-                table.Controls.Add(note, 0, 12); table.SetColumnSpan(note, 4);
+                table.Controls.Add(note, 0, 13); table.SetColumnSpan(note, 4);
 
                 FlowLayoutPanel buttons = new FlowLayoutPanel();
                 buttons.Dock = DockStyle.Fill; buttons.FlowDirection = FlowDirection.RightToLeft; buttons.WrapContents = false;
@@ -356,7 +361,7 @@ namespace FilmGrainStudioPreview
                 Button cancel = new Button(); cancel.Text = lang.T("config.cancel"); cancel.Width = 82; cancel.DialogResult = DialogResult.Cancel;
                 Button restore = new Button(); restore.Text = lang.T("config.defaults"); restore.Width = 104;
                 buttons.Controls.Add(save); buttons.Controls.Add(cancel); buttons.Controls.Add(restore);
-                table.Controls.Add(buttons, 0, 13); table.SetColumnSpan(buttons, 4);
+                table.Controls.Add(buttons, 0, 14); table.SetColumnSpan(buttons, 4);
                 dlg.CancelButton = cancel;
 
                 EventHandler updateStorage = delegate
@@ -498,6 +503,7 @@ namespace FilmGrainStudioPreview
                     txtLut.Text = config.GetDefault("LUT_ROOT");
                     cmbTemp.SelectedIndex = 0; txtTemp.Text = "";
                     cmbOutput.SelectedIndex = 0; txtOutput.Text = "";
+                    logEntryLimit.Value = 100;
                 };
 
                 save.Click += delegate
@@ -550,6 +556,7 @@ namespace FilmGrainStudioPreview
                         updates["FRUC_FFMPEG_PATH"] = chkFrucSame.Checked ?
                             (customFrucDir.Length > 0 ? Path.Combine(customFrucDir, "ffmpeg.exe") : savedFrucExe) : frucExe;
                         updates["TEMP_MODE"] = tempMode; updates["TEMP_CUSTOM_DIR"] = tempCustom; updates["OUTPUT_MODE"] = outputMode; updates["OUTPUT_CUSTOM_DIR"] = outputCustom;
+                        updates["LOG_ENTRY_LIMIT"] = ((int)logEntryLimit.Value).ToString(CultureInfo.InvariantCulture);
                         config.Save(updates);
                         dlg.DialogResult = DialogResult.OK;
                         dlg.Close();

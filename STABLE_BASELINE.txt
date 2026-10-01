@@ -1,7 +1,7 @@
 Film Grain Studio formal stable baseline
 
 Baseline:
-v4.8.12
+v4.8.13
 Supersedes:
 v4.8.10
 

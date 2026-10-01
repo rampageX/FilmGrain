@@ -56,9 +56,11 @@ FilmGrain_Universal_GUI.bat
 3. 选择 Film Grain 方式、输出容器、码率、输出帧率和反交错方式。
 4. 按需启用 Cinematic Style、LUT、字幕、OpenSVPFlow、HDR 处理等功能。
 5. 点击“开始编码”。
-6. 在任务区查看当前阶段、进度、`fps`、`speed`、`ETA` 与完整日志。
+6. 在任务区查看当前阶段、进度、`fps`、`speed`、`ETA` 与完整日志；Task Log 会单独保存，便于定位单次任务问题。
 
 GUI 输出默认保存在源视频所在目录，也可以在右上角“配置”中选择统一的自定义输出目录；已有同名输出时会跳过，不直接覆盖。
+
+FGS 运行日志保存在根目录 `Logs`。主界面的“日志目录”按钮左键用于打开该目录，右键可清理 FGS 自己生成的 `FGS_*.log`；不会删除 `Logs` 目录或其中的其他文件。配置中的“日志条目限制”控制自动保留数量，默认 `100`，可设置 `0–10000`，其中 `0` 表示不限制；创建新的 Session / Task 日志时会自动清理超出上限的旧日志。
 
 ### .NET 图形界面预览
 
@@ -109,7 +111,7 @@ FGS 当前把几种不同性质的颗粒方案放在同一项目中。它们的�
 
 ## AV1：grav1synth Film Grain
 
-AV1 主线的核心思路是先编码相对干净的 Main10 视频，再由 grav1synth 将 Film Grain 参数写入 AV1 bitstream。
+AV1 主线的核心思路是先编码相对干净的 Main10 视频，再由 grav1synth 将 Film Grain 参数写入 AV1 bitstream。媒体信息检查 AV1 颗粒时，会先读取 bitstream 中的 `film_grain_params_present`；明确没有 Film Grain metadata 时直接显示“未发现 AV1 Film Grain metadata”，不调用 grav1synth inspect。只有检测到 Film Grain metadata 时才进入原有 inspect 流程。该预检查不改变 AV1 不重编码添加 / 替换 Film Grain 的独立工作流。
 
 ```text
 原始视频
@@ -1036,6 +1038,7 @@ GUI 底部状态栏集中显示 GPU、NVIDIA 驱动版本、FFmpeg 版本、能�
 | H.264 High10 | 关闭 |
 | H.264 上传副本 | 关闭 |
 | 界面语言 | 简体中文 |
+| 日志条目限制 | 100；`0` 表示不限制 |
 
 ---
 

@@ -2,6 +2,8 @@
 /FilmGrain_Config.ini
 Utils/_HardwareCaps.json
 Utils/_FilmGrainSimplified/Generated/
+/Logs/
+/_OpenSVPFlow/_PluginBackup/
 
 # Local runtime environments
 .env/
