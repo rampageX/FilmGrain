@@ -1,15 +1,58 @@
-# Film Grain Studio v4.8.13
+# Film Grain Studio v4.8.14
 
-### 新增
+本版汇总 v4.8.13 之后的累计迁移成果，以用户确认通过的 Q9AOL2 为代码基线；日志窗口精简亦已完成用户复测。本说明用于 v4.8.14 发布准备，不表示已创建 Release 或推送。
 
-* .NET Preview 新增独立 Task Log 与完整日志保存，任务执行日志与界面日志分离，便于定位单次编码和媒体检查问题。
-* “日志目录”按钮支持右键清理 FGS 日志；只处理 `Logs\FGS_*.log`，不会删除 Logs 目录或其中的其他文件，正在使用而无法删除的日志会保留。
-* 配置新增日志条目限制，默认保留最新 100 个 FGS 日志文件；可设置 0–10000，`0` 表示不限制。创建新的 Session / Task 日志时自动清理超出上限的旧日志。
+### .NET 入口与共享执行
 
-### 改进与修复
+- 新增根目录 FilmGrain_Studio.exe，直接启动 WinForms 界面，无需 BAT/VBS/PS1 启动；dotnet/build 兼容 EXE 使用同一实现与配置。
+- 支持拖入 EXE、快捷方式或命令行传入多个文件，按启动工作目录解析相对路径、去重并保留顺序；只导入列表，不自动编码。
+- AV1、HEVC、x264 接入 .NET 串行多文件队列，逐项准备与 Native/Legacy 路线选择；失败或取消停止后续项，保护已完成输出并清理已注册的准备资源。
+- 阶段、进度、日志、取消与完成结果按真实执行链显示，包含队列编号、预处理、编码遍次、上传与验证；取消不再被后续进度覆盖为完成，不再固定显示 Phase 3.5.8 Bridge。
 
-* AV1 媒体颗粒检查增加 bitstream 预检查：先通过 FFmpeg `trace_headers` 读取 `film_grain_params_present`；明确为 0 时显示“未发现 AV1 Film Grain metadata”并跳过 grav1synth inspect，避免普通无颗粒 AV1 触发 TagBits 错误。检测到 Film Grain metadata 时仍沿用原 grav1synth inspect 流程。
-* AV1 不重编码添加 / 替换 Film Grain 的独立工作流保持不变；本次 AV1 Inspect 修复只调整媒体颗粒信息检查入口。
-* 修复 .NET RichTextBox 日志自动滚动在部分更新时可能触发异常的问题；保留完整日志写入，不因界面日志显示失败影响任务执行。
-* 更新随包 OpenSVPFlow `svpflow1_vs.dll`、`svpflow2_vs.dll` 及版本记录；更新产生的 `_OpenSVPFlow\_PluginBackup` 继续作为本机备份目录排除，不进入 Git / 正式发布包。
-* `.gitignore` 增加根目录 `/Logs` 与 `_OpenSVPFlow/_PluginBackup/` 运行时目录排除，避免日志和插件更新备份进入版本控制。
+### 插帧、能力检测与时间轴
+
+- FRUC Vulkan 纳入常规硬件检测，独立检查实际 FFmpeg 滤镜、Vulkan 光流与当前 perf/grid 能力；区分 FFmpeg 限制、硬件/驱动/网格限制及其他错误，不可用下拉项禁用。
+- 状态栏采用独立绿色勾/红色叉，完整版本、驱动及失败原因移入悬浮提示；配置改变或主动重检测时刷新，任务运行中延后。
+- 三线已覆盖的逐行 SDR FRUC 使用共享预处理与共同音画起点，恢复视频相对延迟；AV1 最终封装按实际 IVF 探测回填时间轴，避免额外 CFR 补齐延迟首帧。
+- AV1 SDR OpenSVPFlow 接入 .NET 管道与 FFV1 无损预处理；三线共用生产器参数、生命周期与时间轴准备。
+- 已覆盖的逐行 PQ/HLG → SDR → OpenSVPFlow 使用共享转换、真实中间视频验证及相对起点处理；相关 HEVC/AV1 上传副本保留主成品音画相对起点。
+- 隔行 SDR + OpenSVPFlow + AUTO 按规则绕过光流并执行场率反交错；明确 HDR Preserve 的已覆盖 HEVC/AV1 路线绕过 SVP并保留 HDR/源 FPS。绕过决策按单项冻结状态执行，不改全局配置。
+- x264 逐行 SDR TS/M2TS/MTS OpenSVPFlow 不再要求先手工 remux；每遍独立准备音画公共起点和视频相对延迟，保留原色彩标签、多遍与颗粒路线。
+
+### 原生辅助工具
+
+- 常规硬件探测迁入 .NET，保留 NVENC、Main10/High10、B-frame/AQ、SFE、NVDEC、Vulkan、x264 与 SVP 门槛；独立缓存、逐项诊断、取消、超时与清理。
+- 主窗口/调色窗口共享原生 LUT 图库，预览、参考图与删除同步直接调度 FFmpeg；保留搜索、最近、收藏和智能过滤。纯 1D CUBE 明确标记不支持，失败覆盖保留既有成功预览。
+- Grain Plate 原分辨率/1080p HEVC 无损缓存由 .NET 执行，同次过滤流 10-bit 样本哈希与缓存解码结果一致后才发布；失败或取消不发布，原 MOV 保留。
+- 首次运行下载与安装链迁入 .NET，保留统一代理、固定组件版本、私有 Python/VapourSynth 环境、ZIP/CRC/组件验证及已有安装保护。
+- 高级 → 插帧增加原生 OpenSVPFlow 插件更新，暂存及安装位置 CPU/GPU 自检、备份与失败/取消回滚；不改系统 Python 或个人 VapourSynth 配置。
+- 三线 FGSIM 共用纹理与 hook 准备，优先有效本地纹理，缺失时使用随包备用纹理；缓存按纹理、模板、预设和内容校验，保留在线更新入口。
+
+### 启动与 Framework 修复
+
+- 交付成品改用微软 .NET Framework 4.5 官方引用集编译，避免 Mono 默认引用集选中 Windows Framework 不存在的 API；根目录与兼容 EXE 保持相同。
+- 修复 API 检查器无泛型上下文解析 MemberRef 的误报，直接解析元数据签名并保留真正缺失 API 的失败检查；Mono.Cecil 只作为检查工具依赖。
+- 修复 WinExe 在无控制台且重定向输出时设置 Console.OutputEncoding 引发“句柄无效”；启动诊断、GPU 身份和 NVENC 引擎数统一直接输出无 BOM UTF-8 管道。
+- 增加无 GUI、无配置写入的 --startup-check 诊断与实际成品启动回归；原检查命令兼容转发。
+
+### 日志窗口精简
+
+- 成功硬件探测的长段 FFmpeg 诊断、启动内部信息、重复任务参数转储只写完整日志文件，不再刷屏。
+- 日志窗口隐藏可识别的 FFmpeg 构建横幅、库版本与机器进度行；状态区继续显示进度、fps、speed、ETA。阶段、回退、取消、结果、警告、失败和未知诊断保留。
+- 不修改 FFmpeg 命令、进度解析、编码参数或完整日志保存；AV1 颗粒检查失败保留摘要，完整 stderr 留在 Session 日志。
+- 新增 38 项显示策略 / 完整文件断言，27 项成品启动、33 项共享执行及 20 项管道回归通过；用户另已完成本轮 Windows 日志显示、编码和取消复测。
+
+### 发布整理
+
+- .NET 与 Legacy 界面、启动诊断、发布版本文件和说明统一为 v4.8.14；正式界面不显示随机测试后缀。
+- 随包新增用户提供并选用的 AV1 颗粒表 `_AV1_Grain_Tables/Netflix_FGS_Dune2.txt`，保留原始文件内容。
+- 发布核心从源码重建并校验两处相同的 .NET EXE；新增原生源码与颗粒表加入必需清单。
+- 正式 ZIP 排除原生硬件缓存、私有环境、依赖下载、生成 hook、日志、测试目录与本轮交付说明；本地和 Windows runner 共用同一发布核心。
+
+### 验证范围与保留边界
+
+- 用户确认截至 4FH3JQ 的所需测试通过，包括此前逐轮确认的迁移测试；结论只覆盖各说明中实际完成的项目、素材和组合。早期共享同步 G 项未完全测试的样本不能概括为通过。
+- 自动检查包含计划/故障注入、真实子进程、软件 FFmpeg、Framework 元数据与成品诊断；它们不代替 Windows GUI、NVENC/Vulkan、真实 SVP、队列和音画同步的逐项实测。
+- 保留原有 HDR、三种颗粒、字幕、LUT、电影画幅、反交错、上传副本、AV1 不重编码颗粒及已验证特殊路线的边界。未覆盖的隔行 HDR / 插帧和其他组合仍清晰回退或停止，不静默改变 HDR。
+- Legacy GUI、CLI、PS1/BAT 与未迁移特殊执行链继续保留，本版不是完全无脚本版本。两个 .NET 入口切换可能因当前 EXE 路径参与缓存签名而重检测硬件，此非阻塞行为尚未调整。
+- UI 排布、LUT 分辨率与颗粒处理性能细化后置。没有因发布说明整理放开新的编码组合。

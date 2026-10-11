@@ -1,5 +1,7 @@
 # Film Grain Studio
 
+> **v4.8.14**：汇总用户确认通过的 Q9AOL2 累计迁移成果与日志窗口精简，推荐从根目录 `FilmGrain_Studio.exe` 启动。.NET 尚未完全替代 Legacy；测试结论仅覆盖实际完成的测试项目和组合。当前文件为发布准备产物，发布操作由维护者执行。
+
 ![](images/Film_Grain_Studio.jpg)
 
 基于 **FFmpeg、NVIDIA NVENC、libx264 与 grav1synth** 的 Windows 视频胶片化工具包，同时提供图形界面和命令行入口。
@@ -35,44 +37,50 @@ Film Grain Studio 的目标不是只提供一种“加颗粒”方法，而是�
 
 首次启动 .NET 图形界面时会检查已配置的 FFmpeg / ffprobe 与 grav1synth 路径，按需打开“首次运行设置”。FFmpeg 和 ffprobe 是主编码必需工具；grav1synth 用于 AV1 Film Grain。可以指定已有程序，也可以在 FGS 副本中下载：FFmpeg 采用 gyan.dev 的 Full 构建，grav1synth 使用 [Windows 修订版发布包](https://github.com/rampageX/grav1synth/releases/latest) 的完整文件目录。新工具默认安装在 FGS 根目录的 `_Dependencies` 下。发现系统 PATH 中的 FFmpeg 时，由用户决定是否使用。
 
-OpenSVPFlow 是可选的 60 fps 插帧功能，需要 Python 3.12+、VapourSynth 和插件。安装时默认使用 FGS 内的 Python，只有勾选“使用系统 Python”才尝试系统现有安装；插帧的虚拟环境位于 `_OpenSVPFlow\.venv`，VapourSynth 的 Python 路径配置保存在 `_OpenSVPFlow\_UserConfig`。启用插帧但环境缺失时，.NET 界面会提示打开设置。Grain Plate 与 LUT 是自备素材目录，无须在首次运行时安装；“配置”中的两个 `[?]` 分别指向本 README 的 [扫描 Grain Plate](#hevc真实扫描-grain-plate) 和 [LUT Gallery](#lut-gallery-与-film-look) 章节。
+OpenSVPFlow 是可选的插帧功能，目标帧率默认 60，可使用支持的绝对帧率或倍率，需要 Python 3.12+、VapourSynth 和插件。安装时默认使用 FGS 内的 Python，只有勾选“使用系统 Python”才尝试系统现有安装；插帧的虚拟环境位于 `_OpenSVPFlow\.venv`，VapourSynth 的 Python 路径配置保存在 `_OpenSVPFlow\_UserConfig`。启用插帧但环境缺失时，.NET 界面会提示打开设置。Grain Plate 与 LUT 是自备素材目录，无须在首次运行时安装；“配置”中的两个 `[?]` 分别指向本 README 的 [扫描 Grain Plate](#hevc真实扫描-grain-plate) 和 [LUT Gallery](#lut-gallery-与-film-look) 章节。
 
-下载界面可填写本次安装使用的 HTTP 代理。先在**复制出的完整 FGS 目录**进行真实下载安装测试；`--setup-test=missing` 只模拟首次扫描缺失，使用独立临时配置，可测试指定路径和界面流程，不会在该模式执行安装。常规启动继续使用根目录 `FilmGrain_Config.ini`；已完成设置后仍会快速检查核心工具路径，路径失效会重新提示，耗时硬件能力检测沿用现有缓存。正式 PS1 GUI 和 CLI 与 .NET 共用配置；前两者沿用 Legacy Bridge，.NET Preview 则按 Native 支持范围选择执行路线。
+下载与更新使用统一的网络代理设置，可选择系统代理、自定义 HTTP 代理或直连。首次运行安装由 .NET 直接完成，保留下载验证、私有 Python 环境与现有插件保护；`--setup-test=missing` 只模拟首次扫描缺失，使用独立临时配置，可测试指定路径和界面流程，不会在该模式执行安装。常规启动继续使用根目录 `FilmGrain_Config.ini`；已完成设置后仍会快速检查核心工具路径，路径失效会重新提示，耗时硬件能力检测沿用现有缓存。Legacy PS1 GUI 和 CLI 与 .NET 共用配置；前两者沿用 Legacy Bridge，.NET 按每个输入及实际组合选择 Native 或明确的回退路线。
 
 ### GUI 图形界面
 
-双击：
+推荐直接启动根目录：
 
 ```text
-FilmGrain_Universal_GUI.bat
+FilmGrain_Studio.exe
 ```
 
-也可以将一个或多个视频直接拖到该 BAT。启动脚本会在交接参数后退出，Film Grain Studio 正常显示，不保留 CMD 或 Windows PowerShell 黑框。
+支持将一个或多个视频拖到 EXE，或通过快捷方式 / 命令行传入文件；相对路径按启动工作目录解析，重复输入保留首个位置。启动只导入列表，不自动编码。请保持完整应用目录，不要只复制 EXE。
+
+兼容入口 `dotnet\build\FilmGrain_Studio_NET_Preview.exe` 使用同一界面和配置。根目录 `FilmGrain_Universal_GUI.bat` 保留为 Legacy GUI 入口，原有拖入 BAT 的使用方式继续可用。
 
 基本流程：
 
 1. 添加或拖入一个或多个视频。
 2. 编码方式选择 AV1、HEVC 或 x264；颗粒方式在下方独立选择。
 3. 选择 Film Grain 方式、输出容器、码率、输出帧率和反交错方式。
-4. 按需启用 Cinematic Style、LUT、字幕、OpenSVPFlow、HDR 处理等功能。
+4. 按需启用 Cinematic Style、LUT、字幕、OpenSVPFlow / FRUC Vulkan、HDR 处理等功能。
 5. 点击“开始编码”。
 6. 在任务区查看当前阶段、进度、`fps`、`speed`、`ETA` 与完整日志；Task Log 会单独保存，便于定位单次任务问题。
 
 GUI 输出默认保存在源视频所在目录，也可以在右上角“配置”中选择统一的自定义输出目录；已有同名输出时会跳过，不直接覆盖。
 
+日志窗口聚焦阶段、结果、警告与失败原因；成功硬件探测的长段 FFmpeg 诊断、参数转储和逐行进度不再刷屏。原始内容继续写入完整 Session / Task 日志文件，任务状态区仍显示进度、fps、speed 和 ETA；未知诊断不会被一律隐藏。
+
 FGS 运行日志保存在根目录 `Logs`。主界面的“日志目录”按钮左键用于打开该目录，右键可清理 FGS 自己生成的 `FGS_*.log`；不会删除 `Logs` 目录或其中的其他文件。配置中的“日志条目限制”控制自动保留数量，默认 `100`，可设置 `0–10000`，其中 `0` 表示不限制；创建新的 Session / Task 日志时会自动清理超出上限的旧日志。
 
-### .NET 图形界面预览
+### .NET 执行范围与多文件队列
 
-完整发布包另附可直接运行的 `dotnet\build\FilmGrain_Studio_NET_Preview.exe`。保持整个发布包目录结构，双击 EXE 即可使用 .NET 图形界面；根目录的 `FilmGrain_Universal_GUI.bat` 仍是正式 GUI 入口。
+AV1、HEVC、x264 共用 .NET 串行队列。每个输入分别探测、准备并判断 Native 支持范围，再按冻结的任务参数执行；不会把上一项的预处理状态沿用到下一项。队列显示当前文件编号、实际阶段、进度与最终结果。失败或取消停止后续项，保留已成功输出；取消期间不会继续把进度更新为成功。
 
-.NET 界面使用原生 Windows 窗口实现媒体信息、LUT / 色彩纠正预览、字幕与设置。它与正式 GUI 共用根目录的 `FilmGrain_Config.ini`、语言文件和相关辅助工具；仅复制 EXE 到其他目录无法找到完整程序资源。
+共享预处理按实际路线处理 FRUC、OpenSVPFlow、HDR 转 SDR、时间轴与工作文件；上传副本、最终封装和验证继续保留各编码器的职责。日志不再以固定“Phase 3.5.8 Bridge”代替真实执行阶段。只有最终验证完成后才显示成功。
 
-.NET Preview 为 AV1、HEVC 与 x264 提供 Native 单文件编码路线。程序仅在当前路线覆盖的组合中使用 Native；未覆盖的组合继续由 Legacy Bridge 执行。AV1 Native 已覆盖的功能包括三种颗粒路径、色彩校正 / LUT / Cinematic / 硬字幕、高动态与受硬件能力门控的 SFE、自动反交错与 Field-rate、已覆盖的 HDR Preserve / HDR→SDR 组合，以及 SDR H.264 上传副本。AV1 不重编码添加 / 替换颗粒仍是独立的 stream-copy 工作流。
+三线已迁移的辅助功能包括硬件能力检测、LUT 图库与预览、参考图及索引同步、Grain Plate MOV 验证缓存、首次运行依赖安装、OpenSVPFlow 插件更新，以及 FGSIM 纹理 / hook 准备。使用 .NET 界面时这些入口直接执行原生实现，不依赖旧辅助 PS1 启动。
 
-Native 支持范围按编码器和具体组合判断，不能据此推断所有选项都可任意叠加。多文件队列、共享预处理、Bridge 阶段状态和 FRUC Vulkan 音画同步共享执行链路继续使用既有路径。根目录 `FilmGrain_Universal_GUI.bat` 与 CLI 仍是正式入口，并沿用 Legacy Bridge 编码路线。
+Native 支持按编码器和具体组合判断，不能据此推断所有选项可任意叠加。逐行 SDR 插帧和已覆盖的 HDR 转 SDR → OpenSVPFlow 已接入共享链；隔行 SDR 请求 OpenSVPFlow 时按规则绕过光流并执行 AUTO 场率反交错，明确 HDR Preserve 的 HEVC/AV1 路线绕过 SVP并保留源帧率。x264 HDR Preserve、尚未覆盖的隔行 HDR / 插帧等组合仍保留清晰的回退或停止条件；保护 HDR 的路线不会静默退到会转 SDR 的实现。
 
-发布包同时保留 `dotnet\` 下的 C# 源码与 `build_NET_Preview.bat`，可在带有 .NET Framework C# 编译器的 Windows 系统重新构建预览 EXE。
+AV1 不重编码添加 / 替换颗粒仍是独立的视频 stream-copy 工作流。Legacy GUI、CLI 与未迁移特殊路线继续保留，因此目前不能删除 PS1/BAT。随包提供 `dotnet\` C# 源码及 `build_NET_Preview.bat`；Windows 构建会同时更新两处 EXE。
+
+用户已确认截至 Q9AOL2 的所需测试通过；早期同步测试 G 项未完全覆盖的样本，以及没有逐项实测的硬件、容器、时间戳、剪辑和功能叠加组合，不据此登记为通过。UI 排布、LUT 分辨率与颗粒处理性能细化留到迁移完成后。
 
 ### CLI 命令行
 
@@ -84,13 +92,13 @@ FilmGrain_Universal_CLI.bat
 
 按菜单选择处理方式；直接回车采用默认值。全部任务结束后会显示成功、失败和跳过数量。
 
-GUI 与 CLI 共用：
+Legacy GUI 与 CLI 共用：
 
 ```text
 Utils\FilmGrain_Universal_HEVC_AV1_StudioBridge.bat
 ```
 
-因此两种入口使用同一套编码核心，反交错、画幅、帧率、码率、LUT、Grain 与编码参数不会各维护一套。两种入口均考虑中文、空格以及 `&` 等 CMD 特殊字符路径。
+因此这两个 Legacy 入口使用同一套编码核心，反交错、画幅、帧率、码率、LUT、Grain 与编码参数不会各维护一套。两种入口均考虑中文、空格以及 `&` 等 CMD 特殊字符路径。
 
 ---
 
@@ -130,6 +138,8 @@ MP4 或 MKV
 ```
 
 这里的 Grain 不会在编码阶段直接写进每一个像素。播放器解码 AV1 时，根据码流中的 Film Grain 参数实时生成颗粒。
+
+随包 Grain Table 目录新增 `_AV1_Grain_Tables/Netflix_FGS_Dune2.txt`，可在现成颗粒表模式选择。文件保留用户提供的原始内容；其效果评价与测试结论仅针对实际使用素材。
 
 ### Film Preset
 
@@ -500,45 +510,29 @@ Field-rate 输出优先于普通电影帧率选择。progressive / unknown 素�
 
 ---
 
-## OpenSVPFlow GPU 60 fps 插帧
+## 插帧：OpenSVPFlow 与 FRUC Vulkan
 
-首次使用前运行：
+目标帧率默认 60，支持有效绝对帧率（如 `59.94`、`60000/1001`）及倍率（如 `2x`、`2.5x`、`3x`）；实际使用必须满足所选引擎和输入的能力条件。真正执行插帧时，由插帧目标接管输出帧率，不再叠加普通电影帧率转换。
 
-```text
-_OpenSVPFlow\00_Setup.bat
-```
+### OpenSVPFlow
 
-安装器会在 `_OpenSVPFlow` 内建立本地运行环境。安装完成并重新启动 Film Grain Studio 后，硬件能力检测会执行 CPU 与 GPU/OpenCL smoke test；只有检测通过时才允许启用插帧，不按 GPU 型号硬编码。
+在 .NET 首次运行设置中安装可选环境；私有 Python / VapourSynth 环境位于 `_OpenSVPFlow`。CPU 与 GPU/OpenCL 自检通过后才启用，不按 GPU 型号硬编码。Legacy 手工安装入口 `_OpenSVPFlow\00_Setup.bat` 继续保留。
 
-主界面提供：
+高级 → 插帧提供 SmoothFps Algo、Analyse Profile、Artifact Mask Area 等设置。当前推荐基线为 Algo 13、pel=1 / gpu=1 / full=true、EncodeGUI-inspired Analyse 与 cover=80 / area=100 / area_sharp=1.2。平滑使用 scene.mode=0，自动平衡使用 scene.mode=3。
 
-| 模式 | SmoothFps scene.mode | 定位 |
-|---|---:|---|
-| 平滑 | 0 | 默认；Uniform |
-| 自动平衡 | 3 | Adaptive |
+OpenSVPFlow 光流内部使用 YUV420P8 SDR。逐行 HDR 请求转 SDR 后插帧时，先执行共享 Tone Mapping 并验证中间文件；不能把它视为端到端 HDR / 10-bit 光流。隔行 SDR + AUTO 按规则绕过插帧并输出场率；明确 HDR Preserve 的已覆盖 HEVC/AV1 路线绕过 SVP并保留 HDR 和源帧率。其余特殊组合按实际 Native 门控回退或停止。
 
-当前默认插帧基线：
+HEVC/x264 已覆盖路线使用 VSPipe Y4M → FFmpeg 管道，AV1 使用共享 FFV1 无损预处理；不能笼统声称全部路线都没有中间视频。逐行 SDR x264 TS/M2TS/MTS 直接读取原媒体，每遍准备公共起点与视频相对延迟，不要求先手工 remux。
 
-```text
-60 fps
-SmoothFps Algo 13
-Super: pel=1 / gpu=1 / full=true
-Analyse: EncodeGUI-inspired profile
-Mask: cover=80 / area=100 / area_sharp=1.2
-GPU/OpenCL
-```
+高级 → 插帧提供原生“更新 OpenSVPFlow 插件”：下载 / ZIP 校验、暂存自检、备份、替换和安装位置复检，失败或取消恢复原插件与版本记录。成功后重启 FGS 并重检测硬件；更新前关闭其他占用插件的进程。原手工 BAT 更新入口仍保留。随包插件作为已验证基线，私有环境、缓存与插件备份属于本机运行状态。
 
-右上角 **高级 → 插帧** 可以调整 SmoothFps Algo、Analyse Profile 与 Artifact Mask Area，并恢复推荐值。
+### FRUC Vulkan
 
-启用后，输出帧率由 OpenSVPFlow 接管为 60 fps；普通自动电影帧率 / 保持源帧率不再同时生效。
+FRUC 使用含 `fruc_vulkan` 滤镜的 FFmpeg 构建，可在配置中沿用主 FFmpeg 或指定独立程序；普通 FFmpeg 未包含此滤镜时不可使用。高级 → 插帧提供 perf（slow / medium / fast，默认 medium）和 grid（auto / 1 / 2 / 4 / 8，默认 auto）。
 
-OpenSVPFlow 只处理逐行输入。隔行素材会自动旁路插帧并进入正常 Field-rate 反交错路线。处理链使用 **VSPipe Y4M → FFmpeg 管道**，不生成巨大的中间视频文件。
+常规硬件检测同时探测实际 FRUC FFmpeg 滤镜及 Vulkan 光流运行能力。不可用时下拉项禁用，状态栏显示红色叉，悬浮提示区分 FFmpeg 滤镜 / 版本限制、设备 / 驱动 / 网格限制及其他失败原因。能力检查必须针对当前设置；例如网格 8 而 support mask 为 0x7 时提示不支持，不能只因其他网格可用就放行。
 
-当前已验证的 OpenSVPFlow 内部工作格式为 **YUV420P8 SDR**。HDR 素材如果需要插帧，应由 HDR 自动兼容逻辑先 Tone Mapping 到 SDR，再进入 OpenSVPFlow，而不是把这条路径视为端到端 HDR / 10-bit 插帧。
-
-`_OpenSVPFlow\01_Update_OpenSVPFlow.bat` 可主动更新上游最新版；更新前会备份当前插件，只有新版通过 CPU / GPU smoke test 后才保留，失败则回滚。
-
-正式包随附当前已验证的 `svpflow1_vs.dll`、`svpflow2_vs.dll` 与 `open-svpflow-version.txt`，可直接作为已验证插件基线；首次安装脚本仍负责建立本地运行环境。安装生成的 `.env` 与 `_PluginBackup` 属于本机运行状态，不进入正式包。
+AV1、HEVC、x264 的已覆盖逐行 SDR 路线接入共享 FRUC 预处理。时间轴按音视频共同起点归一并恢复视频相对延迟；AV1 封装使用实际 IVF 探测结果。不叠加额外输出 -r/CFR 去补齐延迟首帧。不同容器、VFR、负起点或剪辑源仍应按具体素材验证，未测组合不能推断为同步通过。
 
 ---
 
@@ -575,7 +569,7 @@ E:\Adobe Portable\LUTs
 Utils\LUT_Preview_Batch_Gallery.bat
 ```
 
-递归生成 LUT 缩略图与 Gallery 索引。
+递归生成 LUT 缩略图与 Gallery 索引；.NET 配置页和图库内的预览操作直接调度 FFmpeg，无需启动此 BAT。纯 1D CUBE 会明确标记不支持，不送入 lut3d。
 
 Gallery 支持：
 
@@ -610,7 +604,7 @@ Gallery 可以直接同步预览：
 
 - 只补建新增或缺失的 LUT 预览；
 - 已存在的有效预览不重复生成；
-- 对已经从 LUT 库中删除、且旧 Gallery 索引明确记录的项目执行保守清理；
+- 对已删除源 LUT 的对应生成预览执行受限清理，仅处理预期生成目录和命名，不扫描删除无关文件；
 - 不递归删除预览目录；
 - 更新后立即刷新匹配数量和当前总数。
 
@@ -878,17 +872,17 @@ AV1 不重编码 · 添加/替换胶片颗粒
 
 GUI 使用独立语言资源文件：
 
-\`\`\`text
+```text
 Lang\zh-CN.ini
 Lang\en-US.ini
 Utils\FilmGrain_Language.ps1
-\`\`\`
+```
 
 其中：
 
-- \`zh-CN.ini\`：简体中文，同时作为缺失翻译的 fallback；
-- \`en-US.ini\`：English；
-- \`FilmGrain_Language.ps1\`：负责 UTF-8 语言文件读取、fallback、语言枚举；当前语言选择统一保存到根目录 FilmGrain_Config.ini。
+- `zh-CN.ini`：简体中文，同时作为缺失翻译的 fallback；
+- `en-US.ini`：English；
+- `FilmGrain_Language.ps1`：用于 Legacy 的 UTF-8 语言文件读取、fallback、语言枚举；.NET 使用原生读取实现，当前语言选择统一保存到根目录 FilmGrain_Config.ini。
 
 右上角可以选择界面语言。保存后重新打开 Film Grain Studio 生效。
 
@@ -920,10 +914,10 @@ FilmGrain_Config.ini 同时是 FGS 唯一的用户自定义配置文件，不再
 主要配置分组：
 
 - [Paths]：FFmpeg、grav1synth、Grain、LUT 路径，以及临时目录、输出目录模式与自定义路径；
-- [General]：GUI 语言；
+- [General]：GUI 语言、统一网络代理设置；
 - [LUTGallery]：智能过滤状态；
 - [Advanced.Encoding]：H.264 High10、x264 Preset / VBR 模式、HEVC Spatial AQ / Temporal AQ；
-- [Advanced.Interpolation]：SmoothFps Algo、Analyse Profile、Artifact Mask Area；
+- [Advanced.Interpolation]：插帧目标 FPS / 倍率、FRUC perf / grid、SmoothFps Algo、Analyse Profile、Artifact Mask Area；
 - [Advanced.HDR]：HDR 输入处理、Tone Mapping；
 - [Advanced.Other]：Cinematic Style 自定义画幅、色彩调整 1280×700 大界面；
 - [ColorCorrection]：色彩纠正启用状态、对比度、亮度、饱和度、Gamma 与黑白模式。
@@ -983,11 +977,7 @@ AV1 Film Grain 与 AV1 SFE 路线推荐使用 **grav1synth 0.2.2 或更高版本
 
 ## 硬件能力自动探测
 
-GUI 和 CLI 启动时调用：
-
-```text
-Utils\FilmGrain_Hardware_Caps.ps1
-```
+.NET 界面直接执行受控的短编码、设备与子进程探测，不再调用硬件 PS1。Legacy GUI / CLI 继续使用 `Utils\FilmGrain_Hardware_Caps.ps1`。
 
 通过小型实际编码测试判断当前 GPU、NVIDIA 驱动与 FFmpeg 的真实能力，而不是根据 GPU 型号写死参数。
 
@@ -1001,17 +991,19 @@ Utils\FilmGrain_Hardware_Caps.ps1
 | NVDEC CUDA / Vulkan | 只在实际路径通过后启用 |
 | AV1 UHQ | `-tune uhq` 微型编码成功时才显示 |
 | AV1 SFE | 检测 NVENC 编码引擎数量并验证 `-split_encode_mode N` |
+| FRUC Vulkan | 独立检查实际 FFmpeg 滤镜、Vulkan 光流运行和当前 perf / grid；不可用时说明原因 |
 | OpenSVPFlow GPU/OpenCL | 本地 VSPipe、插件与 GPU/OpenCL smoke test 均通过后才启用 |
 
 检测结果缓存到：
 
 ```text
-Utils\_HardwareCaps.json
+Utils\_HardwareCaps_NET.json（.NET）
+Utils\_HardwareCaps.json（Legacy）
 ```
 
-GPU、驱动、FFmpeg 文件或探测规则变化后会自动重新检测；环境未变时直接读取缓存。
+GPU、驱动、FFmpeg、相关依赖或探测规则变化后会重新检测；符合签名条件时复用缓存，FRUC 仍独立复查。可主动重检测，任务运行时延后刷新。当前两处 .NET EXE 路径参与缓存签名，切换根目录 / build 入口可能触发重检测；这不表示硬件实际能力被清空。
 
-GUI 底部状态栏集中显示 GPU、NVIDIA 驱动版本、FFmpeg 版本、能力缓存状态以及 AV1 / UHQ / HEVC-Vulkan / OpenSVPFlow 可用性。
+.NET 底部状态栏使用独立绿色勾 / 红色叉显示编码与插帧能力；完整版本、驱动、缓存状态及不可用原因在悬浮提示中查看。
 
 ---
 
@@ -1026,7 +1018,7 @@ GUI 底部状态栏集中显示 GPU、NVIDIA 驱动版本、FFmpeg 版本、能�
 | Cinematic Style | 开启；加黑边、保留原分辨率 |
 | 反交错 | 自动；BWDIF Vulkan |
 | 输出帧率 | 隔行 Field-rate ×2；逐行自动电影帧率 |
-| OpenSVPFlow | 关闭；启用后 60 fps |
+| 插帧 | 关闭；目标默认 60 fps，可设置有效帧率或倍率 |
 | GPU | 自动检测 |
 | LUT | 关闭 |
 | AV1 Grain | Film Preset |
@@ -1045,9 +1037,11 @@ GUI 底部状态栏集中显示 GPU、NVIDIA 驱动版本、FFmpeg 版本、能�
 ## 工具包结构
 
 ```text
+FilmGrain_Studio.exe
 FilmGrain_Universal_CLI.bat
 FilmGrain_Universal_GUI.bat
-FilmGrain_Config.ini
+FilmGrain_Config.default.ini
+FilmGrain_Config.ini（首次保存后生成）
 README.md
 CHANGELOG.md
 README_FilmGrain_Studio.txt
@@ -1104,7 +1098,7 @@ _OpenSVPFlow\
     Plugins\
 ```
 
-请保持两个入口 BAT、`Lang`、`Utils`、`_LUT_Tools`、`_AV1_Grain_Tables` 与 `_OpenSVPFlow` 的相对位置不变。
+请保持根目录 EXE、兼容入口、两个 Legacy BAT、`Lang`、`Utils`、`_LUT_Tools`、`_AV1_Grain_Tables` 与 `_OpenSVPFlow` 的相对位置不变。
 
 ---
 
@@ -1180,7 +1174,7 @@ ffmpeg -hide_banner -h decoder=libdav1d
 
 ## 已知限制
 
-- 仅面向 Windows BAT、Windows PowerShell 5.1 与 WinForms 工作流；
+- 面向 Windows / .NET Framework WinForms；Legacy 回退与手工脚本仍需要 Windows PowerShell 5.1 和 BAT 环境；
 - 需要 NVIDIA GPU；AV1、UHQ、B-frame、AQ、NVDEC、Vulkan 等能力取决于 GPU、驱动和 FFmpeg 组合；
 - HEVC / H.264 扫描 Grain 会增加编码压力和码率需求；
 - H.264 x264 Grain 使用 CPU 编码，选择 Medium / Slow 或 2-Pass 会显著增加耗时；
@@ -1189,7 +1183,7 @@ ffmpeg -hide_banner -h decoder=libdav1d
 - MP4 兼容模式不会保留字幕、附件和数据流；
 - 启用 LUT 时，部分处理链会转为软件滤镜路径，速度可能下降；
 - 自动反交错依赖 FFprobe `field_order`，异常标记素材需要人工确认；
-- OpenSVPFlow 仅处理逐行输入并固定输出 60 fps；
+- OpenSVPFlow 光流仅处理逐行 SDR，默认目标 60 fps；隔行 SDR 和明确 HDR Preserve 按规则绕过，其他特殊组合按门控处理；
 - OpenSVPFlow 当前内部为 YUV420P8 SDR，不是端到端 HDR / 10-bit 插帧；
 - H.264 High10 为实验功能，兼容性明显低于标准 H.264 High 8-bit；
 - HDR Preserve 主要覆盖 AV1 Main10 / HEVC Main10；Dolby Vision RPU 与 HDR10+ 动态 metadata 不在当前处理范围；

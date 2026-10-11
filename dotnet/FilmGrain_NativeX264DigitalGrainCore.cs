@@ -23,6 +23,14 @@ namespace FilmGrainStudioPreview
             reason = "";
             if (state == null || info == null) { reason = "missing state/media probe"; return false; }
             if (!Eq(state, "FG_MODE", "X264")) { reason = "codec is not x264"; return false; }
+            IDictionary<string,string> normalized; string bypassNotice;
+            if (!SharedInterpolationBypassCore.TryResolve(info,state,out normalized,out bypassNotice,out reason)) return false;
+            if (normalized != null)
+            {
+                bool success = TryPrepare(appRoot,input,info,normalized,out prepared,out reason);
+                if (success) SharedInterpolationBypassCore.Attach(prepared,bypassNotice);
+                return success;
+            }
             if (Eq(state, "FG_GRAIN_ENGINE", "PROCEDURAL")) return TryPrepareEngine(appRoot, input, info, state, false, out prepared, out reason);
             if (Eq(state, "FG_GRAIN_ENGINE", "NATIVE")) return TryPrepareEngine(appRoot, input, info, state, true, out prepared, out reason);
             if (Eq(state, "FG_GRAIN_ENGINE", "FGSIM")) return TryPrepareEngine(appRoot, input, info, state, false, out prepared, out reason);
@@ -47,8 +55,7 @@ namespace FilmGrainStudioPreview
             if (interpolate && !fruc && !Eq(state, "FG_INTERPOLATION_ENGINE", "SVP") && !string.IsNullOrEmpty(Get(state, "FG_INTERPOLATION_ENGINE")))
             { reason = "unsupported interpolation engine"; return false; }
             if (interpolate && info.IsInterlaced) { reason = "Native x264 interpolation requires progressive input / Native x264 插帧需要逐行源视频"; return false; }
-            if (svp && (Path.GetExtension(input).Equals(".ts", StringComparison.OrdinalIgnoreCase) || Path.GetExtension(input).Equals(".m2ts", StringComparison.OrdinalIgnoreCase) || Path.GetExtension(input).Equals(".mts", StringComparison.OrdinalIgnoreCase)))
-            { reason = "OpenSVPFlow Native requires MP4/MKV input; remux transport streams first / 请先将 TS/M2TS/MTS 无损封装为 MP4/MKV"; return false; }
+            bool transportSvp = svp && !info.IsHdr && IsTransportInput(input);
             if (Get(state, "FG_UPLOAD") == "1") { reason = "upload copy is not migrated"; return false; }
             bool hdrToSdr = info.IsHdr && !Eq(state, "FG_HDR_POLICY", "PRESERVE");
             if (info.IsHdr && !hdrToSdr) { reason = "HDR preservation is unavailable for x264"; return false; }
@@ -97,7 +104,7 @@ namespace FilmGrainStudioPreview
             { reason = "custom FRUC FFmpeg directory is empty"; return false; }
             if (fruc && !string.IsNullOrWhiteSpace(Get(state, "FG_FRUC_FFMPEG_PATH"))) ffmpeg = Get(state, "FG_FRUC_FFMPEG_PATH");
             if (!File.Exists(ffmpeg)) { reason = "ffmpeg.exe not found: " + ffmpeg; return false; }
-            if (fruc && !NativeHevcCore.HasFrucFilter(ffmpeg)) { reason = "selected FFmpeg lacks fruc_vulkan: " + ffmpeg; return false; }
+            if (fruc && !SharedFrucCore.TryPreflight(ffmpeg, Get(state, "FG_FRUC_PERF").ToLowerInvariant(), Get(state, "FG_FRUC_GRID").ToLowerInvariant(), out reason)) return false;
             string vspipe = Path.Combine(appRoot, "_OpenSVPFlow", ".venv", "Scripts", "vspipe.exe");
             string vpy = Path.Combine(appRoot, "_OpenSVPFlow", "FilmGrain_OpenSVPFlow.vpy");
             string svpPlugins = Path.Combine(appRoot, "_OpenSVPFlow", "Plugins");
@@ -110,7 +117,7 @@ namespace FilmGrainStudioPreview
                 if (fgsimPreset != "LIGHT" && fgsimPreset != "MEDIUM" && fgsimPreset != "HEAVY") { reason = "unsupported FGSIM preset"; return false; }
                 fgsimTag = fgsimPreset == "LIGHT" ? "L" : fgsimPreset == "HEAVY" ? "H" : "M";
                 fgsimHook = Path.Combine(appRoot, "Utils", "_FilmGrainSimplified", "Generated", "FilmGrainSimplified_" + fgsimPreset + ".hook");
-                if (!TryPrepareFgsimHook(fgsimHook, fgsimPreset, out reason)) return false;
+                if (!TryPrepareFgsimHook(appRoot, fgsimHook, fgsimPreset, out reason)) return false;
             }
             if (high10 && !SupportsHigh10(ffmpeg)) { reason = "this libx264 build does not advertise yuv420p10le"; return false; }
 
@@ -224,7 +231,7 @@ namespace FilmGrainStudioPreview
                     if (perf != "slow" && perf != "medium" && perf != "fast") { reason = "unsupported FRUC perf setting"; return false; }
                     string grid = Get(state, "FG_FRUC_GRID").ToLowerInvariant();
                     if (grid != "auto" && grid != "1" && grid != "2" && grid != "4" && grid != "8") { reason = "unsupported FRUC grid setting"; return false; }
-                    filter = filter.Replace("[0:v:0]", "[0:v:0]format=nv12,hwupload,fruc_vulkan=fps=" + fps + ":perf=" + perf + ":grid=" + grid + ",hwdownload,format=nv12,");
+                    filter = filter.Replace("[0:v:0]", "[0:v:0]setpts=PTS-STARTPTS,format=nv12,hwupload,fruc_vulkan=fps=" + fps + ":perf=" + perf + ":grid=" + grid + ",hwdownload,format=nv12,");
                 }
                 if (svp && plateMode) filter = filter.Replace("[1:v:0]", "[2:v:0]");
 
@@ -258,7 +265,7 @@ namespace FilmGrainStudioPreview
                 if (passMode == "VBR1")
                 {
                     List<string> args = BuildEncodeArgs(encodeInput, grainInput, filter, output, preset, highMotion, bitrate, max, buf, fps, duration, plateMode, autoFps, high10, mkv, deinterlace, 0, "", true, svp);
-                    if (hdrToSdr || svp)
+                    if (hdrToSdr || svp || fruc)
                     {
                         stages.Add(MakeStage(ffmpeg, workingDirectory, args, durationSeconds, stageOffset + 1, stageTotal, "x264 final encode"));
                         request.DirectStages = stages;
@@ -280,9 +287,16 @@ namespace FilmGrainStudioPreview
 
                 if (svp)
                     for (int i = stageOffset; i < stages.Count; i++)
-                        AttachSvpProducer(stages[i], vspipe, vpy, svpPlugins, encodeInput, state, fps);
+                    {
+                        SharedSvpCore.AttachProducer(stages[i],vspipe,vpy,svpPlugins,encodeInput,state,fps);
+                        if (hdrToSdr) SharedHdrPreprocessCore.AttachPipeTimeline(stages[i],ffprobe,encodeInput,info,stages[i].OriginalArguments);
+                        else if (transportSvp) SharedPipeTimelineCore.AttachTransportSource(stages[i],ffprobe,encodeInput,info,stages[i].OriginalArguments);
+                    }
 
                 request.TemporaryFiles = temporaryFiles.Count == 0 ? null : temporaryFiles;
+                if (fruc && request.DirectStages != null)
+                    foreach (BridgeExecutionStage stage in request.DirectStages)
+                        if (stage.FrucArguments != null) stage.FrucProbePath = ffprobe;
                 prepared = new BridgePreparedExecution(request, false, ffmpeg, requestInputs);
                 lutCompatPath = "";
                 subtitleAss = "";
@@ -362,11 +376,7 @@ namespace FilmGrainStudioPreview
 
         private static List<string> BuildHdrToSdrArgs(string input, string output, MediaProbeInfo info, string tonemap)
         {
-            string range = string.Equals(info.ColorRange, "pc", StringComparison.OrdinalIgnoreCase) ? "pc" : "tv";
-            string primaries = string.IsNullOrWhiteSpace(info.ColorPrimaries) || info.ColorPrimaries == "unknown" || info.ColorPrimaries == "reserved" ? "bt2020" : info.ColorPrimaries;
-            string space = string.IsNullOrWhiteSpace(info.ColorSpace) || info.ColorSpace == "unknown" || info.ColorSpace == "reserved" ? "bt2020nc" : info.ColorSpace;
-            string filter = "zscale=rin=" + range + ":pin=" + primaries + ":tin=" + info.ColorTransfer + ":min=" + space + ":t=linear:npl=100,format=gbrpf32le,tonemap=tonemap=" + tonemap + ":desat=2,zscale=p=bt709:t=bt709:m=bt709:r=tv,format=p010le,sidedata=mode=delete:type=MASTERING_DISPLAY_METADATA,sidedata=mode=delete:type=CONTENT_LIGHT_LEVEL,setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709";
-            return new List<string>{"-hide_banner","-stats","-progress","pipe:2","-stats_period","0.5","-y","-copyts","-start_at_zero","-i",input,"-map","0:v:0","-map","0:a?","-map","0:s?","-map","0:t?","-map_metadata","0","-map_chapters","0","-vf",filter,"-c:v","hevc_nvenc","-profile:v","main10","-pix_fmt","p010le","-preset","p4","-tune","lossless","-fps_mode","passthrough","-color_range","tv","-color_primaries","bt709","-color_trc","bt709","-colorspace","bt709","-c:a","copy","-c:s","copy","-c:t","copy",output};
+            return SharedHdrPreprocessCore.BuildToSdr(input,output,info,tonemap,true);
         }
 
         private static List<string> BuildEncodeArgs(string input, string grainInput, string filter, string output, string preset, bool highMotion, long bitrate, long max, long buf, string fps, string duration, bool plateMode, bool autoFps, bool high10, bool mkv, bool deinterlace, int passNumber, string passlog, bool finalOutput, bool svp)
@@ -401,8 +411,8 @@ namespace FilmGrainStudioPreview
                 a.Add("-pass"); a.Add(passNumber.ToString(CultureInfo.InvariantCulture));
                 a.Add("-passlogfile"); a.Add(passlog);
             }
-            if (autoFps || deinterlace || plateMode || passNumber > 0) { a.Add("-r"); a.Add(fps); }
-            a.Add("-fps_mode:v"); a.Add("cfr");
+            if (!filter.Contains("fruc_vulkan=") && (autoFps || deinterlace || plateMode || passNumber > 0)) { a.Add("-r"); a.Add(fps); }
+            a.Add("-fps_mode:v"); a.Add(filter.Contains("fruc_vulkan=") ? "passthrough" : "cfr");
             if (plateMode && !string.IsNullOrEmpty(duration)) { a.Add("-t"); a.Add(duration); }
             else if (passNumber > 0 && !string.IsNullOrEmpty(duration)) { a.Add("-t"); a.Add(duration); }
             if (finalOutput)
@@ -414,6 +424,12 @@ namespace FilmGrainStudioPreview
             else { a.Add("-f"); a.Add("null"); a.Add("NUL"); }
             if (svp) ConvertToPipeInput(a, input);
             return a;
+        }
+
+        private static bool IsTransportInput(string input)
+        {
+            string extension=Path.GetExtension(input);
+            return extension.Equals(".ts",StringComparison.OrdinalIgnoreCase)||extension.Equals(".m2ts",StringComparison.OrdinalIgnoreCase)||extension.Equals(".mts",StringComparison.OrdinalIgnoreCase);
         }
 
         private static void ConvertToPipeInput(List<string> args, string input)
@@ -434,29 +450,16 @@ namespace FilmGrainStudioPreview
             }
         }
 
-        private static void AttachSvpProducer(BridgeExecutionStage stage, string vspipe, string vpy, string plugins, string input, IDictionary<string,string> state, string outputFps)
-        {
-            string algo = Get(state, "FG_SVP_ALGO"), analyse = Get(state, "FG_SVP_ANALYSE");
-            string scene = Get(state, "FG_SVP_SCENE_MODE"), mask = Get(state, "FG_SVP_MASK_AREA");
-            int n;
-            if (!int.TryParse(algo, NumberStyles.Integer, CultureInfo.InvariantCulture, out n) ||
-                (n != 1 && n != 2 && n != 11 && n != 13 && n != 21 && n != 22 && n != 23)) algo = "13";
-            if (analyse != "BASE" && analyse != "ENCODEGUI") analyse = "ENCODEGUI";
-            if (scene != "0" && scene != "3") scene = "0";
-            if (!int.TryParse(mask, NumberStyles.Integer, CultureInfo.InvariantCulture, out n) || n < 0 || n > 100) mask = "100";
-            stage.PipeProducerPath = vspipe;
-            stage.PipeProducerArguments = JoinArgs(new string[]{"--progress", "-c", "y4m", "--arg", "input=" + input,
-                "--arg", "plugin_dir=" + plugins, "--arg", "target_num=" + outputFps.Split('/')[0], "--arg", "target_den=" + (outputFps.Contains("/") ? outputFps.Split('/')[1] : "1"),
-                "--arg", "algo=" + algo, "--arg", "analyse_profile=" + analyse,
-                "--arg", "scene_mode=" + scene, "--arg", "mask_area=" + mask, vpy, "-"});
-        }
-
         private static BridgeExecutionStage MakeStage(string ffmpeg, string workingDirectory, IList<string> args, double duration, int current, int total, string text)
         {
             BridgeExecutionStage stage = new BridgeExecutionStage();
             stage.ToolPath = ffmpeg;
             stage.WorkingDirectory = workingDirectory;
             stage.DirectArguments = JoinArgs(args);
+            stage.OriginalArguments = new List<string>(args);
+            int frucFilterIndex = args.IndexOf("-filter_complex");
+            if (frucFilterIndex >= 0 && frucFilterIndex + 1 < args.Count && args[frucFilterIndex + 1].Contains("fruc_vulkan="))
+                stage.FrucArguments = new List<string>(args);
             stage.ProgressDurationSeconds = duration > 0.0 ? duration : 0.0;
             stage.StageCurrent = current;
             stage.StageTotal = total;
@@ -660,38 +663,9 @@ namespace FilmGrainStudioPreview
         private static string F2(double v) { return v.ToString("0.00", CultureInfo.InvariantCulture); }
         private static string EscapeFilterPath(string value) { return (value ?? "").Replace("\\", "/").Replace(":", "\\:").Replace("'", "\\'"); }
         // Match StudioBridge's two-level escaping for libplacebo custom_shader_path.
-        private static bool TryPrepareFgsimHook(string hook, string preset, out string reason)
+        private static bool TryPrepareFgsimHook(string appRoot, string hook, string preset, out string reason)
         {
-            reason = "";
-            if (File.Exists(hook) && new FileInfo(hook).Length >= 1048576) return true;
-            string generated = Path.GetDirectoryName(hook);
-            string root = Path.GetDirectoryName(generated);
-            string raw = Path.Combine(generated, "Noise_512x512_RGBA8.rgba");
-            string template = Path.Combine(root, "FilmGrainSimplified.hook.template");
-            if (!File.Exists(raw) || new FileInfo(raw).Length != 1048576 || !File.Exists(template))
-            {
-                reason = "FGSIM noise texture needs initial Legacy preparation";
-                return false;
-            }
-            string staging = hook + "." + Guid.NewGuid().ToString("N") + ".tmp";
-            try
-            {
-                byte[] noise = File.ReadAllBytes(raw);
-                if (noise.Length != 1048576) { reason = "FGSIM noise texture changed during preparation"; return false; }
-                string hex = BitConverter.ToString(noise).Replace("-", "").ToLowerInvariant();
-                StringBuilder lines = new StringBuilder(hex.Length + hex.Length / 256 + 1);
-                for (int i = 0; i < hex.Length; i += 256) lines.Append(hex, i, Math.Min(256, hex.Length - i)).Append('\n');
-                string strength = preset == "LIGHT" ? "0.10" : preset == "HEAVY" ? "0.30" : "0.20";
-                string body = File.ReadAllText(template).Replace("@@TILE_SIZE@@", "2").Replace("@@STRENGTH@@", strength)
-                    .Replace("@@HL_START@@", "0.55").Replace("@@HL_END@@", "0.85").Replace("@@HL_REDUCE@@", "0.50")
-                    .Replace("@@NOISE_HEX@@", lines.ToString());
-                File.WriteAllText(staging, body, new UTF8Encoding(false));
-                if (File.Exists(hook)) File.Delete(hook);
-                File.Move(staging, hook);
-                return true;
-            }
-            catch (Exception ex) { reason = "FGSIM hook preparation failed: " + ex.Message; return false; }
-            finally { try { if (File.Exists(staging)) File.Delete(staging); } catch { } }
+            string prepared; return FgsimTextureCore.TryPrepareHook(appRoot, preset, out prepared, out reason);
         }
 
         private static string EscapeFgsimShaderPath(string value)

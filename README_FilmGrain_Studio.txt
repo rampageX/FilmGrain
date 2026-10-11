@@ -1,21 +1,18 @@
 Film Grain Studio - 使用说明
 ============================
 
-当前正式稳定版：v4.8.11
+当前正式稳定版：v4.8.14
 
-这是 Universal Film Grain Toolkit 的图形前端。
-CLI 与 GUI Bridge 共享同一套编码逻辑，并分别提供交互菜单和图形界面。
-所有脚本采用固定文件名；项目版本只体现在发布压缩包文件名中。
+推荐双击根目录 FilmGrain_Studio.exe，或将多个视频拖入 EXE。
+兼容入口：dotnet\build\FilmGrain_Studio_NET_Preview.exe。
+Legacy GUI：FilmGrain_Universal_GUI.bat；CLI：FilmGrain_Universal_CLI.bat。
+保持完整目录，.NET 与 Legacy 共用根目录 FilmGrain_Config.ini。
+.NET 提供已覆盖的三线 Native、串行队列、共享预处理与原生辅助工具；
+未覆盖组合仍明确回退或停止，目前不能删除 Legacy PS1/BAT。
+首次运行可安装核心依赖，可选插帧默认目标 60 fps，支持有效帧率/倍率。
+日志窗口保留阶段和错误，完整 Session/Task 文件保留原始诊断。
+功能、配置与剩余边界以 README.md 为准，发布变化见 CHANGELOG.md。
 
-启动方式
---------
-双击：FilmGrain_Universal_GUI.bat
-
-可选 .NET 图形界面预览：dotnet\build\FilmGrain_Studio_NET_Preview.exe
-请保持整个发布包目录结构；.NET 预览版与正式 GUI 共用配置和编码后端。
-首次使用 .NET 界面时会提示设置 FFmpeg / ffprobe 和 grav1synth；
-60 fps OpenSVPFlow 插帧可选。Grain Plate 与 LUT 为自备素材目录，
-在配置窗口的路径标签旁点击 [?] 可查看项目 README 的相关章节。
 
 也可以把一个或多个视频直接拖到 FilmGrain_Universal_GUI.bat，
 Studio 打开后会自动加入文件列表。

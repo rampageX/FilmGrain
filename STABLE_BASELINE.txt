@@ -1,26 +1,23 @@
 Film Grain Studio formal stable baseline
 
 Baseline:
-v4.8.13
+v4.8.14
 Supersedes:
-v4.8.10
+v4.8.13
 
 Formal release:
-FilmGrain_Studio_v4.8.11_Stable.zip
+FilmGrain_Studio_v4.8.14_Stable.zip
+
+Validated migration baseline:
+Q9AOL2; user-confirmed required tests, including visible log cleanup.
+Acceptance applies only to explicitly tested combinations; incomplete early G cases remain unverified.
 
 Release scope:
-- Ship the .NET GUI Preview executable, its C# source and its Windows build script alongside the existing formal PS1 GUI and CLI entry points.
-- Continue sharing the verified encoding and AV1 no-reencode BAT backends, auxiliary tools, configuration and language files.
-- Build and validate the .NET Preview executable on the Windows Server 2022 runner from committed source.
-- Keep runtime .env, _PluginBackup, Utils\_HardwareCaps.json and the local FilmGrain_Config.ini out of the formal package.
-- Keep tracked release infrastructure out of the formal Stable package.
-- Ship the .NET first-run setup and dependency installer scripts; optional OpenSVPFlow keeps its venv and private VapourSynth profile under _OpenSVPFlow.
-
-Encoding core:
-- Retain the verified AV1, HEVC and x264 encoding paths and Color Correction before LUT processing.
-- Preserve the shared Grain, HDR, interpolation, deinterlace and bitrate behavior.
-- AAC remains 256k.
-
-Release:
-- Windows Server 2022 runner.
-- GUI status version is v4.8.11.
+- Root FilmGrain_Studio.exe and compatible dotnet/build executable built from the same committed source.
+- Native AV1, HEVC and x264 execution with shared queue, preprocessing and auxiliary tools.
+- Preserve Legacy GUI, CLI and unsupported-combination fallback boundaries.
+- Include original Netflix_FGS_Dune2.txt grain table supplied by the user.
+- Exclude local configuration, capability caches, virtual environments, downloads, generated hooks, logs and test delivery files.
+- Local release and Windows Server 2022 runner use .github/release/build_release.ps1.
+- Formal .NET and Legacy GUI status version: v4.8.14.
+- Release commit, tag and remote publication remain maintainer actions.

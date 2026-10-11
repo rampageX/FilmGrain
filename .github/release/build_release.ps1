@@ -37,6 +37,16 @@ $RequiredPackageFiles = @(
     'dotnet\FilmGrain_Studio_NET_Preview.cs',
     'dotnet\FilmGrain_SetupPhase1.cs',
     'dotnet\Setup_Dependencies.ps1',
+    'dotnet\FilmGrain_NativeArchiveCore.cs',
+    'dotnet\FilmGrain_NativeLibraryTools.cs',
+    'dotnet\FilmGrain_NativeLutGalleryForm.cs',
+    'dotnet\FilmGrain_NativeLutRecords.cs',
+    'dotnet\FilmGrain_NativeSetupCore.cs',
+    'dotnet\FilmGrain_NativeStartupCore.cs',
+    'dotnet\FilmGrain_SharedHdrPreprocessCore.cs',
+    'dotnet\FilmGrain_SharedPipeTimelineCore.cs',
+    'dotnet\BUILD_NET_FRAMEWORK.md',
+    '_AV1_Grain_Tables\Netflix_FGS_Dune2.txt',
     'Utils\FilmGrain_Studio.ps1',
     'Utils\FilmGrain_ColorCorrection.ps1',
     'Utils\FGS_Benchmark.cmd',
@@ -67,14 +77,23 @@ $ExcludedPackagePaths = @(
     'benchmark',
     'release.bat',
     'Utils\_HardwareCaps.json',
+    'Utils\_HardwareCaps_NET.json',
+    'Utils\_FilmGrainSimplified\Generated',
+    'Logs',
+    'Tests_Shared',
+    '_Dependencies',
+    '_OpenSVPFlow\_UserConfig',
     '_LUT_Tools\LUT_Reference_Current.jpg',
     '_OpenSVPFlow\_PluginBackup',
     'Lang\FilmGrain_Language.ini'
 )
 
 $ExcludedRecursiveDirectoryNames = @(
-    '.env'
+    '.env',
+    '.venv'
 )
+
+$ExcludedRootDeliveryPatterns = @('PatchManifest_*.json', 'PATCH_MANIFEST_*.json', '迁移与测试_*.md', '测试说明_*.md', '审查与改动_*.md', '更新与测试_*.md', '启动说明_NET_*.md')
 
 function Get-NormalizedFullPath {
     param([Parameter(Mandatory = $true)][string]$Path)
@@ -196,6 +215,15 @@ function Test-ReleaseMetadata {
         throw "GUI status version does not match v$ReleaseVersion"
     }
 
+    $native = [System.IO.File]::ReadAllText((Join-Path $Root 'dotnet\FilmGrain_Studio_NET_Preview.cs'))
+    $nativeVersion = [regex]::Match($native, 'internal const string ReleaseVersion\s*=\s*"([0-9.]+)"')
+    if (-not $nativeVersion.Success -or $nativeVersion.Groups[1].Value -ne $ReleaseVersion) {
+        throw '.NET release version does not match release metadata.'
+    }
+    if ($native -notmatch 'private const string TestBuild\s*=\s*"Stable"') {
+        throw '.NET formal source still contains a test-build label.'
+    }
+
     if ($studio -match '\$statusVersion\.Text[^\r\n]*TEST|I18N TEST|TEST P7L4N|TEST M5Q8T|TEST R4N8C|TEST K7M2Q') {
         throw 'Formal GUI still contains a test-build marker.'
     }
@@ -224,6 +252,12 @@ function Remove-PackageExclusions {
         if (Test-Path -LiteralPath $path) {
             Remove-Item -LiteralPath $path -Recurse -Force
         }
+    }
+
+    foreach ($pattern in $ExcludedRootDeliveryPatterns) {
+        Get-ChildItem -LiteralPath $StageRoot -File -Force |
+            Where-Object { $_.Name -like $pattern } |
+            Remove-Item -Force
     }
 
     foreach ($dirName in $ExcludedRecursiveDirectoryNames) {
@@ -286,11 +320,13 @@ function Build-DotNetPreview {
     $script = Join-Path $StageRoot 'dotnet\build_NET_Preview.bat'
     $buildDirectory = Join-Path $StageRoot 'dotnet\build'
     $executable = Join-Path $buildDirectory 'FilmGrain_Studio_NET_Preview.exe'
+    $rootExecutable = Join-Path $StageRoot 'FilmGrain_Studio.exe'
 
     # The release must compile committed source, never reuse a local test executable.
     if (Test-Path -LiteralPath $buildDirectory) {
         Remove-Item -LiteralPath $buildDirectory -Recurse -Force
     }
+    if (Test-Path -LiteralPath $rootExecutable) { Remove-Item -LiteralPath $rootExecutable -Force }
     Assert-File -Root $StageRoot -RelativePath 'dotnet\build_NET_Preview.bat'
     Write-Host '[FGS] Building .NET Preview from staged source...'
     & $script
@@ -298,6 +334,10 @@ function Build-DotNetPreview {
         throw ".NET Preview build failed with exit code $LASTEXITCODE"
     }
     Assert-File -Root $StageRoot -RelativePath 'dotnet\build\FilmGrain_Studio_NET_Preview.exe'
+    Assert-File -Root $StageRoot -RelativePath 'FilmGrain_Studio.exe'
+    if ((Get-FileHash -LiteralPath $executable -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $rootExecutable -Algorithm SHA256).Hash) {
+        throw 'Root and compatible .NET executables differ.'
+    }
     if ((Get-Item -LiteralPath $executable).Length -le 0) {
         throw '.NET Preview executable is empty.'
     }
@@ -310,6 +350,7 @@ function Test-PackageContent {
         Assert-File -Root $StageRoot -RelativePath $relative
     }
     Assert-File -Root $StageRoot -RelativePath 'dotnet\build\FilmGrain_Studio_NET_Preview.exe'
+    Assert-File -Root $StageRoot -RelativePath 'FilmGrain_Studio.exe'
     foreach ($relative in $RequiredPackageDirectories) {
         Assert-Directory -Root $StageRoot -RelativePath $relative
     }
@@ -397,7 +438,7 @@ function Test-ZipContent {
     try {
         $entries = @($archive.Entries | ForEach-Object { $_.FullName.Replace('\', '/') })
 
-        foreach ($relative in @($RequiredPackageFiles) + @('dotnet\build\FilmGrain_Studio_NET_Preview.exe')) {
+        foreach ($relative in @($RequiredPackageFiles) + @('dotnet\build\FilmGrain_Studio_NET_Preview.exe', 'FilmGrain_Studio.exe')) {
             $entry = $relative.Replace('\', '/')
             if ($entries -notcontains $entry) {
                 throw "Required ZIP entry missing: $entry"
@@ -425,6 +466,12 @@ function Test-ZipContent {
             )
             if ($found.Count) {
                 throw "Excluded path found in final ZIP: $entry"
+            }
+        }
+
+        foreach ($pattern in $ExcludedRootDeliveryPatterns) {
+            if (@($entries | Where-Object { $_ -notmatch '/' -and $_ -like $pattern }).Count) {
+                throw "Delivery-only file found in final ZIP: $pattern"
             }
         }
 

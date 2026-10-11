@@ -58,8 +58,13 @@ namespace FilmGrainStudioPreview
 
     internal sealed class BridgeExecutionStage
     {
+        public Func<string> BeforeRunPreparation { get; set; }
+        public IList<string> FrucArguments { get; set; }
+        public string FrucProbePath { get; set; }
+        public string FrucTimelineReferenceInput { get; set; }
         public string PipeProducerPath { get; set; }
         public string PipeProducerArguments { get; set; }
+        internal IList<string> OriginalArguments { get; set; }
         public string ToolPath { get; set; }
         public string WorkingDirectory { get; set; }
         public string DirectArguments { get; set; }
@@ -71,6 +76,7 @@ namespace FilmGrainStudioPreview
 
     internal sealed class BridgeExecutionRequest
     {
+        public string ExecutionNotice { get; set; }
         public string ToolPath { get; set; }
         public string WorkingDirectory { get; set; }
         public IList<string> InputFiles { get; set; }
@@ -236,14 +242,30 @@ namespace FilmGrainStudioPreview
             DateTime runStartedUtc = DateTime.UtcNow;
             try
             {
+                if (!string.IsNullOrEmpty(request.ExecutionNotice)) RaiseLog(BridgeLogStream.System,request.ExecutionNotice);
                 if (request.DirectStages != null && request.DirectStages.Count > 0)
                 {
                     foreach (BridgeExecutionStage stage in request.DirectStages)
                     {
                         if (cancelRequested) break;
+                        if (stage.BeforeRunPreparation != null)
+                        {
+                            RaiseProgress(new BridgeProgressEventArgs(false, 0, false, "", "", "", true,
+                                stage.StageCurrent, stage.StageTotal, stage.StageText + " / shared timeline preparation"));
+                            RaiseLog(BridgeLogStream.System, stage.BeforeRunPreparation());
+                            if (cancelRequested) break;
+                        }
+                        if (stage.FrucArguments != null)
+                        {
+                            RaiseProgress(new BridgeProgressEventArgs(false, 0, false, "", "", "", true,
+                                stage.StageCurrent, stage.StageTotal, "FRUC shared timestamp preparation"));
+                            RaiseLog(BridgeLogStream.System, "[FRUC] preparing shared input timeline");
+                            RaiseLog(BridgeLogStream.System, SharedFrucCore.PrepareStage(stage));
+                            if (cancelRequested) break;
+                        }
                         PrepareStageProgress(stage);
                         string stageMode;
-                        string stagePrefix = request.Environment != null && request.Environment.TryGetValue("FG_MODE", out stageMode) && string.Equals(stageMode, "HEVC", StringComparison.OrdinalIgnoreCase) ? "HEVC step " : "x264 step ";
+                        string stagePrefix = request.Environment != null && request.Environment.TryGetValue("FG_MODE", out stageMode) ? stageMode + " step " : "Native step ";
                         RaiseLog(BridgeLogStream.System, stagePrefix + stage.StageCurrent.ToString(CultureInfo.InvariantCulture) + "/" + stage.StageTotal.ToString(CultureInfo.InvariantCulture) + " - " + (stage.StageText ?? ""));
                         exitCode = string.IsNullOrEmpty(stage.PipeProducerPath)
                             ? RunProcess(BuildStartInfo(request, stage), stage.ToolPath, out failure)
@@ -258,9 +280,11 @@ namespace FilmGrainStudioPreview
                 }
                 if (!cancelRequested && exitCode == 0 && failure == null && request.PostRunValidation != null)
                 {
+                    RaiseProgress(new BridgeProgressEventArgs(false, 0, false, "", "", "", true,
+                        currentStage > 0 ? currentStage : 1, currentStageTotal > 0 ? currentStageTotal : 1, "Post-run validation"));
                     string validationError = request.PostRunValidation();
                     if (!string.IsNullOrEmpty(validationError)) throw new InvalidDataException(validationError);
-                    RaiseLog(BridgeLogStream.System, "HDR signaling verification passed");
+                    RaiseLog(BridgeLogStream.System, "Post-run validation passed");
                 }
             }
             catch (Exception ex)

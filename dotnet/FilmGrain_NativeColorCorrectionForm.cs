@@ -55,7 +55,7 @@ namespace FilmGrainStudioPreview
         private readonly string videoPath;
         private readonly string ffmpegPath;
         private readonly string ffprobePath;
-        private readonly string lutSelectorPath;
+        private readonly string galleryAppRoot;
         private readonly string lutRoot;
         private readonly string lutPreviewRoot;
         private readonly bool isZh;
@@ -106,7 +106,7 @@ namespace FilmGrainStudioPreview
             string videoPath,
             string ffmpegPath,
             string ffprobePath,
-            string lutSelectorPath,
+            string galleryAppRoot,
             string lutRoot,
             string lutPreviewRoot,
             string lutPath,
@@ -125,7 +125,7 @@ namespace FilmGrainStudioPreview
             this.videoPath = videoPath;
             this.ffmpegPath = ffmpegPath;
             this.ffprobePath = ffprobePath;
-            this.lutSelectorPath = lutSelectorPath;
+            this.galleryAppRoot = galleryAppRoot;
             this.lutRoot = lutRoot;
             this.lutPreviewRoot = lutPreviewRoot;
             this.lutPath = lutPath ?? "";
@@ -870,104 +870,23 @@ namespace FilmGrainStudioPreview
 
         private void OpenLutGalleryAsync()
         {
-            if (!File.Exists(lutSelectorPath))
-            {
-                MessageBox.Show(this, S("找不到 LUT 图库：\r\n", "LUT Gallery not found:\r\n") + lutSelectorPath, Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
-            }
-            if (!Directory.Exists(lutRoot))
-            {
-                MessageBox.Show(this, S("找不到 LUT 根目录：\r\n", "LUT root not found:\r\n") + lutRoot, Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
-            }
-
-            string pick = Path.Combine(Path.GetTempPath(), "FilmGrainStudio_NET_Color_LUT_" + Guid.NewGuid().ToString("N") + ".txt");
-            openLutGallery.Enabled = false;
-            Thread worker = new Thread(delegate()
-            {
-                int rc = -1;
-                string error = "";
-                Exception failure = null;
-                try
-                {
-                    ProcessStartInfo psi = new ProcessStartInfo();
-                    psi.FileName = "powershell.exe";
-                    psi.UseShellExecute = false;
-                    psi.CreateNoWindow = true;
-                    psi.RedirectStandardError = true;
-                    psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -STA -File " + QuoteArg(lutSelectorPath) +
-                                    " -LutRoot " + QuoteArg(lutRoot) +
-                                    " -PreviewRoot " + QuoteArg(lutPreviewRoot) +
-                                    " -OutputFile " + QuoteArg(pick);
-                    using (Process process = Process.Start(psi))
-                    {
-                        error = process.StandardError.ReadToEnd();
-                        process.WaitForExit();
-                        rc = process.ExitCode;
+            if(!Directory.Exists(lutRoot)){MessageBox.Show(this,S("找不到 LUT 根目录：\r\n","LUT root not found:\r\n")+lutRoot);return;}
+            openLutGallery.Enabled=false;
+            CancelActiveRender();
+            try {
+                using(var gallery=new NativeLutGalleryForm(galleryAppRoot,ffmpegPath,lutRoot,lutPreviewRoot)) {
+                    if(gallery.ShowDialog(this)==DialogResult.OK) {
+                        if(gallery.DisabledLut){PrepareLut("");lutSource="None";}
+                        else {PrepareLut(gallery.SelectedLut);lutSource="Gallery";}
+                        syncing=true;
+                        try{checkLut.Checked=!gallery.DisabledLut&&!string.IsNullOrEmpty(activeCompatLutPath);}finally{syncing=false;}
                     }
                 }
-                catch (Exception ex) { failure = ex; }
-
-                if (closing || IsDisposed)
-                {
-                    try { if (File.Exists(pick)) File.Delete(pick); } catch { }
-                    return;
-                }
-
-                try
-                {
-                    BeginInvoke((MethodInvoker)delegate
-                    {
-                        try
-                        {
-                            if (failure != null) throw failure;
-                            CancelActiveRender();
-                            if (rc == 0 && File.Exists(pick))
-                            {
-                                string selected = File.ReadAllText(pick, Encoding.UTF8).Trim();
-                                if (!string.IsNullOrEmpty(selected))
-                                {
-                                    PrepareLut(selected);
-                                    lutSource = "Gallery";
-                                    syncing = true;
-                                    try { checkLut.Checked = !string.IsNullOrEmpty(activeCompatLutPath); }
-                                    finally { syncing = false; }
-                                }
-                            }
-                            else if (rc == 10)
-                            {
-                                PrepareLut("");
-                                lutSource = "None";
-                                syncing = true;
-                                try { checkLut.Checked = false; }
-                                finally { syncing = false; }
-                            }
-                            else if (rc != 11)
-                            {
-                                string detail = (error ?? "").Trim();
-                                if (detail.Length > 2000) detail = detail.Substring(0, 2000);
-                                MessageBox.Show(this, S("LUT 图库返回错误 ", "LUT Gallery returned error ") + rc.ToString(CultureInfo.InvariantCulture) + ".\r\n" + detail, Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
-                            }
-                            UpdateLutUi();
-                            RequestRender(true);
-                        }
-                        catch (Exception ex)
-                        {
-                            MessageBox.Show(this, ex.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
-                        }
-                        finally
-                        {
-                            openLutGallery.Enabled = true;
-                            try { if (File.Exists(pick)) File.Delete(pick); } catch { }
-                        }
-                    });
-                }
-                catch { try { if (File.Exists(pick)) File.Delete(pick); } catch { } }
-            });
-            worker.IsBackground = true;
-            worker.Name = "FGS LUT Gallery";
-            worker.Start();
+                UpdateLutUi();RequestRender(true);
+            }catch(Exception ex){MessageBox.Show(this,ex.Message,Text,MessageBoxButtons.OK,MessageBoxIcon.Error);}
+            finally{openLutGallery.Enabled=true;}
         }
+
     }
 
 }

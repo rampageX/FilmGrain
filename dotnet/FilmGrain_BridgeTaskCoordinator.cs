@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 
 namespace FilmGrainStudioPreview
 {
@@ -14,6 +15,8 @@ namespace FilmGrainStudioPreview
         public BridgeExecutionRequest ExecutionRequest { get; set; }
         public bool NoReencode { get; set; }
         public bool NativeBackend { get; set; }
+        public int QueueIndex { get; set; }
+        public int QueueTotal { get; set; }
         public double RecommendedOutputFps { get; set; }
     }
 
@@ -39,6 +42,7 @@ namespace FilmGrainStudioPreview
         private BridgeTaskState state = BridgeTaskState.Idle;
         private BridgeTaskRequest activeTask;
         private bool disposed;
+        private Queue<BridgeTaskRequest> pending = new Queue<BridgeTaskRequest>();
 
         public event EventHandler<BridgeTaskStateChangedEventArgs> StateChanged;
         public event EventHandler<BridgeLogLineEventArgs> LogLine;
@@ -103,6 +107,31 @@ namespace FilmGrainStudioPreview
             }
         }
 
+        // Requests are prepared independently. Fail fast; successful previous outputs remain.
+        public void StartQueue(IList<BridgeTaskRequest> tasks)
+        {
+            if (tasks == null || tasks.Count == 0) throw new ArgumentException("Queue is empty.");
+            lock (sync)
+            {
+                if (disposed || state != BridgeTaskState.Idle || executionCore.IsRunning)
+                    throw new InvalidOperationException("A task is already active.");
+                pending.Clear();
+                for (int i = 0; i < tasks.Count; i++)
+                {
+                    tasks[i].QueueIndex = i + 1; tasks[i].QueueTotal = tasks.Count;
+                    if (i > 0) pending.Enqueue(tasks[i]);
+                }
+                try { Start(tasks[0]); }
+                catch { CleanupPending(); throw; }
+            }
+        }
+
+        private void CleanupPending()
+        {
+            while (pending.Count > 0)
+                BridgeExecutionCore.CleanupTemporaryFiles(pending.Dequeue().ExecutionRequest);
+        }
+
         public void Cancel()
         {
             BridgeTaskRequest task;
@@ -124,22 +153,55 @@ namespace FilmGrainStudioPreview
 
         private void OnExecutionProgressChanged(object sender, BridgeProgressEventArgs e)
         {
+            if (State == BridgeTaskState.Cancelling) return;
             EventHandler<BridgeProgressEventArgs> handler = ProgressChanged;
+            BridgeTaskRequest task;
+            lock (sync) { task = activeTask; }
+            if (task != null && task.QueueTotal > 1)
+                e = new BridgeProgressEventArgs(e.HasProgress,
+                    ((task.QueueIndex - 1) * 1000 + e.ProgressPermille) / task.QueueTotal,
+                    e.HasMetrics, e.FpsText, e.SpeedText, e.EtaText, e.HasStage, e.StageCurrent, e.StageTotal,
+                    "[Queue " + task.QueueIndex + "/" + task.QueueTotal + "] " + e.StageText);
+            if (e.HasProgress && e.ProgressPermille >= 1000)
+                e = new BridgeProgressEventArgs(true, 999, e.HasMetrics, e.FpsText, e.SpeedText, e.EtaText,
+                    e.HasStage, e.StageCurrent, e.StageTotal, e.StageText);
             if (handler != null) handler(this, e);
         }
 
         private void OnExecutionCompleted(object sender, BridgeExecutionCompletedEventArgs e)
         {
             BridgeTaskRequest task;
+            BridgeExecutionResult result = e.Result;
             lock (sync)
             {
                 task = activeTask;
+                if (task != null && task.QueueTotal > 1)
+                    OnExecutionLogLine(this, new BridgeLogLineEventArgs(BridgeLogStream.System,
+                        "[Queue] item " + task.QueueIndex + "/" + task.QueueTotal +
+                        " exit=" + result.ExitCode + " cancelled=" + result.Cancelled));
+                if (state == BridgeTaskState.Cancelling && !result.Cancelled)
+                    result = new BridgeExecutionResult(-1, true, result.Exception);
+                if (!disposed && !result.Cancelled && result.Exception == null && result.ExitCode == 0 && pending.Count > 0)
+                {
+                    activeTask = pending.Dequeue();
+                    RaiseStateChanged(BridgeTaskState.Running, activeTask);
+                    try { executionCore.Start(activeTask.ExecutionRequest); return; }
+                    catch (Exception ex)
+                    {
+                        BridgeExecutionCore.CleanupTemporaryFiles(activeTask.ExecutionRequest);
+                        result = new BridgeExecutionResult(-1, false, ex);
+                    }
+                }
+                if (task != null && task.QueueTotal > 1)
+                    OnExecutionLogLine(this, new BridgeLogLineEventArgs(BridgeLogStream.System,
+                        "[Queue] terminal: skipped=" + pending.Count + " total=" + task.QueueTotal));
+                CleanupPending();
                 activeTask = null;
                 state = BridgeTaskState.Idle;
             }
             RaiseStateChanged(BridgeTaskState.Idle, task);
             EventHandler<BridgeExecutionCompletedEventArgs> handler = Completed;
-            if (handler != null) handler(this, e);
+            if (handler != null) handler(this, new BridgeExecutionCompletedEventArgs(result));
         }
 
         private void RaiseStateChanged(BridgeTaskState newState, BridgeTaskRequest task)
@@ -155,6 +217,7 @@ namespace FilmGrainStudioPreview
             {
                 if (disposed) return;
                 disposed = true;
+                CleanupPending();
                 core = executionCore;
                 executionCore = null;
                 activeTask = null;

@@ -14,6 +14,26 @@ using System.Web.Script.Serialization;
 namespace FilmGrainStudioPreview
 {
     // A session log survives visible-log trimming/clearing and is flushed before UI updates.
+    // Display policy only: process parsing and complete file logs remain unchanged.
+    internal static class VisibleLogCore
+    {
+        internal static bool ShowProcessLine(string line)
+        {
+            if (string.IsNullOrWhiteSpace(line)) return false;
+            string value = line.Trim();
+            if (Regex.IsMatch(value, @"^(frame|fps|stream_\d+_\d+_q|bitrate|total_size|out_time_us|out_time_ms|out_time|dup_frames|drop_frames|speed|progress)=\s*(?:[-+0-9.:/]+(?:kbits/s|x)?|N/A|continue|end)\s*$", RegexOptions.IgnoreCase))
+                return false;
+            if (Regex.IsMatch(value, @"^frame=\s*\d+.*\bfps=\s*[0-9.]+.*\btime=\s*[0-9.:]+.*\bspeed=\s*[0-9.]+x\s*$", RegexOptions.IgnoreCase))
+                return false;
+            if (value.StartsWith("ffmpeg version ", StringComparison.OrdinalIgnoreCase) ||
+                value.StartsWith("built with ", StringComparison.OrdinalIgnoreCase) ||
+                value.StartsWith("configuration: ", StringComparison.OrdinalIgnoreCase) ||
+                Regex.IsMatch(value, @"^lib(?:avutil|avcodec|avformat|avdevice|avfilter|swscale|swresample)\s+\d+\.", RegexOptions.IgnoreCase))
+                return false;
+            return true;
+        }
+    }
+
     internal sealed class FullLogFileCore : IDisposable
     {
         private readonly object sync = new object();
@@ -78,23 +98,45 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
+        internal const string ReleaseVersion = "4.8.14";
         [STAThread]
-        private static void Main()
+        private static void Main(string[] args)
         {
+            if (args.Length == 1 && args[0] == "--hardware-gpu-identity")
+            { NativeStartupCore.WriteProtocolLine(new JavaScriptSerializer().Serialize(NativeHardwareProbe.WmiGpuIdentity())); return; }
+            if (args.Length == 1 && args[0] == "--hardware-nvenc-engines")
+            { NativeStartupCore.WriteProtocolLine("FGS_NVENC_ENGINES=" + FilmGrainNvencCaps.GetAv1EncoderEngineCount(0)); return; }
+            NativeStartupOptions startup = NativeStartupCore.Parse(args, Environment.CurrentDirectory);
+            if (startup.CheckOnly)
+            {
+                try
+                {
+                    string root = NativeStartupCore.FindAppRoot(AppDomain.CurrentDomain.BaseDirectory);
+                    NativeStartupCore.WriteProtocolLine(new JavaScriptSerializer().Serialize(new { app_root = root, inputs = startup.Inputs, notices = startup.Notices, build = "Stable", version = ReleaseVersion, startup = "Native .NET" }));
+                    Environment.ExitCode = startup.Notices.Count == 0 ? 0 : 2;
+                }
+                catch (AppRootNotFoundException ex)
+                {
+                    NativeStartupCore.WriteProtocolLine(new JavaScriptSerializer().Serialize(new { error = ex.Message, exe_directory = ex.StartPath }));
+                    Environment.ExitCode = 1;
+                }
+                return;
+            }
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             try
             {
-                bool setupTest = Array.Exists(Environment.GetCommandLineArgs(), a => string.Equals(a, "--setup-test=missing", StringComparison.OrdinalIgnoreCase));
-                Application.Run(new MainForm(setupTest));
+                MainForm form = new MainForm(startup.SetupTest);
+                form.Shown += delegate { form.LoadStartupInputs(startup); };
+                Application.Run(form);
             }
             catch (AppRootNotFoundException ex)
             {
                 MessageBox.Show(
                     "找不到 Film Grain Studio 的完整程序目录。\n\n" +
-                    "请将整个 dotnet\\build 文件夹放回 Film Grain Studio 目录，再运行其中的 EXE。\n" +
+                    "请将 EXE 放回完整 Film Grain Studio 根目录，或原 dotnet\\build 目录。\n" +
                     "该目录还需要包含 FilmGrain_Config.default.ini 和 Lang 文件夹。\n\n" +
-                    "Cannot find the complete Film Grain Studio folder. Move dotnet\\build back into it and run the EXE there.\n\n" +
+                    "Cannot find the complete Film Grain Studio folder. Restore the EXE to the application root or dotnet\\build.\n\n" +
                     "当前 EXE 位置 / EXE location:\n" + ex.StartPath,
                     "Film Grain Studio - 启动位置不正确 / Incorrect location",
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -135,6 +177,7 @@ namespace FilmGrainStudioPreview
 
     internal sealed partial class MainForm : Form
     {
+        private const string TestBuild = "Stable";
         private readonly Color ColorHeader = Color.FromArgb(45, 57, 72);
         private readonly Color ColorAccent = Color.FromArgb(47, 111, 173);
         private readonly Color ColorSubtle = Color.FromArgb(242, 244, 247);
@@ -191,6 +234,11 @@ namespace FilmGrainStudioPreview
         private ProgressBar progressRun;
         private ComboBox cmbGpu;
         private ToolStripStatusLabel statusHardware;
+        private ToolStripStatusLabel statusFfmpeg;
+        private readonly Dictionary<string, ToolStripStatusLabel> statusCapabilities = new Dictionary<string, ToolStripStatusLabel>();
+        private bool updatingFrucUi;
+        private bool hardwareRefreshQueued;
+        private int previousSvpSelection;
         private BridgeTaskCoordinator bridgeTaskCoordinator;
         private HardwareCapabilityCore hardwareCapabilityCore;
         private HardwareCapabilitySnapshot hardwareCaps;
@@ -333,14 +381,7 @@ namespace FilmGrainStudioPreview
 
         private static string FindAppRoot(string start)
         {
-            DirectoryInfo dir = new DirectoryInfo(Path.GetFullPath(start));
-            for (int i = 0; i < 5 && dir != null; i++, dir = dir.Parent)
-            {
-                if (File.Exists(Path.Combine(dir.FullName, "FilmGrain_Config.default.ini")) &&
-                    Directory.Exists(Path.Combine(dir.FullName, "Lang")))
-                    return dir.FullName;
-            }
-            throw new AppRootNotFoundException(start);
+            return NativeStartupCore.FindAppRoot(start);
         }
 
         private Font UiFont(float size, FontStyle style)
@@ -633,36 +674,38 @@ namespace FilmGrainStudioPreview
             interp.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120));
             chkInterpolation = Check(lang.T("encode.enable"), false); chkInterpolation.Dock = DockStyle.Fill;
             cmbInterpolationMode = Combo(new string[] { "OpenSVP · " + lang.T("interp.smooth"), "OpenSVP · " + lang.T("interp.adaptive"), "FRUC Vulkan" }, 0);
-            cmbInterpolationMode.Dock = DockStyle.Fill; cmbInterpolationMode.DropDownWidth = 220;
+            cmbInterpolationMode.Dock = DockStyle.Fill; cmbInterpolationMode.DropDownWidth = 340;
+            cmbInterpolationMode.DrawMode = DrawMode.OwnerDrawFixed;
+            cmbInterpolationMode.DrawItem += delegate(object sender, DrawItemEventArgs e)
+            {
+                if (e.Index < 0) return;
+                e.DrawBackground();
+                bool disabled = e.Index == 2 && (hardwareDetectionInProgress || hardwareCaps == null || !hardwareCaps.FrucReady || !hardwareCaps.FrucAvailable);
+                TextRenderer.DrawText(e.Graphics, Convert.ToString(cmbInterpolationMode.Items[e.Index]), e.Font,
+                    e.Bounds, disabled ? SystemColors.GrayText : e.ForeColor, TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
+                e.DrawFocusRectangle();
+            };
             cmbInterpolationFps = ComboEditable(new string[] { "60", "59.94", "60000/1001", "2x", "1.5x" }, config.Get("INTERPOLATION_TARGET_FPS"));
             cmbInterpolationFps.Dock = DockStyle.Fill; cmbInterpolationFps.DropDownWidth = 130;
             lutToolTip.SetToolTip(cmbInterpolationFps, UiText("目标帧率：绝对帧率、分数帧率或源帧率倍率；默认 60。", "Target rate: absolute FPS, a rational rate, or source-rate multiplier; default 60."));
             cmbInterpolationFps.Text = config.Get("INTERPOLATION_TARGET_FPS"); cmbInterpolationFps.Enabled = false;
             cmbInterpolationFps.TextChanged += delegate { if (config.Get("INTERPOLATION_TARGET_FPS") != cmbInterpolationFps.Text.Trim()) try { config.Save(new Dictionary<string,string> { { "INTERPOLATION_TARGET_FPS", cmbInterpolationFps.Text.Trim() } }); } catch { } UpdateMediaDrivenUi(GetSelectedMediaInfo()); UpdateBitrateDisplays(); };
             cmbInterpolationMode.SelectedIndexChanged += delegate {
+                if (updatingFrucUi) return;
                 if (cmbInterpolationMode.SelectedIndex == 2 &&
-                    (config.FrucUsesMainFfmpeg()
-                        ? !NativeHevcCore.HasFrucFilter(Path.Combine(config.Get("FFMPEG_DIR"), "ffmpeg.exe"))
-                        : string.IsNullOrWhiteSpace(config.Get("FRUC_FFMPEG_PATH"))))
+                    (hardwareDetectionInProgress || hardwareCaps == null || !hardwareCaps.FrucReady || !hardwareCaps.FrucAvailable))
                 {
-                    using (OpenFileDialog dialog = new OpenFileDialog())
-                    {
-                        dialog.Title = UiText("选择包含 fruc_vulkan 滤镜的 ffmpeg.exe", "Select ffmpeg.exe with fruc_vulkan support");
-                        dialog.Filter = "ffmpeg.exe|ffmpeg.exe|Executable (*.exe)|*.exe";
-                        if (dialog.ShowDialog(this) == DialogResult.OK && NativeHevcCore.HasFrucFilter(dialog.FileName))
-                            config.Save(new Dictionary<string,string> { { "FRUC_FFMPEG_PATH", dialog.FileName }, { "FRUC_FFMPEG_SAME_AS_MAIN", "false" } });
-                        else
-                        {
-                            cmbInterpolationMode.SelectedIndex = 0;
-                            MessageBox.Show(this, UiText("未选中支持 fruc_vulkan 的 ffmpeg.exe。可在配置路径界面设置开发版目录。", "Select an ffmpeg.exe with fruc_vulkan support in Path Configuration."), Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                            return;
-                        }
-                    }
+                    MessageBox.Show(this, FrucUiReason(), Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    cmbInterpolationMode.SelectedIndex = previousSvpSelection;
+                    return;
                 }
+                if (cmbInterpolationMode.SelectedIndex >= 0 && cmbInterpolationMode.SelectedIndex < 2)
+                    previousSvpSelection = cmbInterpolationMode.SelectedIndex;
                 if (chkInterpolation.Checked) UpdateMediaDrivenUi(GetSelectedMediaInfo());
             };
             chkInterpolation.CheckedChanged += delegate {
-                if (chkInterpolation.Checked && cmbInterpolationMode.SelectedIndex != 2 && (setupTestMode || !File.Exists(Path.Combine(appRoot, "_OpenSVPFlow", ".venv", "Scripts", "vspipe.exe"))))
+                if (chkInterpolation.Checked && cmbDeint != null && cmbDeint.SelectedIndex != 0) cmbDeint.SelectedIndex = 0;
+                if (chkInterpolation.Checked && cmbInterpolationMode.SelectedIndex != 2 && (setupTestMode || (!File.Exists(Path.Combine(appRoot, "_OpenSVPFlow", ".venv", "Scripts", "vspipe.exe")) && !AllInputsBypassOpenSvp())))
                 {
                     chkInterpolation.Checked = false;
                     if (MessageBox.Show(this,
@@ -1230,10 +1273,10 @@ namespace FilmGrainStudioPreview
 
             log = new TextBox(); log.Multiline = true; log.ScrollBars = ScrollBars.Both; log.MaxLength = 0; log.Dock = DockStyle.Fill; log.ReadOnly = true; log.WordWrap = false; log.BackColor = Color.FromArgb(28, 30, 34); log.ForeColor = Color.Gainsboro; log.Font = new Font("Consolas", 9f); log.BorderStyle = BorderStyle.FixedSingle;
             fullLog = new FullLogFileCore(appRoot, "Session", GetLogEntryLimit());
-            AppendLog("Film Grain Studio .NET Preview NATIVE_P1" + Environment.NewLine);
-            AppendLog("Baseline: v4.8.12 Stable / InspectLogFix TaskLog T9P3HZ" + Environment.NewLine);
-            AppendLog("App root: " + appRoot + Environment.NewLine);
-            AppendLog(".NET execution modules: Native AV1 grain inspection, Native codecs, and Legacy Bridge fallback." + Environment.NewLine);
+            AppendLog("Film Grain Studio v" + Program.ReleaseVersion + " · .NET" + Environment.NewLine);
+            AppendDiagnosticLog("Validated migration baseline: Q9AOL2 / release " + TestBuild + Environment.NewLine);
+            AppendDiagnosticLog("App root: " + appRoot + Environment.NewLine);
+            AppendDiagnosticLog(".NET execution modules: Native AV1 grain inspection, Native codecs, and Legacy Bridge fallback." + Environment.NewLine);
             AppendLog("[Full log] " + fullLog.FilePath + Environment.NewLine);
             if (!string.IsNullOrEmpty(fullLog.Error)) AppendVisibleLog("[Full log ERROR] " + fullLog.Error + Environment.NewLine);
             layout.Controls.Add(log, 0, 1);
@@ -1247,7 +1290,7 @@ namespace FilmGrainStudioPreview
             progressRun = new ProgressBar(); progressRun.Style = ProgressBarStyle.Blocks; progressRun.Minimum = 0; progressRun.Maximum = 1000; progressRun.Value = 0; progressRun.Size = new Size(220, 20); progressRun.Anchor = AnchorStyles.Top | AnchorStyles.Right; footer.Controls.Add(progressRun);
             btnCancelTask = new Button(); btnCancelTask.Text = lang.T("button.cancel_task"); btnCancelTask.Enabled = false; btnCancelTask.Size = new Size(94, 34); btnCancelTask.Anchor = AnchorStyles.Top | AnchorStyles.Right; footer.Controls.Add(btnCancelTask);
             chkNativeBackend = new CheckBox(); chkNativeBackend.Text = UiText("原生 .NET（实验）", "Native .NET (experimental)"); chkNativeBackend.AutoSize = true; chkNativeBackend.Checked = true; chkNativeBackend.Location = new Point(575, 20); footer.Controls.Add(chkNativeBackend);
-            chkNativeBackend.CheckedChanged += delegate { UpdateHdrRouteStatus(GetSelectedMediaInfo()); };
+            chkNativeBackend.CheckedChanged += delegate { UpdateHdrRouteStatus(GetSelectedMediaInfo()); UpdateMediaDrivenUi(GetSelectedMediaInfo()); UpdateBitrateDisplays(); };
             btnStart = new Button(); btnStart.Text = lang.T("button.start_encode"); btnStart.ForeColor = Color.White; btnStart.BackColor = ColorAccent; btnStart.FlatStyle = FlatStyle.Flat; btnStart.FlatAppearance.BorderSize = 0; btnStart.Size = new Size(126, 36); btnStart.Anchor = AnchorStyles.Top | AnchorStyles.Right; footer.Controls.Add(btnStart);
             btnStart.Click += delegate { StartBridgeExecution(); };
             btnCancelTask.Click += delegate { CancelBridgeExecution(); };
@@ -1265,8 +1308,19 @@ namespace FilmGrainStudioPreview
         {
             StatusStrip strip = new StatusStrip(); strip.Dock = DockStyle.Fill; strip.SizingGrip = false; strip.BackColor = ColorSubtle; strip.Padding = new Padding(8, 1, 8, 1);
             statusHardware = new ToolStripStatusLabel(); statusHardware.AutoSize = false; statusHardware.Width = 1; statusHardware.Spring = true; statusHardware.TextAlign = ContentAlignment.MiddleLeft; statusHardware.ForeColor = ColorMuted; statusHardware.Text = lang.T("hardware.detecting");
-            ToolStripStatusLabel version = new ToolStripStatusLabel(); version.Spring = false; version.TextAlign = ContentAlignment.MiddleRight; version.ForeColor = ColorMuted; version.Text = "v4.8.11 .NET Preview"; version.Margin = new Padding(12, 0, 0, 0);
-            strip.Items.Add(statusHardware); strip.Items.Add(version); return strip;
+            ToolStripStatusLabel version = new ToolStripStatusLabel(); version.Spring = false; version.TextAlign = ContentAlignment.MiddleRight; version.ForeColor = ColorMuted; version.Text = "v" + Program.ReleaseVersion; version.Margin = new Padding(12, 0, 0, 0);
+            strip.ShowItemToolTips = true;
+            strip.Items.Add(statusHardware);
+            statusFfmpeg = new ToolStripStatusLabel("FFmpeg ?"); statusFfmpeg.ForeColor = ColorMuted;
+            strip.Items.Add(statusFfmpeg);
+            foreach (string name in new string[]{"AV1", "UHQ", "HEVC", "x264", "High10", "SVP", "FRUC"})
+            {
+                ToolStripStatusLabel item = new ToolStripStatusLabel(name + " ?");
+                item.ForeColor = ColorMuted; item.Margin = new Padding(3, 0, 3, 0);
+                statusCapabilities[name] = item; strip.Items.Add(item);
+            }
+            statusCapabilities["FRUC"].Click += delegate { BeginHardwareDetection(); };
+            strip.Items.Add(version); return strip;
         }
 
         private ComboBox Combo(string[] items, int index)
@@ -1333,6 +1387,16 @@ namespace FilmGrainStudioPreview
             if (e.Data == null || !e.Data.GetDataPresent(DataFormats.FileDrop)) return;
             string[] files = e.Data.GetData(DataFormats.FileDrop) as string[];
             if (files != null) AddFiles(files);
+        }
+
+        internal void LoadStartupInputs(NativeStartupOptions startup)
+        {
+            foreach (string notice in startup.Notices) AppendLog("[Startup] " + notice + Environment.NewLine);
+            if (startup.Inputs.Count > 0)
+            {
+                AddFiles(startup.Inputs);
+                AppendLog("[Startup] 已添加输入文件 / Added input files: " + startup.Inputs.Count.ToString(CultureInfo.InvariantCulture) + Environment.NewLine);
+            }
         }
 
         private void AddFiles(IEnumerable<string> paths)
@@ -1700,7 +1764,7 @@ namespace FilmGrainStudioPreview
                             AppendLog("[AV1 Inspect] path=" + result.PathValue + Environment.NewLine);
                             AppendLog("[AV1 Inspect] exit_code=" + result.ExitCode.ToString(CultureInfo.InvariantCulture) + " · " + detail + Environment.NewLine);
                             if (!string.IsNullOrWhiteSpace(result.StandardError))
-                                AppendLog(result.StandardError.TrimEnd() + Environment.NewLine);
+                                AppendDiagnosticLog(result.StandardError.TrimEnd() + Environment.NewLine);
                             ScrollLogToEnd();
                         }
                     }
@@ -1746,11 +1810,34 @@ namespace FilmGrainStudioPreview
             try { lutToolTip.SetToolTip(lblMediaInfo, text ?? ""); } catch { }
         }
 
+        private bool AllInputsBypassOpenSvp()
+        {
+            if (listFiles == null || listFiles.Items.Count == 0) return false;
+            foreach (ListViewItem item in listFiles.Items)
+            {
+                MediaProbeInfo info; string path = item.Tag as string;
+                if (path == null || !mediaProbeCache.TryGetValue(path,out info) || !HasNativeInterpolationBypass(info)) return false;
+            }
+            return true;
+        }
+
+        private bool HasNativeInterpolationBypass(MediaProbeInfo info)
+        {
+            if (chkNativeBackend == null || !chkNativeBackend.Checked || chkInterpolation == null || !chkInterpolation.Checked || info == null) return false;
+            var current = new Dictionary<string,string> {
+                {"FG_SVP_INTERPOLATE","1"}, {"FG_INTERPOLATION_ENGINE",cmbInterpolationMode != null && cmbInterpolationMode.SelectedIndex == 2 ? "FRUC" : "SVP"},
+                {"FG_HDR_POLICY",config.Get("HDR_POLICY")}, {"FG_DEINTERLACE",cmbDeint == null || cmbDeint.SelectedIndex == 0 ? "AUTO" : "OFF"}
+            };
+            IDictionary<string,string> normalized; string notice,reason;
+            return SharedInterpolationBypassCore.TryResolve(info,current,out normalized,out notice,out reason) && normalized != null;
+        }
+
         private double GetRecommendedOutputFps(MediaProbeInfo info)
         {
             bool interpolate = chkInterpolation != null && chkInterpolation.Checked;
             if (interpolate)
             {
+                if (HasNativeInterpolationBypass(info)) return BitrateRecommendationCore.ParseMediaFps(info) * (info.IsInterlaced ? 2.0 : 1.0);
                 InterpolationFrameRate parsed; string error;
                 if (!InterpolationFrameRateCore.TryParse(cmbInterpolationFps == null ? config.Get("INTERPOLATION_TARGET_FPS") : cmbInterpolationFps.Text, info == null ? "" : info.AvgFrameRate, out parsed, out error)) return 0.0;
                 return parsed.Fps;
@@ -1883,15 +1970,26 @@ namespace FilmGrainStudioPreview
 
         private void BeginHardwareDetection()
         {
-            if (hardwareCapabilityCore == null || hardwareCapabilityCore.IsRunning) return;
+            if (hardwareCapabilityCore == null) return;
+            if (hardwareCapabilityCore.IsRunning || (bridgeTaskCoordinator != null && bridgeTaskCoordinator.IsActive))
+            { hardwareRefreshQueued = true; return; }
+            hardwareRefreshQueued = false;
             string ffmpeg = Path.Combine(config.Get("FFMPEG_DIR"), "ffmpeg.exe");
             HardwareCapabilityRequest request = new HardwareCapabilityRequest();
             request.AppRoot = appRoot;
             request.FfmpegPath = ffmpeg;
             request.Grav1synthPath = config.Get("GRAV1SYNTH");
+            request.NvencQueryPath = Application.ExecutablePath;
+            request.ForceDetection = hardwareCaps != null && hardwareCaps.Ready;
+            request.FrucFfmpegPath = config.FrucUsesMainFfmpeg() ? ffmpeg : config.Get("FRUC_FFMPEG_PATH");
+            request.FrucPerf = config.Get("FRUC_PERF").ToLowerInvariant();
+            request.FrucGrid = config.Get("FRUC_GRID").ToLowerInvariant();
 
             hardwareDetectionInProgress = true;
-            hardwareCapsReady = false;
+            // Keep previous codec choices while refreshing; task start remains blocked until detection finishes.
+            hardwareCapsReady = hardwareCaps != null && hardwareCaps.Ready;
+            UpdateFrucAvailabilityUi();
+            SetCapabilityStatusPending();
             UpdateSfeUi();
             if (statusHardware != null) statusHardware.Text = lang.T("hardware.detecting");
             if (btnStart != null && (bridgeTaskCoordinator == null || !bridgeTaskCoordinator.IsActive)) btnStart.Enabled = false;
@@ -1916,12 +2014,15 @@ namespace FilmGrainStudioPreview
                 BeginInvoke((MethodInvoker)delegate
                 {
                     hardwareDetectionInProgress = false;
+                    if (hardwareRefreshQueued) { BeginHardwareDetection(); return; }
                     HardwareCapabilitySnapshot caps = e != null ? e.Snapshot : null;
                     if (caps != null && caps.Ready)
                     {
                         hardwareCaps = caps;
                         hardwareCapsReady = true;
                         ApplyHardwareCapabilities();
+                        if (log != null)
+                            AppendDiagnosticLog("[Hardware .NET] " + caps.Diagnostics + Environment.NewLine);
                         if (log != null)
                             AppendLog("[Hardware] " + caps.GpuName + " · AV1=" + (caps.Av1Available ? "1" : "0") + " · HEVC=" + (caps.HevcAvailable ? "1" : "0") + " · x264=" + (caps.X264Available ? "1" : "0") + Environment.NewLine);
                     }
@@ -1933,6 +2034,9 @@ namespace FilmGrainStudioPreview
                         if (log != null && caps != null && !string.IsNullOrWhiteSpace(caps.Error))
                             AppendLog("[Hardware] detection failed: " + caps.Error + Environment.NewLine);
                     }
+                    UpdateFrucAvailabilityUi();
+                    UpdateFrucStatus();
+                    if (caps != null) AppendLog("[Hardware FRUC] available=" + caps.FrucAvailable + " kind=" + caps.FrucFailureKind + " path=" + caps.FrucFfmpegPath + " reason=" + caps.FrucReason + Environment.NewLine);
                     if (btnStart != null && (bridgeTaskCoordinator == null || !bridgeTaskCoordinator.IsActive)) btnStart.Enabled = true;
                     ScrollLogToEnd();
                 });
@@ -1943,26 +2047,27 @@ namespace FilmGrainStudioPreview
         private void ApplyHardwareCapabilities()
         {
             if (!hardwareCapsReady || hardwareCaps == null) return;
-            string available = lang.T("hardware.available");
-            string unavailable = lang.T("hardware.unavailable");
             string cacheText = hardwareCaps.CacheState;
             if (string.Equals(cacheText, "Detected", StringComparison.OrdinalIgnoreCase)) cacheText = lang.T("hardware.cache_detected");
             else if (string.Equals(cacheText, "Cached", StringComparison.OrdinalIgnoreCase)) cacheText = lang.T("hardware.cache_cached");
 
             if (statusHardware != null)
             {
-                statusHardware.Text = "GPU " + SafeHardwareText(hardwareCaps.GpuName) +
-                    " · " + lang.T("hardware.driver") + " " + SafeHardwareText(hardwareCaps.DriverVersion) +
-                    " · FFmpeg " + SafeHardwareText(hardwareCaps.FfmpegVersion) +
-                    " · " + lang.T("hardware.profile") + " " + SafeHardwareText(cacheText) +
-                    " · AV1 " + (hardwareCaps.Av1Available ? available : unavailable) +
-                    " · UHQ " + (hardwareCaps.Av1UhqAvailable ? available : unavailable) +
-                    " · HEVC/Vulkan " + (hardwareCaps.HevcAvailable ? available : unavailable) +
-                    " · x264 Grain " + (hardwareCaps.X264Available ? available : unavailable) +
-                    " · High10 " + (hardwareCaps.X264Available && hardwareCaps.X264High10Available ? available : unavailable) +
-                    " · SVPFlow " + (hardwareCaps.OpenSvpGpuAvailable ? available : unavailable);
-                statusHardware.ToolTipText = statusHardware.Text;
+                statusHardware.Text = SafeHardwareText(hardwareCaps.GpuName).Replace("NVIDIA GeForce ", "").Replace("NVIDIA ", "");
+                string details = "GPU " + SafeHardwareText(hardwareCaps.GpuName) + " · Driver " + SafeHardwareText(hardwareCaps.DriverVersion) +
+                    " · FFmpeg " + SafeHardwareText(hardwareCaps.FfmpegVersion) + " · " + SafeHardwareText(cacheText);
+                statusHardware.ToolTipText = details;
+                statusFfmpeg.ToolTipText = details;
+                Match shortVersion = Regex.Match(hardwareCaps.FfmpegVersion ?? "", @"\d+\.\d+(?:\.\d+)?(?:-[A-Za-z0-9]+)?");
+                statusFfmpeg.Text = "FFmpeg " + (shortVersion.Success ? shortVersion.Value : "…");
             }
+            SetCapabilityStatus("AV1", hardwareCaps.Av1Available);
+            SetCapabilityStatus("UHQ", hardwareCaps.Av1UhqAvailable);
+            SetCapabilityStatus("HEVC", hardwareCaps.HevcAvailable);
+            SetCapabilityStatus("x264", hardwareCaps.X264Available);
+            SetCapabilityStatus("High10", hardwareCaps.X264Available && hardwareCaps.X264High10Available);
+            SetCapabilityStatus("SVP", hardwareCaps.OpenSvpGpuAvailable);
+            UpdateFrucAvailabilityUi(); UpdateFrucStatus();
 
             if (cmbGpu != null)
             {
@@ -1999,8 +2104,64 @@ namespace FilmGrainStudioPreview
             UpdateHardwareDependentControls();
         }
 
+        private void SetCapabilityStatusPending()
+        {
+            foreach (KeyValuePair<string,ToolStripStatusLabel> pair in statusCapabilities)
+            { pair.Value.Text = pair.Key + " ?"; pair.Value.ForeColor = ColorMuted; }
+        }
+
+        private void SetCapabilityStatus(string name, bool available)
+        {
+            ToolStripStatusLabel item;
+            if (!statusCapabilities.TryGetValue(name, out item)) return;
+            item.Text = name + (available ? " ✓" : " ✗");
+            item.ForeColor = available ? Color.FromArgb(25, 135, 65) : Color.FromArgb(190, 50, 45);
+            item.ToolTipText = name + " · " + lang.T(available ? "hardware.available" : "hardware.unavailable");
+        }
+
+        private string FrucUiReason()
+        {
+            if (hardwareDetectionInProgress || hardwareCaps == null || !hardwareCaps.FrucReady)
+                return UiText("FRUC Vulkan 正在检测，请稍后重试。", "FRUC Vulkan detection is pending.");
+            string kind = hardwareCaps.FrucFailureKind;
+            string summary = kind == "FFMPEG" ? UiText("FFmpeg 缺少 FRUC 滤镜或路径不可用", "FFmpeg filter/path unavailable") :
+                kind == "DEVICE" ? UiText("Vulkan 设备 0 / 驱动不支持 FRUC", "Vulkan device 0 / driver limitation") :
+                kind == "CONFIG" ? UiText("FRUC 参数无效", "Invalid FRUC configuration") :
+                UiText("FRUC 运行预检失败", "FRUC runtime preflight failed");
+            return summary + Environment.NewLine + hardwareCaps.FrucReason + Environment.NewLine + hardwareCaps.FrucFfmpegPath;
+        }
+
+        private void UpdateFrucAvailabilityUi()
+        {
+            if (cmbInterpolationMode == null || cmbInterpolationMode.Items.Count < 3) return;
+            string label = "FRUC Vulkan";
+            if (hardwareDetectionInProgress || hardwareCaps == null || !hardwareCaps.FrucReady)
+                label += UiText(" · 检测中", " · pending");
+            else if (!hardwareCaps.FrucAvailable)
+                label += hardwareCaps.FrucFailureKind == "FFMPEG" ? UiText(" · 不可用：FFmpeg", " · unavailable: FFmpeg") :
+                    hardwareCaps.FrucFailureKind == "DEVICE" ? UiText(" · 不可用：设备/驱动", " · unavailable: device/driver") :
+                    UiText(" · 不可用：预检失败", " · unavailable: preflight");
+            updatingFrucUi = true;
+            try { cmbInterpolationMode.Items[2] = label; }
+            finally { updatingFrucUi = false; }
+            cmbInterpolationMode.Invalidate();
+            if (lutToolTip != null) lutToolTip.SetToolTip(cmbInterpolationMode,
+                hardwareCaps != null && hardwareCaps.FrucReady && hardwareCaps.FrucAvailable ?
+                    "FRUC Vulkan device 0 · " + hardwareCaps.FrucFfmpegPath + " · Native HEVC/x264/AV1 SDR" : FrucUiReason());
+        }
+
+        private void UpdateFrucStatus()
+        {
+            if (hardwareCaps == null || !hardwareCaps.FrucReady || hardwareDetectionInProgress) return;
+            SetCapabilityStatus("FRUC", hardwareCaps.FrucAvailable);
+            if (statusCapabilities.ContainsKey("FRUC"))
+                statusCapabilities["FRUC"].ToolTipText = hardwareCaps.FrucAvailable ?
+                    "Vulkan device 0 · " + hardwareCaps.FrucFfmpegPath + " · Native HEVC/x264/AV1 SDR" : FrucUiReason();
+        }
+
         private void ResetHardwareUiToPending()
         {
+            SetCapabilityStatusPending();
             if (statusHardware != null)
             {
                 string ffmpegVersion = hardwareCaps != null ? hardwareCaps.FfmpegVersion : "";
@@ -2135,6 +2296,9 @@ namespace FilmGrainStudioPreview
             }
 
             bool noReencode = cmbCodec != null && cmbCodec.SelectedIndex == 3;
+            if (!noReencode && chkInterpolation.Checked && cmbInterpolationMode.SelectedIndex == 2 &&
+                (hardwareCaps == null || !hardwareCaps.FrucReady || !hardwareCaps.FrucAvailable))
+            { MessageBox.Show(this, FrucUiReason(), Text, MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
             List<string> inputs = new List<string>();
             foreach (ListViewItem item in listFiles.Items)
             {
@@ -2146,9 +2310,9 @@ namespace FilmGrainStudioPreview
             taskLog = new FullLogFileCore(appRoot, "Task", GetLogEntryLimit());
             fullLogErrorReported = false;
             AppendTaskLog("[Task log] " + taskLog.FilePath + Environment.NewLine);
-            AppendTaskLog("[Task] started=" + DateTime.Now.ToString("o", CultureInfo.InvariantCulture) + " build=T9P3HZ" + Environment.NewLine);
+            AppendTaskLog("[Task] started=" + DateTime.Now.ToString("o", CultureInfo.InvariantCulture) + " build=" + TestBuild + Environment.NewLine);
             foreach (string input in inputs) AppendTaskLog("[Task input] " + input + Environment.NewLine);
-            foreach (KeyValuePair<string, string> setting in state) AppendTaskLog(setting.Key + "=" + setting.Value + Environment.NewLine);
+            foreach (KeyValuePair<string, string> setting in state) AppendTaskDiagnosticLog(setting.Key + "=" + setting.Value + Environment.NewLine);
 
             bool nativeRequested = chkNativeBackend != null && chkNativeBackend.Checked && !noReencode;
             bool nativeAv1NoReencodeRequested = chkNativeBackend != null && chkNativeBackend.Checked && noReencode;
@@ -2181,13 +2345,18 @@ namespace FilmGrainStudioPreview
                 }
             }
 
+            if (inputs.Count > 1)
+            {
+                StartSharedQueue(inputs, state, noReencode);
+                return;
+            }
             BridgePreparedExecution prepared = null;
             BridgeRequestPreparationFailure preparationFailure = null;
             bool frucRequested = state.ContainsKey("FG_SVP_INTERPOLATE") && state["FG_SVP_INTERPOLATE"] == "1" &&
                 state.ContainsKey("FG_INTERPOLATION_ENGINE") && state["FG_INTERPOLATION_ENGINE"] == "FRUC";
-            if (frucRequested && (!nativeRequested || inputs.Count != 1 || (state["FG_MODE"] != "HEVC" && state["FG_MODE"] != "X264")))
+            if (frucRequested && (!nativeRequested || inputs.Count != 1 || (state["FG_MODE"] != "HEVC" && state["FG_MODE"] != "X264" && state["FG_MODE"] != "AV1")))
             {
-                MessageBox.Show(this, UiText("FRUC Vulkan 当前仅支持单文件 HEVC/x264 Native。", "FRUC Vulkan currently requires single-file HEVC/x264 Native."), Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show(this, UiText("FRUC Vulkan 需要 Native 编码模式。", "FRUC Vulkan requires a Native encoding route."), Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
             string nativeReason = "";
@@ -2271,7 +2440,7 @@ namespace FilmGrainStudioPreview
                         warning.Path, FormatWorkspaceBytes(warning.Available), FormatWorkspaceBytes(warning.Required), FormatWorkspaceBytes(warning.Reserve));
                     return MessageBox.Show(this, message, Text, MessageBoxButtons.YesNo, MessageBoxIcon.Warning,
                         MessageBoxDefaultButton.Button2) == DialogResult.Yes;
-                }, out workspaceIssue))
+                }, !noReencode && state["FG_MODE"] == "AV1" && (nativePrepared ? prepared.ExecutionRequest.Environment : state)["FG_SVP_INTERPOLATE"] == "1", !noReencode ? state["FG_INTERPOLATION_TARGET_FPS"] : "", out workspaceIssue))
             {
                 if (workspaceIssue != null)
                     MessageBox.Show(this, LF(workspaceIssue.Key, workspaceIssue.Path, workspaceIssue.Detail), Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
@@ -2297,15 +2466,15 @@ namespace FilmGrainStudioPreview
                         ? UiText("[Native .NET AV1] AV1 原生执行", "[Native .NET AV1] Native AV1 execution")
                         : string.Equals(state["FG_MODE"], "HEVC", StringComparison.OrdinalIgnoreCase)
                         ? UiText("[Native .NET HEVC] HEVC 原生执行", "[Native .NET HEVC] Native HEVC execution")
-                        : UiText("[Native .NET Phase 2C] x264 原生执行", "[Native .NET Phase 2C] Native x264 execution")) + Environment.NewLine
+                        : UiText("[Native .NET x264] x264 原生执行", "[Native .NET x264] Native x264 execution")) + Environment.NewLine
                     : (noReencode
-                    ? UiText("[Phase 3.5.8 AV1 No-Reencode] 启动真实处理", "[Phase 3.5.8 AV1 No-Reencode] Starting real processing") + Environment.NewLine
-                    : UiText("[Phase 3.5.8 Bridge] 启动真实编码", "[Phase 3.5.8 Bridge] Starting real encoding") + Environment.NewLine));
+                    ? UiText("[AV1 No-Reencode] 启动真实处理", "[AV1 No-Reencode] Starting real processing") + Environment.NewLine
+                    : UiText("[Legacy Bridge] 启动真实编码", "[Legacy Bridge] Starting real encoding") + Environment.NewLine));
                 AppendTaskLog(UiText("输入文件数：", "Input files: ") + prepared.InputFiles.Count.ToString(CultureInfo.InvariantCulture) + Environment.NewLine);
                 if (!noReencode) AppendTaskLog(UiText("推荐输出 FPS：", "Recommended output FPS: ") + outputFps.ToString("0.###", CultureInfo.InvariantCulture) + Environment.NewLine);
                 AppendTaskLog((noReencode ? UiText("No-Reencode 工具：", "No-Reencode tool: ") : nativePrepared ? UiText("Native 执行工具：", "Native execution tool: ") : UiText("Bridge：", "Bridge: ")) + prepared.ToolPath + Environment.NewLine);
                 foreach (KeyValuePair<string, string> pair in state)
-                    AppendTaskLog(pair.Key + "=" + pair.Value + Environment.NewLine);
+                    AppendTaskDiagnosticLog(pair.Key + "=" + pair.Value + Environment.NewLine);
                 AppendTaskLog("------------------------------------------------------------" + Environment.NewLine);
             }
 
@@ -2326,6 +2495,83 @@ namespace FilmGrainStudioPreview
                 AppendTaskLog("[Task] start failed: " + ex.ToString() + Environment.NewLine);
                 if (lblRunStage != null) lblRunStage.Text = UiText("启动失败", "Start failed");
                 MessageBox.Show(this, ex.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void StartSharedQueue(List<string> inputs, SortedDictionary<string, string> capturedState, bool noReencode)
+        {
+            List<BridgeTaskRequest> tasks = new List<BridgeTaskRequest>();
+            HashSet<string> outputs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            HashSet<string> inputNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            BridgePreparedExecution prepared = null;
+            try
+            {
+                WorkspacePreflightIssue issue;
+                if (!WorkspacePreflightCore.Check(inputs, noReencode ? "AV1" : capturedState["FG_MODE"], noReencode,
+                    config.Get("TEMP_MODE"), config.Get("TEMP_CUSTOM_DIR"), config.Get("OUTPUT_MODE"), config.Get("OUTPUT_CUSTOM_DIR"),
+                    mediaProbeCache, delegate(WorkspaceSpaceWarning warning)
+                    {
+                        return MessageBox.Show(this, LF(warning.IsOutput ? "warning.output_space" : "warning.temp_space",
+                            warning.Path, FormatWorkspaceBytes(warning.Available), FormatWorkspaceBytes(warning.Required), FormatWorkspaceBytes(warning.Reserve)),
+                            Text, MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) == DialogResult.Yes;
+                    }, !noReencode && capturedState["FG_MODE"] == "AV1" && capturedState["FG_SVP_INTERPOLATE"] == "1",
+                    !noReencode ? capturedState["FG_INTERPOLATION_TARGET_FPS"] : "", delegate(string input) {
+                        if (chkNativeBackend == null || !chkNativeBackend.Checked) return false;
+                        MediaProbeInfo probe; IDictionary<string,string> normalized; string notice,reason;
+                        return mediaProbeCache.TryGetValue(input,out probe) && SharedInterpolationBypassCore.TryResolve(probe,capturedState,out normalized,out notice,out reason) && normalized != null;
+                    }, out issue))
+                    throw new InvalidOperationException(issue == null ? "Queue workspace check was declined." : LF(issue.Key, issue.Path, issue.Detail));
+                foreach (string input in inputs)
+                {
+                    prepared = null;
+                    string targetDir = capturedState["FG_OUTPUT_MODE"] == "CUSTOM" ? capturedState["FG_OUTPUT_CUSTOM_DIR"] : Path.GetDirectoryName(input);
+                    string collisionKey = Path.Combine(Path.GetFullPath(targetDir), Path.GetFileNameWithoutExtension(input));
+                    if (!inputNames.Add(collisionKey)) throw new InvalidOperationException("Queue has duplicate output stems: " + input);
+                    MediaProbeInfo info;
+                    if (!File.Exists(input)) throw new FileNotFoundException("Queue input is unavailable.", input);
+                    if (!mediaProbeCache.TryGetValue(input, out info)) throw new InvalidOperationException("Media probe is not ready: " + input);
+                    SortedDictionary<string,string> itemState = new SortedDictionary<string,string>(capturedState, StringComparer.OrdinalIgnoreCase);
+                    if (noReencode) itemState["FG_MODE"] = "AV1";
+                    bool native = false;
+                    string reason = "Native backend is disabled";
+                    bool wantsNative = chkNativeBackend != null && chkNativeBackend.Checked;
+                    if (wantsNative)
+                    {
+                        if (noReencode) native = NativeAv1GrainReplaceCore.TryPrepare(appRoot, input, info, itemState, out prepared, out reason);
+                        else if (itemState["FG_MODE"] == "AV1") native = NativeAv1Core.TryPrepare(appRoot, input, info, itemState, hardwareCaps, out prepared, out reason);
+                        else if (itemState["FG_MODE"] == "HEVC") native = NativeHevcCore.TryPrepare(appRoot, input, info, itemState, hardwareCaps, out prepared, out reason);
+                        else native = NativeX264DigitalGrainCore.TryPrepare(appRoot, input, info, itemState, out prepared, out reason);
+                    }
+                    bool fruc = !noReencode && itemState["FG_SVP_INTERPOLATE"] == "1" && itemState["FG_INTERPOLATION_ENGINE"] == "FRUC";
+                    bool protectedHdr = !noReencode && info.IsHdr && itemState["FG_GRAIN_ENGINE"] == "FGSIM" && itemState["FG_HDR_POLICY"] == "PRESERVE";
+                    bool protectedX264Svp = !noReencode && wantsNative && itemState["FG_MODE"] == "X264" && itemState["FG_SVP_INTERPOLATE"] == "1";
+                    if (!native && (fruc || protectedHdr || protectedX264Svp))
+                        throw new InvalidOperationException("Queue fallback blocked: " + input + " : " + reason);
+                    if (!native)
+                    {
+                        BridgeRequestPreparationFailure failure;
+                        AppendTaskLog("[Queue] Legacy fallback: " + input + " : " + reason + Environment.NewLine);
+                        if (!BridgeRequestPreparationCore.TryPrepareExecution(appRoot, new List<string>{input}, itemState, noReencode, out prepared, out failure))
+                            throw new InvalidOperationException("Queue Legacy preparation failed: " + input);
+                    }
+                    if (prepared.ExecutionRequest.OutputFiles != null)
+                        foreach (string output in prepared.ExecutionRequest.OutputFiles)
+                            if (!outputs.Add(Path.GetFullPath(output))) throw new InvalidOperationException("Queue output collision: " + output);
+                    BridgeTaskRequest task = BridgeRequestPreparationCore.CreateTask(prepared, GetRecommendedOutputFps(info));
+                    task.NativeBackend = native;
+                    tasks.Add(task);
+                    prepared = null;
+                    AppendTaskLog("[Queue] prepared " + tasks.Count + "/" + inputs.Count + " backend=" + (native ? "Native" : "Legacy") + " input=" + input + Environment.NewLine);
+                }
+                bridgeTaskCoordinator.StartQueue(tasks);
+            }
+            catch (Exception ex)
+            {
+                if (prepared != null) BridgeExecutionCore.CleanupTemporaryFiles(prepared.ExecutionRequest);
+                foreach (BridgeTaskRequest task in tasks) BridgeExecutionCore.CleanupTemporaryFiles(task.ExecutionRequest);
+                AppendTaskLog("[Queue] preparation/start failed: " + ex + Environment.NewLine);
+                if (lblRunStage != null) lblRunStage.Text = UiText("队列未启动", "Queue not started");
+                MessageBox.Show(this, ex.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
 
@@ -2354,18 +2600,23 @@ namespace FilmGrainStudioPreview
                         BridgeTaskRequest task = e.Task;
                         bool noReencode = task != null && task.NoReencode;
                         IDictionary<string, string> state = task != null && task.ExecutionRequest != null ? task.ExecutionRequest.Environment : null;
+                        activeRunNativeBackend = task != null && task.NativeBackend;
+                        string codec;
+                        activeRunCodecName = state != null && state.TryGetValue("FG_MODE", out codec) ? codec : "AV1";
                         if (lblRunStage != null)
                         {
                             if (noReencode)
-                                lblRunStage.Text = UiText("Phase 3.5.8 AV1 不重编码处理中", "Phase 3.5.8 AV1 no-reencode running");
+                                lblRunStage.Text = UiText("AV1 不重编码处理中", "AV1 no-reencode running");
                             else if (activeRunNativeBackend || (task != null && task.NativeBackend))
                             {
                                 string codecName = string.IsNullOrWhiteSpace(activeRunCodecName) ? "x264" : activeRunCodecName;
                                 lblRunStage.Text = UiText("Native .NET " + codecName + " 编码处理中", "Native .NET " + codecName + " encoding");
                             }
                             else
-                                lblRunStage.Text = UiText("Phase 3.5.8 Bridge 编码处理中", "Phase 3.5.8 Bridge encoding running");
+                                lblRunStage.Text = UiText("Legacy Bridge 编码处理中", "Legacy Bridge encoding running");
                         }
+                        if (task != null && task.QueueTotal > 1 && lblRunStage != null)
+                            lblRunStage.Text = "[" + task.QueueIndex + "/" + task.QueueTotal + "] " + lblRunStage.Text;
                         if (lblRunMetric != null)
                         {
                             string value;
@@ -2377,7 +2628,7 @@ namespace FilmGrainStudioPreview
                         }
                         if (progressRun != null)
                         {
-                            progressRun.Value = 0;
+                            progressRun.Value = task != null && task.QueueTotal > 1 ? ((task.QueueIndex - 1) * 1000 / task.QueueTotal) : 0;
                             progressRun.Style = ProgressBarStyle.Marquee;
                             progressRun.MarqueeAnimationSpeed = 25;
                         }
@@ -2403,6 +2654,7 @@ namespace FilmGrainStudioPreview
             string line = prefix + e.Line + Environment.NewLine;
             FullLogFileCore currentLog = taskLog;
             if (currentLog != null) currentLog.Write(line);
+            if (!VisibleLogCore.ShowProcessLine(e.Line)) return;
             if (IsDisposed || Disposing || !IsHandleCreated) return;
             try
             {
@@ -2425,6 +2677,7 @@ namespace FilmGrainStudioPreview
                 {
                     if (IsDisposed || Disposing) return;
 
+                    if (bridgeTaskCoordinator.State == BridgeTaskState.Cancelling) return;
                     if (e.HasStage && lblRunStage != null)
                     {
                         lblRunStage.Text = (activeRunNativeBackend ? "Native .NET " + (string.IsNullOrWhiteSpace(activeRunCodecName) ? "" : activeRunCodecName + " · ") : "") +
@@ -2448,6 +2701,16 @@ namespace FilmGrainStudioPreview
                 });
             }
             catch (InvalidOperationException) { }
+        }
+
+        private void AppendDiagnosticLog(string text)
+        {
+            if (fullLog != null) fullLog.Write(text);
+        }
+
+        private void AppendTaskDiagnosticLog(string text)
+        {
+            if (taskLog != null) taskLog.Write(text);
         }
 
         private void AppendTaskLog(string text)
@@ -2583,6 +2846,7 @@ namespace FilmGrainStudioPreview
                         if (lblRunStage != null) lblRunStage.Text = UiText("处理失败", "Failed") + " (exit " + e.Result.ExitCode.ToString(CultureInfo.InvariantCulture) + ")";
                     }
 
+                    if (hardwareRefreshQueued) BeginHardwareDetection();
                     if (log != null)
                     {
                         AppendVisibleLog(completion);
@@ -2636,7 +2900,7 @@ namespace FilmGrainStudioPreview
                 bool toSdr = false;
                 bool unsupported = false;
 
-                if (fruc && !hevc && !x264)
+                if (fruc && !hevc && !x264 && !av1)
                 {
                     unsupported = true;
                     detail = lang.T("input.hdr_route_detail_fruc");
@@ -2741,7 +3005,12 @@ namespace FilmGrainStudioPreview
                 {
                     InterpolationFrameRate targetRate; string rateError;
                     string requestedRate = cmbInterpolationFps == null ? config.Get("INTERPOLATION_TARGET_FPS") : cmbInterpolationFps.Text;
-                    if (InterpolationFrameRateCore.TryParse(requestedRate, info == null ? "" : info.AvgFrameRate, out targetRate, out rateError))
+                    if (HasNativeInterpolationBypass(info))
+                    {
+                        cmbFps.Items[0] = UiText("OpenSVP 已绕过 · ", "OpenSVP bypassed · ") + GetRecommendedOutputFps(info).ToString("0.###",CultureInfo.InvariantCulture) + " fps";
+                        if (cmbInterpolationFps != null) cmbInterpolationFps.Enabled = false;
+                    }
+                    else if (InterpolationFrameRateCore.TryParse(requestedRate, info == null ? "" : info.AvgFrameRate, out targetRate, out rateError))
                     {
                         string engineLabel = cmbInterpolationMode != null && cmbInterpolationMode.SelectedIndex == 2 ? "FRUC Vulkan" : "OpenSVPFlow";
                         cmbFps.Items[0] = engineLabel + " · " + targetRate.Fps.ToString("0.###", CultureInfo.InvariantCulture) + " fps";
@@ -3009,73 +3278,17 @@ namespace FilmGrainStudioPreview
 
         private void OpenLutGallery()
         {
-            string selector = Path.Combine(appRoot, "_LUT_Tools", "LUT_Gallery_Selector.ps1");
-            string root = LutRoot;
-            if (!File.Exists(selector))
-            {
-                MessageBox.Show(this, LF("error.lut_gallery_missing", selector), "Film Grain Studio", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
-            }
-            if (!Directory.Exists(root))
-            {
-                MessageBox.Show(this, LF("error.lut_root_missing", root), "Film Grain Studio", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
-            }
-
-            string pick = Path.Combine(Path.GetTempPath(), "FilmGrainStudio_NET_LUT_" + Guid.NewGuid().ToString("N") + ".txt");
-            btnLutGallery.Enabled = false;
-            try
-            {
-                ProcessStartInfo psi = new ProcessStartInfo();
-                psi.FileName = "powershell.exe";
-                psi.UseShellExecute = false;
-                psi.CreateNoWindow = true;
-                psi.RedirectStandardError = true;
-                psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -STA -File " + QuoteProcessArgument(selector) +
-                                " -LutRoot " + QuoteProcessArgument(root) +
-                                " -PreviewRoot " + QuoteProcessArgument(LutPreviewRoot) +
-                                " -OutputFile " + QuoteProcessArgument(pick);
-                using (Process proc = Process.Start(psi))
-                {
-                    string error = proc.StandardError.ReadToEnd();
-                    proc.WaitForExit();
-                    int rc = proc.ExitCode;
-                    if (rc == 0 && File.Exists(pick))
-                    {
-                        string selected = File.ReadAllText(pick, Encoding.UTF8).Trim();
-                        if (selected.Length > 0)
-                        {
-                            selectedLutPath = selected;
-                            selectedLutSource = "Gallery";
-                            chkLut.Checked = true;
-                        }
-                    }
-                    else if (rc == 10)
-                    {
-                        selectedLutPath = "";
-                        selectedLutSource = "None";
-                        chkLut.Checked = false;
-                    }
-                    else if (rc != 11)
-                    {
-                        string detail = (error ?? "").Trim();
-                        if (detail.Length > 2000) detail = detail.Substring(0, 2000);
-                        string message = detail.Length > 0 ? LF("error.lut_gallery_failed", rc, detail) : LF("error.lut_gallery_failed_no_detail", rc);
-                        MessageBox.Show(this, message, "Film Grain Studio", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            if(!Directory.Exists(LutRoot)) {MessageBox.Show(this,LF("error.lut_root_missing",LutRoot));return;}
+            btnLutGallery.Enabled=false;
+            try {
+                using(var gallery=new NativeLutGalleryForm(appRoot,Path.Combine(config.Get("FFMPEG_DIR"),"ffmpeg.exe"),LutRoot,LutPreviewRoot)) {
+                    if(gallery.ShowDialog(this)==DialogResult.OK) {
+                        if(gallery.DisabledLut){selectedLutPath="";selectedLutSource="None";chkLut.Checked=false;}
+                        else {selectedLutPath=gallery.SelectedLut;selectedLutSource="Gallery";chkLut.Checked=true;}
                     }
                 }
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(this, LF("error.lut_gallery_open_failed", ex.Message), "Film Grain Studio", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-            finally
-            {
-                btnLutGallery.Enabled = true;
-                try { if (File.Exists(pick)) File.Delete(pick); } catch { }
-                RefreshLutLists();
-                UpdateLutUi();
-            }
+            }catch(Exception ex){MessageBox.Show(this,LF("error.lut_gallery_open_failed",ex.Message));}
+            finally{btnLutGallery.Enabled=true;RefreshLutLists();UpdateLutUi();}
         }
 
         private void UpdateColorCorrectionUi()
@@ -3105,7 +3318,7 @@ namespace FilmGrainStudioPreview
             config.Load();
             string ffmpeg = Path.Combine(config.Get("FFMPEG_DIR"), "ffmpeg.exe");
             string ffprobe = Path.Combine(config.Get("FFMPEG_DIR"), "ffprobe.exe");
-            string selector = Path.Combine(appRoot, "_LUT_Tools", "LUT_Gallery_Selector.ps1");
+            string galleryRoot = appRoot;
             if (!File.Exists(ffmpeg) || !File.Exists(ffprobe))
             {
                 MessageBox.Show(this, "FFmpeg / FFprobe not found:\r\n" + config.Get("FFMPEG_DIR"), "Film Grain Studio", MessageBoxButtons.OK, MessageBoxIcon.Error);
@@ -3123,7 +3336,7 @@ namespace FilmGrainStudioPreview
                     videoPath,
                     ffmpeg,
                     ffprobe,
-                    selector,
+                    galleryRoot,
                     LutRoot,
                     LutPreviewRoot,
                     selectedLutPath,

@@ -1,10 +1,30 @@
 # FGS local/runtime generated files
 /FilmGrain_Config.ini
-Utils/_HardwareCaps.json
-Utils/_FilmGrainSimplified/Generated/
+/Utils/_HardwareCaps.json
+/Utils/_FilmGrainSimplified/Generated/
 /Logs/
 /_OpenSVPFlow/_PluginBackup/
+/_Dependencies
+/Tests_Shared
 
 # Local runtime environments
 .env/
 
+
+# .NET runtime and generated build products
+/Utils/_HardwareCaps_NET.json
+/_OpenSVPFlow/.venv/
+/_OpenSVPFlow/_UserConfig/
+/FilmGrain_Studio.exe
+/dotnet/build/
+
+# Local delivery archives and audit manifests
+/FilmGrain_Studio_v*.zip
+/FilmGrain_Studio_v*.zip.sha256
+/PatchManifest_*.json
+/PATCH_MANIFEST_*.json
+/迁移与测试_*.md
+/测试说明_*.md
+/审查与改动_*.md
+/更新与测试_*.md
+/启动说明_NET_*.md

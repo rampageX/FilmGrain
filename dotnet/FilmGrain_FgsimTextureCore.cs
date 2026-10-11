@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Text;
+using System.Security.Cryptography;
 
 namespace FilmGrainStudioPreview
 {
@@ -45,6 +46,64 @@ namespace FilmGrainStudioPreview
                 }
             }
             catch (Exception ex) { reason = "本地 FGSIM 纹理准备失败：" + ex.Message; return false; }
+        }
+
+        // All three encoders share the exact Legacy shader substitutions and local texture.
+        internal static bool TryPrepareHook(string appRoot, string preset, out string hook, out string reason)
+        {
+            hook = ""; reason = "";
+            if (preset != "LIGHT" && preset != "MEDIUM" && preset != "HEAVY")
+            { reason = "FGSIM 预设无效。"; return false; }
+            lock (SyncRoot)
+            {
+                string staging = "", stampStage = "";
+                try
+                {
+                    string raw;
+                    if (!TryEnsureLocal(appRoot, out raw, out reason)) return false;
+                    string generated = Path.GetDirectoryName(raw);
+                    string template = Path.Combine(Path.GetDirectoryName(generated), "FilmGrainSimplified.hook.template");
+                    if (!File.Exists(template)) { reason = "FGSIM hook 模板缺失：" + template; return false; }
+                    byte[] noise = File.ReadAllBytes(raw);
+                    if (noise.Length != TextureBytes) throw new InvalidDataException("FGSIM 纹理大小无效。");
+                    string source = File.ReadAllText(template);
+                    string key = Hash(noise) + ":" + Hash(Encoding.UTF8.GetBytes(source)) + ":" + preset + ":1";
+                    string target = Path.Combine(generated, "FilmGrainSimplified_" + preset + ".hook");
+                    string stamp = target + ".sha256";
+                    if (File.Exists(target) && File.Exists(stamp))
+                    {
+                        string[] record = File.ReadAllLines(stamp);
+                        if (record.Length == 2 && record[0] == key && record[1] == Hash(File.ReadAllBytes(target)))
+                        { hook = target; return true; }
+                    }
+                    string hex = BitConverter.ToString(noise).Replace("-", "").ToLowerInvariant();
+                    StringBuilder lines = new StringBuilder(hex.Length + hex.Length / 256 + 1);
+                    for (int i = 0; i < hex.Length; i += 256) lines.Append(hex, i, Math.Min(256, hex.Length - i)).Append('\n');
+                    string strength = preset == "LIGHT" ? "0.10" : preset == "HEAVY" ? "0.30" : "0.20";
+                    string body = source.Replace("@@TILE_SIZE@@", "2").Replace("@@STRENGTH@@", strength)
+                        .Replace("@@HL_START@@", "0.55").Replace("@@HL_END@@", "0.85").Replace("@@HL_REDUCE@@", "0.50")
+                        .Replace("@@NOISE_HEX@@", lines.ToString());
+                    if (body.Contains("@@") || !source.Contains("@@NOISE_HEX@@"))
+                        throw new InvalidDataException("FGSIM 模板含未支持的占位符或缺失纹理占位符。");
+                    staging = target + "." + Guid.NewGuid().ToString("N") + ".tmp";
+                    stampStage = stamp + "." + Guid.NewGuid().ToString("N") + ".tmp";
+                    File.WriteAllText(staging, body, new UTF8Encoding(false));
+                    File.WriteAllText(stampStage, key + "\r\n" + Hash(File.ReadAllBytes(staging)) + "\r\n", new UTF8Encoding(false));
+                    // Atomic replacement preserves the previous hook if publication fails.
+                    NativeLibraryTools.Publish(staging, target);
+                    NativeLibraryTools.Publish(stampStage, stamp);
+                    hook = target; return true;
+                }
+                catch (Exception ex) { reason = "FGSIM hook 准备失败：" + ex.Message; return false; }
+                finally
+                {
+                    NativeLibraryTools.DeleteTemp(staging); NativeLibraryTools.DeleteTemp(stampStage);
+                }
+            }
+        }
+        private static string Hash(byte[] bytes)
+        {
+            using (SHA256 sha = SHA256.Create()) return BitConverter.ToString(sha.ComputeHash(bytes)).Replace("-", "").ToLowerInvariant();
         }
 
         internal static bool TryUpdateOnline(string appRoot, string ffmpeg, string proxyMode, string proxyUrl, out string detail)

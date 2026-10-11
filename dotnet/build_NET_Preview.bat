@@ -4,6 +4,7 @@ setlocal EnableExtensions DisableDelayedExpansion
 set "SCRIPT_DIR=%~dp0"
 set "ROOT_DIR=%~dp0.."
 set "SRC=%SCRIPT_DIR%FilmGrain_Studio_NET_Preview.cs"
+set "STARTUPCORE=%SCRIPT_DIR%FilmGrain_NativeStartupCore.cs"
 set "CORE=%SCRIPT_DIR%FilmGrain_BridgeExecutionCore.cs"
 set "ENVCORE=%SCRIPT_DIR%FilmGrain_BridgeEnvironmentCore.cs"
 set "HWCORE=%SCRIPT_DIR%FilmGrain_HardwareCapabilityCore.cs"
@@ -11,6 +12,8 @@ set "STATECORE=%SCRIPT_DIR%FilmGrain_BridgeStateCapture.cs"
 set "TASKCORE=%SCRIPT_DIR%FilmGrain_BridgeTaskCoordinator.cs"
 set "REQUESTCORE=%SCRIPT_DIR%FilmGrain_BridgeRequestPreparationCore.cs"
 set "NATIVEX264=%SCRIPT_DIR%FilmGrain_NativeX264DigitalGrainCore.cs"
+set "PIPECORE=%SCRIPT_DIR%FilmGrain_SharedPipeTimelineCore.cs"
+set "HDRCORE=%SCRIPT_DIR%FilmGrain_SharedHdrPreprocessCore.cs"
 set "NATIVEHEVC=%SCRIPT_DIR%FilmGrain_NativeHevcCore.cs"
 set "NATIVEAV1=%SCRIPT_DIR%FilmGrain_NativeAv1Core.cs"
 set "NATIVEAV1COPY=%SCRIPT_DIR%FilmGrain_NativeAv1GrainReplaceCore.cs"
@@ -48,6 +51,7 @@ echo           %%WINDIR%%\Microsoft.NET\Framework\v4.0.30319\csc.exe
 exit /b 1
 
 :compiler_found
+if not exist "%STARTUPCORE%" exit /b 1
 if not exist "%SRC%" goto :missing_source
 if not exist "%CORE%" goto :missing_core
 if not exist "%ENVCORE%" goto :missing_envcore
@@ -56,6 +60,8 @@ if not exist "%STATECORE%" goto :missing_statecore
 if not exist "%TASKCORE%" goto :missing_taskcore
 if not exist "%REQUESTCORE%" goto :missing_requestcore
 if not exist "%NATIVEX264%" exit /b 1
+if not exist "%PIPECORE%" exit /b 1
+if not exist "%HDRCORE%" exit /b 1
 if not exist "%NATIVEHEVC%" exit /b 1
 if not exist "%NATIVEAV1%" exit /b 1
 if not exist "%NATIVEAV1COPY%" exit /b 1
@@ -103,17 +109,20 @@ if exist "%ICON%" goto :build_with_icon
 goto :build_without_icon
 
 :build_with_icon
-"%CSC%" /nologo /target:winexe /platform:anycpu /optimize+ /utf8output /out:"%OUT_EXE%" /win32icon:"%ICON%" /reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Web.Extensions.dll "%SRC%" "%CORE%" "%ENVCORE%" "%HWCORE%" "%STATECORE%" "%TASKCORE%" "%REQUESTCORE%" "%NATIVEX264%" "%NATIVEHEVC%" "%NATIVEAV1%" "%NATIVEAV1COPY%" "%NATIVESUB%" "%MEDIACORE%" "%MEDIASUMMARY%" "%WORKSPACECORE%" "%AV1INSPECTCORE%" "%SUBCORE%" "%SUBDIALOG%" "%CONFIGUTILITY%" "%BITRATECORE%" "%INTERPOLATIONCORE%" "%TABLECORE%" "%CATALOGCORE%" "%LUTCATALOG%" "%COLORFORM%" "%LANGCORE%" "%CONFIGCORE%" "%SETTINGSDIALOGS%" "%NETWORKPROXY%" "%FGSIMTEXTURE%" "%~dp0FilmGrain_SetupPhase1.cs"
+"%CSC%" /nologo /target:winexe /platform:anycpu /optimize+ /utf8output /out:"%OUT_EXE%" /win32icon:"%ICON%" /reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Web.Extensions.dll "%SRC%" "%STARTUPCORE%" "%CORE%" "%ENVCORE%" "%HWCORE%" "%STATECORE%" "%TASKCORE%" "%REQUESTCORE%" "%NATIVEX264%" "%NATIVEHEVC%" "%HDRCORE%" "%PIPECORE%" "%NATIVEAV1%" "%NATIVEAV1COPY%" "%NATIVESUB%" "%MEDIACORE%" "%MEDIASUMMARY%" "%WORKSPACECORE%" "%AV1INSPECTCORE%" "%SUBCORE%" "%SUBDIALOG%" "%CONFIGUTILITY%" "%BITRATECORE%" "%INTERPOLATIONCORE%" "%TABLECORE%" "%CATALOGCORE%" "%LUTCATALOG%" "%COLORFORM%" "%LANGCORE%" "%CONFIGCORE%" "%SETTINGSDIALOGS%" "%NETWORKPROXY%" "%FGSIMTEXTURE%" "%~dp0FilmGrain_SetupPhase1.cs" "%~dp0FilmGrain_NativeLibraryTools.cs" "%~dp0FilmGrain_NativeLutRecords.cs" "%~dp0FilmGrain_NativeLutGalleryForm.cs" "%~dp0FilmGrain_NativeArchiveCore.cs" "%~dp0FilmGrain_NativeSetupCore.cs"
 goto :build_done
 
 :build_without_icon
-"%CSC%" /nologo /target:winexe /platform:anycpu /optimize+ /utf8output /out:"%OUT_EXE%" /reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Web.Extensions.dll "%SRC%" "%CORE%" "%ENVCORE%" "%HWCORE%" "%STATECORE%" "%TASKCORE%" "%REQUESTCORE%" "%NATIVEX264%" "%NATIVEHEVC%" "%NATIVEAV1%" "%NATIVEAV1COPY%" "%NATIVESUB%" "%MEDIACORE%" "%MEDIASUMMARY%" "%WORKSPACECORE%" "%AV1INSPECTCORE%" "%SUBCORE%" "%SUBDIALOG%" "%CONFIGUTILITY%" "%BITRATECORE%" "%INTERPOLATIONCORE%" "%TABLECORE%" "%CATALOGCORE%" "%LUTCATALOG%" "%COLORFORM%" "%LANGCORE%" "%CONFIGCORE%" "%SETTINGSDIALOGS%" "%NETWORKPROXY%" "%FGSIMTEXTURE%" "%~dp0FilmGrain_SetupPhase1.cs"
+"%CSC%" /nologo /target:winexe /platform:anycpu /optimize+ /utf8output /out:"%OUT_EXE%" /reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Web.Extensions.dll "%SRC%" "%STARTUPCORE%" "%CORE%" "%ENVCORE%" "%HWCORE%" "%STATECORE%" "%TASKCORE%" "%REQUESTCORE%" "%NATIVEX264%" "%NATIVEHEVC%" "%HDRCORE%" "%PIPECORE%" "%NATIVEAV1%" "%NATIVEAV1COPY%" "%NATIVESUB%" "%MEDIACORE%" "%MEDIASUMMARY%" "%WORKSPACECORE%" "%AV1INSPECTCORE%" "%SUBCORE%" "%SUBDIALOG%" "%CONFIGUTILITY%" "%BITRATECORE%" "%INTERPOLATIONCORE%" "%TABLECORE%" "%CATALOGCORE%" "%LUTCATALOG%" "%COLORFORM%" "%LANGCORE%" "%CONFIGCORE%" "%SETTINGSDIALOGS%" "%NETWORKPROXY%" "%FGSIMTEXTURE%" "%~dp0FilmGrain_SetupPhase1.cs" "%~dp0FilmGrain_NativeLibraryTools.cs" "%~dp0FilmGrain_NativeLutRecords.cs" "%~dp0FilmGrain_NativeLutGalleryForm.cs" "%~dp0FilmGrain_NativeArchiveCore.cs" "%~dp0FilmGrain_NativeSetupCore.cs"
 
 :build_done
 if errorlevel 1 goto :compile_failed
 
 echo.
+copy /b /y "%OUT_EXE%" "%ROOT_DIR%\FilmGrain_Studio.exe" >nul
+if errorlevel 1 goto :publish_failed
 echo [OK] Build completed.
+echo "%ROOT_DIR%\FilmGrain_Studio.exe"
 echo "%OUT_EXE%"
 exit /b 0
 
@@ -170,4 +179,8 @@ exit /b 1
 :compile_failed
 echo.
 echo [ERROR] Build failed.
+exit /b 1
+
+:publish_failed
+echo [ERROR] Could not update the root .NET EXE. Close Film Grain Studio and retry.
 exit /b 1

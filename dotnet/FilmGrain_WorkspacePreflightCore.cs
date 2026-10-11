@@ -27,6 +27,21 @@ namespace FilmGrainStudioPreview
             IDictionary<string, MediaProbeInfo> mediaCache, Func<WorkspaceSpaceWarning, bool> confirm,
             out WorkspacePreflightIssue issue)
         {
+            return Check(inputs, mode, noReencode, tempMode, customTemp, outputMode, customOutput, mediaCache, confirm, false, "", out issue);
+        }
+
+        internal static bool Check(IEnumerable<string> inputs, string mode, bool noReencode,
+            string tempMode, string customTemp, string outputMode, string customOutput,
+            IDictionary<string, MediaProbeInfo> mediaCache, Func<WorkspaceSpaceWarning, bool> confirm,
+            bool av1FrucWorkfile, string interpolationRate, out WorkspacePreflightIssue issue)
+        {
+            return Check(inputs,mode,noReencode,tempMode,customTemp,outputMode,customOutput,mediaCache,confirm,av1FrucWorkfile,interpolationRate,null,out issue);
+        }
+        internal static bool Check(IEnumerable<string> inputs, string mode, bool noReencode,
+            string tempMode, string customTemp, string outputMode, string customOutput,
+            IDictionary<string, MediaProbeInfo> mediaCache, Func<WorkspaceSpaceWarning, bool> confirm,
+            bool av1FrucWorkfile, string interpolationRate, Func<string,bool> bypassInterpolation, out WorkspacePreflightIssue issue)
+        {
             issue = null;
             Dictionary<string, double> tempRequirements = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
             Dictionary<string, double> outputRequirements = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
@@ -44,6 +59,12 @@ namespace FilmGrainStudioPreview
                     MediaProbeInfo info;
                     if (mediaCache != null && mediaCache.TryGetValue(input, out info) && info != null && info.IsHdr) factor += 4.0;
                     double required = Math.Max(512.0 * 1024 * 1024, Math.Ceiling(new FileInfo(input).Length * factor));
+                    if (av1FrucWorkfile && (bypassInterpolation == null || !bypassInterpolation(input)))
+                    {
+                        if (mediaCache == null || !mediaCache.TryGetValue(input, out info) || info == null)
+                            throw new IOException("FRUC workfile size estimate requires media probe information.");
+                        required += EstimateFrucWorkfileBytes(info, interpolationRate);
+                    }
                     double previous;
                     if (!tempRequirements.TryGetValue(root, out previous) || required > previous) tempRequirements[root] = required;
                 }
@@ -77,6 +98,20 @@ namespace FilmGrainStudioPreview
                 if (warning != null && !confirm(warning)) return false;
             }
             return true;
+        }
+
+        internal static double EstimateFrucWorkfileBytes(MediaProbeInfo info, string rate)
+        {
+            InterpolationFrameRate target; string reason;
+            double duration;
+            if (info == null || info.Width <= 0 || info.Height <= 0 ||
+                !double.TryParse(info.Duration, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out duration) || duration <= 0 ||
+                !InterpolationFrameRateCore.TryParse(rate, info.AvgFrameRate, out target, out reason))
+                throw new IOException("FRUC workfile size estimate requires known dimensions, duration and FPS.");
+            // Conservative 8-bit 4:2:0 raw bound plus margin; FFV1 compression is content-dependent.
+            double required = info.Width * (double)info.Height * 1.5 * target.Fps * duration * 1.05;
+            if (double.IsNaN(required) || double.IsInfinity(required)) throw new IOException("FRUC workfile size estimate is invalid.");
+            return required;
         }
 
         private static void VerifyWritable(string root)

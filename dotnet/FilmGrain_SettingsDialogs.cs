@@ -586,6 +586,21 @@ namespace FilmGrainStudioPreview
             }
         }
 
+        private void StartNativeSvpUpdate(Form owner)
+        {
+            if (setupTestMode) { MessageBox.Show(owner, "设置测试模式禁止真实更新。"); return; }
+            if (bridgeTaskCoordinator != null && bridgeTaskCoordinator.IsActive) { MessageBox.Show(owner, "请等待编码队列结束后更新插件。"); return; }
+            string mode = config.Get("NETWORK_PROXY_MODE"), proxy = config.Get("NETWORK_PROXY_URL");
+            LibraryToolResult result = NativeLibraryToolDialog.Show(owner, "OpenSVPFlow 原生更新", delegate(CancellationToken token, Action<string> log) {
+                var core = new NativeSetupCore(appRoot, false, token, log,
+                    delegate(string url, string path, long limit, CancellationToken ct, Action<string> write) { NativeSetupCore.Download(url, path, limit, mode, proxy, ct, write); },
+                    delegate(string exe, IList<string> args, string cwd, IDictionary<string,string> env, CancellationToken ct, Action<string> write) { return NativeLibraryTools.RunProcessEnvironment(exe,args,cwd,env,120000,ct,write); });
+                return core.Install("OpenSVPFlowUpdate");
+            });
+            if (result.Success > 0 && !result.Cancelled && result.Failed == 0)
+                MessageBox.Show(owner, "插件更新并完成自检。请重启 FGS 后重新检测硬件能力。", "更新完成");
+        }
+
         private void ShowAdvancedSettingsDialog()
         {
             config.Load();
@@ -641,6 +656,8 @@ namespace FilmGrainStudioPreview
                 ComboBox frucGrid = new ComboBox(); frucGrid.DropDownStyle = ComboBoxStyle.DropDownList; frucGrid.Location = new Point(190, 198); frucGrid.Size = new Size(160, 26);
                 frucGrid.Items.Add("auto"); frucGrid.Items.Add("1"); frucGrid.Items.Add("2"); frucGrid.Items.Add("4"); frucGrid.Items.Add("8"); int gridIndex = frucGrid.Items.IndexOf(config.Get("FRUC_GRID").ToLowerInvariant()); frucGrid.SelectedIndex = gridIndex >= 0 ? gridIndex : 0; interp.Controls.Add(frucGrid);
                 Label frucInfo = new Label(); frucInfo.Location = new Point(370, 162); frucInfo.Size = new Size(280, 56); frucInfo.ForeColor = ColorMuted; frucInfo.Text = UiText("perf 控制质量/速度；grid 控制光流网格，auto 交由滤镜选择。", "perf controls quality/speed; grid selects the optical-flow grid."); interp.Controls.Add(frucInfo);
+                Button updateSvp = new Button { Text = UiText("更新 OpenSVPFlow 插件", "Update OpenSVPFlow plugins"), Location = new Point(322, 292), Size = new Size(235, 30) };
+                updateSvp.Click += delegate { StartNativeSvpUpdate(dlg); }; interp.Controls.Add(updateSvp);
                 Button interpDefaults = new Button(); interpDefaults.Text = lang.T("config.defaults"); interpDefaults.Location = new Point(190, 292); interpDefaults.Size = new Size(112, 30); interp.Controls.Add(interpDefaults);
 
                 Label hdrLabel = new Label(); hdrLabel.Text = lang.T("advanced.hdr_policy"); hdrLabel.Location = new Point(28, 34); hdrLabel.Size = new Size(150, 24); hdr.Controls.Add(hdrLabel);
@@ -700,6 +717,7 @@ namespace FilmGrainStudioPreview
                 if (dlg.ShowDialog(this) == DialogResult.OK)
                 {
                     config.Load();
+                    BeginHardwareDetection();
                     UpdateSpeedChoices();
                     UpdateHdrRouteStatus(GetSelectedMediaInfo());
                     if (log != null) log.AppendText("[Config] Advanced settings saved." + Environment.NewLine);

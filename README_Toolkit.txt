@@ -1,7 +1,7 @@
 Universal Film Grain Toolkit
 =============================
 
-当前正式稳定版：v4.8.9
+当前正式稳定版：v4.8.14
 
 版本与命名
 ----------
@@ -76,7 +76,7 @@ FilmGrain_Config.ini 同时保存所有 FGS 用户自定义配置，不再单独
 FilmGrain_Universal_CLI.bat
 
 功能：
-- v4.8.9：GUI 新增色彩纠正与 LUT 实时预览窗口，支持对比度、亮度、饱和度、Gamma、黑白模式、任意视频帧时间线、滑杆双击复位、原图对照，以及直接调用 LUT Gallery 和四档 LUT 强度；高级“其他”可切换 1280×700 大界面。
+- v4.8.14：GUI 新增色彩纠正与 LUT 实时预览窗口，支持对比度、亮度、饱和度、Gamma、黑白模式、任意视频帧时间线、滑杆双击复位、原图对照，以及直接调用 LUT Gallery 和四档 LUT 强度；高级“其他”可切换 1280×700 大界面。
 - 色彩纠正参数与大界面选项统一保存到 FilmGrain_Config.ini；确认后 LUT 路径、开关和强度同步回主界面，启用色彩纠正的输出文件追加 _CC。
 - v4.8.0：GUI 界面字符串外置到 Lang\zh-CN.ini / en-US.ini，新增右上角语言切换与中文 fallback；英文界面使用独立窗口宽度。多语言仅作用于 GUI 显示，不改变 GUI/CLI 共用的 StudioBridge 编码核心。
 - v4.7.5 统一 Digital Grain / Grain Plate / GPU Film Grain (FGSIM) 的 Film Grain Strength 交互；FGSIM 内部仍映射已经验证的 Light / Medium / Heavy 三档。
