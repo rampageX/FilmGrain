@@ -98,7 +98,7 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "4.8.16";
+        internal const string ReleaseVersion = "4.8.17";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -224,6 +224,9 @@ namespace FilmGrainStudioPreview
         private ComboBox cmbUploadBitrate;
         private CheckBox chkUploadBitrateAuto;
         private ComboBox cmbGrainMode;
+        private CheckBox chkGrainEnabled;
+        private bool ordinaryGrainEnabled = true;
+        private bool updatingGrainEnableUi;
         private Panel grainContent;
         private GroupBox grpGrain;
         private GroupBox grpLut;
@@ -318,6 +321,7 @@ namespace FilmGrainStudioPreview
             catch (Exception ex) { NetworkProxyCore.Apply(NetworkProxyCore.SystemMode, ""); MessageBox.Show("网络代理配置无效，已改用系统代理：\r\n" + ex.Message, "Film Grain Studio", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
             lang = new LanguagePack(appRoot);
             languages = lang.GetChoices();
+            ordinaryGrainEnabled = config.GetBool("GRAIN_ENABLED");
             colorCorrectionEnabled = config.GetBool("COLOR_CORRECTION_ENABLED");
             colorContrast = config.GetDouble("COLOR_CONTRAST", 1.0);
             colorBrightness = config.GetDouble("COLOR_BRIGHTNESS", 0.0);
@@ -851,11 +855,24 @@ namespace FilmGrainStudioPreview
             grpGrain.Margin = new Padding(0, 0, 0, 5);
 
             TableLayoutPanel shell = new TableLayoutPanel();
-            shell.Dock = DockStyle.Fill; shell.Padding = new Padding(5); shell.ColumnCount = 1; shell.RowCount = 2;
-            shell.RowStyles.Add(new RowStyle(SizeType.Absolute, 34)); shell.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            shell.Dock = DockStyle.Fill; shell.Padding = new Padding(5); shell.ColumnCount = 1; shell.RowCount = 3;
+            shell.RowStyles.Add(new RowStyle(SizeType.Absolute, 28)); shell.RowStyles.Add(new RowStyle(SizeType.Absolute, 34)); shell.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             cmbGrainMode = Combo(new string[] { lang.T("grain.mode.film"), lang.T("grain.mode.iso"), lang.T("grain.mode.table"), lang.T("grain.mode.digital"), lang.T("grain.mode.fgsim") }, 0);
             grainContent = new Panel(); grainContent.Dock = DockStyle.Fill;
-            shell.Controls.Add(cmbGrainMode, 0, 0); shell.Controls.Add(grainContent, 0, 1);
+            chkGrainEnabled = Check(UiText("启用颗粒", "Enable grain"), ordinaryGrainEnabled);
+            chkGrainEnabled.CheckedChanged += delegate
+            {
+                if (updatingGrainEnableUi) return;
+                ordinaryGrainEnabled = chkGrainEnabled.Checked;
+                try { config.SaveValue("GRAIN_ENABLED", ordinaryGrainEnabled ? "true" : "false"); }
+                catch (Exception ex) { MessageBox.Show(this, ex.Message, UiText("保存设置失败", "Could not save settings")); }
+                UpdateGrainEnableUi();
+                UpdateFgsimBitrateUi(true);
+                UpdateHdrRouteStatus(GetSelectedMediaInfo());
+                UpdateBitrateDisplays();
+                UpdateSfeUi();
+            };
+            shell.Controls.Add(chkGrainEnabled, 0, 0); shell.Controls.Add(cmbGrainMode, 0, 1); shell.Controls.Add(grainContent, 0, 2);
             grpGrain.Controls.Add(shell);
             cmbGrainMode.SelectedIndexChanged += delegate
             {
@@ -863,6 +880,7 @@ namespace FilmGrainStudioPreview
                 if (cmbCodec != null && cmbCodec.SelectedIndex == 0) av1GrainModeIndex = Math.Max(0, cmbGrainMode.SelectedIndex);
                 else pixelGrainModeIndex = Math.Max(0, cmbGrainMode.SelectedIndex);
                 BuildGrainContent();
+                UpdateSfeUi();
                 UpdateHdrRouteStatus(GetSelectedMediaInfo());
             };
             RefreshGrainFileCaches();
@@ -1074,6 +1092,7 @@ namespace FilmGrainStudioPreview
                 t.Controls.Add(lblFgsimTextureStatus, 0, 3); t.SetColumnSpan(lblFgsimTextureStatus, 2);
             }
             grainContent.Controls.Add(t);
+            UpdateGrainEnableUi();
             UpdateFgsimBitrateUi();
         }
 
@@ -1169,13 +1188,13 @@ namespace FilmGrainStudioPreview
                 else
                 {
                     cmbGrainMode.Items.AddRange(new object[] { lang.T("grain.mode.digital"), UiText("扫描颗粒文件", "Scanned Grain Plate"), lang.T("grain.mode.fgsim") });
-                    if (grainPlateFiles.Count == 0 && pixelGrainModeIndex == 1) pixelGrainModeIndex = 0;
                     cmbGrainMode.SelectedIndex = Math.Max(0, Math.Min(2, pixelGrainModeIndex));
                     grpGrain.Text = cmbCodec.SelectedIndex == 1 ? lang.T("grain.hevc") : lang.T("grain.x264");
                 }
             }
             finally { updatingGrainUi = false; }
             BuildGrainContent();
+            UpdateGrainEnableUi();
         }
 
         private Control BuildLutGroup()
@@ -1569,7 +1588,7 @@ namespace FilmGrainStudioPreview
             string passLabel = string.Equals(rateValue, "3PASS", StringComparison.OrdinalIgnoreCase) ? lang.T("advanced.vbr3") :
                 (string.Equals(rateValue, "2PASS", StringComparison.OrdinalIgnoreCase) ? lang.T("advanced.vbr2") : lang.T("speed.vbr1"));
 
-            return "x264 · " + presetLabel + " / tune grain / " + passLabel;
+            return "x264 · " + presetLabel + (IsGrainEnabled() ? " / tune grain / " : " / 颗粒：关闭 / ") + passLabel;
         }
 
         private void UpdateSpeedChoices()
@@ -1619,7 +1638,7 @@ namespace FilmGrainStudioPreview
 
             bool ready = hardwareCapsReady && hardwareCaps != null;
             int maxEngines = ready ? Math.Max(1, hardwareCaps.Av1SplitEncodeMaxEngines) : 1;
-            bool gravSfeCompatible = ready && hardwareCaps.Grav1synthSfeCompatible;
+            bool gravSfeCompatible = ready && (!IsGrainEnabled() || hardwareCaps.Grav1synthSfeCompatible);
             string gravVersion = ready && !string.IsNullOrWhiteSpace(hardwareCaps.Grav1synthVersion)
                 ? hardwareCaps.Grav1synthVersion
                 : lang.T("hardware.not_detected");
@@ -1652,6 +1671,7 @@ namespace FilmGrainStudioPreview
         {
             if (cmbCodec == null) return;
             bool active = cmbCodec.SelectedIndex == 3;
+            UpdateGrainEnableUi();
             if (active)
             {
                 noReencodeUiActive = true;
@@ -1907,18 +1927,33 @@ namespace FilmGrainStudioPreview
             UpdateFgsimBitrateUi();
         }
 
-        private bool IsHevcFgsim()
+        private bool IsGrainEnabled()
+        { return (cmbCodec != null && cmbCodec.SelectedIndex == 3) || ordinaryGrainEnabled; }
+
+        private void UpdateGrainEnableUi()
         {
-            return cmbCodec != null && cmbCodec.SelectedIndex == 1 && cmbGrainMode != null && cmbGrainMode.SelectedIndex == 2;
+            if(chkGrainEnabled==null)return;
+            bool dedicated=cmbCodec!=null && cmbCodec.SelectedIndex==3;
+            updatingGrainEnableUi=true;
+            try { chkGrainEnabled.Checked=IsGrainEnabled(); chkGrainEnabled.Enabled=!dedicated; }
+            finally { updatingGrainEnableUi=false; }
+            if(cmbGrainMode!=null)cmbGrainMode.Enabled=IsGrainEnabled();
+            if(grainContent!=null)grainContent.Enabled=IsGrainEnabled();
+            lutToolTip.SetToolTip(chkGrainEnabled,dedicated ? UiText("此模式用于添加/更换 AV1 颗粒元数据，颗粒必须开启。", "This mode changes AV1 grain metadata; grain must stay enabled.") : UiText("关闭后不添加 FGS 颗粒；不会消除输入已有颗粒。", "Disabling skips FGS grain addition; existing input grain is not removed."));
         }
 
-        private void UpdateFgsimBitrateUi()
+        private bool IsHevcFgsim()
+        {
+            return IsGrainEnabled() && cmbCodec != null && cmbCodec.SelectedIndex == 1 && cmbGrainMode != null && cmbGrainMode.SelectedIndex == 2;
+        }
+
+        private void UpdateFgsimBitrateUi(bool preserveQuality = false)
         {
             if (cmbBitrate == null || updatingBitrateUi) return;
             bool active = IsHevcFgsim();
             bool entering = active && !fgsimRcActive;
             bool leaving = !active && fgsimRcActive;
-            if (entering) fgsimRcChoice = "VBR";
+            if (entering && !preserveQuality) fgsimRcChoice = "VBR";
             fgsimRcActive = active;
             updatingBitrateUi = true;
             try
@@ -2518,7 +2553,7 @@ namespace FilmGrainStudioPreview
                             if (noReencode)
                                 lblRunMetric.Text = "grain: " + (state != null && state.TryGetValue("FG_AV1_GRAIN_MODE", out value) ? value : "—") + "   video: copy";
                             else
-                                lblRunMetric.Text = (state != null && state.TryGetValue("FG_GRAIN_ENGINE", out value) ? "grain: " + value + "   " : "") +
+                                lblRunMetric.Text = (state != null && state.TryGetValue("FG_GRAIN_ENGINE", out value) ? (SharedGrainCore.IsEnabled(state) ? "grain: " + value : "颗粒：关闭") + "   " : "") +
                                     "fps: " + (task == null ? 0.0 : task.RecommendedOutputFps).ToString("0.###", CultureInfo.InvariantCulture);
                         }
                         if (progressRun != null)
@@ -2779,8 +2814,8 @@ namespace FilmGrainStudioPreview
                 bool av1 = codec == 0;
                 bool hevc = codec == 1;
                 bool x264 = codec == 2;
-                bool fgsim = (hevc && IsHevcFgsim()) ||
-                    (av1 && cmbGrainMode != null && cmbGrainMode.SelectedIndex == 4);
+                bool fgsim = IsGrainEnabled() && ((hevc && IsHevcFgsim()) ||
+                    (av1 && cmbGrainMode != null && cmbGrainMode.SelectedIndex == 4));
                 bool upload = chkUpload != null && chkUpload.Checked && !noReencode;
                 bool color = colorCorrectionEnabled;
                 bool lut = chkLut != null && chkLut.Checked && !string.IsNullOrWhiteSpace(selectedLutPath);
@@ -2804,6 +2839,11 @@ namespace FilmGrainStudioPreview
                 {
                     preserve = true;
                     detail = UiText("AV1 不重编码只更换颗粒元数据，不执行色调映射。", "AV1 no-reencode only changes grain metadata; tone mapping is not run.");
+                }
+                else if (!IsGrainEnabled() && policy == "PRESERVE" && (color || lut))
+                {
+                    unsupported = true;
+                    detail = UiText("HDR 保留与当前 SDR 调色/LUT 不兼容；请关闭这些处理或选择 AUTO/转 SDR。", "HDR Preserve conflicts with SDR color/LUT processing; disable them or choose AUTO/SDR.");
                 }
                 else if (policy == "SDR")
                 {

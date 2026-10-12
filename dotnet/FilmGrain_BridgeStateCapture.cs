@@ -54,7 +54,7 @@ namespace FilmGrainStudioPreview
             string mode = cmbCodec.SelectedIndex == 0 ? "AV1" : (cmbCodec.SelectedIndex == 1 ? "HEVC" : "X264");
             bool av1 = mode == "AV1";
             int grainMode = cmbGrainMode == null ? 0 : Math.Max(0, cmbGrainMode.SelectedIndex);
-            if (av1 && grainMode == 2)
+            if (IsGrainEnabled() && av1 && grainMode == 2)
             {
                 if (string.IsNullOrWhiteSpace(selectedAv1GrainTable) || !File.Exists(selectedAv1GrainTable))
                 {
@@ -62,7 +62,7 @@ namespace FilmGrainStudioPreview
                     return null;
                 }
             }
-            if (!av1 && grainMode == 1)
+            if (IsGrainEnabled() && !av1 && grainMode == 1)
             {
                 if (string.IsNullOrWhiteSpace(selectedGrainPlatePath) || !File.Exists(selectedGrainPlatePath))
                 {
@@ -78,13 +78,14 @@ namespace FilmGrainStudioPreview
 
             BridgeEnvironmentSnapshot snapshot = new BridgeEnvironmentSnapshot();
             snapshot.NoReencode = false;
+            snapshot.GrainEnabled = IsGrainEnabled();
             CaptureCommonEnvironmentState(snapshot);
             snapshot.Mode = mode;
             snapshot.Container = cmbContainer != null && cmbContainer.SelectedIndex == 1 ? "MKV" : "MP4";
             snapshot.Speed = mode == "X264" ? "X264" : (cmbSpeed != null && cmbSpeed.SelectedIndex == 2 ? "UHQ" : (cmbSpeed != null && cmbSpeed.SelectedIndex == 1 ? "STANDARD" : "FAST"));
             snapshot.SfeEngines = 0;
             if (av1 && chkSfe != null && chkSfe.Checked && hardwareCapsReady && hardwareCaps != null &&
-                hardwareCaps.Av1SplitEncodeMaxEngines >= 2 && hardwareCaps.Grav1synthSfeCompatible &&
+                hardwareCaps.Av1SplitEncodeMaxEngines >= 2 && (!snapshot.GrainEnabled || hardwareCaps.Grav1synthSfeCompatible) &&
                 cmbSpeed != null && (cmbSpeed.SelectedIndex == 1 || cmbSpeed.SelectedIndex == 2))
             {
                 snapshot.SfeEngines = hardwareCaps.Av1SplitEncodeMaxEngines;

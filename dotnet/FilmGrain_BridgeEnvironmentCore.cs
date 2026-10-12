@@ -12,6 +12,7 @@ namespace FilmGrainStudioPreview
     internal sealed class BridgeEnvironmentSnapshot
     {
         public bool NoReencode;
+        public bool GrainEnabled = true;
 
         public string TempMode = "";
         public string TempCustomDir = "";
@@ -102,6 +103,7 @@ namespace FilmGrainStudioPreview
 
             SortedDictionary<string, string> state = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             state["FG_STUDIO_MODE"] = "1";
+            state["FG_GRAIN_ENABLED"] = snapshot.NoReencode || snapshot.GrainEnabled ? "1" : "0";
             state["FG_TOOL_NO_PAUSE"] = "1";
             state["FG_TEMP_MODE"] = snapshot.TempMode;
             state["FG_TEMP_CUSTOM_DIR"] = snapshot.TempCustomDir;
@@ -224,6 +226,7 @@ namespace FilmGrainStudioPreview
             int grainMode = snapshot.GrainMode;
             SortedDictionary<string, string> state = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             state["FG_STUDIO_MODE"] = "1";
+            state["FG_GRAIN_ENABLED"] = snapshot.NoReencode || snapshot.GrainEnabled ? "1" : "0";
             state["FG_TOOL_NO_PAUSE"] = "1";
             state["FG_TEMP_MODE"] = snapshot.TempMode;
             state["FG_TEMP_CUSTOM_DIR"] = snapshot.TempCustomDir;
@@ -259,4 +262,37 @@ namespace FilmGrainStudioPreview
             return tag;
         }
     }
+    internal static class SharedGrainCore
+    {
+        // Missing setting means enabled, including state produced before this option existed.
+        internal static bool IsEnabled(IDictionary<string,string> state)
+        { string value; return state == null || !state.TryGetValue("FG_GRAIN_ENABLED",out value) || value != "0"; }
+        internal static string Engine(IDictionary<string,string> state)
+        { string value; return !IsEnabled(state) ? "NONE" : state != null && state.TryGetValue("FG_GRAIN_ENGINE",out value) ? value.ToUpperInvariant() : ""; }
+        internal static void AddX264Tune(IList<string> args, bool enabled)
+        { if(enabled) { args.Add("-tune"); args.Add("grain"); } }
+        internal static string BuildWithoutGrain(string before, string lutEscaped, string opacity, string after)
+        {
+            if(string.IsNullOrEmpty(lutEscaped))return "[0:v:0]" + before + "format=p010le" + after + "[vout]";
+            return "[0:v:0]" + before + "format=gbrp16le,setpts=PTS-STARTPTS,split=2[lutorig][lutsrc];[lutsrc]lut3d=file='" +
+                lutEscaped + "':interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=" +
+                opacity + ",format=p010le" + after + "[vout]";
+        }
+        internal static bool ValidateHdr(MediaProbeInfo info, IDictionary<string,string> state, out string reason)
+        {
+            reason=""; string policy, color, lut;
+            if(IsEnabled(state) || info==null || !info.IsHdr)return true;
+            state.TryGetValue("FG_HDR_POLICY",out policy); state.TryGetValue("FG_COLOR_ENABLED",out color); state.TryGetValue("FG_LUT_PATH",out lut);
+            if(string.Equals(policy,"PRESERVE",StringComparison.OrdinalIgnoreCase) && (color=="1" || !string.IsNullOrWhiteSpace(lut)))
+            { reason="HDR 保留与当前 SDR 调色/LUT 不兼容；请选择 AUTO/转 SDR，或关闭调色/LUT。 / HDR Preserve conflicts with SDR color/LUT processing."; return false; }
+            return true;
+        }
+        internal static void Attach(BridgeExecutionRequest request, bool noReencode)
+        {
+            if(request==null)return;
+            bool enabled=noReencode || IsEnabled(request.Environment);
+            request.ExecutionNotice=(request.ExecutionNotice ?? "") + Environment.NewLine + (enabled ? "颗粒：开启 / Grain: enabled" : "颗粒：关闭 / Grain: disabled (no grain removal)");
+        }
+    }
+
 }

@@ -36,7 +36,7 @@ namespace FilmGrainStudioPreview
         internal static void Attach(BridgePreparedExecution prepared,string notice)
         {
             if (prepared == null || string.IsNullOrEmpty(notice)) return;
-            prepared.ExecutionRequest.ExecutionNotice = notice;
+            prepared.ExecutionRequest.ExecutionNotice = (prepared.ExecutionRequest.ExecutionNotice ?? "") + Environment.NewLine + notice;
             if (prepared.ExecutionRequest.DirectStages != null && prepared.ExecutionRequest.DirectStages.Count > 0)
                 prepared.ExecutionRequest.DirectStages[0].StageText += " / OpenSVP 已绕过";
         }
@@ -78,7 +78,7 @@ namespace FilmGrainStudioPreview
                 bool success;
                 if(noReencode)
                 {
-                    var copyState=new Dictionary<string,string>(state,StringComparer.OrdinalIgnoreCase);copyState["FG_MODE"]="AV1";
+                    var copyState=new Dictionary<string,string>(state,StringComparer.OrdinalIgnoreCase);copyState["FG_MODE"]="AV1";copyState["FG_GRAIN_ENABLED"]="1";
                     success=NativeAv1GrainReplaceCore.TryPrepare(appRoot,input,info,copyState,out prepared,out reason);
                 }
                 else
@@ -109,6 +109,7 @@ namespace FilmGrainStudioPreview
         public BridgePreparedExecution(BridgeExecutionRequest executionRequest, bool noReencode, string toolPath, IList<string> inputFiles)
         {
             ExecutionRequest = executionRequest;
+            SharedGrainCore.Attach(executionRequest,noReencode);
             NoReencode = noReencode;
             ToolPath = toolPath ?? "";
             InputFiles = inputFiles;

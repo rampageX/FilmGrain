@@ -47,4 +47,50 @@ namespace FilmGrainStudioPreview
         }
         private static string Number(double value){return value.ToString("0.#########",CultureInfo.InvariantCulture);}
     }
+    internal static class SharedOrdinaryTimelineCore
+    {
+        // Single-input no-grain encodes retain the common audio/video clock.
+        // No FRUC/SVP/piped input enters this adapter.
+        internal static List<string> Build(IList<string> original, string source, double common, double delay)
+        {
+            if(double.IsNaN(common)||double.IsInfinity(common)||double.IsNaN(delay)||double.IsInfinity(delay)||delay<0)
+                throw new InvalidOperationException("普通转码时间轴无效 / Invalid ordinary encode timeline");
+            var args=new List<string>(original);int input=args.IndexOf("-i"),filter=args.IndexOf("-filter_complex");
+            if(input<0 || input+1>=args.Count || args[input+1]!=source || filter<0 || filter+1>=args.Count || !args[filter+1].Contains("[vout]"))
+                throw new InvalidOperationException("普通转码输入映射或输出滤镜已改变 / Ordinary encode input/filter changed");
+            for(int i=input+2;i<args.Count;i++)if(args[i]=="-i")throw new InvalidOperationException("Ordinary encode requires one input");
+            // Preserve relative PTS within the video, restoring its delay after LUT's local zero.
+            args[filter+1]=args[filter+1].Replace("[vout]",",setpts=PTS-STARTPTS+"+Number(delay)+"/TB[vout]");
+            for(int i=filter+2;i+1<args.Count;i++)
+            {
+                // Frame selection/field filters already establish the requested cadence.
+                // -r with passthrough is contradictory and would pad the initial video gap.
+                if(args[i]=="-r") {args.RemoveRange(i,2);i--;continue;}
+                if(args[i]=="-fps_mode" || args[i]=="-fps_mode:v")args[i+1]="passthrough";
+            }
+            args.InsertRange(input,new[]{"-itsoffset",Number(-common)});
+            args.Insert(0,"-copyts");
+            return args;
+        }
+        internal static void Attach(BridgeExecutionStage stage, string ffprobe, string source)
+        {
+            if(stage==null || stage.OriginalArguments==null)throw new InvalidOperationException("Missing ordinary encode arguments");
+            var frozen=new List<string>(stage.OriginalArguments);
+            var previous=stage.BeforeRunPreparation;
+            stage.BeforeRunPreparation=delegate {
+                string before=previous==null?"":previous();
+                var time=SharedFrucCore.ProbeTimeline(ffprobe,source);
+                stage.DirectArguments=SharedFrucCore.JoinArguments(Build(frozen,source,time.CommonOrigin,time.VideoDelay));
+                return before+Environment.NewLine+"[Native ordinary timeline] source_common="+Number(time.CommonOrigin)+" video_origin="+Number(time.VideoOrigin)+" video_delay="+Number(time.VideoDelay)+"; no interpolation";
+            };
+        }
+        internal static void NormalizeVideoOnly(IList<string> args)
+        {
+            int filter=args.IndexOf("-filter_complex");
+            if(filter<0 || filter+1>=args.Count || !args[filter+1].Contains("[vout]"))throw new InvalidOperationException("Missing video-only encode filter");
+            args[filter+1]=args[filter+1].Replace("[vout]",",setpts=PTS-STARTPTS[vout]");
+        }
+        private static string Number(double value){return value.ToString("0.#########",CultureInfo.InvariantCulture);}
+    }
+
 }

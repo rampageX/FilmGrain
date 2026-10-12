@@ -17,6 +17,7 @@ namespace FilmGrainStudioPreview
             prepared = null;
             reason = "";
             if (state == null || info == null) { reason = "missing state/media probe"; return false; }
+            if (!SharedGrainCore.IsEnabled(state)) { reason = "AV1 不重编码颗粒模式必须启用颗粒。 / Grain must be enabled in AV1 no-reencode mode."; return false; }
             if (!File.Exists(input) || !string.Equals(info.VideoCodec, "av1", StringComparison.OrdinalIgnoreCase))
             { reason = "no-reencode input is not a confirmed AV1 file"; return false; }
             if (string.IsNullOrWhiteSpace(Get(state, "FG_AV1_SOURCE_GRAIN_ACTION")) ||

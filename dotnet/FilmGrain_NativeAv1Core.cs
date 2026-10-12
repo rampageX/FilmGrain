@@ -36,11 +36,13 @@ namespace FilmGrainStudioPreview
                 if (success) SharedInterpolationBypassCore.Attach(prepared,bypassNotice);
                 return success;
             }
-            string grainEngine = Get(state, "FG_GRAIN_ENGINE").ToUpperInvariant();
+            bool grainEnabled = SharedGrainCore.IsEnabled(state);
+            if (!SharedGrainCore.ValidateHdr(info,state,out reason)) return false;
+            string grainEngine = SharedGrainCore.Engine(state);
             bool proceduralGrain = grainEngine == "PROCEDURAL";
             bool fgsimGrain = grainEngine == "FGSIM";
             bool metadataGrain = grainEngine == "NATIVE";
-            if (!proceduralGrain && !fgsimGrain && !metadataGrain) { reason = "unsupported AV1 grain engine"; return false; }
+            if (grainEnabled && !proceduralGrain && !fgsimGrain && !metadataGrain) { reason = "unsupported AV1 grain engine"; return false; }
 
             // Keep every shared or unported transformation on the known Legacy route.
             bool interpolate = Get(state, "FG_SVP_INTERPOLATE") == "1";
@@ -112,7 +114,7 @@ namespace FilmGrainStudioPreview
                 grainTag = "DG" + strength.ToString(CultureInfo.InvariantCulture);
                 grainLabel = "Digital Grain " + strength.ToString(CultureInfo.InvariantCulture);
             }
-            else
+            else if (fgsimGrain)
             {
                 string selectedFgsimPreset = Get(state, "FG_FGSIM_PRESET").ToUpperInvariant();
                 if (selectedFgsimPreset != "LIGHT" && selectedFgsimPreset != "MEDIUM" && selectedFgsimPreset != "HEAVY") { reason = "unsupported FGSIM preset"; return false; }
@@ -174,11 +176,11 @@ namespace FilmGrainStudioPreview
             }
             if (interpolate) fpsSuffix = (fruc ? "_FRUC" : "_SVP") + frucRate.Label;
             string output = Path.Combine(outputDirectory,
-                Path.GetFileNameWithoutExtension(input) + "_AV1_" + speed + "_" + bitrate.ToString(CultureInfo.InvariantCulture) + "k" + fpsSuffix + deinterlaceSuffix + frame.FileSuffix + "_GS_" + grainTag + colorSuffix + lutNamingSuffix + (hdrToSdr ? "_SDR_" + tonemapLabel : "") + subtitleSuffix + extension);
+                Path.GetFileNameWithoutExtension(input) + "_AV1_" + speed + "_" + bitrate.ToString(CultureInfo.InvariantCulture) + "k" + fpsSuffix + deinterlaceSuffix + frame.FileSuffix + (grainEnabled ? "_GS_" + grainTag : "") + colorSuffix + lutNamingSuffix + (hdrToSdr ? "_SDR_" + tonemapLabel : "") + subtitleSuffix + extension);
             if (!upload && File.Exists(output)) { reason = "native output already exists: " + output; return false; }
             string uploadPreset = Get(state, "FG_X264_PRESET").ToLowerInvariant();
             if (uploadPreset != "medium" && uploadPreset != "slow") uploadPreset = "faster";
-            string uploadOutput = upload ? Path.Combine(outputDirectory, Path.GetFileNameWithoutExtension(input) + "_X264" + BuildX264FileSuffix(uploadPreset, uploadPass) + "_" + uploadBitrate.ToString(CultureInfo.InvariantCulture) + "k" + fpsSuffix + deinterlaceSuffix + frame.FileSuffix + "_GS_" + grainTag + colorSuffix + lutNamingSuffix + (hdrToSdr ? "_SDR_" + tonemapLabel : "") + "_UPLOAD_FROM_AV1_" + speed + "_" + bitrate.ToString(CultureInfo.InvariantCulture) + "k" + subtitleSuffix + ".mp4") : "";
+            string uploadOutput = upload ? Path.Combine(outputDirectory, Path.GetFileNameWithoutExtension(input) + "_X264" + BuildX264FileSuffix(uploadPreset, uploadPass) + "_" + uploadBitrate.ToString(CultureInfo.InvariantCulture) + "k" + fpsSuffix + deinterlaceSuffix + frame.FileSuffix + (grainEnabled ? "_GS_" + grainTag : "") + colorSuffix + lutNamingSuffix + (hdrToSdr ? "_SDR_" + tonemapLabel : "") + "_UPLOAD_FROM_AV1_" + speed + "_" + bitrate.ToString(CultureInfo.InvariantCulture) + "k" + subtitleSuffix + ".mp4") : "";
             if (upload && File.Exists(uploadOutput)) { reason = "native upload output already exists: " + uploadOutput; return false; }
 
             string ffmpeg = Path.Combine(ReadConfigValue(appRoot, "FFMPEG_DIR"), "ffmpeg.exe");
@@ -190,11 +192,11 @@ namespace FilmGrainStudioPreview
                 if(!TryResolveTempRoot(input,state,out reuseTemp,out reason))return false;
                 string reusePasslog=Path.Combine(reuseTemp,"__FGS_AV1_UPLOAD_X264_"+Guid.NewGuid().ToString("N"));
                 return SharedExistingUploadCore.TryPrepare(ffmpeg,ffprobe,input,output,uploadOutput,reuseTemp,state,uploadPass,reusePasslog,info,outputFps,
-                    delegate(int pass,string log) {return BuildUploadArgs(output,uploadOutput,uploadPreset,uploadBitrate,Get(state,"FG_UPLOAD_HIGH_MOTION")=="1"&&caps.X264BStrategy2,pass,log,true,hdrToSdr);},out prepared,out reason);
+                    delegate(int pass,string log) {return BuildUploadArgs(output,uploadOutput,uploadPreset,uploadBitrate,Get(state,"FG_UPLOAD_HIGH_MOTION")=="1"&&caps.X264BStrategy2,pass,log,true,hdrToSdr,grainEnabled);},out prepared,out reason);
             }
             if (caps == null || !caps.Ready || !caps.Av1Available) { reason = "AV1 hardware capability cache is unavailable"; return false; }
             if (Eq(state,"FG_SPEED","UHQ") && !caps.Av1UhqAvailable) { reason="AV1 UHQ is unavailable"; return false; }
-            if (sfeEngines > 0 && (sfeEngines < 2 || sfeEngines > caps.Av1SplitEncodeMaxEngines || !caps.Grav1synthSfeCompatible ||
+            if (sfeEngines > 0 && (sfeEngines < 2 || sfeEngines > caps.Av1SplitEncodeMaxEngines || (grainEnabled && !caps.Grav1synthSfeCompatible) ||
                 (Eq(state, "FG_SPEED", "FAST") || (!Eq(state, "FG_SPEED", "STANDARD") && !Eq(state, "FG_SPEED", "UHQ")))))
             { reason = "requested AV1 SFE mode is not supported by current speed, GPU, or grav1synth capabilities"; return false; }
             if (svp && !SharedSvpCore.TryDependencies(appRoot, out reason)) return false;
@@ -305,6 +307,7 @@ namespace FilmGrainStudioPreview
             else Add(encode, "-r", fpsText, "-fps_mode:v", "cfr");
             if (hdrPreserve) Add(encode, "-color_range", HdrRange(info), "-color_primaries", HdrPrimaries(info), "-color_trc", info.ColorTransfer, "-colorspace", HdrSpace(info));
             else if (hdrToSdr) Add(encode, "-color_range", "tv", "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709");
+            if (!grainEnabled && !interpolate) SharedOrdinaryTimelineCore.NormalizeVideoOnly(encode);
             Add(encode, "-f", "ivf", cleanIvf);
 
             List<string> apply = new List<string>();
@@ -375,7 +378,7 @@ namespace FilmGrainStudioPreview
             }
             else
             {
-                string grainStage = fgsimGrain ? "AV1 FGSIM pixel-grain encode" : "AV1 Digital Grain pixel-grain encode";
+                string grainStage = !grainEnabled ? "AV1 Main10 encode / 颗粒：关闭" : fgsimGrain ? "AV1 FGSIM pixel-grain encode" : "AV1 Digital Grain pixel-grain encode";
                 directStages.Add(Stage(ffmpeg, encodeWorkingDirectory, encode, duration, preStages + 1, totalStages, grainStage));
                 directStages.Add(Stage(ffmpeg, tempRoot, remux, duration, preStages + 2, totalStages, uploadSkippedForHdrPreserve ? "AV1 container remux (H.264 upload copy skipped by HDR Preserve)" : "AV1 container remux"));
             }
@@ -386,17 +389,17 @@ namespace FilmGrainStudioPreview
                 {
                     passlog = Path.Combine(tempRoot, "__FGS_AV1_UPLOAD_X264_" + Guid.NewGuid().ToString("N"));
                     AddPasslogTemps(request.TemporaryFiles, passlog);
-                    directStages.Add(Stage(ffmpeg, tempRoot, BuildUploadArgs(output, uploadOutput, uploadPreset, uploadBitrate, Get(state, "FG_UPLOAD_HIGH_MOTION") == "1" && caps.X264BStrategy2, 1, passlog, (hdrToSdr && svp) || fieldWorkfile || separateDeint || hdrOffSdr, hdrToSdr), duration, preStages + encodeStages + 1, totalStages, "H.264 upload pass 1: analysis"));
+                    directStages.Add(Stage(ffmpeg, tempRoot, BuildUploadArgs(output, uploadOutput, uploadPreset, uploadBitrate, Get(state, "FG_UPLOAD_HIGH_MOTION") == "1" && caps.X264BStrategy2, 1, passlog, (hdrToSdr && svp) || fieldWorkfile || separateDeint || hdrOffSdr, hdrToSdr, grainEnabled), duration, preStages + encodeStages + 1, totalStages, "H.264 upload pass 1: analysis"));
                     if (uploadPassCount == 3)
-                        directStages.Add(Stage(ffmpeg, tempRoot, BuildUploadArgs(output, uploadOutput, uploadPreset, uploadBitrate, Get(state, "FG_UPLOAD_HIGH_MOTION") == "1" && caps.X264BStrategy2, 3, passlog, (hdrToSdr && svp) || fieldWorkfile || separateDeint || hdrOffSdr, hdrToSdr), duration, totalStages - 1, totalStages, "H.264 upload pass 3: stats refinement"));
+                        directStages.Add(Stage(ffmpeg, tempRoot, BuildUploadArgs(output, uploadOutput, uploadPreset, uploadBitrate, Get(state, "FG_UPLOAD_HIGH_MOTION") == "1" && caps.X264BStrategy2, 3, passlog, (hdrToSdr && svp) || fieldWorkfile || separateDeint || hdrOffSdr, hdrToSdr, grainEnabled), duration, totalStages - 1, totalStages, "H.264 upload pass 3: stats refinement"));
                 }
-                directStages.Add(Stage(ffmpeg, tempRoot, BuildUploadArgs(output, uploadOutput, uploadPreset, uploadBitrate, Get(state, "FG_UPLOAD_HIGH_MOTION") == "1" && caps.X264BStrategy2, uploadPassCount == 1 ? 0 : 2, passlog, (hdrToSdr && svp) || fieldWorkfile || separateDeint || hdrOffSdr, hdrToSdr), duration, totalStages, totalStages, "H.264 upload final encode"));
+                directStages.Add(Stage(ffmpeg, tempRoot, BuildUploadArgs(output, uploadOutput, uploadPreset, uploadBitrate, Get(state, "FG_UPLOAD_HIGH_MOTION") == "1" && caps.X264BStrategy2, uploadPassCount == 1 ? 0 : 2, passlog, (hdrToSdr && svp) || fieldWorkfile || separateDeint || hdrOffSdr, hdrToSdr, grainEnabled), duration, totalStages, totalStages, "H.264 upload final encode"));
             }
             if(fieldWorkfile || separateDeint || hdrOffSdr)SharedHdrPreprocessCore.AttachFieldValidation(directStages[preStages],ffprobe,hdrWorkfile,info,hdrToSdr,!hdrOffSdr);
-            if (interpolate || fieldWorkfile || separateDeint || hdrOffSdr)
+            if (interpolate || fieldWorkfile || separateDeint || hdrOffSdr || !grainEnabled)
                 foreach (BridgeExecutionStage stage in directStages)
                     if (stage.StageText.StartsWith("AV1 container remux", StringComparison.Ordinal))
-                        SharedFrucCore.AttachAv1RemuxTimeline(stage, ffprobe, remuxVideo, input, remux, fruc ? "FRUC" : "OpenSVPFlow");
+                        SharedFrucCore.AttachAv1RemuxTimeline(stage, ffprobe, remuxVideo, input, remux, !grainEnabled && !interpolate ? "ordinary no-grain" : fruc ? "FRUC" : "OpenSVPFlow");
             request.DirectStages = directStages;
             if(info.IsHdr && info.IsInterlaced && !deinterlace)request.ExecutionNotice="[Native .NET] 反交错 OFF：沿用不反交错的逐帧处理，不启用 bob/光流或双倍场率；不保证隔行编码标记。 / Deinterlace OFF: frame processing without bob/interpolation; no interlaced-encoding flags are added.";
             prepared = new BridgePreparedExecution(request, false, ffmpeg, new List<string> { input });
@@ -423,7 +426,7 @@ namespace FilmGrainStudioPreview
                 baseFilters = "[0:v:0]" + deinterlaceFilter + colorFilter + "format=" + baseFormat + frame.Filter + subtitleFilter + postSubtitle;
             }
             baseFilters += "[baseout]";
-            if (metadataGrain) return baseFilters.Replace("[baseout]", "[vout]");
+            if (!proceduralGrain && !fgsimGrain) return baseFilters.Replace("[baseout]", "[vout]");
             return baseFilters;
         }
 
@@ -823,18 +826,19 @@ namespace FilmGrainStudioPreview
             catch (Exception ex) { return "HDR signaling probe failed: " + ex.Message; }
         }
 
-        private static List<string> BuildUploadArgs(string mainOutput, string uploadOutput, string preset, long bitrate, bool highMotion, int pass, string passlog, bool preserveTimeline = false, bool stampBt709 = true)
+        private static List<string> BuildUploadArgs(string mainOutput, string uploadOutput, string preset, long bitrate, bool highMotion, int pass, string passlog, bool preserveTimeline = false, bool stampBt709 = true, bool grainEnabled = true)
         {
             List<string> args = new List<string>();
             Add(args, "-hide_banner", "-stats", "-progress", "pipe:2", "-stats_period", "0.5", "-y", "-c:v", "libdav1d", "-i", mainOutput, "-map", "0:v:0");
             if (pass == 0 || pass == 2) Add(args, "-map", "0:a:0?", "-map_metadata", "0");
-            Add(args, "-vf", "format=yuv420p", "-c:v", "libx264", "-profile:v", "high", "-pix_fmt", "yuv420p", "-preset", preset, "-tune", "grain");
+            Add(args, "-vf", "format=yuv420p", "-c:v", "libx264", "-profile:v", "high", "-pix_fmt", "yuv420p", "-preset", preset);
+            SharedGrainCore.AddX264Tune(args,grainEnabled);
             if (highMotion) Add(args, "-b_strategy", "2");
             Add(args, "-b:v", bitrate.ToString(CultureInfo.InvariantCulture) + "k", "-maxrate", (bitrate * 3L).ToString(CultureInfo.InvariantCulture) + "k", "-bufsize", (bitrate * 6L).ToString(CultureInfo.InvariantCulture) + "k");
             if (pass != 0) Add(args, "-pass", pass.ToString(CultureInfo.InvariantCulture), "-passlogfile", passlog);
             if (pass == 1 || pass == 3) Add(args, "-an", "-f", "null", "NUL");
             else Add(args, "-c:a", "aac", "-b:a", "256k", "-ac", "2", "-ar", "48000", "-movflags", "+faststart", uploadOutput);
-            return preserveTimeline ? SharedHdrPreprocessCore.BuildUploadTimeline(args,stampBt709) : args;
+            return preserveTimeline || !grainEnabled ? SharedHdrPreprocessCore.BuildUploadTimeline(args,stampBt709) : args;
         }
 
         private static string BuildX264FileSuffix(string preset, string passMode)
