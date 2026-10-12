@@ -37,6 +37,9 @@ namespace FilmGrainStudioPreview
         public string SvpAnalyse = "";
         public string SvpSceneMode = "";
         public string SvpMaskArea = "";
+        public string SvpSpeed = "FGS";
+        public string SvpTuning = "FGS";
+        public string SvpBlockSize = "auto";
         public string Deinterlace = "";
         public string DeintMethod = "";
         public bool CinematicFrame;
@@ -128,6 +131,9 @@ namespace FilmGrainStudioPreview
             state["FG_SVP_ANALYSE"] = snapshot.SvpAnalyse;
             state["FG_SVP_SCENE_MODE"] = snapshot.SvpSceneMode;
             state["FG_SVP_MASK_AREA"] = snapshot.SvpMaskArea;
+            state["FG_SVP_SPEED"] = snapshot.SvpSpeed;
+            state["FG_SVP_TUNING"] = snapshot.SvpTuning;
+            state["FG_SVP_BLOCK_SIZE"] = snapshot.SvpBlockSize;
             state["FG_DEINTERLACE"] = snapshot.Deinterlace;
             state["FG_DEINT_METHOD"] = snapshot.DeintMethod;
             state["FG_CINEMATIC_FRAME"] = snapshot.CinematicFrame ? "1" : "0";

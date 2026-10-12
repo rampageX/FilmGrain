@@ -79,7 +79,19 @@ namespace FilmGrainStudioPreview
     // Shared FRUC preflight and timestamp policy; encoder-specific filters stay in their cores.
     internal static class SharedFrucCore
     {
-        private static readonly Dictionary<string, string> runtimeCache = new Dictionary<string, string>();
+        internal sealed class CapabilityReport
+        {
+            internal string Version = "unknown";
+            internal string RuntimeOutput = "";
+            internal string HelpOutput = "";
+            internal string Evidence = "device/grid not reported by this FFmpeg build";
+            internal string Summary(string perf, string grid)
+            {
+                return "Vulkan device index=0; perf=" + perf + "; requested_grid=" + grid + "; " + Evidence +
+                    "; " + Version + "; probe=128x128 NV12 30->60 fps (not an input/encoder compatibility guarantee)";
+            }
+        }
+        private static readonly Dictionary<string, CapabilityReport> runtimeCache = new Dictionary<string, CapabilityReport>();
 
         internal static void InvalidatePreflightCache()
         { lock (runtimeCache) { runtimeCache.Clear(); } }
@@ -87,25 +99,91 @@ namespace FilmGrainStudioPreview
         internal delegate bool ProbeRunner(string tool, string args, int timeout, out string output, out string reason);
         internal static bool TryPreflight(string ffmpeg, string perf, string grid, out string reason, ProbeRunner runner = null)
         {
-            if (runner == null) runner = Run;
-            reason = "";
+            CapabilityReport report;
+            return TryInspect(ffmpeg, perf, grid, out report, out reason, runner);
+        }
+
+        internal static bool HasOption(string help, string option)
+        {
+            return System.Text.RegularExpressions.Regex.IsMatch(help ?? "",
+                @"(?m)^\s*" + System.Text.RegularExpressions.Regex.Escape(option) + @"\s+<[^>]+>");
+        }
+
+        internal static string FailureKind(string reason)
+        {
+            string text = (reason ?? "").ToLowerInvariant();
+            if (text.StartsWith("[input error]")) return "CONFIG";
+            if (text.StartsWith("[dependency missing]")) return "FFMPEG";
+            if (text.StartsWith("[unsupported combination]")) return "UNSUPPORTED";
+            if (text.StartsWith("[unsupported device]") || text.Contains("vk_nv_optical_flow") || text.Contains("does not support") ||
+                text.Contains("no device") || text.Contains("failed to create vulkan") || text.Contains("cannot load vulkan") ||
+                text.Contains("no optical flow queues") || text.Contains("no compute queues") || text.Contains("created without the") ||
+                text.Contains("families cannot exchange") || text.Contains("vector format unavailable") || text.Contains("r8 input format unavailable")) return "DEVICE";
+            return "RUNTIME";
+        }
+
+        internal static bool TryInspect(string ffmpeg, string perf, string grid, out CapabilityReport report,
+            out string reason, ProbeRunner runner = null)
+        {
+            report = new CapabilityReport(); reason = "";
+            if (perf != "slow" && perf != "medium" && perf != "fast")
+            { reason = "[input error] invalid FRUC performance level: " + perf; return false; }
+            if (grid != "auto" && grid != "1" && grid != "2" && grid != "4" && grid != "8")
+            { reason = "[input error] invalid FRUC grid: " + grid; return false; }
+            if (runner == null)
+            {
+                if (!File.Exists(ffmpeg)) { reason = "[dependency missing] FRUC FFmpeg executable: " + ffmpeg; return false; }
+                runner = Run;
+            }
             string output;
-            if (!runner(ffmpeg, "-hide_banner -h filter=fruc_vulkan", 5000, out output, out reason)) return false;
+            if (!runner(ffmpeg, "-hide_banner -h filter=fruc_vulkan", 5000, out output, out reason))
+            { reason = "[program/runtime error] FRUC help probe failed: " + reason; return false; }
+            report.HelpOutput = output;
             if (!output.Contains("Filter fruc_vulkan") || output.IndexOf("Unknown filter", StringComparison.OrdinalIgnoreCase) >= 0)
-            { reason = "FFmpeg does not expose the fruc_vulkan filter"; return false; }
-            if (perf != "slow" && perf != "medium" && perf != "fast") { reason = "invalid FRUC performance level"; return false; }
-            if (grid != "auto" && grid != "1" && grid != "2" && grid != "4" && grid != "8") { reason = "invalid FRUC grid"; return false; }
+            { reason = "[dependency missing] FFmpeg does not expose the fruc_vulkan filter"; return false; }
+            foreach (string option in new string[] { "fps", "perf", "grid" })
+                if (!HasOption(output, option))
+                { reason = "[unsupported combination] Selected fruc_vulkan build does not advertise option: " + option; return false; }
+            // The help must advertise the selected enum as well, not merely a matching substring.
+            if (!System.Text.RegularExpressions.Regex.IsMatch(output,
+                @"(?m)^\s*" + perf + @"\s+-?\d+\s+"))
+            { reason = "[unsupported combination] Selected fruc_vulkan build does not advertise perf=" + perf; return false; }
             string key = Path.GetFullPath(ffmpeg) + "|" + File.GetLastWriteTimeUtc(ffmpeg).Ticks + "|" + perf + "|" + grid;
-            lock (runtimeCache) { if (runtimeCache.TryGetValue(key, out reason)) return reason.Length == 0; }
-            string args = "-hide_banner -v error -nostdin -init_hw_device vulkan=vk:0 -filter_hw_device vk " +
+            lock (runtimeCache) { if (runtimeCache.TryGetValue(key, out report)) return true; }
+            report = new CapabilityReport { HelpOutput = output };
+            string versionReason;
+            if (runner(ffmpeg, "-hide_banner -version", 5000, out output, out versionReason))
+                foreach (string line in output.Split(new char[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+                    if (line.StartsWith("ffmpeg version", StringComparison.OrdinalIgnoreCase)) { report.Version = line.Trim(); break; }
+            string args = "-hide_banner -v verbose -nostdin -init_hw_device vulkan=vk:0 -filter_hw_device vk " +
                 "-f lavfi -i testsrc2=size=128x128:rate=30:duration=0.2 " +
                 "-vf format=nv12,hwupload,fruc_vulkan=fps=60:perf=" + perf + ":grid=" + grid +
                 ",hwdownload,format=nv12 -frames:v 4 -f null -";
             bool ok = runner(ffmpeg, args, 15000, out output, out reason);
-            if (!ok) reason = "FRUC Vulkan device/runtime preflight failed: " + reason;
-            // Failures are not cached: driver/device availability can change.
-            if (ok) lock (runtimeCache) { runtimeCache[key] = ""; }
-            return ok;
+            report.RuntimeOutput = output;
+            StringBuilder evidence = new StringBuilder();
+            foreach (string raw in output.Split(new char[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                string line = raw.Trim();
+                if (line.IndexOf("optical flow: perf", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    line.IndexOf("Using device", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    line.IndexOf("Device name:", StringComparison.OrdinalIgnoreCase) >= 0)
+                { if (evidence.Length > 0) evidence.Append(" | "); evidence.Append(line); }
+            }
+            if (evidence.Length > 0) report.Evidence = evidence.ToString();
+            if (!ok)
+            {
+                string detail = string.IsNullOrEmpty(reason) ? output.Trim() : reason;
+                string lower = detail.ToLowerInvariant();
+                bool unsupported = lower.Contains("requested optical flow grid") || lower.Contains("outside the range") ||
+                    lower.Contains("unsupported pixel format") || lower.Contains("not supported by the device");
+                reason = (unsupported ? "[unsupported combination] " : FailureKind(detail) == "DEVICE" ? "[unsupported device] " : "[program/runtime error] ") +
+                    "FRUC Vulkan device 0 preflight failed: " + detail;
+                return false;
+            }
+            // Only explicit refresh invalidates a success; never cache failures or infer other input formats.
+            lock (runtimeCache) { runtimeCache[key] = report; }
+            return true;
         }
 
         internal static bool Run(string tool, string args, int timeout, out string output, out string reason)
@@ -125,7 +203,7 @@ namespace FilmGrainStudioPreview
                     if (!p.WaitForExit(timeout))
                     {
                         try { p.Kill(); p.WaitForExit(); } catch { }
-                        reason = "Timed out: " + Path.GetFileName(tool); return false;
+                        output = text.ToString(); reason = "Timed out: " + Path.GetFileName(tool) + " " + output.Trim(); return false;
                     }
                     p.WaitForExit(); output = text.ToString();
                     if (p.ExitCode != 0) { reason = "exit=" + p.ExitCode + " " + output.Trim(); return false; }
@@ -259,6 +337,25 @@ namespace FilmGrainStudioPreview
     // Shared .NET process preparation; VapourSynth remains the interpolation engine.
     internal static class SharedSvpCore
     {
+        internal static bool TryValidateOptions(string speed, string tuning, string block, string analyse, out string reason)
+        {
+            reason = "";
+            if (Array.IndexOf(new string[] { "FGS", "medium", "fast", "faster", "fastest" }, speed) < 0)
+            { reason = "OpenSVPFlow input error: invalid Speed: " + speed; return false; }
+            if (Array.IndexOf(new string[] { "FGS", "weak", "film", "smooth", "animation" }, tuning) < 0)
+            { reason = "OpenSVPFlow input error: invalid Tuning: " + tuning; return false; }
+            if (Array.IndexOf(new string[] { "auto", "8", "16", "32" }, block) < 0)
+            { reason = "OpenSVPFlow input error: invalid Block Size: " + block; return false; }
+            if (analyse != "BASE" && analyse != "ENCODEGUI")
+            { reason = "OpenSVPFlow input error: invalid Analyse Profile: " + analyse; return false; }
+            if (analyse == "BASE" && (speed != "FGS" || tuning != "FGS" || block != "auto"))
+            { reason = "OpenSVPFlow unsupported combination: BASE requires Speed=FGS, Tuning=FGS, Block Size=auto."; return false; }
+            return true;
+        }
+
+        private static string Option(IDictionary<string,string> state, string key, string defaultValue)
+        { string value; return state.TryGetValue(key, out value) ? value ?? "" : defaultValue; }
+
         internal static void AttachProducer(BridgeExecutionStage stage, string vspipe, string vpy, string plugins, string input, IDictionary<string,string> state, string outputFps)
         {
             string algo = Get(state, "FG_SVP_ALGO"), analyse = Get(state, "FG_SVP_ANALYSE");
@@ -269,11 +366,15 @@ namespace FilmGrainStudioPreview
             if (analyse != "BASE" && analyse != "ENCODEGUI") analyse = "ENCODEGUI";
             if (scene != "0" && scene != "3") scene = "0";
             if (!int.TryParse(mask, NumberStyles.Integer, CultureInfo.InvariantCulture, out n) || n < 0 || n > 100) mask = "100";
+            string speed = Option(state, "FG_SVP_SPEED", "FGS"), tuning = Option(state, "FG_SVP_TUNING", "FGS"), block = Option(state, "FG_SVP_BLOCK_SIZE", "auto");
+            string optionError;
+            if (!TryValidateOptions(speed, tuning, block, analyse, out optionError)) throw new ArgumentException(optionError);
             stage.PipeProducerPath = vspipe;
             stage.PipeProducerArguments = JoinArgs(new string[]{"--progress", "-c", "y4m", "--arg", "input=" + input,
                 "--arg", "plugin_dir=" + plugins, "--arg", "target_num=" + outputFps.Split('/')[0], "--arg", "target_den=" + (outputFps.Contains("/") ? outputFps.Split('/')[1] : "1"),
                 "--arg", "algo=" + algo, "--arg", "analyse_profile=" + analyse,
-                "--arg", "scene_mode=" + scene, "--arg", "mask_area=" + mask, vpy, "-"});
+                "--arg", "scene_mode=" + scene, "--arg", "mask_area=" + mask,
+                "--arg", "speed=" + speed, "--arg", "tuning=" + tuning, "--arg", "block_size=" + block, vpy, "-"});
         }
 
 

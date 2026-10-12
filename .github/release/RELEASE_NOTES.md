@@ -1,15 +1,15 @@
-# Film Grain Studio v4.8.15
+# Film Grain Studio v4.8.16
 
-本版完成应用运行时 .NET 迁移。以下历史测试条目保留当时状态，当前验收结果以本条为准。
+本版完善 OpenSVPFlow 高级参数、FRUC Vulkan 能力诊断、高级设置布局及 Framework 成品兼容性校验。应用运行时继续使用既有 .NET 实现。
 
-- 根 .NET EXE 和串行队列固定 Native，删除原生选择框、Legacy 兼容后端和未知准备失败转 Bridge BAT；统一准备入口保留实际原因，输入错误/依赖不足/不支持组合明确停止。
-- 执行器和队列拒绝脚本及 CMD/PowerShell/VBS 宿主；保留 FFmpeg、grav1synth、Python/VapourSynth 等实际算法依赖。
-- 旧 CLI、旧 PowerShell GUI、Bridge/不重编码 BAT 和旧助手共 29 个脚本归入 Legacy，共享配置、Lang、SVP vpy/插件、FGSIM 模板/纹理保留原位置；根 EXE 可独立运行。
-- 累计接管三线隔行 HDR AUTO/OFF、HDR 保留/转换、设备分离与过滤顺序、已有主输出补上传；隔行 OpenSVPFlow 按既有规则绕过光流，原不支持组合保持明确边界。
-- 成功探测未发现 AV1 Film Grain metadata 正确标识 ADDED；未知/失败探测不能当作无颗粒。添加/替换保留输入、现有命名和时间轴行为。
-- Windows Full 101 编码＋6 边界通过；Next 29＋10 合并 39 技术项、Native-only 6＋1 合并 7 技术项通过，合并结果不是单次完整矩阵重跑。用户确认相关人工项目及最新 ADDED 画面/同步；未测硬件/容器/时间戳/剪辑及任意组合不扩大为通过。
-- 发布工具统一源码暂存、Dry Run 覆盖与正式 ZIP 的目录清单；纳入 Legacy 新增并记录旧路径删除，排除 Tests_Shared、用户配置/缓存/环境、备份和测试交付标记；直接从 .NET 源码核对语言键，不再执行旧 GUI/语言脚本。
-- 发布命令在实际构建前同步 .NET ReleaseVersion 和 Stable 标签、README/TXT、基线、CHANGELOG 和 Release Notes；正式构建重新编译，核对根/兼容 EXE 一致及其实际版本常量。下一正式版本号由维护者指定，Dry Run 不等于发布。
-- 发布准备 Windows 补测修复：按 Git 已跟踪/未忽略新文件清单过滤并逐字面分批暂存，兼容现有 .gitignore；构建函数显式接收发布版本，保留编译后实际 EXE 版本/Stable 校验。产品源码、算法和已验收 EXE 不变。
-- 中文 Git 仓库路径校验直接使用重定向 UTF-8 输出，避免 Windows PowerShell 5.1/CP936 将 Git 根目录读成乱码；共享 Git 文件清单读取，不改变控制台编码，保留顶层目录与非仓库停止边界。
-- 发布暂存允许仓库已有 benchmark 历史报告继续跟踪，退出本次报告改动并仅在 Stable 排除；Dry Run 保留相同 HEAD 历史，避免与正式发布校验不一致。失败前已写入目标版本的工作区支持依据 HEAD 基线重试同一版号。
+- OpenSVPFlow 新增 Speed（FGS/medium/fast/faster/fastest）、Tuning（FGS/weak/film/smooth/animation）及 Block Size（auto/8/16/32），共享配置与三线执行入口统一接入；默认 FGS/FGS/auto 保留既有插件参数。film/smooth 当前同义，不宣称具有不同算法效果；BASE 与非默认新预设的组合明确处理，不增加脚本回退。
+- 高级设置所有页面的“恢复默认”统一位于确定按钮左侧、等高，并保留只恢复当前页、确定后保存的行为；插帧说明改为控件/标签 tooltip；OpenSVPFlow 插件更新按钮位于底部左侧，仅在插帧页显示。
+- FRUC 共享预检核对实际 FFmpeg 的 fps/perf/grid 及性能常量，区分输入错误、依赖缺失、构建/网格组合不支持、设备限制和运行异常，保留实际原因，失败不缓存。固定设备0与128×128 NV12小样本策略保持，成功不代表所有输入/编码组合可用。
+- FRUC 任务日志记录构建版本、请求参数及实际设备/网格证据；未报告的信息不猜测。插帧选择与底部硬件状态共用简短 tooltip，完整 verbose 诊断保留在日志中。默认仍 medium/auto；auto 为设备支持的最细网格，不能理解为速度优先。
+- 修复发布源码暂存的目录白名单遗漏：BuildTools同时纳入目录识别与源码清单，离线Framework门禁源码/DLL/许可不再被筛选器漏掉；其他本地环境/测试/成品排除规则保持，支持4.8.16已同步未提交状态重试。
+- 新增离线 Framework API 成品审计，接入非Windows预构建、Windows本机构建与正式包校验；必须使用明确的 Microsoft Framework API 基准，不能回落至 Mono 默认引用。根/兼容 EXE 要求一致，审计失败停止交付或发布。
+- 本轮 Windows 成品与测试程序 API 审计零失败；55项FRUC及429项既有软件断言、三线配对模拟计划、100组SVP参数组合检查通过。软件/模拟结果不代替硬件编码结果。
+- 用户确认 OpenSVPFlow 本轮A–E及高级设置布局验收通过；确认 FRUC tooltip 精简效果通过。RTX4080 + 2026-09-24-git-5253641e62 FFmpeg 的1080p、4K、实际剪切TS、目标60fps共18个FRUC观察案例完成，帧数/帧率/音频/起始时间自动检查通过，人工观察未发现异常，TS音画同步正常。测试覆盖共享FRUC滤镜+x264/AAC观察路径，不扩展为所有NVENC/HDR/颗粒/LUT/字幕组合通过。
+- 当前实机 auto 选择grid=1，grid=1/2/4可用，grid=8被设备明确拒绝并排除，没有静默改用其他参数。网格变粗的速度结果属于参数取舍，不表示算法或端到端编码实现已优化；未修改默认值。
+- 本地测试支持规范命名样本、预热与三次null基准、单独生成带音频观察视频、分开记录预览编码耗时，并采集直接FFmpeg的CPU/工作集。没有采集GPU/OFA/显存；此前SVP启动器CPU/内存列不用于资源结论。Tests_Shared只随完整测试交付保留，继续排除GitHub与正式Stable ZIP。
+- 本轮未改变编码过滤顺序、既有位深/HDR策略、帧率解析、输出命名、音画时间轴、取消、队列或临时文件清理。Legacy归档、算法依赖和纹理未顺带修改；发布工具继续保留UTF-8 Git清单读取、特殊路径、benchmark历史跟踪及同版号失败重试规则。正式发布仍由维护者执行，Dry Run不等于发布。

@@ -605,6 +605,7 @@ namespace FilmGrainStudioPreview
         {
             config.Load();
             using (Form dlg = new Form())
+            using (ToolTip interpTips = new ToolTip())
             {
                 dlg.Text = lang.T("advanced.title");
                 dlg.StartPosition = FormStartPosition.CenterParent;
@@ -637,28 +638,42 @@ namespace FilmGrainStudioPreview
                 int aqValue = config.GetInt("NVENC_SPATIAL_AQ", 8); aq.SelectedIndex = aqValue == 0 ? 0 : (aqValue == 4 ? 1 : (aqValue == 10 ? 3 : (aqValue == 12 ? 4 : (aqValue == 15 ? 5 : 2)))); aq.Enabled = !hardwareCapsReady || hardwareCaps == null || hardwareCaps.Av1Available || hardwareCaps.HevcAvailable; enc.Controls.Add(aq);
                 CheckBox temporal = new CheckBox(); temporal.Text = lang.T("advanced.hevc_temporal_aq"); temporal.Checked = config.GetBool("NVENC_TEMPORAL_AQ"); temporal.Enabled = !hardwareCapsReady || hardwareCaps == null || hardwareCaps.Av1Available || hardwareCaps.HevcAvailable; temporal.Location = new Point(190, 170); temporal.Size = new Size(260, 26); enc.Controls.Add(temporal);
                 Label encInfo = new Label(); encInfo.Location = new Point(28, 206); encInfo.Size = new Size(630, 48); encInfo.ForeColor = ColorMuted; encInfo.Text = lang.T("advanced.encode_info"); enc.Controls.Add(encInfo);
-                Button encDefaults = new Button(); encDefaults.Text = lang.T("config.defaults"); encDefaults.Location = new Point(190, 262); encDefaults.Size = new Size(112, 30); enc.Controls.Add(encDefaults);
 
-                Label algoLabel = new Label(); algoLabel.Text = "SmoothFps Algo"; algoLabel.Location = new Point(28, 34); algoLabel.Size = new Size(150, 24); interp.Controls.Add(algoLabel);
-                ComboBox algo = new ComboBox(); algo.DropDownStyle = ComboBoxStyle.DropDownList; algo.Location = new Point(190, 30); algo.Size = new Size(220, 26);
+                Label algoLabel = new Label(); algoLabel.Text = "SmoothFps Algo"; algoLabel.Location = new Point(28, 18); algoLabel.Size = new Size(150, 24); interp.Controls.Add(algoLabel);
+                ComboBox algo = new ComboBox(); algo.DropDownStyle = ComboBoxStyle.DropDownList; algo.Location = new Point(190, 14); algo.Size = new Size(220, 26);
                 foreach (string item in new string[] { "1", "2", "11", "13", "21", "22", "23" }) algo.Items.Add(item);
                 int ai = algo.Items.IndexOf(config.Get("SVP_ALGO")); algo.SelectedIndex = ai >= 0 ? ai : 3; interp.Controls.Add(algo);
-                Label analyseLabel = new Label(); analyseLabel.Text = "Analyse Profile"; analyseLabel.Location = new Point(28, 82); analyseLabel.Size = new Size(150, 24); interp.Controls.Add(analyseLabel);
-                ComboBox analyse = new ComboBox(); analyse.DropDownStyle = ComboBoxStyle.DropDownList; analyse.Location = new Point(190, 78); analyse.Size = new Size(360, 26);
+                Label analyseLabel = new Label(); analyseLabel.Text = "Analyse Profile"; analyseLabel.Location = new Point(28, 54); analyseLabel.Size = new Size(150, 24); interp.Controls.Add(analyseLabel);
+                ComboBox analyse = new ComboBox(); analyse.DropDownStyle = ComboBoxStyle.DropDownList; analyse.Location = new Point(190, 50); analyse.Size = new Size(360, 26);
                 analyse.Items.Add(lang.T("advanced.analyse_recommended")); analyse.Items.Add(lang.T("advanced.analyse_baseline")); analyse.SelectedIndex = string.Equals(config.Get("SVP_ANALYSE"), "BASE", StringComparison.OrdinalIgnoreCase) ? 1 : 0; interp.Controls.Add(analyse);
-                Label maskLabel = new Label(); maskLabel.Text = "Artifact Mask Area"; maskLabel.Location = new Point(28, 130); maskLabel.Size = new Size(150, 24); interp.Controls.Add(maskLabel);
-                NumericUpDown mask = new NumericUpDown(); mask.Location = new Point(190, 126); mask.Size = new Size(120, 26); mask.Minimum = 0; mask.Maximum = 100; mask.Increment = 5; mask.Value = Math.Max(mask.Minimum, Math.Min(mask.Maximum, config.GetInt("SVP_MASK_AREA", 100))); interp.Controls.Add(mask);
-                Label interpInfo = new Label(); interpInfo.Location = new Point(28, 238); interpInfo.Size = new Size(610, 44); interpInfo.ForeColor = ColorMuted; interpInfo.Text = lang.T("advanced.interp_info"); interp.Controls.Add(interpInfo);
-                Label frucPerfLabel = new Label(); frucPerfLabel.Text = UiText("FRUC Vulkan 性能档位", "FRUC Vulkan perf"); frucPerfLabel.Location = new Point(28, 166); frucPerfLabel.Size = new Size(150, 24); interp.Controls.Add(frucPerfLabel);
-                ComboBox frucPerf = new ComboBox(); frucPerf.DropDownStyle = ComboBoxStyle.DropDownList; frucPerf.Location = new Point(190, 162); frucPerf.Size = new Size(160, 26);
+                Label maskLabel = new Label(); maskLabel.Text = "Artifact Mask Area"; maskLabel.Location = new Point(28, 90); maskLabel.Size = new Size(150, 24); interp.Controls.Add(maskLabel);
+                NumericUpDown mask = new NumericUpDown(); mask.Location = new Point(190, 86); mask.Size = new Size(120, 26); mask.Minimum = 0; mask.Maximum = 100; mask.Increment = 5; mask.Value = Math.Max(mask.Minimum, Math.Min(mask.Maximum, config.GetInt("SVP_MASK_AREA", 100))); interp.Controls.Add(mask);
+                Label speedLabel = new Label { Text = "OpenSVPFlow Speed", Location = new Point(28, 126), Size = new Size(155, 24) }; interp.Controls.Add(speedLabel);
+                ComboBox svpSpeed = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(190, 122), Size = new Size(220, 26) };
+                svpSpeed.Items.AddRange(new object[] { "FGS", "medium", "fast", "faster", "fastest" });
+                svpSpeed.SelectedItem = config.Get("SVP_SPEED"); if (svpSpeed.SelectedIndex < 0) svpSpeed.SelectedIndex = 0; interp.Controls.Add(svpSpeed);
+                Label tuningLabel = new Label { Text = "OpenSVPFlow Tuning", Location = new Point(28, 162), Size = new Size(155, 24) }; interp.Controls.Add(tuningLabel);
+                ComboBox svpTuning = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(190, 158), Size = new Size(220, 26) };
+                svpTuning.Items.AddRange(new object[] { "FGS", "weak", "film", "smooth", "animation" });
+                svpTuning.SelectedItem = config.Get("SVP_TUNING"); if (svpTuning.SelectedIndex < 0) svpTuning.SelectedIndex = 0; interp.Controls.Add(svpTuning);
+                Label blockLabel = new Label { Text = "OpenSVPFlow Block Size", Location = new Point(28, 198), Size = new Size(160, 24) }; interp.Controls.Add(blockLabel);
+                ComboBox svpBlock = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(190, 194), Size = new Size(220, 26) };
+                svpBlock.Items.AddRange(new object[] { "auto", "8", "16", "32" });
+                svpBlock.SelectedItem = config.Get("SVP_BLOCK_SIZE"); if (svpBlock.SelectedIndex < 0) svpBlock.SelectedIndex = 0; interp.Controls.Add(svpBlock);
+                EventHandler updateSvpProfile = delegate {
+                    bool baseline = svpSpeed.SelectedIndex == 0 && svpTuning.SelectedIndex == 0 && svpBlock.SelectedIndex == 0;
+                    analyse.Enabled = baseline; if (!baseline) analyse.SelectedIndex = 0;
+                };
+                svpSpeed.SelectedIndexChanged += updateSvpProfile; svpTuning.SelectedIndexChanged += updateSvpProfile; svpBlock.SelectedIndexChanged += updateSvpProfile;
+                updateSvpProfile(null, EventArgs.Empty);
+                Label frucPerfLabel = new Label(); frucPerfLabel.Text = UiText("FRUC Vulkan 性能档位", "FRUC Vulkan perf"); frucPerfLabel.Location = new Point(28, 238); frucPerfLabel.Size = new Size(150, 24); interp.Controls.Add(frucPerfLabel);
+                ComboBox frucPerf = new ComboBox(); frucPerf.DropDownStyle = ComboBoxStyle.DropDownList; frucPerf.Location = new Point(190, 234); frucPerf.Size = new Size(160, 26);
                 frucPerf.Items.Add("slow"); frucPerf.Items.Add("medium"); frucPerf.Items.Add("fast"); string savedPerf = config.Get("FRUC_PERF").ToLowerInvariant(); frucPerf.SelectedIndex = savedPerf == "slow" ? 0 : (savedPerf == "fast" ? 2 : 1); interp.Controls.Add(frucPerf);
-                Label frucGridLabel = new Label(); frucGridLabel.Text = UiText("FRUC Vulkan 光流网格", "FRUC Vulkan grid"); frucGridLabel.Location = new Point(28, 202); frucGridLabel.Size = new Size(150, 24); interp.Controls.Add(frucGridLabel);
-                ComboBox frucGrid = new ComboBox(); frucGrid.DropDownStyle = ComboBoxStyle.DropDownList; frucGrid.Location = new Point(190, 198); frucGrid.Size = new Size(160, 26);
+                Label frucGridLabel = new Label(); frucGridLabel.Text = UiText("FRUC Vulkan 光流网格", "FRUC Vulkan grid"); frucGridLabel.Location = new Point(28, 274); frucGridLabel.Size = new Size(150, 24); interp.Controls.Add(frucGridLabel);
+                ComboBox frucGrid = new ComboBox(); frucGrid.DropDownStyle = ComboBoxStyle.DropDownList; frucGrid.Location = new Point(190, 270); frucGrid.Size = new Size(160, 26);
                 frucGrid.Items.Add("auto"); frucGrid.Items.Add("1"); frucGrid.Items.Add("2"); frucGrid.Items.Add("4"); frucGrid.Items.Add("8"); int gridIndex = frucGrid.Items.IndexOf(config.Get("FRUC_GRID").ToLowerInvariant()); frucGrid.SelectedIndex = gridIndex >= 0 ? gridIndex : 0; interp.Controls.Add(frucGrid);
-                Label frucInfo = new Label(); frucInfo.Location = new Point(370, 162); frucInfo.Size = new Size(280, 56); frucInfo.ForeColor = ColorMuted; frucInfo.Text = UiText("perf 控制质量/速度；grid 控制光流网格，auto 交由滤镜选择。", "perf controls quality/speed; grid selects the optical-flow grid."); interp.Controls.Add(frucInfo);
-                Button updateSvp = new Button { Text = UiText("更新 OpenSVPFlow 插件", "Update OpenSVPFlow plugins"), Location = new Point(322, 292), Size = new Size(235, 30) };
-                updateSvp.Click += delegate { StartNativeSvpUpdate(dlg); }; interp.Controls.Add(updateSvp);
-                Button interpDefaults = new Button(); interpDefaults.Text = lang.T("config.defaults"); interpDefaults.Location = new Point(190, 292); interpDefaults.Size = new Size(112, 30); interp.Controls.Add(interpDefaults);
+                Button updateSvp = new Button { Text = UiText("更新 OpenSVPFlow 插件", "Update OpenSVPFlow plugins"), Location = new Point(22, 406), Size = new Size(235, 30) };
+                updateSvp.Click += delegate { StartNativeSvpUpdate(dlg); }; dlg.Controls.Add(updateSvp);
 
                 Label hdrLabel = new Label(); hdrLabel.Text = lang.T("advanced.hdr_policy"); hdrLabel.Location = new Point(28, 34); hdrLabel.Size = new Size(150, 24); hdr.Controls.Add(hdrLabel);
                 ComboBox hdrPolicy = new ComboBox(); hdrPolicy.DropDownStyle = ComboBoxStyle.DropDownList; hdrPolicy.Location = new Point(190, 30); hdrPolicy.Size = new Size(330, 26);
@@ -668,7 +683,6 @@ namespace FilmGrainStudioPreview
                 tone.Items.Add(lang.T("advanced.hable")); tone.Items.Add("Mobius"); tone.Items.Add("Reinhard"); tone.Items.Add("Gamma"); tone.Items.Add("Linear"); tone.Items.Add("Clip");
                 string ta = config.Get("TONE_MAP_ALGO").ToLowerInvariant(); tone.SelectedIndex = ta == "mobius" ? 1 : (ta == "reinhard" ? 2 : (ta == "gamma" ? 3 : (ta == "linear" ? 4 : (ta == "clip" ? 5 : 0)))); hdr.Controls.Add(tone);
                 Label hdrInfo = new Label(); hdrInfo.Location = new Point(28, 132); hdrInfo.Size = new Size(620, 150); hdrInfo.ForeColor = ColorMuted; hdrInfo.Text = lang.T("advanced.hdr_info"); hdr.Controls.Add(hdrInfo);
-                Button hdrDefaults = new Button(); hdrDefaults.Text = lang.T("config.defaults"); hdrDefaults.Location = new Point(190, 292); hdrDefaults.Size = new Size(112, 30); hdr.Controls.Add(hdrDefaults);
                 EventHandler updateHdr = delegate { bool enabled = hdrPolicy.SelectedIndex != 1; tone.Enabled = enabled; toneLabel.Enabled = enabled; };
                 hdrPolicy.SelectedIndexChanged += updateHdr; updateHdr(null, EventArgs.Empty);
 
@@ -677,16 +691,33 @@ namespace FilmGrainStudioPreview
                 NumericUpDown crop = new NumericUpDown(); crop.Location = new Point(190, 78); crop.Size = new Size(120, 26); crop.Minimum = 0; crop.Maximum = 2000; crop.Increment = 1; crop.Value = Math.Max(crop.Minimum, Math.Min(crop.Maximum, config.GetInt("CINEMATIC_CROP_PER_SIDE", 0))); other.Controls.Add(crop);
                 Label cropInfo = new Label(); cropInfo.Location = new Point(28, 128); cropInfo.Size = new Size(620, 118); cropInfo.ForeColor = ColorMuted; cropInfo.Text = lang.T("advanced.crop_info"); other.Controls.Add(cropInfo);
                 CheckBox largeColor = new CheckBox(); largeColor.Text = lang.T("advanced.color_preview_large"); largeColor.Checked = config.GetBool("COLOR_PREVIEW_LARGE_UI"); largeColor.Location = new Point(28, 258); largeColor.Size = new Size(500, 26); other.Controls.Add(largeColor);
-                Button otherDefaults = new Button(); otherDefaults.Text = lang.T("config.defaults"); otherDefaults.Location = new Point(190, 292); otherDefaults.Size = new Size(112, 30); other.Controls.Add(otherDefaults);
 
                 Button ok = new Button(); ok.Text = lang.T("advanced.ok"); ok.Location = new Point(514, 406); ok.Size = new Size(88, 30); dlg.Controls.Add(ok);
                 Button cancel = new Button(); cancel.Text = lang.T("advanced.cancel"); cancel.Location = new Point(610, 406); cancel.Size = new Size(88, 30); cancel.DialogResult = DialogResult.Cancel; dlg.Controls.Add(cancel);
                 dlg.CancelButton = cancel;
 
-                encDefaults.Click += delegate { high10.Checked = false; rate.SelectedIndex = 0; preset.SelectedIndex = 0; aq.SelectedIndex = 2; temporal.Checked = false; };
-                interpDefaults.Click += delegate { algo.SelectedItem = "13"; analyse.SelectedIndex = 0; mask.Value = 100; frucPerf.SelectedIndex = 1; frucGrid.SelectedIndex = 0; };
-                hdrDefaults.Click += delegate { hdrPolicy.SelectedIndex = 0; tone.SelectedIndex = 0; updateHdr(null, EventArgs.Empty); };
-                otherDefaults.Click += delegate { crop.Value = 0; largeColor.Checked = false; };
+                Button pageDefaults = new Button { Text = lang.T("config.defaults"), Location = new Point(394, 406), Size = new Size(112, 30) }; dlg.Controls.Add(pageDefaults);
+                EventHandler updateAdvancedActions = delegate { updateSvp.Visible = tabs.SelectedTab == interp; };
+                tabs.SelectedIndexChanged += updateAdvancedActions; updateAdvancedActions(null, EventArgs.Empty);
+                pageDefaults.Click += delegate {
+                    if (tabs.SelectedTab == enc) { high10.Checked = false; rate.SelectedIndex = 0; preset.SelectedIndex = 0; aq.SelectedIndex = 2; temporal.Checked = false; }
+                    else if (tabs.SelectedTab == interp) { svpSpeed.SelectedIndex = 0; svpTuning.SelectedIndex = 0; svpBlock.SelectedIndex = 0; algo.SelectedItem = "13"; analyse.SelectedIndex = 0; mask.Value = 100; frucPerf.SelectedIndex = 1; frucGrid.SelectedIndex = 0; }
+                    else if (tabs.SelectedTab == hdr) { hdrPolicy.SelectedIndex = 0; tone.SelectedIndex = 0; updateHdr(null, EventArgs.Empty); }
+                    else if (tabs.SelectedTab == other) { crop.Value = 0; largeColor.Checked = false; }
+                };
+
+                interpTips.InitialDelay = 500; interpTips.ReshowDelay = 100; interpTips.AutoPopDelay = 15000; interpTips.ShowAlways = true;
+                Action<Control, Control, string> setInterpTip = delegate(Control field, Control label, string text) {
+                    interpTips.SetToolTip(field, text); interpTips.SetToolTip(label, text);
+                };
+                setInterpTip(algo, algoLabel, UiText("SmoothFps 插帧算法，默认 13。算法与 Speed/Tuning 独立生效。", "SmoothFps interpolation algorithm; default 13. Independent of Speed/Tuning."));
+                setInterpTip(analyse, analyseLabel, UiText("EncodeGUI 为推荐分析配置。BASE 仅支持 Speed=FGS、Tuning=FGS、Block Size=auto；选择新预设时使用 EncodeGUI。", "EncodeGUI is the recommended analysis profile. BASE requires Speed=FGS, Tuning=FGS and Block Size=auto; new presets use EncodeGUI."));
+                setInterpTip(mask, maskLabel, UiText("伪影遮罩面积，范围 0–100，默认 100。控制 SmoothFps 的 mask.area。", "Artifact mask area: 0–100, default 100. Sets SmoothFps mask.area."));
+                setInterpTip(svpSpeed, speedLabel, UiText("FGS 默认保留现有搜索成本；medium/fast/faster/fastest 调整精度、块重叠与 refine。实际速度和画质取决于样本。", "FGS preserves existing search cost. medium/fast/faster/fastest adjust precision, block overlap and refinement; speed and quality depend on the clip."));
+                setInterpTip(svpTuning, tuningLabel, UiText("FGS 保留现有调校；weak 调整运动搜索并在正常场景模式启用切镜混合；animation 使用动画搜索配置；film/smooth 当前同义。", "FGS preserves existing tuning. weak changes motion search and enables scene blending in normal scene mode; animation uses animation search; film/smooth are aliases."));
+                setInterpTip(svpBlock, blockLabel, UiText("auto 随 Speed/Tuning 自动选块；8/16/32 指定分析块尺寸。三个新选项默认 FGS/FGS/auto 保持现有参数。", "auto chooses block size from Speed/Tuning; 8/16/32 select it explicitly. FGS/FGS/auto preserves existing parameters."));
+                setInterpTip(frucPerf, frucPerfLabel, UiText("perf 控制光流估计：slow 优先质量，medium 平衡，fast 优先速度。FGS 默认 medium；上游默认可能不同。效果与耗时须用同一视频比较。", "perf trades motion-estimation quality for speed: slow / medium / fast. FGS defaults to medium; upstream defaults can differ. Compare using the same video."));
+                setInterpTip(frucGrid, frucGridLabel, UiText("grid 是光流网格尺寸（像素）。当前上游 auto 选设备支持的最细网格，通常为 1；不是速度优先。较粗网格减少向量和内存，但损失细节。仅设备支持的尺寸可用；以实际构建日志为准。", "grid is the optical-flow grid size in pixels. Current upstream auto chooses the finest supported grid, usually 1, rather than fastest. Coarser grids use fewer vectors and less memory but lose detail. Support and selection depend on the actual build/device."));
 
                 ok.Click += delegate
                 {
@@ -699,6 +730,9 @@ namespace FilmGrainStudioPreview
                     updates["SVP_ALGO"] = Convert.ToString(algo.SelectedItem, CultureInfo.InvariantCulture);
                     updates["SVP_ANALYSE"] = analyse.SelectedIndex == 1 ? "BASE" : "ENCODEGUI";
                     updates["SVP_MASK_AREA"] = ((int)mask.Value).ToString(CultureInfo.InvariantCulture);
+                    updates["SVP_SPEED"] = Convert.ToString(svpSpeed.SelectedItem, CultureInfo.InvariantCulture);
+                    updates["SVP_TUNING"] = Convert.ToString(svpTuning.SelectedItem, CultureInfo.InvariantCulture);
+                    updates["SVP_BLOCK_SIZE"] = Convert.ToString(svpBlock.SelectedItem, CultureInfo.InvariantCulture);
                     updates["FRUC_PERF"] = Convert.ToString(frucPerf.SelectedItem, CultureInfo.InvariantCulture);
                     updates["FRUC_GRID"] = Convert.ToString(frucGrid.SelectedItem, CultureInfo.InvariantCulture);
                     updates["HDR_POLICY"] = hdrPolicy.SelectedIndex == 1 ? "PRESERVE" : (hdrPolicy.SelectedIndex == 2 ? "SDR" : "AUTO");
@@ -713,6 +747,7 @@ namespace FilmGrainStudioPreview
                     }
                     catch (Exception ex) { MessageBox.Show(dlg, ex.Message, "Film Grain Studio", MessageBoxButtons.OK, MessageBoxIcon.Error); }
                 };
+
 
                 if (dlg.ShowDialog(this) == DialogResult.OK)
                 {

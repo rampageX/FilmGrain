@@ -272,6 +272,7 @@ function Build-DotNetPreview {
 
 function Test-NativeExecutableMetadata {
     param([string]$Executable, [string]$ReleaseVersion)
+    & (Join-Path ([IO.Path]::GetDirectoryName($Executable)) 'dotnet\BuildTools\Test_Framework_Api.ps1') -Executable $Executable
     $assembly = [Reflection.Assembly]::Load([IO.File]::ReadAllBytes($Executable))
     $program = $assembly.GetType('FilmGrainStudioPreview.Program', $true)
     $flags = [Reflection.BindingFlags]::NonPublic -bor [Reflection.BindingFlags]::Static

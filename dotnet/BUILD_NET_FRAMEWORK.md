@@ -1,5 +1,17 @@
 # .NET Framework 成品构建要求
 
+## 当前强制门禁 P8N3LK
+
+非 Windows 交付必须执行 `dotnet/BuildTools/build_verified.py`，显式传入微软 net45 1.0.3 参考程序集目录、Mono/编译器及配置路径。脚本启用 `-nostdlib`，所有BCL引用来自该目录；编译候选 EXE 后执行成品 API 审计，成功才复制两处产物。禁止另用 Mono 默认引用集生成交付 EXE。
+
+Windows `build_NET_Preview.bat` 在复制根 EXE 前强制运行 `BuildTools/Test_Framework_Api.ps1`；正式发布核心也在成品元数据校验时执行该审计。缺失审计文件、Cecil哈希不符、编译/解析失败均终止；不提供跳过开关。
+
+审计通过 Mono.Cecil 0.11.6 读取成品元数据，验证类型、方法、字段及泛型引用。解析器仅使用指定微软参考程序集，或Windows当前Framework的物理DLL路径，禁止回落到Mono或应用程序集目录。CLR多维数组的构造/Get/Set/Address按签名单独验证，不误判为缺失BCL方法。
+
+`Tests_Shared/Run_Framework_Api_Check.bat`先检查未重编译的两处包内EXE，避免重编译掩盖交付错误。`Run_SVP_Tests.bat`也已加入重编译前及编译后门禁。本地BAT/PS1是构建工具，FGS应用运行时不调用这些工具。
+
+历史审计说明如下；当前入口以上述新工具为准。
+
 目标是 Windows .NET Framework，不能用 Mono 的默认运行库作为发布 EXE 的 API 引用基线。即使 C# 5 编译成功、Mono 自动检查通过，Mono 的 String 单字符重载、参数为空的 TrimStart/TrimEnd、Array.Empty 或基础类型程序集归属也可能与 Framework 不同。
 
 Windows：现有 build_NET_Preview.bat 使用 Windows 自带 Framework csc，更新 dotnet/build 与根目录两处成品。请先关闭程序，检查脚本返回码。

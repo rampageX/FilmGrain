@@ -62,6 +62,17 @@ namespace FilmGrainStudioPreview
             if(info==null){reason="media probe cache is not ready: "+input;return false;}
             if(!info.HasVideo){reason="input has no usable video stream: "+input;return false;}
             if(state==null){reason="missing execution state";return false;}
+            string svpEnabled, svpEngine;
+            state.TryGetValue("FG_SVP_INTERPOLATE", out svpEnabled); state.TryGetValue("FG_INTERPOLATION_ENGINE", out svpEngine);
+            if (!noReencode && svpEnabled == "1" && (string.IsNullOrEmpty(svpEngine) || string.Equals(svpEngine, "SVP", StringComparison.OrdinalIgnoreCase)))
+            {
+                string speed, tuning, block, analyse;
+                if (!state.TryGetValue("FG_SVP_SPEED", out speed)) speed = "FGS";
+                if (!state.TryGetValue("FG_SVP_TUNING", out tuning)) tuning = "FGS";
+                if (!state.TryGetValue("FG_SVP_BLOCK_SIZE", out block)) block = "auto";
+                if (!state.TryGetValue("FG_SVP_ANALYSE", out analyse)) analyse = "ENCODEGUI";
+                if (!SharedSvpCore.TryValidateOptions(speed, tuning, block, analyse, out reason)) return false;
+            }
             try
             {
                 bool success;

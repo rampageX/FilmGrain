@@ -1,8 +1,42 @@
 # Film Grain Studio
 
-> **Film Grain Studio v4.8.15 Stable · .NET Native-only。** 根 EXE 默认且仅执行 Native；不调用 Legacy BAT/PS1/VBS。旧 CLI/旧 GUI 及配套脚本保存在 Legacy，可以独立移走；共享配置、Lang、实际依赖、SVP .vpy、FGSIM 模板/纹理保留原位置。迁移验收仅覆盖实际测试范围，未测试组合不登记为通过。
+> **Film Grain Studio v4.8.16 Stable · .NET Native-only。** 根 EXE 默认且仅执行 Native；不调用 Legacy BAT/PS1/VBS。旧 CLI/旧 GUI 及配套脚本保存在 Legacy，可以独立移走；共享配置、Lang、实际依赖、SVP .vpy、FGSIM 模板/纹理保留原位置。迁移验收仅覆盖实际测试范围，未测试组合不登记为通过。
 
 ![](images/Film_Grain_Studio.jpg)
+
+## Framework 成品兼容性检查
+
+构建与发布均对实际 EXE 进行 Framework API 审计，根 EXE 与兼容 EXE 必须一致。先运行 `Tests_Shared/Run_Framework_Api_Check.bat` 检查包内原始成品，再按需运行 `dotnet/build_NET_Preview.bat`；本机构建和正式发布均将API审计作为强制步骤。失败不会靠重编译掩盖，也不提供跳过开关。当前说明为 `Tests_Shared/测试说明_P8N3LK.md`。
+
+## FRUC Vulkan 能力诊断与参数
+
+共享预检核对实际构建的 fps/perf/grid 选项及性能常量，保留设备 0 的小样本运行证据与错误；成功不等于实际输入或编码组合通过。任务日志保留 FFmpeg 版本、请求参数及实际返回的设备/网格，未报告的信息不推测。插帧选择与 FRUC 硬件状态 tooltip 共用简短摘要，不显示完整诊断日志或路径；失败时提示查看任务日志。参数默认仍 medium/auto，现有滤镜和时间轴策略保持。
+
+当前上游 auto 选择设备支持的最细网格，通常是 1，不能理解成速度优先；较粗网格用更少向量和内存，但损失细节。没有增加上游未暴露的 hint 或 sc_threshold，也没有假定 Vulkan 可直接交给 NVENC。
+
+软件入口 `Tests_Shared/Run_FRUC_Tests.bat` 不依赖 Python；视频入口 `Tests_Shared/Run_FRUC_Benchmark.bat` 读取 FGS 的 FRUC 路径配置（可传 -Ffmpeg/-Ffprobe/-TargetFps）。准备 Samples/fruc_sdr_1080p.mp4，可选 fruc_sdr_4k.mp4、fruc_cut_ts.ts，要求短片、8-bit SDR、逐行4:2:0。基准含解码/转换、上传下载两组对照；FRUC null 输出与 x264/AAC 预览编码单独计时，Summary.csv 提供三次计时中位数，真正视频保存在本次 Results/FRUC_.../Videos；CPU/工作集测量直接 FFmpeg 进程，未采集 GPU/OFA/显存。完整中文 A–E 在 `Tests_Shared/测试说明_R6V2QN.md`。Tests_Shared 仅随完整测试 ZIP 保留，继续排除 GitHub/正式 Stable。
+
+## OpenSVPFlow 高级参数
+
+在“高级 → 插帧”调整：
+
+| 设置 | 可选值 | 生效方式 |
+|---|---|---|
+| Speed | FGS / medium / fast / faster / fastest | 调整 pel、自动块尺寸、重叠及 refine；FGS 保持已有成本设置 |
+| Tuning | FGS / weak / film / smooth / animation | weak 改为较短 coarse 搜索并在正常场景模式启用切镜混合；animation 使用 type=2、distance=-6、无 refine；film/smooth 当前同义 |
+| Block Size | auto / 8 / 16 / 32 | auto 随 Speed/Tuning 选择；指定值只覆盖块尺寸 |
+
+三项默认 `FGS / FGS / auto` 保持既有 Super、Analyse、SmoothFps 参数；旧 INI 未含新键时使用这些默认值。Algo、Mask Area、主界面场景模式与目标帧率仍独立生效。BASE 仅支持新项默认值，选择其他预设时界面明确切换并禁用 Analyse Profile 为 ENCODEGUI；手动配置非法组合则停止准备并报实际原因。
+
+这是对前端预设的映射，不是向插件直接传入 `speed` / `tuning` API 字段。映射参考 2026-10-12 的 [OpenSVPFlow](https://github.com/Z1xus/open-svpflow) 与 [smoothie 网页](https://smoothie.z1x.us/) 实际脚本；保留 FGS 的 `full:true`、有理数帧率、cubic/linear、Algo、Mask 和场景模式。FGS Speed 配合新 Tuning 时保留 pel=1、自动 16 块（animation 除外），因此不宣称与网页整个输出完全一致。新映射保持 FGS 的 GPU 路径，本批不引入 CPU/GPU 后端切换。
+
+同条件基准用 `Tests_Shared/Run_SVP_Benchmark.bat`；自动配置/参数/模拟计划检查用 `Tests_Shared/Run_SVP_Tests.bat`。相关GUI和OpenSVPFlow本轮A–E已由用户确认通过。插帧说明通过控件/标签工具提示显示；当前页恢复默认统一在确定左侧，插件更新按钮仅在插帧页显示于底部左侧。新增日志列出最终三组插件参数。本批不改变音画时间轴、命名、取消、队列、HDR 规则或过滤顺序，不更新插件；测试结论以实际样本与参数为限，不能扩展到所有组合。
+
+## 本轮验收范围
+
+OpenSVPFlow相关人工项目、高级设置布局及FRUC简短提示已由用户确认。FRUC在RTX4080、FFmpeg 2026-09-24-git-5253641e62上完成1080p、4K及剪切TS、目标60fps的18个共享滤镜+x264/AAC观察案例；人工观察未发现异常，TS同步正常。实际auto选择grid=1，设备不支持grid=8。该结果不代表其他硬件、任意容器/时间戳/剪辑、HDR或NVENC与颗粒/LUT/字幕等全部组合通过。
+
+本地基准比较的是同样本同帧率不同perf/grid的成本和画质取舍；默认medium/auto保持。软件断言、模拟计划、Windows执行与人工观察分开记录。GPU/OFA/显存未采集。详细变更见CHANGELOG；Tests_Shared入口只在本地完整测试包提供，正式Stable与GitHub不携带该目录。
 
 基于 **FFmpeg、NVIDIA NVENC、libx264 与 grav1synth** 的 Windows 视频胶片化工具包，同时提供图形界面和命令行入口。
 

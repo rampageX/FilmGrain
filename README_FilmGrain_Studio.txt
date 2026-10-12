@@ -1,145 +1,26 @@
-本轮应用运行时 .NET 迁移验收已通过（2026-10-12）。默认且仅允许 Native，不调用 Legacy；旧 CLI/旧 GUI/辅助脚本在 Legacy。
-七项自动技术测试由 6+1 合并通过；人工项目与 ADDED 颗粒画面/音画同步确认通过，结论仅覆盖已测范围。
-
 Film Grain Studio - 使用说明
 ============================
 
-当前产品版本：v4.8.15；构建 Stable。
+当前产品版本：v4.8.16；构建 Stable。
 
-推荐双击根目录 FilmGrain_Studio.exe，或将多个视频拖入 EXE。
-兼容入口：dotnet\build\FilmGrain_Studio_NET_Preview.exe。
-Legacy GUI：Legacy\FilmGrain_Universal_GUI.bat；CLI：Legacy\FilmGrain_Universal_CLI.bat。
-保持完整目录，.NET 与 Legacy 共用根目录 FilmGrain_Config.ini。
-.NET 提供已覆盖的三线 Native、串行队列、共享预处理与原生辅助工具；
-默认且仅允许 Native，原生选择框已取消；准备失败说明原因并停止，不调用 Legacy。
-首次运行可安装核心依赖，可选插帧默认目标 60 fps，支持有效帧率/倍率。
-日志窗口保留阶段和错误，完整 Session/Task 文件保留原始诊断。
-功能、配置与剩余边界以 README.md 为准，发布变化见 CHANGELOG.md。
+运行：双击根目录 FilmGrain_Studio.exe，或将视频拖入EXE。
+同源构建位置：dotnet\build\FilmGrain_Studio_NET_Preview.exe；两处EXE内容必须一致。
+运行时为.NET；准备失败报告实际原因，不调用归档脚本。
+保留共享资源和实际算法依赖：FFmpeg/ffprobe、grav1synth、Python/VapourSynth、SVP插件/.vpy、FGSIM模板/纹理。
 
+本版新增：OpenSVPFlow Speed/Tuning/Block Size；默认FGS/FGS/auto保持既有参数。
+FRUC核对实际构建能力及设备，默认medium/auto保持；悬停提示简短，完整错误在任务日志。
+高级设置恢复默认统一在确定左侧；插帧说明使用tooltip，插件更新在底部左侧。
+本地/正式构建均对实际EXE执行Framework API审计，失败停止；开发构建BAT/PS1仍可保留。
 
-也可以把一个或多个视频直接拖到 Legacy\FilmGrain_Universal_GUI.bat，
-Studio 打开后会自动加入文件列表。
+用户配置：FilmGrain_Config.ini，使用时生成；测试/发布包不携带个人配置。
+源码：dotnet；共享资源：Lang、Utils、_LUT_Tools、_AV1_Grain_Tables、_OpenSVPFlow。
+Legacy仅为历史归档，不作为当前产品运行入口，也不维护兼容参数接口。
+日志：按任务记录完整诊断；失败请保留日志及实际参数。
 
-初版已实现
-----------
-- 多视频添加、拖放、移除和清空。
-- v4.8.9 新增色彩纠正与 LUT 实时预览：选择单个视频后，可直接在实际视频帧上调整对比度、亮度、饱和度、Gamma 与黑白模式；时间线支持单击逐帧、双击跳转及拖动定位，调整滑杆双击可单项恢复默认。
-- 色彩纠正窗口可直接打开现有 LUT Gallery，并以 25% / 50% / 75% / 100% 强度实时查看色彩纠正与 LUT 的最终叠加效果；确定后同步回主界面，取消不覆盖原设置。
-- 高级设置“其他”可启用 1280×700 大界面，视频预览由默认 720×480 扩大为 960×540；色彩参数和界面选项统一保存到 FilmGrain_Config.ini。启用色彩纠正的输出文件追加 _CC。
-- v4.8.0 新增简体中文 / English 多语言界面：主界面、动态下拉框、媒体信息、Tooltip、字幕、路径配置及常用提示均由 Lang 语言文件驱动；右上角切换语言后重新打开 GUI 生效。中文保持原布局，英文使用更宽的默认窗口以避免控件被压缩。
-- v4.7.5 将 Digital Grain、Grain Plate 与 GPU Film Grain (FGSIM) 统一使用 Film Grain Strength 滑杆；FGSIM 内部继续映射已经验证的 Light / Medium / Heavy 三档，不调整核心算法与颗粒效果。
-- HEVC + FGSIM 的“视频码率”下拉框提供 Standard CQ27 / QP18-26 与 High Quality CQ23 / QP18-24；默认仍沿用原有自动或手动 VBR。提示：HEVC+FGSIM 模式下, 若画面出现色带，请在视频码率中尝试 Standard CQ27 或 High Quality CQ23 方案。
-- v4.7.5 修复 FGSIM + BWDIF Vulkan 重复指定 filter device 的错误，两者统一复用 vk；AV1、x264 Grain、普通 HEVC VBR、输出容器、AAC 256k、插帧、LUT 与 HDR 流程不变。
-- 选中单个输入视频时显示视频/音频编码、码率、分辨率、帧率与时长。
-- v4.6.2 新增 HDR Preserve：HEVC Main10 / AV1 Main10 对 HDR 输入保持 10-bit、BT.2020、PQ/HLG 与源本来存在的 HDR10 静态元数据；HEVC 显式强制 P010 10-bit，并在最终输出检查 HDR Primaries / Transfer / Matrix / Range。
-- 源文件没有 Mastering Display / MaxCLL / MaxFALL 时不会伪造；YouTube 等只有 BT.2020 + PQ + 10-bit 的 HDR 输入可正常保持现有信号。
-- v4.7.0 新增 HDR 处理策略：自动（默认）/ 保持 HDR / 强制 SDR。自动模式遇到 x264、BT.709 LUT、OpenSVPFlow 或 H.264 上传版时，先用 Hable（可选 Mobius / Reinhard / Gamma / Linear / Clip）Tone Mapping 到 BT.709 SDR，再继续原有 SDR 流程。
-- 编码方式：AV1 · grav1synth 胶片颗粒（默认）、HEVC · 扫描胶片颗粒、H.264 · x264 Grain（CPU / VBR 单次）；单个 AV1 还可选择不重编码添加/替换胶片颗粒。
-- v4.7.0 新增三线共用“数字颗粒 · Fast Noise”：AV1 / HEVC / x264 均可直接像素烘焙，强度滑杆 0.10–1.00，默认 0.55；参考 0.30 轻微、0.40 轻、0.55 中等、0.68 约接近 HEVC CT35 85%、0.75+ 明显/偏重。AV1 / HEVC HDR Preserve 使用 10-bit 亮度颗粒路径。
-- MP4（默认）与 MKV。
-- FAST（默认）、Standard；硬件探测通过时 AV1 还可选 UHQ。
-- AV1 / HEVC / H.264 共用自动码率策略：按分辨率 + 最终 FPS + 高动态实时推荐并直接显示具体 kbps；取消“自动”后可手动输入且不被覆盖。
-- 自动反交错（默认）：BWDIF Vulkan；可选 BWDIF CUDA、W3FDIF Complex 或关闭。
-- 隔行素材自动 Field-rate：29.97i → 59.94p、25i → 50p；逐行素材自动旁路。
-- 逐行素材使用自动电影帧率或保持源帧率。
-- Cinematic Style（默认开启）：HEVC / AV1 均可选择加黑边保留原分辨率，
-  或裁剪为约 2.39:1 有效画面；默认加黑边，适合后期字幕。
-- NVIDIA GPU / 驱动 / FFmpeg 能力自动探测；界面同时显示驱动与 FFmpeg 版本；能力状态显示“配置：已适配 / 已缓存”；已验证 RTX 4080 与 T600 Laptop。
-- .NET 设置负责 OpenSVPFlow 首次安装与更新；Legacy\_OpenSVPFlow 中保留旧独立安装/更新入口。
-- 右上角“配置…”统一管理 FFmpeg 目录、grav1synth、Grain 与 LUT 路径，并写入根目录 FilmGrain_Config.ini。
-- 四项路径均提供“浏览…”与 ↻ 刷新：浏览选择后立即检测；手工输入后点击 ↻ 检测。
-- FFmpeg 显示 ffmpeg.exe / ffprobe.exe 版本；grav1synth 显示版本；Grain 同时统计原始 MOV、原分辨率/1080p Cache，并可补齐缺失缓存；LUT 同时统计 .cube 与 Gallery 预览图，并可创建缺失缩略图。
-- 保存时只做快速路径存在性检查，不重新运行版本检测或递归扫描。
-- AV1 胶片颗粒元数据支持胶片预设 / 感光度 ISO、胶片格式、胶片型号，以及亮度 + 色度。
-- AV1 另支持现成 .tbl / .txt Grain Table；_AV1_Grain_Tables 按 720p / 1080p / 1440p / 2160p 分类，GUI 默认只显示与源视频最接近的档位，勾选右侧无文字复选框可显示全部。
-- v4.6.2 正式包保留当前整理的一组公开 Grain Table；主要来源为 Boulder08/chunknorris 与 nekotrix/AV1-Photon-Noise-Tables，来源说明见 `_AV1_Grain_Tables\README.txt`。
-- AV1 / HEVC 均可选“同时生成 H.264 上传版”：上传副本固定使用 x264 Grain / High 8-bit，默认 Faster + tune grain + VBR 单次，并与主线共享 Preset / Pass 设置，拥有独立自动/手动码率；OpenSVPFlow 60 fps 插帧开启时同样可用，且不会重复运行插帧。v4.6.2.1 修复手动上传码率被 StudioBridge 二次校验后误拒绝的问题，继续统一使用平均码率 / 3× maxrate / 6× bufsize。
-- x264 主线与上传副本共用分辨率 + 最终 FPS + 高动态码率策略，VBV 固定为 maxrate=平均×3、bufsize=平均×6；全局“高动态”还会按能力启用 NVENC 运动优化。
-- 高级设置“编码”页提供 H.264 High10（实验），默认关闭；仅作用于 H.264 x264 Grain 主输出，不作用于兼容性优先的上传副本。
-- 字幕功能已独立于 H.264 上传版：可直接烧写进主 AV1 / HEVC / H.264；如同时生成 H.264 上传副本，
-  H.264 版本也会继承同一套字幕。
-- 默认字幕为 huiwen-mincho、1080p 基准字号 69、白字黑边阴影；统一以最终输出画面底边定位，
-  默认 MarginV=5 px（1920 宽基准），按输出宽度自动缩放，并支持 GB18030 中文字幕。
-- HEVC Grain 根目录递归扫描：界面仅显示电脑上实际存在的 .mov 颗粒片。
-- Grain 列表支持选择目录后自动刷新，也可点击 ↻ 手动刷新。
-- HEVC Grain 4 档强度，并自动匹配同名 1080p / 原分辨率 Lossless Cache；配置界面可直接生成缺失 Cache。
-- 根 .NET GUI 支持已验证的特殊输入路径；旧 CLI 的交互入口保存在 Legacy。
-- 根 .NET EXE 直接启动 GUI，编码任务不通过 CMD / PowerShell 脚本宿主。
-- 主界面直接读取 Gallery 最近使用与我的最爱，各显示最多 25 个 LUT，并复用缩略图即时预览。
-- 直接调用现有 LUT Gallery，支持 25% / 50% / 75% / 100% LUT 强度；配置界面可直接补齐缺失缩略图。
-- v4.6.2 LUT Gallery 新增“智能过滤”：将 LUT 分类为 Technical / Combined / Creative / Keep，只隐藏高置信度纯 Technical；同一创意 Look 的多种 Log 输入适配版本通过 Creative Family 识别为 Combined 并保留。
-- 智能过滤只改变 Gallery 显示，不移动、不删除、不改名 `.cube`；扫描报告写入 `<LUT_ROOT>\_LUT_PREVIEWS\_LUT_SMART_FILTER_REPORT.csv`。
-- Gallery“更换参考图”后会将当前参考图保存为 _LUT_Tools\LUT_Reference_Current.jpg；
-  Gallery 全量重建、配置界面补建缺失缩略图及独立预览生成器均优先复用该图片，
-  不存在时才回退 LUT_Reference_Default.jpg。Current 文件由用户首次更换参考图后自动生成。
-- 内置任务日志、当前阶段、当前编码阶段进度、fps / speed / ETA 与取消任务。
-- Studio 模式使用 FFmpeg 结构化实时进度，并兼容原有 -stats 文本解析。
+已验收：OpenSVPFlow本轮人工项目、设置布局、FRUCtooltip；RTX4080指定FFmpeg下1080p/4K/剪切TS共18个FRUC观察案例，TS同步正常。
+结论仅覆盖实际样本和路径，未测硬件/HDR/NVENC/字幕/LUT/颗粒等组合不登记通过。
+版本变更与详细边界见README.md、CHANGELOG.md和.github/release/RELEASE_NOTES.md。
 
-默认设置
---------
-编码：AV1 Main10 + grav1synth
-容器：MP4 / AAC 256k
-速度：FAST（p5 / qres / lookahead 16）
-码率：自动推荐并显示；按编码器 / 分辨率 / 最终 FPS / 高动态联动
-画幅：Cinematic Style 开启 / 默认加黑边保留原分辨率
-反交错：自动 / BWDIF Vulkan
-帧率：隔行 Field-rate ×2；逐行自动电影帧率
-GPU：自动检测
-AV1 Grain：Classic35 / Fujifilm Eterna 250D
-LUT：关闭
-
-统一路径配置
-------------
-路径统一保存在根目录 FilmGrain_Config.ini，可由 GUI 右上角“配置…”修改。
-FFmpeg 目录：E:\EnCoder\FFMpeg\x64\bin（目录内同时使用 ffmpeg.exe 与 ffprobe.exe）
-grav1synth：E:\EnCoder\FFMpeg\grav1synth\grav1synth.exe
-HEVC Grain 库：D:\Film_Grain
-LUT 根目录：E:\Adobe Portable\LUTs
-INI 使用 UTF-8 无 BOM；GUI、CLI、StudioBridge 与相关 Utils 工具读取同一配置。
-
-FilmGrain_Config.ini 现在也是 FGS 唯一的用户自定义配置文件：除上述路径外，还保存 GUI 语言、LUT Gallery“智能过滤”状态、高级设置的全部可修改项目，以及色彩纠正的启用状态、对比度、亮度、饱和度、Gamma 与黑白模式。高级设置分为“编码 / 插帧 / HDR / 其他”，每个页面均提供“恢复默认”，只恢复当前页面。旧版本留下的 Lang\FilmGrain_Language.ini 会在启动时自动迁移语言选择，之后不再作为配置来源。
-
-正式包随附当前已验证的 OpenSVPFlow 插件 DLL 与版本状态文件；首次安装由 .NET 设置完成；Legacy\_OpenSVPFlow\00_Setup.bat 仅为旧独立入口。安装生成的 .env、_PluginBackup 与本机硬件能力缓存不属于正式包。
-
-文件关系
---------
-FilmGrain_Studio.exe
-    当前 .NET GUI 与 Native 调度入口；共享源码位于 dotnet\FilmGrain.Gui。
-
-以下 Legacy 启动器与助手仅属于归档的旧工具，不参与根 .NET EXE 的运行：
-
-Legacy\FilmGrain_Universal_GUI.bat
-    GUI 入口；解决 PowerShell 执行策略与 STA 启动问题。
-
-FilmGrain_Config.ini
-    全项目共享的外部路径配置。
-
-Legacy\Utils\FilmGrain_Config.ps1 / FilmGrain_Config_Load.bat
-    PowerShell / CMD 共用的配置读取层。
-
-Legacy\Utils\FilmGrain_Studio.ps1
-    WinForms 图形界面。
-
-Legacy\Utils\FilmGrain_ColorCorrection.ps1
-    色彩纠正、视频帧时间线及 LUT 最终叠加效果的实时预览窗口。
-
-Legacy\Utils\FilmGrain_Language.ps1 + Lang\zh-CN.ini / en-US.ini
-    GUI 多语言加载层与语言资源；当前语言选择统一保存在根目录 FilmGrain_Config.ini。
-
-Legacy\Utils\FilmGrain_Studio_Launcher.vbs
-    无控制台启动器；异步启动 WinForms 后立即退出，不保留 CMD 任务栏窗口。
-
-Legacy\Utils\FilmGrain_Universal_HEVC_AV1_StudioBridge.bat
-    GUI / CLI 共用编码核心；GUI 通过 FG_* 参数调用，CLI 使用交互模式。
-
-Legacy\Utils\FilmGrain_Subtitle_Prepare.ps1
-    H.264 上传版文本字幕识别、字符集处理、ASS 样式与位置准备。
-
-Legacy\FilmGrain_Universal_CLI.bat
-    CLI 入口，直接进入同一 StudioBridge 核心的交互模式，可独立拖放使用。
-
-请保持两个入口 BAT、Utils、_LUT_Tools 与 _AV1_Grain_Tables 文件夹的相对位置不变。
-
-历史变更
---------
-正式发布历史统一记录在根目录 CHANGELOG.md。
+发布：由维护者指定目标版号运行release.bat；正式Stable由Windows流程重新构建。
+此工作包为发布准备，不代表已提交、创建Tag、推送或正式发布。Dry Run不等于发布。

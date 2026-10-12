@@ -367,11 +367,7 @@ namespace FilmGrainStudioPreview
     {
         internal static string Classify(string reason)
         {
-            string text = (reason ?? "").ToLowerInvariant();
-            if (text.Contains("vk_nv_optical_flow") || text.Contains("vulkan device does not support") ||
-                text.Contains("no device") || text.Contains("failed to create vulkan") || text.Contains("cannot load vulkan")) return "DEVICE";
-            if (text.Contains("invalid fruc")) return "CONFIG";
-            return "RUNTIME";
+            return SharedFrucCore.FailureKind(reason);
         }
 
         internal static void Detect(HardwareCapabilityRequest request, HardwareCapabilitySnapshot snapshot, SharedFrucCore.ProbeRunner runner = null)
@@ -384,17 +380,14 @@ namespace FilmGrainStudioPreview
             snapshot.FrucReady = true;
             snapshot.FrucAvailable = false;
             snapshot.FrucFailureKind = "FFMPEG";
-            string output, reason;
+            string reason;
             try
             {
-                if (!File.Exists(snapshot.FrucFfmpegPath)) { snapshot.FrucReason = "FRUC FFmpeg executable is missing: " + snapshot.FrucFfmpegPath; return; }
-                if (!runner(snapshot.FrucFfmpegPath, "-hide_banner -h filter=fruc_vulkan", 5000, out output, out reason))
-                { snapshot.FrucFailureKind = "RUNTIME"; snapshot.FrucReason = "FRUC FFmpeg help probe failed: " + reason; return; }
-                if (!output.Contains("Filter fruc_vulkan") || output.IndexOf("Unknown filter", StringComparison.OrdinalIgnoreCase) >= 0)
-                { snapshot.FrucReason = "Selected FFmpeg does not expose fruc_vulkan"; return; }
-                snapshot.FrucAvailable = SharedFrucCore.TryPreflight(snapshot.FrucFfmpegPath, snapshot.FrucPerf, snapshot.FrucGrid, out reason, runner);
+                if (!File.Exists(snapshot.FrucFfmpegPath)) { snapshot.FrucReason = "[dependency missing] FRUC FFmpeg executable: " + snapshot.FrucFfmpegPath; return; }
+                SharedFrucCore.CapabilityReport report;
+                snapshot.FrucAvailable = SharedFrucCore.TryInspect(snapshot.FrucFfmpegPath, snapshot.FrucPerf, snapshot.FrucGrid, out report, out reason, runner);
                 snapshot.FrucFailureKind = snapshot.FrucAvailable ? "" : Classify(reason);
-                snapshot.FrucReason = snapshot.FrucAvailable ? "Vulkan device 0 FRUC runtime preflight passed" : reason;
+                snapshot.FrucReason = snapshot.FrucAvailable ? report.Summary(snapshot.FrucPerf, snapshot.FrucGrid) : reason;
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex) { snapshot.FrucFailureKind = "RUNTIME"; snapshot.FrucReason = ex.Message; }

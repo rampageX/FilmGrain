@@ -101,6 +101,12 @@ namespace FilmGrainStudioPreview
             snapshot.SvpAnalyse = config.Get("SVP_ANALYSE");
             snapshot.SvpSceneMode = cmbInterpolationMode != null && cmbInterpolationMode.SelectedIndex == 1 ? "3" : "0";
             snapshot.SvpMaskArea = config.Get("SVP_MASK_AREA");
+            snapshot.SvpSpeed = config.Get("SVP_SPEED");
+            snapshot.SvpTuning = config.Get("SVP_TUNING");
+            snapshot.SvpBlockSize = config.Get("SVP_BLOCK_SIZE");
+            if (snapshot.SvpInterpolate && snapshot.InterpolationEngine == "SVP" &&
+                !SharedSvpCore.TryValidateOptions(snapshot.SvpSpeed, snapshot.SvpTuning, snapshot.SvpBlockSize, snapshot.SvpAnalyse, out error))
+                return null;
             snapshot.InterpolationTargetFps = cmbInterpolationFps == null ? config.Get("INTERPOLATION_TARGET_FPS") : cmbInterpolationFps.Text.Trim();
             snapshot.FrucPerf = config.Get("FRUC_PERF");
             snapshot.FrucGrid = config.Get("FRUC_GRID");

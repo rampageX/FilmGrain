@@ -118,6 +118,10 @@ goto :build_done
 :build_done
 if errorlevel 1 goto :compile_failed
 
+rem Verify the actual compiled artifact against physical Windows Framework APIs.
+"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%SCRIPT_DIR%BuildTools\Test_Framework_Api.ps1" -Executable "%OUT_EXE%"
+if errorlevel 1 goto :compile_failed
+
 echo.
 copy /b /y "%OUT_EXE%" "%ROOT_DIR%\FilmGrain_Studio.exe" >nul
 if errorlevel 1 goto :publish_failed

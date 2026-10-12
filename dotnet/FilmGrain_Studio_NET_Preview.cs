@@ -98,7 +98,7 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "4.8.15";
+        internal const string ReleaseVersion = "4.8.16";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -2117,7 +2117,7 @@ namespace FilmGrainStudioPreview
             item.ToolTipText = name + " · " + lang.T(available ? "hardware.available" : "hardware.unavailable");
         }
 
-        private string FrucUiReason()
+        private string FrucUiSummary()
         {
             if (hardwareDetectionInProgress || hardwareCaps == null || !hardwareCaps.FrucReady)
                 return UiText("FRUC Vulkan 正在检测，请稍后重试。", "FRUC Vulkan detection is pending.");
@@ -2125,8 +2125,23 @@ namespace FilmGrainStudioPreview
             string summary = kind == "FFMPEG" ? UiText("FFmpeg 缺少 FRUC 滤镜或路径不可用", "FFmpeg filter/path unavailable") :
                 kind == "DEVICE" ? UiText("Vulkan 设备 0 / 驱动不支持 FRUC", "Vulkan device 0 / driver limitation") :
                 kind == "CONFIG" ? UiText("FRUC 参数无效", "Invalid FRUC configuration") :
+                kind == "UNSUPPORTED" ? UiText("当前构建或设备不支持此 FRUC 组合", "Unsupported FRUC build/device combination") :
                 UiText("FRUC 运行预检失败", "FRUC runtime preflight failed");
-            return summary + Environment.NewLine + hardwareCaps.FrucReason + Environment.NewLine + hardwareCaps.FrucFfmpegPath;
+            return summary;
+        }
+
+        private string FrucUiReason()
+        {
+            if (hardwareDetectionInProgress || hardwareCaps == null || !hardwareCaps.FrucReady) return FrucUiSummary();
+            return FrucUiSummary() + Environment.NewLine + hardwareCaps.FrucReason + Environment.NewLine + hardwareCaps.FrucFfmpegPath;
+        }
+
+        private string FrucToolTipText()
+        {
+            if (hardwareDetectionInProgress || hardwareCaps == null || !hardwareCaps.FrucReady) return FrucUiSummary();
+            if (hardwareCaps.FrucAvailable)
+                return UiText("FRUC Vulkan 小样本预检通过。实际输入和组合仍需验证。", "FRUC Vulkan small-sample probe passed. Actual inputs/combinations still require testing.");
+            return FrucUiSummary() + Environment.NewLine + UiText("详细原因请查看任务日志。", "See the task log for details.");
         }
 
         private void UpdateFrucAvailabilityUi()
@@ -2138,14 +2153,14 @@ namespace FilmGrainStudioPreview
             else if (!hardwareCaps.FrucAvailable)
                 label += hardwareCaps.FrucFailureKind == "FFMPEG" ? UiText(" · 不可用：FFmpeg", " · unavailable: FFmpeg") :
                     hardwareCaps.FrucFailureKind == "DEVICE" ? UiText(" · 不可用：设备/驱动", " · unavailable: device/driver") :
+                    hardwareCaps.FrucFailureKind == "UNSUPPORTED" ? UiText(" · 不可用：组合不支持", " · unavailable: unsupported combination") :
+                    hardwareCaps.FrucFailureKind == "CONFIG" ? UiText(" · 不可用：参数无效", " · unavailable: invalid parameters") :
                     UiText(" · 不可用：预检失败", " · unavailable: preflight");
             updatingFrucUi = true;
             try { cmbInterpolationMode.Items[2] = label; }
             finally { updatingFrucUi = false; }
             cmbInterpolationMode.Invalidate();
-            if (lutToolTip != null) lutToolTip.SetToolTip(cmbInterpolationMode,
-                hardwareCaps != null && hardwareCaps.FrucReady && hardwareCaps.FrucAvailable ?
-                    "FRUC Vulkan device 0 · " + hardwareCaps.FrucFfmpegPath + " · Native HEVC/x264/AV1 SDR" : FrucUiReason());
+            if (lutToolTip != null) lutToolTip.SetToolTip(cmbInterpolationMode, FrucToolTipText());
         }
 
         private void UpdateFrucStatus()
@@ -2153,8 +2168,7 @@ namespace FilmGrainStudioPreview
             if (hardwareCaps == null || !hardwareCaps.FrucReady || hardwareDetectionInProgress) return;
             SetCapabilityStatus("FRUC", hardwareCaps.FrucAvailable);
             if (statusCapabilities.ContainsKey("FRUC"))
-                statusCapabilities["FRUC"].ToolTipText = hardwareCaps.FrucAvailable ?
-                    "Vulkan device 0 · " + hardwareCaps.FrucFfmpegPath + " · Native HEVC/x264/AV1 SDR" : FrucUiReason();
+                statusCapabilities["FRUC"].ToolTipText = FrucToolTipText();
         }
 
         private void ResetHardwareUiToPending()
