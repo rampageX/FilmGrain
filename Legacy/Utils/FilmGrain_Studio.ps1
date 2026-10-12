@@ -153,13 +153,14 @@ trap {
 }
 
 $ScriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-$PackageRoot = Split-Path -Parent $ScriptRoot
-$AppIconPath = Join-Path $ScriptRoot 'FGS.ico'
+$LegacyRoot = Split-Path -Parent $ScriptRoot
+$PackageRoot = Split-Path -Parent $LegacyRoot
+$AppIconPath = Join-Path $PackageRoot 'Utils\FGS.ico'
 $AppUserModelId = 'FilmGrainStudio.FGS'
 $CoreBat = Join-Path $ScriptRoot 'FilmGrain_Universal_HEVC_AV1_StudioBridge.bat'
 $NoReencodeBat = Join-Path $ScriptRoot 'AV1_Grav1synth_Add_Replace_FilmGrain_NoReencode.bat'
 $GrainCacheBat = Join-Path $ScriptRoot 'FilmGrain_MOV_to_HEVC_Lossless_Cache.bat'
-$LutPreviewGenerator = Join-Path $PackageRoot '_LUT_Tools\LUT_Preview_Batch_Gallery.ps1'
+$LutPreviewGenerator = Join-Path $LegacyRoot '_LUT_Tools\LUT_Preview_Batch_Gallery.ps1'
 $LutPreviewDefaultReference = Join-Path $PackageRoot '_LUT_Tools\LUT_Reference_Default.jpg'
 $LutPreviewCurrentReference = Join-Path $PackageRoot '_LUT_Tools\LUT_Reference_Current.jpg'
 $ConfigScript = Join-Path $ScriptRoot 'FilmGrain_Config.ps1'
@@ -179,10 +180,10 @@ $DefaultAv1GrainTableRoot = Join-Path $PackageRoot '_AV1_Grain_Tables'
 $HardwareCapsScript = Join-Path $ScriptRoot 'FilmGrain_Hardware_Caps.ps1'
 $HardwareCapsCache = Join-Path $ScriptRoot '_HardwareCaps.json'
 $OpenSvpRoot = Join-Path $PackageRoot '_OpenSVPFlow'
-$OpenSvpSetupBat = Join-Path $OpenSvpRoot '00_Setup.bat'
+$OpenSvpSetupBat = Join-Path $LegacyRoot '_OpenSVPFlow\00_Setup.bat'
 $LutRoot = [string]$script:PathConfig.LUT_ROOT
 $LutPreviewRoot = Join-Path $LutRoot '_LUT_PREVIEWS'
-$LutSelector = Join-Path $PackageRoot '_LUT_Tools\LUT_Gallery_Selector.ps1'
+$LutSelector = Join-Path $LegacyRoot '_LUT_Tools\LUT_Gallery_Selector.ps1'
 $LutGalleryIndex = Join-Path $LutPreviewRoot '_LUT_GALLERY_INDEX.json'
 $LutGalleryRecent = Join-Path $LutPreviewRoot '_LUT_GALLERY_RECENT.json'
 $LutGalleryFavorites = Join-Path $LutPreviewRoot '_LUT_GALLERY_FAVORITES.json'

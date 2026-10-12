@@ -215,8 +215,7 @@ namespace FilmGrainStudioPreview
             string grainState;
             if (av1GrainInspectCache.TryGetValue(path, out grainState))
             {
-                if (grainState == "AV1 胶片颗粒：无") snapshot.SourceGrainAction = "ADDED";
-                else if (grainState == "AV1 胶片颗粒：亮度" || grainState == "AV1 胶片颗粒：亮度 + 色度") snapshot.SourceGrainAction = "REPLACED";
+                snapshot.SourceGrainAction = Av1GrainInspectCore.SourceGrainAction(grainState);
             }
             return snapshot;
         }

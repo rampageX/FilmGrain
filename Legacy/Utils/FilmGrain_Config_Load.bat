@@ -4,8 +4,8 @@ rem This file is CALLed by other BAT files and intentionally has no SETLOCAL.
 rem FilmGrain_Config.ini is UTF-8 without BOM. Delayed expansion must stay disabled
 rem in callers while loading path values so literal ! characters are preserved.
 
-set "FILMGRAIN_CONFIG_FILE=%~dp0..\FilmGrain_Config.ini"
-set "FILMGRAIN_CONFIG_DEFAULT_FILE=%~dp0..\FilmGrain_Config.default.ini"
+set "FILMGRAIN_CONFIG_FILE=%~dp0..\..\FilmGrain_Config.ini"
+set "FILMGRAIN_CONFIG_DEFAULT_FILE=%~dp0..\..\FilmGrain_Config.default.ini"
 
 if not exist "%FILMGRAIN_CONFIG_FILE%" if exist "%FILMGRAIN_CONFIG_DEFAULT_FILE%" (
     copy /y "%FILMGRAIN_CONFIG_DEFAULT_FILE%" "%FILMGRAIN_CONFIG_FILE%" >nul 2>&1

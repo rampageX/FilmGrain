@@ -22,78 +22,7 @@ $Utf8Bom = New-Object System.Text.UTF8Encoding($true)
 $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 $Utf8Strict = New-Object System.Text.UTF8Encoding($false, $true)
 
-$RequiredPackageFiles = @(
-    '.gitattributes',
-    'CHANGELOG.md',
-    'FilmGrain_Config.default.ini',
-    'FilmGrain_Universal_CLI.bat',
-    'FilmGrain_Universal_GUI.bat',
-    'LICENSE',
-    'README.md',
-    'README_FilmGrain_Studio.txt',
-    'README_Toolkit.txt',
-    'STABLE_BASELINE.txt',
-    'dotnet\build_NET_Preview.bat',
-    'dotnet\FilmGrain_Studio_NET_Preview.cs',
-    'dotnet\FilmGrain_SetupPhase1.cs',
-    'dotnet\Setup_Dependencies.ps1',
-    'dotnet\FilmGrain_NativeArchiveCore.cs',
-    'dotnet\FilmGrain_NativeLibraryTools.cs',
-    'dotnet\FilmGrain_NativeLutGalleryForm.cs',
-    'dotnet\FilmGrain_NativeLutRecords.cs',
-    'dotnet\FilmGrain_NativeSetupCore.cs',
-    'dotnet\FilmGrain_NativeStartupCore.cs',
-    'dotnet\FilmGrain_SharedHdrPreprocessCore.cs',
-    'dotnet\FilmGrain_SharedPipeTimelineCore.cs',
-    'dotnet\BUILD_NET_FRAMEWORK.md',
-    '_AV1_Grain_Tables\Netflix_FGS_Dune2.txt',
-    'Utils\FilmGrain_Studio.ps1',
-    'Utils\FilmGrain_ColorCorrection.ps1',
-    'Utils\FGS_Benchmark.cmd',
-    'Utils\FGS_Benchmark.ps1',
-    'Utils\FilmGrain_Language.ps1',
-    'Lang\zh-CN.ini',
-    'Lang\en-US.ini',
-    '_OpenSVPFlow\Plugins\open-svpflow-version.txt',
-    '_OpenSVPFlow\Plugins\svpflow1_vs.dll',
-    '_OpenSVPFlow\Plugins\svpflow2_vs.dll',
-    'Utils\_FilmGrainSimplified\NoiseFallback_512x512_RGBA8.rgba'
-)
-
-$RequiredPackageDirectories = @(
-    'images',
-    'dotnet',
-    'Lang',
-    'Utils',
-    '_AV1_Grain_Tables',
-    '_LUT_Tools',
-    '_OpenSVPFlow'
-)
-
-$ExcludedPackagePaths = @(
-    '.github',
-    'FilmGrain_Config.ini',
-    '.gitignore',
-    'benchmark',
-    'release.bat',
-    'Utils\_HardwareCaps.json',
-    'Utils\_HardwareCaps_NET.json',
-    'Utils\_FilmGrainSimplified\Generated',
-    'Logs',
-    'Tests_Shared',
-    '_Dependencies',
-    '_OpenSVPFlow\_UserConfig',
-    '_LUT_Tools\LUT_Reference_Current.jpg',
-    '_OpenSVPFlow\_PluginBackup',
-    'Lang\FilmGrain_Language.ini'
-)
-
-$ExcludedRecursiveDirectoryNames = @(
-    '.env',
-    '.venv'
-)
-
-$ExcludedRootDeliveryPatterns = @('PatchManifest_*.json', 'PATCH_MANIFEST_*.json', '迁移与测试_*.md', '测试说明_*.md', '审查与改动_*.md', '更新与测试_*.md', '启动说明_NET_*.md')
+. (Join-Path $PSScriptRoot 'release_layout.ps1')
 
 function Get-NormalizedFullPath {
     param([Parameter(Mandatory = $true)][string]$Path)
@@ -178,9 +107,8 @@ function Test-ReleaseMetadata {
     $notesFile = Join-Path $Root '.github\release\RELEASE_NOTES.md'
     $baselineFile = Join-Path $Root 'STABLE_BASELINE.txt'
     $changeFile = Join-Path $Root 'CHANGELOG.md'
-    $studioFile = Join-Path $Root 'Utils\FilmGrain_Studio.ps1'
 
-    foreach ($path in @($versionFile, $notesFile, $baselineFile, $changeFile, $studioFile)) {
+    foreach ($path in @($versionFile, $notesFile, $baselineFile, $changeFile)) {
         if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
             throw "Release metadata file missing: $path"
         }
@@ -209,24 +137,16 @@ function Test-ReleaseMetadata {
         throw "RELEASE_NOTES.md title does not match v$ReleaseVersion"
     }
 
-    $studio = [System.IO.File]::ReadAllText($studioFile)
-    $statusPattern = '(?m)^\s*\$statusVersion\.Text\s*=\s*' + [char]39 + 'v' + $escapedVersion + [char]39 + '\s*$'
-    if ($studio -notmatch $statusPattern) {
-        throw "GUI status version does not match v$ReleaseVersion"
-    }
-
     $native = [System.IO.File]::ReadAllText((Join-Path $Root 'dotnet\FilmGrain_Studio_NET_Preview.cs'))
     $nativeVersion = [regex]::Match($native, 'internal const string ReleaseVersion\s*=\s*"([0-9.]+)"')
     if (-not $nativeVersion.Success -or $nativeVersion.Groups[1].Value -ne $ReleaseVersion) {
         throw '.NET release version does not match release metadata.'
     }
-    if ($native -notmatch 'private const string TestBuild\s*=\s*"Stable"') {
+    if ($native -notmatch 'internal const string BuildLabel\s*=\s*"Stable"' -or $native -notmatch 'private const string TestBuild\s*=\s*Program\.BuildLabel\s*;') {
         throw '.NET formal source still contains a test-build label.'
     }
 
-    if ($studio -match '\$statusVersion\.Text[^\r\n]*TEST|I18N TEST|TEST P7L4N|TEST M5Q8T|TEST R4N8C|TEST K7M2Q') {
-        throw 'Formal GUI still contains a test-build marker.'
-    }
+
 }
 
 function Test-SourceLayout {
@@ -240,6 +160,9 @@ function Test-SourceLayout {
     }
     foreach ($relative in $RequiredPackageDirectories) {
         Assert-Directory -Root $Root -RelativePath $relative
+    }
+    foreach ($retired in $RetiredSourceFiles) {
+        if (Test-Path -LiteralPath (Join-Path $Root $retired)) { throw ('Retired script remains outside Legacy: ' + $retired) }
     }
     Test-ReleaseMetadata -Root $Root -ReleaseVersion $ReleaseVersion
 }
@@ -315,7 +238,10 @@ function Normalize-PackageTextFiles {
 }
 
 function Build-DotNetPreview {
-    param([Parameter(Mandatory = $true)][string]$StageRoot)
+    param(
+        [Parameter(Mandatory = $true)][string]$StageRoot,
+        [Parameter(Mandatory = $true)][ValidatePattern('^\d+(?:\.\d+){2,3}$')][string]$ReleaseVersion
+    )
 
     $script = Join-Path $StageRoot 'dotnet\build_NET_Preview.bat'
     $buildDirectory = Join-Path $StageRoot 'dotnet\build'
@@ -341,33 +267,49 @@ function Build-DotNetPreview {
     if ((Get-Item -LiteralPath $executable).Length -le 0) {
         throw '.NET Preview executable is empty.'
     }
+    Test-NativeExecutableMetadata -Executable $rootExecutable -ReleaseVersion $ReleaseVersion
+}
+
+function Test-NativeExecutableMetadata {
+    param([string]$Executable, [string]$ReleaseVersion)
+    $assembly = [Reflection.Assembly]::Load([IO.File]::ReadAllBytes($Executable))
+    $program = $assembly.GetType('FilmGrainStudioPreview.Program', $true)
+    $flags = [Reflection.BindingFlags]::NonPublic -bor [Reflection.BindingFlags]::Static
+    $version = $program.GetField('ReleaseVersion', $flags)
+    $label = $program.GetField('BuildLabel', $flags)
+    if ($null -eq $version -or $null -eq $label -or $version.GetRawConstantValue() -ne $ReleaseVersion -or $label.GetRawConstantValue() -ne 'Stable') {
+        throw 'Built .NET EXE release version / Stable label does not match staged source.'
+    }
 }
 
 function Test-PackageContent {
-    param([Parameter(Mandatory = $true)][string]$StageRoot)
+    param(
+        [Parameter(Mandatory = $true)][string]$StageRoot,
+        [Parameter(Mandatory = $true)][string]$ReleaseVersion
+    )
 
     foreach ($relative in $RequiredPackageFiles) {
         Assert-File -Root $StageRoot -RelativePath $relative
     }
+    foreach ($relative in $ExcludedPackagePaths) {
+        if (Test-Path -LiteralPath (Join-Path $StageRoot $relative)) { throw ('Excluded path remains in stage: ' + $relative) }
+    }
     Assert-File -Root $StageRoot -RelativePath 'dotnet\build\FilmGrain_Studio_NET_Preview.exe'
     Assert-File -Root $StageRoot -RelativePath 'FilmGrain_Studio.exe'
+    $nativeExe = Join-Path $StageRoot 'dotnet/build/FilmGrain_Studio_NET_Preview.exe'
+    $rootExe = Join-Path $StageRoot 'FilmGrain_Studio.exe'
+    if ((Get-FileHash -LiteralPath $nativeExe -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $rootExe -Algorithm SHA256).Hash) { throw 'Root and compatible EXEs differ.' }
+    Test-NativeExecutableMetadata -Executable $rootExe -ReleaseVersion $ReleaseVersion
     foreach ($relative in $RequiredPackageDirectories) {
         Assert-Directory -Root $StageRoot -RelativePath $relative
     }
 
-    . (Join-Path $StageRoot 'Utils\FilmGrain_Language.ps1')
-    $languages = @(Get-FgAvailableLanguages)
-    $codes = @($languages | ForEach-Object { [string]$_.Code })
-    if ($codes -notcontains 'zh-CN' -or $codes -notcontains 'en-US') {
-        throw ('Required languages missing: ' + ($codes -join ', '))
-    }
-
-    $studioPath = Join-Path $StageRoot 'Utils\FilmGrain_Studio.ps1'
-    $studioText = [System.IO.File]::ReadAllText($studioPath)
+    # Read .NET literal language keys directly; never execute a Legacy helper.
     $usedKeys = @(
-        [regex]::Matches($studioText, "\bL\s+'([^']+)'") |
-            ForEach-Object { $_.Groups[1].Value } |
-            Sort-Object -Unique
+        Get-ChildItem -LiteralPath (Join-Path $StageRoot 'dotnet') -Filter '*.cs' -File | ForEach-Object {
+            $text = [System.IO.File]::ReadAllText($_.FullName)
+            [regex]::Matches($text, '\b(?:lang|language)\.T\("([^"\\]+)"\)') | ForEach-Object { $_.Groups[1].Value }
+        } | Sort-Object -Unique
     )
 
     $zh = Read-LangKeys -Path (Join-Path $StageRoot 'Lang\zh-CN.ini')
@@ -492,11 +434,7 @@ if (-not (Test-Path -LiteralPath $RepositoryRoot -PathType Container)) {
     throw "Repository root not found: $RepositoryRoot"
 }
 
-$gitTop = @(& git -C $RepositoryRoot rev-parse --show-toplevel 2>$null)
-if ($LASTEXITCODE -ne 0 -or -not $gitTop.Count) {
-    throw "Not a Git repository: $RepositoryRoot"
-}
-$gitTopPath = Get-NormalizedFullPath -Path $gitTop[0]
+$gitTopPath = Get-NormalizedFullPath -Path (Get-ReleaseGitTopLevel -Root $RepositoryRoot)
 if (-not [string]::Equals($RepositoryRoot, $gitTopPath, [System.StringComparison]::OrdinalIgnoreCase)) {
     throw "RepositoryRoot must be the Git top-level directory: $gitTopPath"
 }
@@ -507,6 +445,10 @@ if ($ValidateOnly) {
     Write-Host "[FGS] Shared release source validation passed for v$Version."
     exit 0
 }
+
+$trackedSource = @(Get-ReleaseTrackedPaths -Root $RepositoryRoot)
+$badSource = @($trackedSource | Where-Object { Test-ForbiddenTrackedSourcePath $_ })
+if ($badSource.Count) { throw ('Local-only files tracked in release source: ' + ($badSource -join ', ')) }
 
 if (-not $OutputDirectory) {
     $OutputDirectory = $RepositoryRoot
@@ -539,8 +481,8 @@ try {
 
     Remove-PackageExclusions -StageRoot $stageRoot
     Normalize-PackageTextFiles -StageRoot $stageRoot
-    Build-DotNetPreview -StageRoot $stageRoot
-    Test-PackageContent -StageRoot $stageRoot
+    Build-DotNetPreview -StageRoot $stageRoot -ReleaseVersion $Version
+    Test-PackageContent -StageRoot $stageRoot -ReleaseVersion $Version
 
     if (Test-Path -LiteralPath $zipPath) {
         Remove-Item -LiteralPath $zipPath -Force

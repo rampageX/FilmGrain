@@ -96,7 +96,7 @@ if($Action -eq 'Init') {
     $bridge=Join-Path $homeDir 'FilmGrain_Universal_HEVC_AV1_StudioBridge.bat'
     if(!(Test-Path -LiteralPath $bridge)){$bridge=Join-Path $homeDir 'Utils\FilmGrain_Universal_HEVC_AV1_StudioBridge.bat'}
     if(!(Test-Path -LiteralPath $bridge)){throw 'Place CMD and PS1 in the FGS root or beside StudioBridge in Utils.'}
-    $utils=Split-Path -Parent $bridge; $fgs=Split-Path -Parent $utils
+    $utils=Split-Path -Parent $bridge; $fgs=Split-Path -Parent (Split-Path -Parent $utils)
     $ini=Join-Path $fgs 'FilmGrain_Config.ini'
     $defaultIni=Join-Path $fgs 'FilmGrain_Config.default.ini'
     if(!(Test-Path -LiteralPath $ini) -and (Test-Path -LiteralPath $defaultIni -PathType Leaf)){

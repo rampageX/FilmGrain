@@ -9,6 +9,83 @@ using System.Web.Script.Serialization;
 
 namespace FilmGrainStudioPreview
 {
+    // Read only structured MOV/MP4 boxes; never scan compressed payload for a fourcc.
+    internal static class MovFieldOrderCore
+    {
+        private sealed class Box { public string Type; public long Data; public long End; }
+        private sealed class Reader
+        {
+            internal readonly Stream Input;
+            private int remaining = 4096;
+            internal Reader(Stream input) { Input = input; }
+            internal uint U32() { uint v=0; for(int i=0;i<4;i++){int b=Input.ReadByte();if(b<0)throw new EndOfStreamException();v=(v<<8)|(uint)b;}return v; }
+            internal List<Box> Boxes(long start,long end)
+            {
+                var boxes=new List<Box>();
+                while(start<end) {
+                    if(--remaining<0 || end-start<8)throw new InvalidDataException("Invalid MOV box list");
+                    Input.Position=start;ulong size=U32();uint type=U32();long header=8;
+                    if(size==1){size=((ulong)U32()<<32)|U32();header=16;}
+                    if(size==0)size=(ulong)(end-start);
+                    if(size<(ulong)header || size>(ulong)(end-start))throw new InvalidDataException("Invalid MOV box size");
+                    boxes.Add(new Box{Type=new string(new[]{(char)(type>>24),(char)((type>>16)&255),(char)((type>>8)&255),(char)(type&255)}),Data=start+header,End=start+(long)size});
+                    start+=(long)size;
+                }
+                return boxes;
+            }
+            internal Box Child(Box parent,string type) {foreach(var b in Boxes(parent.Data,parent.End))if(b.Type==type)return b;return null;}
+            internal string VideoOrder(Box track,int width,int height,out bool video)
+            {
+                video=false;var media=Child(track,"mdia");if(media==null)return "";
+                var handler=Child(media,"hdlr");if(handler==null || handler.End-handler.Data<12)return "";
+                Input.Position=handler.Data+8;if(U32()!=0x76696465)return "";video=true;
+                var minf=Child(media,"minf");if(minf==null)return "";
+                var table=Child(minf,"stbl");if(table==null)return "";
+                var desc=Child(table,"stsd");if(desc==null || desc.End-desc.Data<8)return "";
+                Input.Position=desc.Data+4;if(U32()!=1)return ""; // Ambiguous sample descriptions do not override FFprobe.
+                var entries=Boxes(desc.Data+8,desc.End);if(entries.Count!=1)return "";var entry=entries[0];
+                if(entry.End-entry.Data<78)return "";
+                Input.Position=entry.Data+24;uint dimensions=U32();
+                if((dimensions>>16)!=(uint)width || (dimensions&65535)!=(uint)height)return "";
+                foreach(var field in Boxes(entry.Data+78,entry.End)) {
+                    if(field.Type!="fiel")continue;if(field.End-field.Data<2)return "";
+                    Input.Position=field.Data;int count=Input.ReadByte(),order=Input.ReadByte();
+                    if(count==1)return "progressive";if(count!=2)return "";
+                    switch(order){case 1:return "tt";case 6:return "bb";case 9:return "tb";case 14:return "bt";default:return "";}
+                }
+                return "";
+            }
+        }
+        internal static string Read(Stream input,int width,int height)
+        {
+            var reader=new Reader(input);
+            foreach(var root in reader.Boxes(0,input.Length))if(root.Type=="moov")
+                foreach(var track in reader.Boxes(root.Data,root.End))if(track.Type=="trak") {
+                    bool video;string order=reader.VideoOrder(track,width,height,out video);
+                    if(video)return order; // Same first video track selected by MediaProbeInfo.Parse.
+                }
+            return "";
+        }
+        internal static void Apply(MediaProbeInfo info)
+        {
+            if(!info.HasVideo || (info.FormatName??"").IndexOf("mov",StringComparison.OrdinalIgnoreCase)<0)return;
+            try {
+                using(var file=new FileStream(info.PathValue,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete)) {
+                    string order=Read(file,info.Width,info.Height);
+                    info.ContainerFieldOrder=order;
+                    if(!info.IsInterlaced && (order=="tt" || order=="bb" || order=="tb" || order=="bt")) {
+                        info.FieldOrder=order;info.FieldOrderSource="mov-fiel";
+                    }
+                }
+            }
+            catch(InvalidDataException) { }
+            catch(IOException) { }
+            catch(UnauthorizedAccessException) { }
+            catch(ArgumentException) { }
+            catch(NotSupportedException) { }
+        }
+    }
+
     internal sealed class MediaProbeInfo
     {
         public string PathValue = "";
@@ -23,6 +100,8 @@ namespace FilmGrainStudioPreview
         public int Height;
         public string AvgFrameRate = "";
         public string FieldOrder = "";
+        public string FieldOrderSource = "ffprobe-stream";
+        public string ContainerFieldOrder = "";
         public string VideoBitRate = "";
         public string PixelFormat = "";
         public string BitsPerRawSample = "";
@@ -117,6 +196,7 @@ namespace FilmGrainStudioPreview
                 }
             }
 
+            MovFieldOrderCore.Apply(info);
             return info;
         }
 
@@ -275,7 +355,7 @@ namespace FilmGrainStudioPreview
             {
                 string frameOrder = ProbeFrameFieldOrder(path, ffprobePath, serial);
                 if (!IsCurrent(serial)) return;
-                if (!string.IsNullOrEmpty(frameOrder)) info.FieldOrder = frameOrder;
+                if (!string.IsNullOrEmpty(frameOrder)) { info.FieldOrder = frameOrder; info.FieldOrderSource = "ffprobe-frames"; }
             }
 
             MediaProbeResult result = new MediaProbeResult();

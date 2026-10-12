@@ -34,7 +34,7 @@ namespace FilmGrainStudioPreview
             if (Eq(state, "FG_GRAIN_ENGINE", "PROCEDURAL")) return TryPrepareEngine(appRoot, input, info, state, false, out prepared, out reason);
             if (Eq(state, "FG_GRAIN_ENGINE", "NATIVE")) return TryPrepareEngine(appRoot, input, info, state, true, out prepared, out reason);
             if (Eq(state, "FG_GRAIN_ENGINE", "FGSIM")) return TryPrepareEngine(appRoot, input, info, state, false, out prepared, out reason);
-            reason = "grain engine is not migrated for native x264";
+            reason = "unsupported native x264 grain engine";
             return false;
         }
 
@@ -54,21 +54,23 @@ namespace FilmGrainStudioPreview
             bool svp = interpolate && !fruc;
             if (interpolate && !fruc && !Eq(state, "FG_INTERPOLATION_ENGINE", "SVP") && !string.IsNullOrEmpty(Get(state, "FG_INTERPOLATION_ENGINE")))
             { reason = "unsupported interpolation engine"; return false; }
-            if (interpolate && info.IsInterlaced) { reason = "Native x264 interpolation requires progressive input / Native x264 插帧需要逐行源视频"; return false; }
+            if (fruc && info.IsInterlaced) { reason = "interlaced FRUC is not supported"; return false; }
             bool transportSvp = svp && !info.IsHdr && IsTransportInput(input);
-            if (Get(state, "FG_UPLOAD") == "1") { reason = "upload copy is not migrated"; return false; }
+            if (Get(state, "FG_UPLOAD") == "1") { reason = "unsupported x264 main-output upload copy"; return false; }
             bool hdrToSdr = info.IsHdr && !Eq(state, "FG_HDR_POLICY", "PRESERVE");
             if (info.IsHdr && !hdrToSdr) { reason = "HDR preservation is unavailable for x264"; return false; }
-            if (hdrToSdr && info.IsInterlaced) { reason = "interlaced HDR requires legacy intermediate probe"; return false; }
             string tonemap = Get(state, "FG_TONEMAP_ALGO").ToLowerInvariant();
             if (tonemap != "mobius" && tonemap != "reinhard" && tonemap != "gamma" && tonemap != "linear" && tonemap != "clip") tonemap = "hable";
             string tonemapLabel = char.ToUpperInvariant(tonemap[0]) + tonemap.Substring(1);
             // Match Legacy Bridge: interlaced input only enters the deinterlace route when UI selects AUTO.
             // "OFF" keeps the original field-encoded source path without BWDIF/W3FDIF conversion.
             bool deinterlace = info.IsInterlaced && Eq(state, "FG_DEINTERLACE", "AUTO");
+            // OFF follows Legacy: no field filter or bob; it does not enable interlaced encoding.
+            if(info.IsInterlaced && !deinterlace && !Eq(state,"FG_DEINTERLACE","OFF")) { reason="unsupported deinterlace policy"; return false; }
+            bool hdrOffSdr=hdrToSdr && info.IsInterlaced && !deinterlace;
             bool bwdifCuda = deinterlace && Eq(state, "FG_DEINT_METHOD", "BWDIF_CUDA");
             bool bwdifVulkan = deinterlace && Eq(state, "FG_DEINT_METHOD", "BWDIF_VULKAN");
-            if (info.IsInterlaced && Eq(state, "FG_DEINTERLACE", "AUTO") && (!Eq(state, "FG_DEINT_METHOD", "W3FDIF") && !bwdifCuda && !bwdifVulkan)) { reason = "selected interlaced route remains on legacy backend"; return false; }
+            if (info.IsInterlaced && Eq(state, "FG_DEINTERLACE", "AUTO") && (!Eq(state, "FG_DEINT_METHOD", "W3FDIF") && !bwdifCuda && !bwdifVulkan)) { reason = "unsupported x264 deinterlace method"; return false; }
             bool high10 = Get(state, "FG_H264_HIGH10") == "1";
             if (info.Width <= 0 || info.Height <= 0) { reason = "invalid dimensions"; return false; }
 
@@ -91,7 +93,11 @@ namespace FilmGrainStudioPreview
             }
             else if (autoFps && !TryResolveAutoFps(fps, out fps, out fpsFilter, out fpsSuffix)) { reason = "invalid automatic FPS"; return false; }
             if (interpolate) autoFps = true;
-            string deinterlaceFilter = bwdifVulkan ? "format=p010le,hwupload,bwdif_vulkan=mode=send_field:parity=auto:deint=all,hwdownload,format=p010le," : bwdifCuda ? "format=p010le,hwupload_cuda=device=0,bwdif_cuda=mode=send_field:parity=auto:deint=all,hwdownload,format=p010le," : deinterlace ? "w3fdif=filter=complex:mode=field:parity=auto:deint=all," : "";
+            string deinterlaceFilter = deinterlace ? SharedHdrPreprocessCore.DeinterlaceFilter(Get(state,"FG_DEINT_METHOD"),info) : "";
+            string fieldFilter=deinterlaceFilter;
+            bool fieldWorkfile=deinterlace && hdrToSdr;
+            bool separateDeint=deinterlace && !hdrToSdr && bwdifVulkan && (plateMode || fgsimMode);
+            if(fieldWorkfile || separateDeint)deinterlaceFilter="";
             string deinterlaceSuffix = bwdifVulkan ? "_DI_BWV" : bwdifCuda ? "_DI_BWC" : deinterlace ? "_DI_W3F" : "";
             double durationSeconds = 0.0;
             double.TryParse(info.Duration, NumberStyles.Float, CultureInfo.InvariantCulture, out durationSeconds);
@@ -252,20 +258,20 @@ namespace FilmGrainStudioPreview
 
                 string encodeInput = input;
                 List<BridgeExecutionStage> stages = new List<BridgeExecutionStage>();
-                int stageOffset = hdrToSdr ? 1 : 0;
+                int stageOffset = hdrToSdr || separateDeint ? 1 : 0;
                 int stageTotal = stageOffset + (passMode == "VBR1" ? 1 : passMode == "3PASS" ? 3 : 2);
-                if (hdrToSdr)
+                if (hdrToSdr || separateDeint)
                 {
                     string tempRoot;
                     if (!TryResolveTempRoot(input, state, out tempRoot, out reason)) return false;
-                    encodeInput = Path.Combine(tempRoot, "__FGS_HDR2SDR_" + Guid.NewGuid().ToString("N") + ".mkv");
+                    encodeInput = Path.Combine(tempRoot, (hdrToSdr ? "__FGS_HDR2SDR_" : "__FGS_FIELDS_") + Guid.NewGuid().ToString("N") + ".mkv");
                     temporaryFiles.Add(encodeInput);
-                    stages.Add(MakeStage(ffmpeg, workingDirectory, BuildHdrToSdrArgs(input, encodeInput, info, tonemap), durationSeconds, 1, stageTotal, "HDR to SDR / " + tonemapLabel));
+                    stages.Add(MakeStage(ffmpeg, workingDirectory, hdrToSdr ? SharedHdrPreprocessCore.BuildToSdr(input,encodeInput,info,tonemap,true,fieldWorkfile?fieldFilter:"") : SharedHdrPreprocessCore.BuildDeinterlaced(input,encodeInput,info,fieldFilter), durationSeconds, 1, stageTotal, hdrToSdr ? "HDR to SDR / " + tonemapLabel : "Shared field deinterlace / separate Vulkan device"));
                 }
                 if (passMode == "VBR1")
                 {
                     List<string> args = BuildEncodeArgs(encodeInput, grainInput, filter, output, preset, highMotion, bitrate, max, buf, fps, duration, plateMode, autoFps, high10, mkv, deinterlace, 0, "", true, svp);
-                    if (hdrToSdr || svp || fruc)
+                    if (hdrToSdr || separateDeint || svp || fruc)
                     {
                         stages.Add(MakeStage(ffmpeg, workingDirectory, args, durationSeconds, stageOffset + 1, stageTotal, "x264 final encode"));
                         request.DirectStages = stages;
@@ -293,11 +299,16 @@ namespace FilmGrainStudioPreview
                         else if (transportSvp) SharedPipeTimelineCore.AttachTransportSource(stages[i],ffprobe,encodeInput,info,stages[i].OriginalArguments);
                     }
 
+                if(fieldWorkfile || separateDeint || hdrOffSdr)
+                    for(int i=stageOffset;i<stages.Count;i++)
+                        SharedHdrPreprocessCore.AttachFieldTimeline(stages[i],ffprobe,encodeInput,info,hdrToSdr,!hdrOffSdr);
+
                 request.TemporaryFiles = temporaryFiles.Count == 0 ? null : temporaryFiles;
                 if (fruc && request.DirectStages != null)
                     foreach (BridgeExecutionStage stage in request.DirectStages)
                         if (stage.FrucArguments != null) stage.FrucProbePath = ffprobe;
-                prepared = new BridgePreparedExecution(request, false, ffmpeg, requestInputs);
+                if(info.IsHdr && info.IsInterlaced && !deinterlace)request.ExecutionNotice="[Native .NET] 反交错 OFF：沿用不反交错的逐帧处理，不启用 bob/光流或双倍场率；不保证隔行编码标记。 / Deinterlace OFF: frame processing without bob/interpolation; no interlaced-encoding flags are added.";
+            prepared = new BridgePreparedExecution(request, false, ffmpeg, requestInputs);
                 lutCompatPath = "";
                 subtitleAss = "";
                 return true;

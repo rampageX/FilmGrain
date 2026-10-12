@@ -1,7 +1,7 @@
 ﻿$ErrorActionPreference = 'Stop'
 
-$script:FilmGrainConfigPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'FilmGrain_Config.ini'
-$script:FilmGrainDefaultConfigPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'FilmGrain_Config.default.ini'
+$script:FilmGrainConfigPath = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'FilmGrain_Config.ini'
+$script:FilmGrainDefaultConfigPath = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'FilmGrain_Config.default.ini'
 
 $script:FilmGrainConfigDefaults = [ordered]@{
     FFMPEG_DIR = 'E:\EnCoder\FFMpeg\x64\bin'

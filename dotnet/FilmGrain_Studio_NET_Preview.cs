@@ -98,7 +98,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "4.8.14";
+        internal const string ReleaseVersion = "4.8.15";
+        internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
         {
@@ -112,7 +113,7 @@ namespace FilmGrainStudioPreview
                 try
                 {
                     string root = NativeStartupCore.FindAppRoot(AppDomain.CurrentDomain.BaseDirectory);
-                    NativeStartupCore.WriteProtocolLine(new JavaScriptSerializer().Serialize(new { app_root = root, inputs = startup.Inputs, notices = startup.Notices, build = "Stable", version = ReleaseVersion, startup = "Native .NET" }));
+                    NativeStartupCore.WriteProtocolLine(new JavaScriptSerializer().Serialize(new { app_root = root, inputs = startup.Inputs, notices = startup.Notices, build = BuildLabel, version = ReleaseVersion, startup = "Native .NET" }));
                     Environment.ExitCode = startup.Notices.Count == 0 ? 0 : 2;
                 }
                 catch (AppRootNotFoundException ex)
@@ -177,7 +178,7 @@ namespace FilmGrainStudioPreview
 
     internal sealed partial class MainForm : Form
     {
-        private const string TestBuild = "Stable";
+        private const string TestBuild = Program.BuildLabel;
         private readonly Color ColorHeader = Color.FromArgb(45, 57, 72);
         private readonly Color ColorAccent = Color.FromArgb(47, 111, 173);
         private readonly Color ColorSubtle = Color.FromArgb(242, 244, 247);
@@ -229,7 +230,6 @@ namespace FilmGrainStudioPreview
         private Button btnSubtitle;
         private Label lblFrameHelp;
         private Button btnStart;
-        private CheckBox chkNativeBackend;
         private Button btnCancelTask;
         private ProgressBar progressRun;
         private ComboBox cmbGpu;
@@ -1273,10 +1273,10 @@ namespace FilmGrainStudioPreview
 
             log = new TextBox(); log.Multiline = true; log.ScrollBars = ScrollBars.Both; log.MaxLength = 0; log.Dock = DockStyle.Fill; log.ReadOnly = true; log.WordWrap = false; log.BackColor = Color.FromArgb(28, 30, 34); log.ForeColor = Color.Gainsboro; log.Font = new Font("Consolas", 9f); log.BorderStyle = BorderStyle.FixedSingle;
             fullLog = new FullLogFileCore(appRoot, "Session", GetLogEntryLimit());
-            AppendLog("Film Grain Studio v" + Program.ReleaseVersion + " · .NET" + Environment.NewLine);
+            AppendLog("Film Grain Studio v" + Program.ReleaseVersion + " · .NET · " + TestBuild + Environment.NewLine);
             AppendDiagnosticLog("Validated migration baseline: Q9AOL2 / release " + TestBuild + Environment.NewLine);
             AppendDiagnosticLog("App root: " + appRoot + Environment.NewLine);
-            AppendDiagnosticLog(".NET execution modules: Native AV1 grain inspection, Native codecs, and Legacy Bridge fallback." + Environment.NewLine);
+            AppendDiagnosticLog(".NET execution modules: Native AV1 grain inspection and Native-only codecs; preparation failures stop the task." + Environment.NewLine);
             AppendLog("[Full log] " + fullLog.FilePath + Environment.NewLine);
             if (!string.IsNullOrEmpty(fullLog.Error)) AppendVisibleLog("[Full log ERROR] " + fullLog.Error + Environment.NewLine);
             layout.Controls.Add(log, 0, 1);
@@ -1289,8 +1289,6 @@ namespace FilmGrainStudioPreview
             lblStatus = new Label(); lblStatus.AutoSize = false; lblStatus.Size = new Size(560, 30); lblStatus.Location = new Point(14, 14); lblStatus.TextAlign = ContentAlignment.MiddleLeft; footer.Controls.Add(lblStatus);
             progressRun = new ProgressBar(); progressRun.Style = ProgressBarStyle.Blocks; progressRun.Minimum = 0; progressRun.Maximum = 1000; progressRun.Value = 0; progressRun.Size = new Size(220, 20); progressRun.Anchor = AnchorStyles.Top | AnchorStyles.Right; footer.Controls.Add(progressRun);
             btnCancelTask = new Button(); btnCancelTask.Text = lang.T("button.cancel_task"); btnCancelTask.Enabled = false; btnCancelTask.Size = new Size(94, 34); btnCancelTask.Anchor = AnchorStyles.Top | AnchorStyles.Right; footer.Controls.Add(btnCancelTask);
-            chkNativeBackend = new CheckBox(); chkNativeBackend.Text = UiText("原生 .NET（实验）", "Native .NET (experimental)"); chkNativeBackend.AutoSize = true; chkNativeBackend.Checked = true; chkNativeBackend.Location = new Point(575, 20); footer.Controls.Add(chkNativeBackend);
-            chkNativeBackend.CheckedChanged += delegate { UpdateHdrRouteStatus(GetSelectedMediaInfo()); UpdateMediaDrivenUi(GetSelectedMediaInfo()); UpdateBitrateDisplays(); };
             btnStart = new Button(); btnStart.Text = lang.T("button.start_encode"); btnStart.ForeColor = Color.White; btnStart.BackColor = ColorAccent; btnStart.FlatStyle = FlatStyle.Flat; btnStart.FlatAppearance.BorderSize = 0; btnStart.Size = new Size(126, 36); btnStart.Anchor = AnchorStyles.Top | AnchorStyles.Right; footer.Controls.Add(btnStart);
             btnStart.Click += delegate { StartBridgeExecution(); };
             btnCancelTask.Click += delegate { CancelBridgeExecution(); };
@@ -1823,7 +1821,7 @@ namespace FilmGrainStudioPreview
 
         private bool HasNativeInterpolationBypass(MediaProbeInfo info)
         {
-            if (chkNativeBackend == null || !chkNativeBackend.Checked || chkInterpolation == null || !chkInterpolation.Checked || info == null) return false;
+            if (chkInterpolation == null || !chkInterpolation.Checked || info == null) return false;
             var current = new Dictionary<string,string> {
                 {"FG_SVP_INTERPOLATE","1"}, {"FG_INTERPOLATION_ENGINE",cmbInterpolationMode != null && cmbInterpolationMode.SelectedIndex == 2 ? "FRUC" : "SVP"},
                 {"FG_HDR_POLICY",config.Get("HDR_POLICY")}, {"FG_DEINTERLACE",cmbDeint == null || cmbDeint.SelectedIndex == 0 ? "AUTO" : "OFF"}
@@ -2306,6 +2304,7 @@ namespace FilmGrainStudioPreview
                 if (!string.IsNullOrWhiteSpace(path)) inputs.Add(path);
             }
 
+            if(inputs.Count==0){MessageBox.Show(this,lang.T("info.add_video"),Text,MessageBoxButtons.OK,MessageBoxIcon.Information);return;}
             if (taskLog != null) taskLog.Dispose();
             taskLog = new FullLogFileCore(appRoot, "Task", GetLogEntryLimit());
             fullLogErrorReported = false;
@@ -2314,115 +2313,21 @@ namespace FilmGrainStudioPreview
             foreach (string input in inputs) AppendTaskLog("[Task input] " + input + Environment.NewLine);
             foreach (KeyValuePair<string, string> setting in state) AppendTaskDiagnosticLog(setting.Key + "=" + setting.Value + Environment.NewLine);
 
-            bool nativeRequested = chkNativeBackend != null && chkNativeBackend.Checked && !noReencode;
-            bool nativeAv1NoReencodeRequested = chkNativeBackend != null && chkNativeBackend.Checked && noReencode;
-            bool hdrFgsimPreserveRequested = !noReencode &&
-                (string.Equals(state["FG_MODE"], "HEVC", StringComparison.OrdinalIgnoreCase) || string.Equals(state["FG_MODE"], "AV1", StringComparison.OrdinalIgnoreCase)) &&
-                string.Equals(state["FG_GRAIN_ENGINE"], "FGSIM", StringComparison.OrdinalIgnoreCase) &&
-                string.Equals(state["FG_HDR_POLICY"], "PRESERVE", StringComparison.OrdinalIgnoreCase);
-            bool hasHdrFgsimPreserveInput = false;
-            if (hdrFgsimPreserveRequested)
-            {
-                foreach (string inputPath in inputs)
-                {
-                    MediaProbeInfo hdrInfo;
-                    if (!mediaProbeCache.TryGetValue(inputPath, out hdrInfo))
-                    {
-                        MessageBox.Show(this, UiText("HDR 信息尚未检测完成，请稍后重试。", "HDR probe is not ready; please retry."), Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                        return;
-                    }
-                    if (!hdrInfo.IsHdr) continue;
-                    hasHdrFgsimPreserveInput = true;
-                    bool av1HdrFgsim = string.Equals(state["FG_MODE"], "AV1", StringComparison.OrdinalIgnoreCase);
-                    if (!nativeRequested || (hdrInfo.IsInterlaced && !av1HdrFgsim))
-                    {
-                        string why = hdrInfo.IsInterlaced && !av1HdrFgsim
-                            ? UiText("当前 Native HEVC FGSIM HDR Preserve 路径暂不支持隔行 HDR。", "The Native HEVC FGSIM HDR Preserve route does not support interlaced HDR.")
-                            : UiText("Legacy FGSIM 会把 HDR 转为 SDR；此组合需要启用 Native .NET 才能保留 HDR。", "Legacy FGSIM converts HDR to SDR; enable Native .NET to preserve HDR for this combination.");
-                        MessageBox.Show(this, why, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                        return;
-                    }
-                }
-            }
-
             if (inputs.Count > 1)
             {
                 StartSharedQueue(inputs, state, noReencode);
                 return;
             }
-            BridgePreparedExecution prepared = null;
-            BridgeRequestPreparationFailure preparationFailure = null;
-            bool frucRequested = state.ContainsKey("FG_SVP_INTERPOLATE") && state["FG_SVP_INTERPOLATE"] == "1" &&
-                state.ContainsKey("FG_INTERPOLATION_ENGINE") && state["FG_INTERPOLATION_ENGINE"] == "FRUC";
-            if (frucRequested && (!nativeRequested || inputs.Count != 1 || (state["FG_MODE"] != "HEVC" && state["FG_MODE"] != "X264" && state["FG_MODE"] != "AV1")))
+            BridgePreparedExecution prepared;
+            MediaProbeInfo nativeInfo;mediaProbeCache.TryGetValue(inputs[0],out nativeInfo);
+            string nativeReason;
+            if(!NativeExecutionPreparationCore.TryPrepare(appRoot,inputs[0],nativeInfo,state,hardwareCaps,noReencode,out prepared,out nativeReason))
             {
-                MessageBox.Show(this, UiText("FRUC Vulkan 需要 Native 编码模式。", "FRUC Vulkan requires a Native encoding route."), Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                AppendTaskLog("[Native boundary] stopped: "+nativeReason+Environment.NewLine);
+                MessageBox.Show(this,nativeReason,Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);
                 return;
             }
-            string nativeReason = "";
-            bool nativePrepared = false;
-            if (nativeAv1NoReencodeRequested && inputs.Count == 1)
-            {
-                MediaProbeInfo copyInfo;
-                if (mediaProbeCache.TryGetValue(inputs[0], out copyInfo))
-                {
-                    nativePrepared = NativeAv1GrainReplaceCore.TryPrepare(appRoot, inputs[0], copyInfo, state, out prepared, out nativeReason);
-                    if (nativePrepared) state["FG_MODE"] = "AV1";
-                }
-                else nativeReason = "media probe cache is not ready";
-            }
-            else if (nativeAv1NoReencodeRequested) nativeReason = "native AV1 no-reencode currently accepts one input at a time";
-            if (!nativePrepared && nativeRequested && inputs.Count == 1)
-            {
-                MediaProbeInfo nativeInfo;
-                if (mediaProbeCache.TryGetValue(inputs[0], out nativeInfo))
-                {
-                    if (string.Equals(state["FG_MODE"], "HEVC", StringComparison.OrdinalIgnoreCase))
-                        nativePrepared = NativeHevcCore.TryPrepare(appRoot, inputs[0], nativeInfo, state, hardwareCaps, out prepared, out nativeReason);
-                    else if (string.Equals(state["FG_MODE"], "AV1", StringComparison.OrdinalIgnoreCase))
-                        nativePrepared = NativeAv1Core.TryPrepare(appRoot, inputs[0], nativeInfo, state, hardwareCaps, out prepared, out nativeReason);
-                    else
-                        nativePrepared = NativeX264DigitalGrainCore.TryPrepare(appRoot, inputs[0], nativeInfo, state, out prepared, out nativeReason);
-                }
-                else nativeReason = "media probe cache is not ready";
-            }
-            else if (!nativePrepared && nativeRequested) nativeReason = string.Equals(state["FG_MODE"], "HEVC", StringComparison.OrdinalIgnoreCase)
-                ? "native HEVC currently accepts one input at a time"
-                : string.Equals(state["FG_MODE"], "AV1", StringComparison.OrdinalIgnoreCase)
-                    ? "native AV1 currently accepts one input at a time" : "native x264 currently accepts one input at a time";
-            bool x264NativeInterpolation = nativeRequested && state["FG_MODE"] == "X264" && state["FG_SVP_INTERPOLATE"] == "1";
-            if ((frucRequested || x264NativeInterpolation) && !nativePrepared)
-            {
-                MessageBox.Show(this, nativeReason, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
-            if (hasHdrFgsimPreserveInput && !nativePrepared)
-            {
-                string stopMessage = UiText("FGSIM HDR Preserve 的 Native 10-bit 路径未能准备，任务已停止；为避免 Legacy 把输出转成 SDR，不会回退。原因：", "The Native 10-bit FGSIM HDR Preserve route could not be prepared. The job was stopped to avoid Legacy converting the output to SDR; no fallback was started. Reason: ") + nativeReason;
-                if (log != null) AppendTaskLog("[" + state["FG_MODE"] + "] HDR FGSIM Preserve stopped; Legacy fallback blocked: " + nativeReason + Environment.NewLine);
-                MessageBox.Show(this, stopMessage, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
-            if ((nativeRequested || nativeAv1NoReencodeRequested) && !nativePrepared && log != null)
-                AppendTaskLog("[Native .NET] fallback to legacy Bridge: " + nativeReason + Environment.NewLine);
-            if (!nativePrepared && !BridgeRequestPreparationCore.TryPrepareExecution(appRoot, inputs, state, noReencode, out prepared, out preparationFailure))
-            {
-                if (preparationFailure != null && preparationFailure.Kind == BridgeRequestPreparationFailureKind.MissingTool)
-                {
-                    MessageBox.Show(this, UiText("执行工具不存在：", "Execution tool was not found:") + Environment.NewLine + preparationFailure.Path, Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
-                }
-                else if (preparationFailure != null && preparationFailure.Kind == BridgeRequestPreparationFailureKind.MissingInput)
-                {
-                    if (log != null) AppendTaskLog("[Runner] input preflight: exists=0 path=\"" + preparationFailure.Path + "\"" + Environment.NewLine);
-                    MessageBox.Show(this, UiText("输入文件不存在或当前无法访问：", "Input file does not exist or is not currently accessible:") + Environment.NewLine + preparationFailure.Path, Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    ScrollLogToEnd();
-                }
-                else
-                {
-                    MessageBox.Show(this, lang.T("info.add_video"), Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
-                }
-                return;
-            }
+            if(noReencode)state["FG_MODE"]="AV1";
 
             foreach (string inputPath in prepared.InputFiles)
             {
@@ -2440,7 +2345,7 @@ namespace FilmGrainStudioPreview
                         warning.Path, FormatWorkspaceBytes(warning.Available), FormatWorkspaceBytes(warning.Required), FormatWorkspaceBytes(warning.Reserve));
                     return MessageBox.Show(this, message, Text, MessageBoxButtons.YesNo, MessageBoxIcon.Warning,
                         MessageBoxDefaultButton.Button2) == DialogResult.Yes;
-                }, !noReencode && state["FG_MODE"] == "AV1" && (nativePrepared ? prepared.ExecutionRequest.Environment : state)["FG_SVP_INTERPOLATE"] == "1", !noReencode ? state["FG_INTERPOLATION_TARGET_FPS"] : "", out workspaceIssue))
+                }, !noReencode && state["FG_MODE"] == "AV1" && prepared.ExecutionRequest.Environment["FG_SVP_INTERPOLATE"] == "1", !noReencode ? state["FG_INTERPOLATION_TARGET_FPS"] : "", out workspaceIssue))
             {
                 if (workspaceIssue != null)
                     MessageBox.Show(this, LF(workspaceIssue.Key, workspaceIssue.Path, workspaceIssue.Detail), Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
@@ -2451,8 +2356,8 @@ namespace FilmGrainStudioPreview
             MediaProbeInfo info = GetBitrateMediaContext();
             double outputFps = GetRecommendedOutputFps(info);
             BridgeTaskRequest taskRequest = BridgeRequestPreparationCore.CreateTask(prepared, outputFps);
-            taskRequest.NativeBackend = nativePrepared;
-            activeRunNativeBackend = nativePrepared;
+            taskRequest.NativeBackend = true;
+            activeRunNativeBackend = true;
             string runCodecMode;
             if (!state.TryGetValue("FG_MODE", out runCodecMode))
                 runCodecMode = noReencode ? "AV1" : "";
@@ -2461,18 +2366,16 @@ namespace FilmGrainStudioPreview
             if (log != null)
             {
                 AppendTaskLog(Environment.NewLine + "============================================================" + Environment.NewLine);
-                AppendTaskLog(nativePrepared
-                    ? (string.Equals(state["FG_MODE"], "AV1", StringComparison.OrdinalIgnoreCase)
-                        ? UiText("[Native .NET AV1] AV1 原生执行", "[Native .NET AV1] Native AV1 execution")
-                        : string.Equals(state["FG_MODE"], "HEVC", StringComparison.OrdinalIgnoreCase)
-                        ? UiText("[Native .NET HEVC] HEVC 原生执行", "[Native .NET HEVC] Native HEVC execution")
-                        : UiText("[Native .NET x264] x264 原生执行", "[Native .NET x264] Native x264 execution")) + Environment.NewLine
-                    : (noReencode
-                    ? UiText("[AV1 No-Reencode] 启动真实处理", "[AV1 No-Reencode] Starting real processing") + Environment.NewLine
-                    : UiText("[Legacy Bridge] 启动真实编码", "[Legacy Bridge] Starting real encoding") + Environment.NewLine));
+                AppendTaskLog((noReencode
+                    ? UiText("[Native .NET AV1] AV1 不重编码原生执行", "[Native .NET AV1] Native AV1 no-reencode execution")
+                    : string.Equals(state["FG_MODE"],"AV1",StringComparison.OrdinalIgnoreCase)
+                    ? UiText("[Native .NET AV1] AV1 原生执行", "[Native .NET AV1] Native AV1 execution")
+                    : string.Equals(state["FG_MODE"],"HEVC",StringComparison.OrdinalIgnoreCase)
+                    ? UiText("[Native .NET HEVC] HEVC 原生执行", "[Native .NET HEVC] Native HEVC execution")
+                    : UiText("[Native .NET x264] x264 原生执行", "[Native .NET x264] Native x264 execution"))+Environment.NewLine);
                 AppendTaskLog(UiText("输入文件数：", "Input files: ") + prepared.InputFiles.Count.ToString(CultureInfo.InvariantCulture) + Environment.NewLine);
                 if (!noReencode) AppendTaskLog(UiText("推荐输出 FPS：", "Recommended output FPS: ") + outputFps.ToString("0.###", CultureInfo.InvariantCulture) + Environment.NewLine);
-                AppendTaskLog((noReencode ? UiText("No-Reencode 工具：", "No-Reencode tool: ") : nativePrepared ? UiText("Native 执行工具：", "Native execution tool: ") : UiText("Bridge：", "Bridge: ")) + prepared.ToolPath + Environment.NewLine);
+                AppendTaskLog(UiText("Native 执行工具：", "Native execution tool: ") + prepared.ToolPath + Environment.NewLine);
                 foreach (KeyValuePair<string, string> pair in state)
                     AppendTaskDiagnosticLog(pair.Key + "=" + pair.Value + Environment.NewLine);
                 AppendTaskLog("------------------------------------------------------------" + Environment.NewLine);
@@ -2516,7 +2419,6 @@ namespace FilmGrainStudioPreview
                             Text, MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) == DialogResult.Yes;
                     }, !noReencode && capturedState["FG_MODE"] == "AV1" && capturedState["FG_SVP_INTERPOLATE"] == "1",
                     !noReencode ? capturedState["FG_INTERPOLATION_TARGET_FPS"] : "", delegate(string input) {
-                        if (chkNativeBackend == null || !chkNativeBackend.Checked) return false;
                         MediaProbeInfo probe; IDictionary<string,string> normalized; string notice,reason;
                         return mediaProbeCache.TryGetValue(input,out probe) && SharedInterpolationBypassCore.TryResolve(probe,capturedState,out normalized,out notice,out reason) && normalized != null;
                     }, out issue))
@@ -2532,36 +2434,17 @@ namespace FilmGrainStudioPreview
                     if (!mediaProbeCache.TryGetValue(input, out info)) throw new InvalidOperationException("Media probe is not ready: " + input);
                     SortedDictionary<string,string> itemState = new SortedDictionary<string,string>(capturedState, StringComparer.OrdinalIgnoreCase);
                     if (noReencode) itemState["FG_MODE"] = "AV1";
-                    bool native = false;
-                    string reason = "Native backend is disabled";
-                    bool wantsNative = chkNativeBackend != null && chkNativeBackend.Checked;
-                    if (wantsNative)
-                    {
-                        if (noReencode) native = NativeAv1GrainReplaceCore.TryPrepare(appRoot, input, info, itemState, out prepared, out reason);
-                        else if (itemState["FG_MODE"] == "AV1") native = NativeAv1Core.TryPrepare(appRoot, input, info, itemState, hardwareCaps, out prepared, out reason);
-                        else if (itemState["FG_MODE"] == "HEVC") native = NativeHevcCore.TryPrepare(appRoot, input, info, itemState, hardwareCaps, out prepared, out reason);
-                        else native = NativeX264DigitalGrainCore.TryPrepare(appRoot, input, info, itemState, out prepared, out reason);
-                    }
-                    bool fruc = !noReencode && itemState["FG_SVP_INTERPOLATE"] == "1" && itemState["FG_INTERPOLATION_ENGINE"] == "FRUC";
-                    bool protectedHdr = !noReencode && info.IsHdr && itemState["FG_GRAIN_ENGINE"] == "FGSIM" && itemState["FG_HDR_POLICY"] == "PRESERVE";
-                    bool protectedX264Svp = !noReencode && wantsNative && itemState["FG_MODE"] == "X264" && itemState["FG_SVP_INTERPOLATE"] == "1";
-                    if (!native && (fruc || protectedHdr || protectedX264Svp))
-                        throw new InvalidOperationException("Queue fallback blocked: " + input + " : " + reason);
-                    if (!native)
-                    {
-                        BridgeRequestPreparationFailure failure;
-                        AppendTaskLog("[Queue] Legacy fallback: " + input + " : " + reason + Environment.NewLine);
-                        if (!BridgeRequestPreparationCore.TryPrepareExecution(appRoot, new List<string>{input}, itemState, noReencode, out prepared, out failure))
-                            throw new InvalidOperationException("Queue Legacy preparation failed: " + input);
-                    }
+                    string reason;
+                    if(!NativeExecutionPreparationCore.TryPrepare(appRoot,input,info,itemState,hardwareCaps,noReencode,out prepared,out reason))
+                        throw new InvalidOperationException("Native queue preparation stopped: "+input+" : "+reason);
                     if (prepared.ExecutionRequest.OutputFiles != null)
                         foreach (string output in prepared.ExecutionRequest.OutputFiles)
                             if (!outputs.Add(Path.GetFullPath(output))) throw new InvalidOperationException("Queue output collision: " + output);
                     BridgeTaskRequest task = BridgeRequestPreparationCore.CreateTask(prepared, GetRecommendedOutputFps(info));
-                    task.NativeBackend = native;
+                    task.NativeBackend = true;
                     tasks.Add(task);
                     prepared = null;
-                    AppendTaskLog("[Queue] prepared " + tasks.Count + "/" + inputs.Count + " backend=" + (native ? "Native" : "Legacy") + " input=" + input + Environment.NewLine);
+                    AppendTaskLog("[Queue] prepared " + tasks.Count + "/" + inputs.Count + " backend=Native" + " input=" + input + Environment.NewLine);
                 }
                 bridgeTaskCoordinator.StartQueue(tasks);
             }
@@ -2607,13 +2490,11 @@ namespace FilmGrainStudioPreview
                         {
                             if (noReencode)
                                 lblRunStage.Text = UiText("AV1 不重编码处理中", "AV1 no-reencode running");
-                            else if (activeRunNativeBackend || (task != null && task.NativeBackend))
+                            else
                             {
                                 string codecName = string.IsNullOrWhiteSpace(activeRunCodecName) ? "x264" : activeRunCodecName;
                                 lblRunStage.Text = UiText("Native .NET " + codecName + " 编码处理中", "Native .NET " + codecName + " encoding");
                             }
-                            else
-                                lblRunStage.Text = UiText("Legacy Bridge 编码处理中", "Legacy Bridge encoding running");
                         }
                         if (task != null && task.QueueTotal > 1 && lblRunStage != null)
                             lblRunStage.Text = "[" + task.QueueIndex + "/" + task.QueueTotal + "] " + lblRunStage.Text;
@@ -2917,18 +2798,13 @@ namespace FilmGrainStudioPreview
                 }
                 else if (policy == "PRESERVE")
                 {
-                    bool nativeSelected = chkNativeBackend != null && chkNativeBackend.Checked;
-                    bool av1FgsimPreserveReady = av1 && nativeSelected &&
-                        (!info.IsInterlaced || (cmbDeint != null && cmbDeint.SelectedIndex == 0));
-                    if (x264 || (hevc && fgsim && (!nativeSelected || info.IsInterlaced)) ||
-                        (av1 && fgsim && !av1FgsimPreserveReady) || fruc)
+                    bool av1FgsimPreserveReady = av1;
+                    if (x264 || fruc)
                     {
                         unsupported = true;
                         detail = x264
                             ? lang.T("input.hdr_route_detail_x264")
-                            : (av1 && fgsim
-                                ? UiText("AV1 FGSIM 的 HDR Preserve 需要启用 Native .NET；隔行素材还需启用 Auto 反交错。Legacy 会将其转为 SDR。", "AV1 FGSIM HDR Preserve requires Native .NET; interlaced sources also require Auto deinterlace. Legacy converts it to SDR.")
-                                : (fgsim ? lang.T("input.hdr_route_detail_fgsim") : lang.T("input.hdr_route_detail_fruc")));
+: lang.T("input.hdr_route_detail_fruc");
                     }
                     else if (fgsim && !hevc && !av1FgsimPreserveReady)
                     {

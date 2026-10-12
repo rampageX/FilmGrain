@@ -37,7 +37,7 @@ if ($ProxyMode -eq 'CUSTOM' -or $ProxyUrl) {
     if ($systemProxy) { $WebProxy['Proxy'] = $systemProxy; $env:FGS_SETUP_PROXY = $systemProxy; $env:PIP_PROXY = $systemProxy; $env:NO_PROXY = ''; $env:no_proxy = '' }
 }
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-$Root = Split-Path -Parent $PSScriptRoot
+$Root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $Deps = Join-Path $Root '_Dependencies'
 $Stage = Join-Path $Deps ('_stage_' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Force -Path $Deps, $Stage | Out-Null
@@ -274,7 +274,7 @@ function Install-OpenSVPFlow {
     }
     if (-not $python) { Install-Python; $python = Find-Python $UseSystemPython.IsPresent }
     if (-not $python) { throw 'No usable Python after installation.' }
-    $installer = Join-Path $Root '_OpenSVPFlow\Setup_OpenSVPFlow.ps1'
+    $installer = Join-Path (Split-Path -Parent $PSScriptRoot) '_OpenSVPFlow\Setup_OpenSVPFlow.ps1'
     & (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -NoProfile -ExecutionPolicy Bypass -File $installer -PythonExe $python -SkipUserConfig
     if ($LASTEXITCODE -ne 0) { throw 'OpenSVPFlow installation failed; see output above.' }
 }

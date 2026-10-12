@@ -20,7 +20,7 @@ if ($env:FGS_PROXY_MODE -eq 'DIRECT') {
 $OutputEncoding = [Console]::OutputEncoding
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$Root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$Root = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) '_OpenSVPFlow'
 $VenvDir = Join-Path $Root ".venv"
 $PluginsDir = Join-Path $Root "Plugins"
 $VenvPython = Join-Path $VenvDir "Scripts\python.exe"

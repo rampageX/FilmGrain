@@ -1,7 +1,10 @@
+本轮应用运行时 .NET 迁移验收已通过（2026-10-12）。默认且仅允许 Native，不调用 Legacy；旧 CLI/旧 GUI/辅助脚本在 Legacy。
+七项自动技术测试由 6+1 合并通过；人工项目与 ADDED 颗粒画面/音画同步确认通过，结论仅覆盖已测范围。
+
 Universal Film Grain Toolkit
 =============================
 
-当前正式稳定版：v4.8.14
+当前产品版本：v4.8.15；构建 Stable。
 
 版本与命名
 ----------
@@ -10,54 +13,27 @@ Universal Film Grain Toolkit
 
 目录结构
 --------
-FilmGrain_Universal_CLI.bat
-FilmGrain_Universal_GUI.bat
-FilmGrain_Config.ini
-README.md
-CHANGELOG.md
-README_FilmGrain_Studio.txt
-README_Toolkit.txt
-STABLE_BASELINE.txt
-Lang\
-    zh-CN.ini
-    en-US.ini
+FilmGrain_Studio.exe
+FilmGrain_Config.default.ini
+FilmGrain_Config.ini（用户生成；交付包不携带）
+README.md / CHANGELOG.md
+README_FilmGrain_Studio.txt / README_Toolkit.txt
+STABLE_BASELINE.txt（原始基线与当前验收说明）
+dotnet/（C# 源码、build_NET_Preview.bat、build/兼容 EXE）
+Lang/（zh-CN.ini、en-US.ini）
+Utils/（FGS.ico、_FilmGrainSimplified/模板与备用纹理）
+_LUT_Tools/（LUT 参考图；Current 为用户生成）
+_AV1_Grain_Tables/（颗粒表）
+_OpenSVPFlow/（.vpy、Plugins；私有环境按需安装）
+Legacy/
+    FilmGrain_Universal_CLI.bat
+    FilmGrain_Universal_GUI.bat
+    Utils/（旧 Bridge、不重编码 BAT、旧 GUI 和助手）
+    _LUT_Tools/（旧图库 PS1）
+    _OpenSVPFlow/（旧安装/更新脚本）
+    dotnet/Setup_Dependencies.ps1
 
-Utils\
-    FilmGrain_Language.ps1
-    FilmGrain_Config.ps1
-    FilmGrain_ColorCorrection.ps1
-    FilmGrain_Config_Load.bat
-    FilmGrain_Studio.ps1
-    FilmGrain_Studio_Launcher.vbs
-    FilmGrain_Universal_HEVC_AV1_StudioBridge.bat
-    FilmGrain_Subtitle_Prepare.ps1
-    AV1_FilmGrain_Bake_for_Social_Upload.bat
-    AV1_Grav1synth_Add_Replace_FilmGrain_NoReencode.bat
-    LUT_Preview_Batch_Gallery.bat
-    Collect_BT709_LUTs_Conservative.bat
-    FilmGrain_MOV_to_HEVC_Lossless_Cache.bat
-_LUT_Tools\
-    LUT_Gallery_Selector.ps1
-    LUT_Preview_Batch_Gallery.ps1
-    LUT_Reference_Default.jpg
-    LUT_Reference_Current.jpg  （用户更换参考图后自动生成；发布包默认不存在）
-_AV1_Grain_Tables\
-    README.txt
-    720p\
-    1080p\
-    1440p\
-    2160p\
-_OpenSVPFlow\
-    00_Setup.bat
-    01_Update_OpenSVPFlow.bat
-    Setup_OpenSVPFlow.ps1
-    Update_OpenSVPFlow.ps1
-    Check_OpenSVPFlow.vpy
-    FilmGrain_OpenSVPFlow.vpy
-    Plugins\
-
-根目录保留 CLI / GUI 两个 BAT 入口以及 FilmGrain_Config.ini。请保持 Utils、README、
-_LUT_Tools 与 _AV1_Grain_Tables 文件夹的相对位置不变。
+.NET 使用根 EXE；Legacy 目录独立保留旧 CLI/GUI。共享资源保持原位置。
 
 统一依赖与默认路径
 ------------------
@@ -73,7 +49,7 @@ FilmGrain_Config.ini 同时保存所有 FGS 用户自定义配置，不再单独
 1. 整合主脚本
 -------------
 将一个或多个视频拖到：
-FilmGrain_Universal_CLI.bat
+Legacy\FilmGrain_Universal_CLI.bat
 
 功能：
 - v4.8.14：GUI 新增色彩纠正与 LUT 实时预览窗口，支持对比度、亮度、饱和度、Gamma、黑白模式、任意视频帧时间线、滑杆双击复位、原图对照，以及直接调用 LUT Gallery 和四档 LUT 强度；高级“其他”可切换 1280×700 大界面。
@@ -121,7 +97,7 @@ Studio“我的最爱”选择 LUT 并点击“开始编码”时，Studio 才�
 无界面入口，由 Gallery 登记一次 Recent。Recent 保持去重、25 条上限及
 同目录原子替换。
 
-CLI 入口与 GUI 直接共用 Utils\FilmGrain_Universal_HEVC_AV1_StudioBridge.bat
+CLI 入口与 GUI 直接共用 Legacy\Utils\FilmGrain_Universal_HEVC_AV1_StudioBridge.bat
 编码核心，因此 HEVC、AV1、反交错、画幅、帧率、LUT 与 Grain 逻辑同步。
 输入文件名或目录名可包含 & 等 CMD 特殊字符。逐行素材的自动电影帧率继续
 使用数值归一化；隔行素材启用自动反交错时优先使用 Field-rate ×2 输出。
@@ -135,10 +111,10 @@ Gallery 已统一为中文界面。页码使用只读下拉菜单，可显示当
 1.1 OpenSVPFlow 安装与更新
 ------------------------
 首次安装继续运行：
-_OpenSVPFlow\00_Setup.bat
+Legacy\_OpenSVPFlow\00_Setup.bat
 
 需要主动跟随上游最新版时运行：
-_OpenSVPFlow\01_Update_OpenSVPFlow.bat
+Legacy\_OpenSVPFlow\01_Update_OpenSVPFlow.bat
 
 更新器会在替换插件前后执行 CPU / GPU/OpenCL smoke test，备份当前 DLL，
 安装后验证失败则自动回滚。正式发布包不携带用户本机安装后的 DLL、version state
@@ -147,7 +123,7 @@ _OpenSVPFlow\01_Update_OpenSVPFlow.bat
 2. 社交网站转码工具
 -------------------
 将一个或多个已完成颗粒效果/插帧处理的 AV1 或 HEVC 视频拖到：
-Utils\AV1_FilmGrain_Bake_for_Social_Upload.bat
+Legacy\Utils\AV1_FilmGrain_Bake_for_Social_Upload.bat
 
 脚本先检测输入编码：AV1 使用 libdav1d 将 Film Grain metadata 烘焙为
 实际像素，HEVC 等输入使用 FFmpeg 正常解码；之后统一采用 libx264
@@ -157,7 +133,7 @@ slow + tune grain + 2-pass，并按 FPS + 分辨率 + 动态系数联动码率�
 3. AV1 免重编码胶片颗粒工具
 ---------------------------
 将一个或多个已有 AV1 视频拖到：
-Utils\AV1_Grav1synth_Add_Replace_FilmGrain_NoReencode.bat
+Legacy\Utils\AV1_Grav1synth_Add_Replace_FilmGrain_NoReencode.bat
 
 脚本不重新编码视频，只将 AV1 视频流复制到 IVF，使用 grav1synth 添加或
 替换 Film Grain metadata，再封装为 MKV 或 MP4，并检查最终 Film Grain。
@@ -167,7 +143,7 @@ Studio GUI 在单个 AV1 输入时也会提供“AV1 不重编码 · 添加/替�
 
 4. LUT 缩略图生成器
 -------------------
-运行 Utils\LUT_Preview_Batch_Gallery.bat。
+运行 Legacy\Utils\LUT_Preview_Batch_Gallery.bat。
 LUT 根目录和参考图片/视频均有默认值，直接回车采用默认值，也可临时输入
 其他路径。保留 Resolve CUBE 兼容、Junction/Symlink、防循环、1920 预览
 及 Gallery index 功能。GUI“配置…”中的 LUT 根目录刷新还会统计 Gallery

@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **v4.8.14**：汇总用户确认通过的 Q9AOL2 累计迁移成果与日志窗口精简，推荐从根目录 `FilmGrain_Studio.exe` 启动。.NET 尚未完全替代 Legacy；测试结论仅覆盖实际完成的测试项目和组合。当前文件为发布准备产物，发布操作由维护者执行。
+> **Film Grain Studio v4.8.15 Stable · .NET Native-only。** 根 EXE 默认且仅执行 Native；不调用 Legacy BAT/PS1/VBS。旧 CLI/旧 GUI 及配套脚本保存在 Legacy，可以独立移走；共享配置、Lang、实际依赖、SVP .vpy、FGSIM 模板/纹理保留原位置。迁移验收仅覆盖实际测试范围，未测试组合不登记为通过。
 
 ![](images/Film_Grain_Studio.jpg)
 
@@ -39,7 +39,7 @@ Film Grain Studio 的目标不是只提供一种“加颗粒”方法，而是�
 
 OpenSVPFlow 是可选的插帧功能，目标帧率默认 60，可使用支持的绝对帧率或倍率，需要 Python 3.12+、VapourSynth 和插件。安装时默认使用 FGS 内的 Python，只有勾选“使用系统 Python”才尝试系统现有安装；插帧的虚拟环境位于 `_OpenSVPFlow\.venv`，VapourSynth 的 Python 路径配置保存在 `_OpenSVPFlow\_UserConfig`。启用插帧但环境缺失时，.NET 界面会提示打开设置。Grain Plate 与 LUT 是自备素材目录，无须在首次运行时安装；“配置”中的两个 `[?]` 分别指向本 README 的 [扫描 Grain Plate](#hevc真实扫描-grain-plate) 和 [LUT Gallery](#lut-gallery-与-film-look) 章节。
 
-下载与更新使用统一的网络代理设置，可选择系统代理、自定义 HTTP 代理或直连。首次运行安装由 .NET 直接完成，保留下载验证、私有 Python 环境与现有插件保护；`--setup-test=missing` 只模拟首次扫描缺失，使用独立临时配置，可测试指定路径和界面流程，不会在该模式执行安装。常规启动继续使用根目录 `FilmGrain_Config.ini`；已完成设置后仍会快速检查核心工具路径，路径失效会重新提示，耗时硬件能力检测沿用现有缓存。Legacy PS1 GUI 和 CLI 与 .NET 共用配置；前两者沿用 Legacy Bridge，.NET 按每个输入及实际组合选择 Native 或明确的回退路线。
+下载与更新使用统一的网络代理设置，可选择系统代理、自定义 HTTP 代理或直连。首次运行安装由 .NET 直接完成，保留下载验证、私有 Python 环境与现有插件保护；`--setup-test=missing` 只模拟首次扫描缺失，使用独立临时配置，可测试指定路径和界面流程，不会在该模式执行安装。常规启动继续使用根目录 `FilmGrain_Config.ini`；已完成设置后仍会快速检查核心工具路径，路径失效会重新提示，耗时硬件能力检测沿用现有缓存。Legacy PS1 GUI 和 CLI 与 .NET 共用配置；前两者沿用 Legacy Bridge，.NET 只执行 Native，不支持的组合、输入错误、探测未就绪、依赖不足和准备异常均说明实际原因并停止。
 
 ### GUI 图形界面
 
@@ -51,7 +51,7 @@ FilmGrain_Studio.exe
 
 支持将一个或多个视频拖到 EXE，或通过快捷方式 / 命令行传入文件；相对路径按启动工作目录解析，重复输入保留首个位置。启动只导入列表，不自动编码。请保持完整应用目录，不要只复制 EXE。
 
-兼容入口 `dotnet\build\FilmGrain_Studio_NET_Preview.exe` 使用同一界面和配置。根目录 `FilmGrain_Universal_GUI.bat` 保留为 Legacy GUI 入口，原有拖入 BAT 的使用方式继续可用。
+兼容入口 `dotnet\build\FilmGrain_Studio_NET_Preview.exe` 使用同一界面和配置。`Legacy\FilmGrain_Universal_GUI.bat` 是独立 Legacy GUI 入口，原有拖入 BAT 的使用方式继续可用。
 
 基本流程：
 
@@ -76,18 +76,18 @@ AV1、HEVC、x264 共用 .NET 串行队列。每个输入分别探测、准备�
 
 三线已迁移的辅助功能包括硬件能力检测、LUT 图库与预览、参考图及索引同步、Grain Plate MOV 验证缓存、首次运行依赖安装、OpenSVPFlow 插件更新，以及 FGSIM 纹理 / hook 准备。使用 .NET 界面时这些入口直接执行原生实现，不依赖旧辅助 PS1 启动。
 
-Native 支持按编码器和具体组合判断，不能据此推断所有选项可任意叠加。逐行 SDR 插帧和已覆盖的 HDR 转 SDR → OpenSVPFlow 已接入共享链；隔行 SDR 请求 OpenSVPFlow 时按规则绕过光流并执行 AUTO 场率反交错，明确 HDR Preserve 的 HEVC/AV1 路线绕过 SVP并保留源帧率。x264 HDR Preserve、尚未覆盖的隔行 HDR / 插帧等组合仍保留清晰的回退或停止条件；保护 HDR 的路线不会静默退到会转 SDR 的实现。
+Native 支持按具体组合判断。隔行 HDR 的 AUTO/OFF、HDR 保留/转换及已有输出复用沿用累计实现；隔行 OpenSVPFlow 按规则绕过光流、AUTO 输出 2x 场率，HDR 保留的渐进 HEVC/AV1 绕过 8-bit SVP。x264 HDR Preserve、隔行 FRUC 等原本不支持的组合显示原因并停止，不尝试 BAT。未知准备失败也停止并保留诊断。
 
-AV1 不重编码添加 / 替换颗粒仍是独立的视频 stream-copy 工作流。Legacy GUI、CLI 与未迁移特殊路线继续保留，因此目前不能删除 PS1/BAT。随包提供 `dotnet\` C# 源码及 `build_NET_Preview.bat`；Windows 构建会同时更新两处 EXE。
+AV1 不重编码添加 / 替换颗粒由 .NET 执行独立的视频 stream-copy 工作流。Legacy GUI、CLI 归档在 Legacy 目录，与根 EXE 独立；可移走 Legacy，不要移动共享资源和实际算法依赖。随包提供 `dotnet\` C# 源码及 `build_NET_Preview.bat`；Windows 构建会同时更新两处 EXE。
 
-用户已确认截至 Q9AOL2 的所需测试通过；早期同步测试 G 项未完全覆盖的样本，以及没有逐项实测的硬件、容器、时间戳、剪辑和功能叠加组合，不据此登记为通过。UI 排布、LUT 分辨率与颗粒处理性能细化留到迁移完成后。
+用户已确认此前 C–I 与早期 G 的补测通过；V8/H6 合并 39 项技术测试通过。没有逐项实测的硬件、容器、时间戳、剪辑和功能叠加组合，不据此登记为通过。UI 排布、LUT 分辨率与颗粒处理性能细化留到迁移完成后。
 
 ### CLI 命令行
 
 将一个或多个视频拖到：
 
 ```text
-FilmGrain_Universal_CLI.bat
+Legacy\FilmGrain_Universal_CLI.bat
 ```
 
 按菜单选择处理方式；直接回车采用默认值。全部任务结束后会显示成功、失败和跳过数量。
@@ -95,7 +95,7 @@ FilmGrain_Universal_CLI.bat
 Legacy GUI 与 CLI 共用：
 
 ```text
-Utils\FilmGrain_Universal_HEVC_AV1_StudioBridge.bat
+Legacy\Utils\FilmGrain_Universal_HEVC_AV1_StudioBridge.bat
 ```
 
 因此这两个 Legacy 入口使用同一套编码核心，反交错、画幅、帧率、码率、LUT、Grain 与编码参数不会各维护一套。两种入口均考虑中文、空格以及 `&` 等 CMD 特殊字符路径。
@@ -296,7 +296,7 @@ HEVC 主线适合将真实扫描 Grain Plate 直接合成到视频像素，再�
 生成工具：
 
 ```text
-Utils\FilmGrain_MOV_to_HEVC_Lossless_Cache.bat
+Legacy\Utils\FilmGrain_MOV_to_HEVC_Lossless_Cache.bat
 ```
 
 可生成原始分辨率 Cache、1920×1080 Cache，或同时生成两种。GUI 的 **配置 → Grain 根目录** 也会检查 Cache 完整度，缺失时可以直接补建而不覆盖已有文件。
@@ -516,11 +516,11 @@ Field-rate 输出优先于普通电影帧率选择。progressive / unknown 素�
 
 ### OpenSVPFlow
 
-在 .NET 首次运行设置中安装可选环境；私有 Python / VapourSynth 环境位于 `_OpenSVPFlow`。CPU 与 GPU/OpenCL 自检通过后才启用，不按 GPU 型号硬编码。Legacy 手工安装入口 `_OpenSVPFlow\00_Setup.bat` 继续保留。
+在 .NET 首次运行设置中安装可选环境；私有 Python / VapourSynth 环境位于 `_OpenSVPFlow`。CPU 与 GPU/OpenCL 自检通过后才启用，不按 GPU 型号硬编码。Legacy 手工安装入口 `Legacy\_OpenSVPFlow\00_Setup.bat` 继续保留。
 
 高级 → 插帧提供 SmoothFps Algo、Analyse Profile、Artifact Mask Area 等设置。当前推荐基线为 Algo 13、pel=1 / gpu=1 / full=true、EncodeGUI-inspired Analyse 与 cover=80 / area=100 / area_sharp=1.2。平滑使用 scene.mode=0，自动平衡使用 scene.mode=3。
 
-OpenSVPFlow 光流内部使用 YUV420P8 SDR。逐行 HDR 请求转 SDR 后插帧时，先执行共享 Tone Mapping 并验证中间文件；不能把它视为端到端 HDR / 10-bit 光流。隔行 SDR + AUTO 按规则绕过插帧并输出场率；明确 HDR Preserve 的已覆盖 HEVC/AV1 路线绕过 SVP并保留 HDR 和源帧率。其余特殊组合按实际 Native 门控回退或停止。
+OpenSVPFlow 光流内部使用 YUV420P8 SDR。逐行 HDR 请求转 SDR 后插帧时，先执行共享 Tone Mapping 并验证中间文件；不能把它视为端到端 HDR / 10-bit 光流。隔行 SDR + AUTO 按规则绕过插帧并输出场率；明确 HDR Preserve 的已覆盖 HEVC/AV1 路线绕过 SVP并保留 HDR 和源帧率。其余特殊组合按实际 Native 支持规则停止并说明原因，不回退 Legacy。
 
 HEVC/x264 已覆盖路线使用 VSPipe Y4M → FFmpeg 管道，AV1 使用共享 FFV1 无损预处理；不能笼统声称全部路线都没有中间视频。逐行 SDR x264 TS/M2TS/MTS 直接读取原媒体，每遍准备公共起点与视频相对延迟，不要求先手工 remux。
 
@@ -566,7 +566,7 @@ E:\Adobe Portable\LUTs
 可以使用：
 
 ```text
-Utils\LUT_Preview_Batch_Gallery.bat
+Legacy\Utils\LUT_Preview_Batch_Gallery.bat
 ```
 
 递归生成 LUT 缩略图与 Gallery 索引；.NET 配置页和图库内的预览操作直接调度 FFmpeg，无需启动此 BAT。纯 1D CUBE 会明确标记不支持，不送入 lut3d。
@@ -801,7 +801,7 @@ HEVC 未启用 OpenSVPFlow 时，从原始视频重新走 Grain / LUT / 反交�
 将一个或多个已经完成 Film Grain / 插帧等处理的 AV1 或 HEVC 成片拖到：
 
 ```text
-Utils\AV1_FilmGrain_Bake_for_Social_Upload.bat
+Legacy\Utils\AV1_FilmGrain_Bake_for_Social_Upload.bat
 ```
 
 脚本先检测输入编码：
@@ -828,7 +828,7 @@ AAC 256 kbps / stereo / 48 kHz
 独立工具：
 
 ```text
-Utils\AV1_Grav1synth_Add_Replace_FilmGrain_NoReencode.bat
+Legacy\Utils\AV1_Grav1synth_Add_Replace_FilmGrain_NoReencode.bat
 ```
 
 处理流程：
@@ -875,7 +875,7 @@ GUI 使用独立语言资源文件：
 ```text
 Lang\zh-CN.ini
 Lang\en-US.ini
-Utils\FilmGrain_Language.ps1
+Legacy\Utils\FilmGrain_Language.ps1
 ```
 
 其中：
@@ -977,7 +977,7 @@ AV1 Film Grain 与 AV1 SFE 路线推荐使用 **grav1synth 0.2.2 或更高版本
 
 ## 硬件能力自动探测
 
-.NET 界面直接执行受控的短编码、设备与子进程探测，不再调用硬件 PS1。Legacy GUI / CLI 继续使用 `Utils\FilmGrain_Hardware_Caps.ps1`。
+.NET 界面直接执行受控的短编码、设备与子进程探测，不再调用硬件 PS1。Legacy GUI / CLI 继续使用 `Legacy\Utils\FilmGrain_Hardware_Caps.ps1`。
 
 通过小型实际编码测试判断当前 GPU、NVIDIA 驱动与 FFmpeg 的真实能力，而不是根据 GPU 型号写死参数。
 
@@ -998,7 +998,7 @@ AV1 Film Grain 与 AV1 SFE 路线推荐使用 **grav1synth 0.2.2 或更高版本
 
 ```text
 Utils\_HardwareCaps_NET.json（.NET）
-Utils\_HardwareCaps.json（Legacy）
+Legacy\Utils\_HardwareCaps.json（Legacy）
 ```
 
 GPU、驱动、FFmpeg、相关依赖或探测规则变化后会重新检测；符合签名条件时复用缓存，FRUC 仍独立复查。可主动重检测，任务运行时延后刷新。当前两处 .NET EXE 路径参与缓存签名，切换根目录 / build 入口可能触发重检测；这不表示硬件实际能力被清空。
@@ -1038,73 +1038,34 @@ GPU、驱动、FFmpeg、相关依赖或探测规则变化后会重新检测；�
 
 ```text
 FilmGrain_Studio.exe
-FilmGrain_Universal_CLI.bat
-FilmGrain_Universal_GUI.bat
 FilmGrain_Config.default.ini
-FilmGrain_Config.ini（首次保存后生成）
-README.md
-CHANGELOG.md
-README_FilmGrain_Studio.txt
-README_Toolkit.txt
-STABLE_BASELINE.txt
-
-dotnet\
-    FilmGrain_Studio_NET_Preview.cs
-    build_NET_Preview.bat
-    build\FilmGrain_Studio_NET_Preview.exe
-
-Lang\
-    zh-CN.ini
-    en-US.ini
-
-Utils\
-    FGS_Benchmark.cmd
-    FGS_Benchmark.ps1
-    FilmGrain_Language.ps1
-    FilmGrain_Config.ps1
-    FilmGrain_Config_Load.bat
-    FilmGrain_Hardware_Caps.ps1
-    FilmGrain_Studio.ps1
-    FGS.ico
-    FilmGrain_Studio_Launcher.vbs
-    FilmGrain_Universal_HEVC_AV1_StudioBridge.bat
-    FilmGrain_Subtitle_Prepare.ps1
-    AV1_FilmGrain_Bake_for_Social_Upload.bat
-    AV1_Grav1synth_Add_Replace_FilmGrain_NoReencode.bat
-    LUT_Preview_Batch_Gallery.bat
-    Collect_BT709_LUTs_Conservative.bat
-    FilmGrain_MOV_to_HEVC_Lossless_Cache.bat
-
-_LUT_Tools\
-    LUT_Gallery_Selector.ps1
-    LUT_Preview_Batch_Gallery.ps1
-    LUT_Reference_Default.jpg
-    LUT_Reference_Current.jpg
-
-_AV1_Grain_Tables\
-    README.txt
-    720p\
-    1080p\
-    1440p\
-    2160p\
-
-_OpenSVPFlow\
-    00_Setup.bat
-    Setup_OpenSVPFlow.ps1
-    01_Update_OpenSVPFlow.bat
-    Update_OpenSVPFlow.ps1
-    Check_OpenSVPFlow.vpy
-    FilmGrain_OpenSVPFlow.vpy
-    Plugins\
+FilmGrain_Config.ini（用户生成；交付包不携带）
+README.md / CHANGELOG.md
+README_FilmGrain_Studio.txt / README_Toolkit.txt
+STABLE_BASELINE.txt（原始基线与当前验收说明）
+dotnet/（C# 源码、build_NET_Preview.bat、build/兼容 EXE）
+Lang/（zh-CN.ini、en-US.ini）
+Utils/（FGS.ico、_FilmGrainSimplified/模板与备用纹理）
+_LUT_Tools/（LUT 参考图；Current 为用户生成）
+_AV1_Grain_Tables/（颗粒表）
+_OpenSVPFlow/（.vpy、Plugins；私有环境按需安装）
+Legacy/
+    FilmGrain_Universal_CLI.bat
+    FilmGrain_Universal_GUI.bat
+    Utils/（旧 Bridge、不重编码 BAT、旧 GUI 和助手）
+    _LUT_Tools/（旧图库 PS1）
+    _OpenSVPFlow/（旧安装/更新脚本）
+    dotnet/Setup_Dependencies.ps1
+Tests_Shared/（仅本地测试；不提交、不进入正式 Stable ZIP）
 ```
 
-请保持根目录 EXE、兼容入口、两个 Legacy BAT、`Lang`、`Utils`、`_LUT_Tools`、`_AV1_Grain_Tables` 与 `_OpenSVPFlow` 的相对位置不变。
+根 .NET EXE 运行时保持配置、`Lang`、`Utils` 资源、`_LUT_Tools` 参考图、`_AV1_Grain_Tables` 和 `_OpenSVPFlow` 运行资源的相对位置。`Legacy` 是可选独立归档目录，移走它不会让 .NET 改用脚本；缺少真正依赖时显示实际原因。
 
 ---
 
 ## FGS Benchmark 基准测试
 
-将一个测试视频拖到 `Utils/FGS_Benchmark.cmd`；配套的 `FGS_Benchmark.ps1` 必须保持在同一目录。工具读取现有 FGS 路径配置，通过同一个 StudioBridge 核心执行 B01–B09 与 Q01–Q03 共 12 项测试，覆盖 HEVC / AV1 / x264 的颗粒路线，以及 HEVC FGSIM 的 VBR、CQ27、CQ23 对照。
+将一个测试视频拖到 `Legacy/Utils/FGS_Benchmark.cmd`；配套的 `FGS_Benchmark.ps1` 必须保持在同一目录。工具读取现有 FGS 路径配置，通过同一个 StudioBridge 核心执行 B01–B09 与 Q01–Q03 共 12 项测试，覆盖 HEVC / AV1 / x264 的颗粒路线，以及 HEVC FGSIM 的 VBR、CQ27、CQ23 对照。
 
 1. 输入截图帧号，例如 `247,865,1420`；从 **0** 开始计数，且相对于当前测试片段。留空则不截图。
 2. 输入 Grain Plate **原始 MOV 文件的完整路径（含文件名）**，例如 `D:\Film_Grain\CT 35mm Grain 4K DCI\CT 35mm Grain 4K DCI.mov`。StudioBridge 会按现有规则复用 HEVC 无损缓存；不要直接指定 `_HEVC_Lossless.mkv`。留空时 B03/B09 标记为 SKIPPED。
@@ -1174,7 +1135,7 @@ ffmpeg -hide_banner -h decoder=libdav1d
 
 ## 已知限制
 
-- 面向 Windows / .NET Framework WinForms；Legacy 回退与手工脚本仍需要 Windows PowerShell 5.1 和 BAT 环境；
+- 面向 Windows / .NET Framework WinForms；独立 Legacy 工具需要 Windows PowerShell 5.1 和 BAT 环境，根 .NET EXE 不调用这些脚本；
 - 需要 NVIDIA GPU；AV1、UHQ、B-frame、AQ、NVDEC、Vulkan 等能力取决于 GPU、驱动和 FFmpeg 组合；
 - HEVC / H.264 扫描 Grain 会增加编码压力和码率需求；
 - H.264 x264 Grain 使用 CPU 编码，选择 Medium / Slow 或 2-Pass 会显著增加耗时；
@@ -1226,3 +1187,7 @@ ffmpeg -hide_banner -h decoder=libdav1d
 - `Nature_HEVC_FAST_12000k_24p_FG_CT35_STR85.mp4`
 
 AV1 无重编码替换兼容旧版与当前名称，只更新颗粒部分，并保留单个 `_REPLACED` / `_ADDED`。上传副本以实际 X264 参数开头，末尾标识来源。旧顺序文件不会自动改名；新任务按当前名称判断是否已存在。
+
+隔行探测：MP4/MOV 明确 fiel 声明补齐 FFprobe 漏报；自动入口与 GUI 共用探测，相关补测已按实际范围通过。
+
+随包 EXE 使用 Microsoft .NET Framework 4.5 参考程序集编译，编译兼容性修复及后续验收已完成。

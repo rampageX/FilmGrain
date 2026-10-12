@@ -80,6 +80,8 @@ namespace FilmGrainStudioPreview
         {
             if (task == null) throw new ArgumentNullException("task");
             if (task.ExecutionRequest == null) throw new ArgumentException("ExecutionRequest is required.", "task");
+            NativeProcessPolicy.ValidateRequest(task.ExecutionRequest);
+            task.NativeBackend = true;
 
             lock (sync)
             {
@@ -111,6 +113,7 @@ namespace FilmGrainStudioPreview
         public void StartQueue(IList<BridgeTaskRequest> tasks)
         {
             if (tasks == null || tasks.Count == 0) throw new ArgumentException("Queue is empty.");
+            foreach(var task in tasks) { if(task==null)throw new ArgumentException("Queue task is missing."); NativeProcessPolicy.ValidateRequest(task.ExecutionRequest); }
             lock (sync)
             {
                 if (disposed || state != BridgeTaskState.Idle || executionCore.IsRunning)

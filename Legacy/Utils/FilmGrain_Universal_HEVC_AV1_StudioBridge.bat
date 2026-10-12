@@ -34,7 +34,7 @@ set "AQ_STRENGTH=8"
 set "HARDWARE_CAPS_SCRIPT=%~dp0FilmGrain_Hardware_Caps.ps1"
 set "SUBTITLE_HELPER=%~dp0FilmGrain_Subtitle_Prepare.ps1"
 set "TEMP_CHECK_SCRIPT=%~dp0FilmGrain_Temp_Check.ps1"
-set "OPEN_SVP_ROOT=%~dp0..\_OpenSVPFlow"
+set "OPEN_SVP_ROOT=%~dp0..\..\_OpenSVPFlow"
 rem VSScript reads APPDATA for the private Python binding; setlocal confines this to the bridge.
 if exist "%OPEN_SVP_ROOT%\_UserConfig\vapoursynth\vapoursynth.toml" set "APPDATA=%OPEN_SVP_ROOT%\_UserConfig"
 set "OPEN_SVP_VSPIPE=%OPEN_SVP_ROOT%\.venv\Scripts\vspipe.exe"
@@ -393,7 +393,7 @@ if not "%FG_CAP_SVP_GPU%"=="1" (
     echo.
     echo ERROR: OpenSVPFlow GPU/OpenCL runtime is not ready.
     echo Run once:
-    echo "%OPEN_SVP_ROOT%\00_Setup.bat"
+    echo "%~dp0..\_OpenSVPFlow\00_Setup.bat"
     echo Then restart Film Grain Studio / CLI so hardware capability cache can refresh.
     echo.
     exit /b 1
@@ -1336,9 +1336,9 @@ if /i "%FGSIM_PRESET%"=="LIGHT" set "FGSIM_LABEL=Light"
 if /i "%FGSIM_PRESET%"=="LIGHT" set "FGSIM_TAG=L"
 if /i "%FGSIM_PRESET%"=="HEAVY" set "FGSIM_LABEL=Heavy"
 if /i "%FGSIM_PRESET%"=="HEAVY" set "FGSIM_TAG=H"
-set "FGSIM_ROOT=%~dp0_FilmGrainSimplified"
+set "FGSIM_ROOT=%~dp0..\..\Utils\_FilmGrainSimplified"
 set "FGSIM_HOOK_PATH=%FGSIM_ROOT%\Generated\FilmGrainSimplified_%FGSIM_PRESET%.hook"
-powershell -NoProfile -ExecutionPolicy Bypass -File "%FGSIM_ROOT%\Prepare_FGSIM.ps1" -Preset "%FGSIM_PRESET%" -FFmpegPath "%FFMPEG%"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0_FilmGrainSimplified\Prepare_FGSIM.ps1" -Preset "%FGSIM_PRESET%" -FFmpegPath "%FFMPEG%"
 if errorlevel 1 (
     echo ERROR: FilmGrainSimplified hook preparation failed.
     exit /b 1
@@ -1435,7 +1435,7 @@ rem ============================================================
 if defined DEFAULT_GRAIN_ROOT (
     set "GRAIN_ROOT=%DEFAULT_GRAIN_ROOT%"
 ) else (
-    set "GRAIN_ROOT=%~dp0"
+    set "GRAIN_ROOT=%~dp0..\..\Utils"
 )
 if "%FG_STUDIO_MODE%"=="1" if defined FG_GRAIN_ROOT set "GRAIN_ROOT=%FG_GRAIN_ROOT%"
 

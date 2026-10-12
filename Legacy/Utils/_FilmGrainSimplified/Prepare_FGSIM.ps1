@@ -1,6 +1,6 @@
 ﻿param([ValidateSet('LIGHT','MEDIUM','HEAVY')][string]$Preset = 'MEDIUM',[string]$FFmpegPath = '')
 $ErrorActionPreference = 'Stop'
-$Root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$Root = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'Utils\_FilmGrainSimplified'
 $Generated = Join-Path $Root 'Generated'
 New-Item -ItemType Directory -Force -Path $Generated | Out-Null
 

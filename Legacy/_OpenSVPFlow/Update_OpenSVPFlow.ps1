@@ -19,7 +19,7 @@ if ($env:FGS_PROXY_MODE -eq 'DIRECT') {
     if ($SystemProxy) { $WebProxy['Proxy'] = $SystemProxy; $env:FGS_SETUP_PROXY = $SystemProxy; $env:NO_PROXY = ''; $env:no_proxy = '' }
 }
 
-$Root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$Root = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) '_OpenSVPFlow'
 $PluginsDir = Join-Path $Root "Plugins"
 $BackupRoot = Join-Path $Root "_PluginBackup"
 $VSPipe = Join-Path $Root ".venv\Scripts\vspipe.exe"

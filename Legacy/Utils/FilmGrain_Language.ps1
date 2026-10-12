@@ -1,7 +1,7 @@
 ﻿$ErrorActionPreference = 'Stop'
 
-$script:FgLanguageRoot = Join-Path (Split-Path -Parent $PSScriptRoot) 'Lang'
-$script:FgLanguageConfigPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'FilmGrain_Config.ini'
+$script:FgLanguageRoot = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'Lang'
+$script:FgLanguageConfigPath = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'FilmGrain_Config.ini'
 $script:FgLegacyLanguageSettingsPath = Join-Path $script:FgLanguageRoot 'FilmGrain_Language.ini'
 $script:FgDefaultLanguage = 'zh-CN'
 $script:FgLanguageCode = $script:FgDefaultLanguage

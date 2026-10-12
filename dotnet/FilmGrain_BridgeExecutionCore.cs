@@ -114,6 +114,33 @@ namespace FilmGrainStudioPreview
         }
     }
 
+    internal static class NativeProcessPolicy
+    {
+        internal static void ValidateTool(string path)
+        {
+            if(string.IsNullOrWhiteSpace(path))throw new InvalidOperationException("Native execution tool path is empty.");
+            string name=Path.GetFileName(path.Replace('\\','/'));
+            if(!string.Equals(Path.GetExtension(name),".exe",StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException(".NET execution requires a Native executable; script tool rejected: "+path);
+            foreach(string host in new[]{"cmd.exe","powershell.exe","powershell_ise.exe","pwsh.exe","wscript.exe","cscript.exe"})
+                if(string.Equals(name,host,StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException(".NET execution does not start a script host: "+path);
+        }
+        internal static void ValidateRequest(BridgeExecutionRequest request)
+        {
+            if(request==null)throw new ArgumentNullException("request");
+            if(!request.DirectProcess)throw new InvalidOperationException(".NET execution requires DirectProcess; Legacy requests are disabled.");
+            ValidateTool(request.ToolPath);
+            if(request.DirectStages!=null)foreach(var stage in request.DirectStages)
+            {
+                if(stage==null)throw new InvalidOperationException("Native stage is missing.");
+                ValidateTool(stage.ToolPath);
+                if(!string.IsNullOrWhiteSpace(stage.PipeProducerPath))ValidateTool(stage.PipeProducerPath);
+                if(!string.IsNullOrWhiteSpace(stage.FrucProbePath))ValidateTool(stage.FrucProbePath);
+            }
+        }
+    }
+
     internal sealed class BridgeExecutionCore : IDisposable
     {
         private readonly object sync = new object();
@@ -152,7 +179,7 @@ namespace FilmGrainStudioPreview
 
         public void Start(BridgeExecutionRequest request)
         {
-            if (request == null) throw new ArgumentNullException("request");
+            NativeProcessPolicy.ValidateRequest(request);
             if (request.DirectStages != null && request.DirectStages.Count > 0)
             {
                 foreach (BridgeExecutionStage stage in request.DirectStages)
@@ -410,6 +437,7 @@ namespace FilmGrainStudioPreview
             Thread copyThread = null;
             try
             {
+                NativeProcessPolicy.ValidateTool(stage.PipeProducerPath);
                 ProcessStartInfo sourceInfo = new ProcessStartInfo();
                 sourceInfo.FileName = stage.PipeProducerPath;
                 sourceInfo.Arguments = stage.PipeProducerArguments;
@@ -818,61 +846,25 @@ namespace FilmGrainStudioPreview
 
         private static ProcessStartInfo BuildStartInfo(BridgeExecutionRequest request, BridgeExecutionStage stage)
         {
-            if (stage != null || request.DirectProcess)
-            {
-                string toolPath = stage == null ? request.ToolPath : stage.ToolPath;
-                string arguments = stage == null ? request.DirectArguments : stage.DirectArguments;
-                string workingDirectory = stage == null ? request.WorkingDirectory : stage.WorkingDirectory;
-                ProcessStartInfo direct = new ProcessStartInfo();
-                direct.FileName = toolPath;
-                direct.Arguments = arguments ?? "";
-                direct.UseShellExecute = false;
-                direct.CreateNoWindow = true;
-                direct.RedirectStandardOutput = true;
-                direct.RedirectStandardError = true;
-                direct.RedirectStandardInput = false;
-                direct.WorkingDirectory = string.IsNullOrWhiteSpace(workingDirectory) ? Path.GetDirectoryName(toolPath) : workingDirectory;
-                if (request.Environment != null)
-                    foreach (KeyValuePair<string, string> pair in request.Environment)
-                        SetEnvironmentVariable(direct.EnvironmentVariables, pair.Key, pair.Value ?? "");
-                return direct;
-            }
-
-            string comSpec = Environment.GetEnvironmentVariable("ComSpec");
-            if (string.IsNullOrWhiteSpace(comSpec))
-                comSpec = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "cmd.exe");
-
-            ProcessStartInfo psi = new ProcessStartInfo();
-            psi.FileName = comSpec;
-            psi.UseShellExecute = false;
-            psi.CreateNoWindow = true;
-            psi.RedirectStandardOutput = true;
-            psi.RedirectStandardError = true;
-            psi.RedirectStandardInput = false;
-            psi.WorkingDirectory = string.IsNullOrWhiteSpace(request.WorkingDirectory) ? Path.GetDirectoryName(request.ToolPath) : request.WorkingDirectory;
-
+            // Recheck late-prepared stages immediately before Process.Start.
+            NativeProcessPolicy.ValidateRequest(request);
+            string toolPath = stage == null ? request.ToolPath : stage.ToolPath;
+            string arguments = stage == null ? request.DirectArguments : stage.DirectArguments;
+            string workingDirectory = stage == null ? request.WorkingDirectory : stage.WorkingDirectory;
+            NativeProcessPolicy.ValidateTool(toolPath);
+            ProcessStartInfo direct = new ProcessStartInfo();
+            direct.FileName = toolPath;
+            direct.Arguments = arguments ?? "";
+            direct.UseShellExecute = false;
+            direct.CreateNoWindow = true;
+            direct.RedirectStandardOutput = true;
+            direct.RedirectStandardError = true;
+            direct.RedirectStandardInput = false;
+            direct.WorkingDirectory = string.IsNullOrWhiteSpace(workingDirectory) ? Path.GetDirectoryName(toolPath) : workingDirectory;
             if (request.Environment != null)
-            {
                 foreach (KeyValuePair<string, string> pair in request.Environment)
-                    SetEnvironmentVariable(psi.EnvironmentVariables, pair.Key, pair.Value ?? "");
-            }
-
-            const string toolVariable = "FG_NET_TOOL";
-            SetEnvironmentVariable(psi.EnvironmentVariables, toolVariable, request.ToolPath);
-
-            string command = "\"%" + toolVariable + "%\"";
-            for (int i = 0; i < request.InputFiles.Count; i++)
-            {
-                string variable = "FG_NET_INPUT_" + (i + 1).ToString("000", CultureInfo.InvariantCulture);
-                SetEnvironmentVariable(psi.EnvironmentVariables, variable, request.InputFiles[i] ?? "");
-                command += " \"%" + variable + "%\"";
-            }
-
-            // /S /C requires one outer quote pair around a command whose executable is quoted.
-            // File paths themselves never appear literally in the command string; they arrive through
-            // environment expansion, which avoids injecting raw CMD metacharacters into ProcessStartInfo.Arguments.
-            psi.Arguments = "/D /Q /V:OFF /S /C \"" + command + "\"";
-            return psi;
+                    SetEnvironmentVariable(direct.EnvironmentVariables, pair.Key, pair.Value ?? "");
+            return direct;
         }
 
         private static void SetEnvironmentVariable(StringDictionary environment, string key, string value)

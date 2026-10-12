@@ -1,5 +1,66 @@
 # Film Grain Studio — CHANGELOG
 
+## v4.8.15 — 完全 .NET 迁移
+
+本版完成应用运行时 .NET 迁移。以下历史测试条目保留当时状态，当前验收结果以本条为准。
+
+- 根 .NET EXE 和串行队列固定 Native，删除原生选择框、Legacy 兼容后端和未知准备失败转 Bridge BAT；统一准备入口保留实际原因，输入错误/依赖不足/不支持组合明确停止。
+- 执行器和队列拒绝脚本及 CMD/PowerShell/VBS 宿主；保留 FFmpeg、grav1synth、Python/VapourSynth 等实际算法依赖。
+- 旧 CLI、旧 PowerShell GUI、Bridge/不重编码 BAT 和旧助手共 29 个脚本归入 Legacy，共享配置、Lang、SVP vpy/插件、FGSIM 模板/纹理保留原位置；根 EXE 可独立运行。
+- 累计接管三线隔行 HDR AUTO/OFF、HDR 保留/转换、设备分离与过滤顺序、已有主输出补上传；隔行 OpenSVPFlow 按既有规则绕过光流，原不支持组合保持明确边界。
+- 成功探测未发现 AV1 Film Grain metadata 正确标识 ADDED；未知/失败探测不能当作无颗粒。添加/替换保留输入、现有命名和时间轴行为。
+- Windows Full 101 编码＋6 边界通过；Next 29＋10 合并 39 技术项、Native-only 6＋1 合并 7 技术项通过，合并结果不是单次完整矩阵重跑。用户确认相关人工项目及最新 ADDED 画面/同步；未测硬件/容器/时间戳/剪辑及任意组合不扩大为通过。
+- 发布工具统一源码暂存、Dry Run 覆盖与正式 ZIP 的目录清单；纳入 Legacy 新增并记录旧路径删除，排除 Tests_Shared、用户配置/缓存/环境、备份和测试交付标记；直接从 .NET 源码核对语言键，不再执行旧 GUI/语言脚本。
+- 发布命令在实际构建前同步 .NET ReleaseVersion 和 Stable 标签、README/TXT、基线、CHANGELOG 和 Release Notes；正式构建重新编译，核对根/兼容 EXE 一致及其实际版本常量。下一正式版本号由维护者指定，Dry Run 不等于发布。
+- 发布准备 Windows 补测修复：按 Git 已跟踪/未忽略新文件清单过滤并逐字面分批暂存，兼容现有 .gitignore；构建函数显式接收发布版本，保留编译后实际 EXE 版本/Stable 校验。产品源码、算法和已验收 EXE 不变。
+- 中文 Git 仓库路径校验直接使用重定向 UTF-8 输出，避免 Windows PowerShell 5.1/CP936 将 Git 根目录读成乱码；共享 Git 文件清单读取，不改变控制台编码，保留顶层目录与非仓库停止边界。
+- 发布暂存允许仓库已有 benchmark 历史报告继续跟踪，退出本次报告改动并仅在 Stable 排除；Dry Run 保留相同 HEAD 历史，避免与正式发布校验不一致。失败前已写入目标版本的工作区支持依据 HEAD 基线重试同一版号。
+
+## 同批测试修订 NativeFinish_H6R2KP — 2026-10-11
+
+- 审阅 V8C3RN Windows Next：29 项技术通过、10 项失败、0 跳过；AV1 已有主成品补上传 9/9 通过且主哈希保持不变。其他人工项按用户确认记录在原范围内通过。
+- 修正 OFF 中间校验和测试输出校验误要求 progressive；允许处理后保留场标记，保持原帧率、10-bit、尺寸、色彩及音轨检查。AUTO 与 SVP 的逐行要求保持。
+- 提供失败 10 项补测入口，Next 支持失败结果、样本和单项筛选；105 项逻辑、新 39 / 旧 101 模拟计划、真实 CPU OFF 场标记及 AV1 补上传回归通过。修订后 Windows 10 项待补测。
+- 产品版本仍为 4.8.14，实际根与兼容 EXE 构建标签为 NativeFinish_H6R2KP；无 Git / 发布 / 无关 UI 改动。
+
+## 未发布测试 NativeFinish_V8C3RN — 2026-10-11
+
+- 三线接管隔行 HDR＋OFF；共享中间验证支持原帧率，保留不反交错语义及音画公共起点，GUI HDR Preserve 门槛同步。
+- AV1 已有主成品可原生补生成 x264 上传；支持 VBR1/2PASS/3PASS，先验证成品、排除主文件清理、各遍核对文件未改变。
+- 已知输入/依赖/参数/不支持错误明确停止，不误触发 Legacy；未迁移与未知原因保留兼容回退。
+- 新 Next 自动范围 39 项、89 项逻辑检查、39 新计划及 101 旧计划回归；真实 CPU AV1 复用三种遍次通过。本批 Windows 硬件/GUI/同步验收尚未完成。
+- 产品版本保持 4.8.14，根与兼容 EXE 构建标签同步为 NativeFinish_V8C3RN；上批用户 Windows Full 101 编码＋6 边界与 C–I/早期 G 复测通过。
+- 保留构建/发布与 Legacy 兼容模式，不修改 GitHub；测试工具本地使用，不进入正式 Stable ZIP。
+
+## 本地测试包修订 L2W6QN — 2026-10-11
+
+- 修正 Full 第 022 项误启用 x264 主输出额外上传的测试定义；新增 -CaseName 单项入口，逻辑断言增至 77 项。
+- 修正 C 项灰色插帧目标说明及 I 项独立副本验收次序。
+- 用户 Windows Full：100 项实际编码技术通过，6 个明确停止边界通过，唯一失败项为上述测试定义错误；修正项仍待 Windows 单项复测，人工画面/同步验收未据此完成。
+- 产品源代码、EXE 和构建/发布工具未变；产品版本 4.8.14，EXE 构建标签 NativeFields_M7P4LX 保持。
+
+## 未发布测试 NativeFields_M7P4LX — 2026-10-11
+
+- 修复随包 EXE 引用了 Windows .NET Framework 不提供的 String.Trim(Char) 等单字符 Trim 重载而无法启动的问题。
+- 使用 Microsoft .NET Framework 4.5 参考程序集重新编译交付 EXE，IL 检查不再存在单字符 Trim 引用。
+- 保留 Q8N2TZ 隔行探测/场序修复与全部累计迁移。产品版本仍为 4.8.14，实际构建标签改为 NativeFields_M7P4LX；Windows GUI 复核待完成。
+
+## 未发布测试 NativeFields_Q8N2TZ — 2026-10-11
+
+- MP4/MOV 首个视频轨的明确 fiel 隔行声明补探测，保留 FFprobe 已知场序；不猜测未知或无效结构。
+- 自动测试复用 GUI MediaProbeCore，记录探测来源，支持 -SampleSet I_SDR,I_HLG 补跑。
+- 产品版本仍为 4.8.14；实际 EXE 构建标签同步更新；明确容器场序时反交错按 tff/bff 执行，其他参数语义保持。Windows GUI/硬件补测待完成。
+
+## 未发布测试 NativeFields_R6K9VM — 2026-10-11
+
+- 只基于本轮 v4.8.14 Stable ZIP；产品版本未升级，实际 EXE 显示测试标识；未执行正式发布或 Git 操作。
+- 共享隔行 HDR→SDR 预处理：所选 W3FDIF / BWDIF CUDA / BWDIF Vulkan 先反交错，再做色调映射；在消费阶段验证真实尺寸、10-bit、BT.709 TV、逐行和 2x 场率；三线避免重复反交错。
+- 补齐 HEVC 隔行 HDR Preserve + AUTO 的 Native 接管、HDR 数字颗粒/FGSIM 反交错前缀及相关 GUI 门槛。
+- 共享隔行 HDR + SVP 绕过规则，保留 AUTO 请求引起的 SDR 转换决策与 Preserve 策略；隔行源使用场率输出，没有新增交错帧光流或隔行 FRUC 支持。
+- BWDIF Vulkan 与 FGSIM / 扫描颗粒分进程调度、使用 FFV1 无损中间文件；恢复编码/上传阶段相对视频延迟；AV1 remux 沿用共享 IVF 时间轴回填。
+- 已有输出与已知不支持组合在单文件/队列入口明确报告，避免误触发 Legacy；保留 HEVC 已有主输出补上传及真正未接管的 Legacy 边界。
+- 新增本地中文自动测试入口和分层验证记录；Tests_Shared 保留于完整测试 ZIP，不提交、不进入正式 Stable 发布包。编译、模拟计划与软件执行结果不替代 Windows NVENC/Vulkan/GUI/队列/音画同步验收，早期未覆盖 G 项仍未覆盖。
+
 ## v4.8.14 — 2026-10-11
 
 本版汇总 v4.8.13 之后的累计迁移成果，以用户确认通过的 Q9AOL2 为代码基线；日志窗口精简亦已完成用户复测。本说明用于 v4.8.14 发布准备，不表示已创建 Release 或推送。

@@ -7,6 +7,7 @@
 
 $ErrorActionPreference = 'Stop'
 
+$RuntimeLutAssets = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) '_LUT_Tools'
 $ConfigScript = Join-Path (Split-Path -Parent $PSScriptRoot) 'Utils\FilmGrain_Config.ps1'
 if (-not (Test-Path -LiteralPath $ConfigScript -PathType Leaf)) {
     throw "Film Grain configuration helper not found: $ConfigScript"
@@ -532,7 +533,7 @@ $SelectedEntry = $null
 $SelectedCard = $null
 $PageImages = New-Object System.Collections.Generic.List[System.Drawing.Image]
 $previewGenerator = Join-Path $PSScriptRoot 'LUT_Preview_Batch_Gallery.ps1'
-$currentReference = Join-Path $PSScriptRoot 'LUT_Reference_Current.jpg'
+$currentReference = Join-Path $RuntimeLutAssets 'LUT_Reference_Current.jpg'
 $script:PreviewBuildProcess = $null
 $script:PreviewBuildMode = ''
 $script:PreviewUpdateBeforeKeys = @{}
@@ -1394,7 +1395,7 @@ $updatePreview.Add_Click({
         [System.Windows.Forms.MessageBox]::Show("预览生成脚本不存在：`r`n`r`n$previewGenerator", 'LUT 图库', 'OK', 'Error') | Out-Null
         return
     }
-    $referencePath = if (Test-Path -LiteralPath $currentReference -PathType Leaf) { $currentReference } else { Join-Path $PSScriptRoot 'LUT_Reference_Default.jpg' }
+    $referencePath = if (Test-Path -LiteralPath $currentReference -PathType Leaf) { $currentReference } else { Join-Path $RuntimeLutAssets 'LUT_Reference_Default.jpg' }
     if (-not (Test-Path -LiteralPath $referencePath -PathType Leaf)) {
         [System.Windows.Forms.MessageBox]::Show("没有找到可用的 LUT 参考图：`r`n`r`n$referencePath", 'LUT 图库', 'OK', 'Error') | Out-Null
         return

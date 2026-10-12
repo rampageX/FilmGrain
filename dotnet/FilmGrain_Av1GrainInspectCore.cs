@@ -251,6 +251,13 @@ namespace FilmGrainStudioPreview
             return last.Length > 0 ? last : first;
         }
 
+        internal static string SourceGrainAction(string state)
+        {
+            if(state=="AV1 胶片颗粒：无"||state=="未发现 AV1 Film Grain metadata")return "ADDED";
+            if(state=="AV1 胶片颗粒：亮度"||state=="AV1 胶片颗粒：亮度 + 色度")return "REPLACED";
+            return ""; // Failed/unknown inspection is never treated as an empty grain table.
+        }
+
         private static string ReadTableSummary(string tablePath)
         {
             if (string.IsNullOrEmpty(tablePath) || !File.Exists(tablePath)) return "AV1 胶片颗粒：无";

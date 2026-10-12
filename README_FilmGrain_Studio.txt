@@ -1,20 +1,23 @@
+本轮应用运行时 .NET 迁移验收已通过（2026-10-12）。默认且仅允许 Native，不调用 Legacy；旧 CLI/旧 GUI/辅助脚本在 Legacy。
+七项自动技术测试由 6+1 合并通过；人工项目与 ADDED 颗粒画面/音画同步确认通过，结论仅覆盖已测范围。
+
 Film Grain Studio - 使用说明
 ============================
 
-当前正式稳定版：v4.8.14
+当前产品版本：v4.8.15；构建 Stable。
 
 推荐双击根目录 FilmGrain_Studio.exe，或将多个视频拖入 EXE。
 兼容入口：dotnet\build\FilmGrain_Studio_NET_Preview.exe。
-Legacy GUI：FilmGrain_Universal_GUI.bat；CLI：FilmGrain_Universal_CLI.bat。
+Legacy GUI：Legacy\FilmGrain_Universal_GUI.bat；CLI：Legacy\FilmGrain_Universal_CLI.bat。
 保持完整目录，.NET 与 Legacy 共用根目录 FilmGrain_Config.ini。
 .NET 提供已覆盖的三线 Native、串行队列、共享预处理与原生辅助工具；
-未覆盖组合仍明确回退或停止，目前不能删除 Legacy PS1/BAT。
+默认且仅允许 Native，原生选择框已取消；准备失败说明原因并停止，不调用 Legacy。
 首次运行可安装核心依赖，可选插帧默认目标 60 fps，支持有效帧率/倍率。
 日志窗口保留阶段和错误，完整 Session/Task 文件保留原始诊断。
 功能、配置与剩余边界以 README.md 为准，发布变化见 CHANGELOG.md。
 
 
-也可以把一个或多个视频直接拖到 FilmGrain_Universal_GUI.bat，
+也可以把一个或多个视频直接拖到 Legacy\FilmGrain_Universal_GUI.bat，
 Studio 打开后会自动加入文件列表。
 
 初版已实现
@@ -42,7 +45,7 @@ Studio 打开后会自动加入文件列表。
 - Cinematic Style（默认开启）：HEVC / AV1 均可选择加黑边保留原分辨率，
   或裁剪为约 2.39:1 有效画面；默认加黑边，适合后期字幕。
 - NVIDIA GPU / 驱动 / FFmpeg 能力自动探测；界面同时显示驱动与 FFmpeg 版本；能力状态显示“配置：已适配 / 已缓存”；已验证 RTX 4080 与 T600 Laptop。
-- `_OpenSVPFlow\00_Setup.bat` 继续负责首次安装；`01_Update_OpenSVPFlow.bat` 可主动更新上游最新版，更新前后执行 CPU/GPU smoke test并支持自动备份、失败回滚。
+- .NET 设置负责 OpenSVPFlow 首次安装与更新；Legacy\_OpenSVPFlow 中保留旧独立安装/更新入口。
 - 右上角“配置…”统一管理 FFmpeg 目录、grav1synth、Grain 与 LUT 路径，并写入根目录 FilmGrain_Config.ini。
 - 四项路径均提供“浏览…”与 ↻ 刷新：浏览选择后立即检测；手工输入后点击 ↻ 检测。
 - FFmpeg 显示 ffmpeg.exe / ffprobe.exe 版本；grav1synth 显示版本；Grain 同时统计原始 MOV、原分辨率/1080p Cache，并可补齐缺失缓存；LUT 同时统计 .cube 与 Gallery 预览图，并可创建缺失缩略图。
@@ -60,8 +63,8 @@ Studio 打开后会自动加入文件列表。
 - HEVC Grain 根目录递归扫描：界面仅显示电脑上实际存在的 .mov 颗粒片。
 - Grain 列表支持选择目录后自动刷新，也可点击 ↻ 手动刷新。
 - HEVC Grain 4 档强度，并自动匹配同名 1080p / 原分辨率 Lossless Cache；配置界面可直接生成缺失 Cache。
-- CLI 与 GUI 均支持输入文件名或目录名包含 & 等 CMD 特殊字符。
-- 拖放视频启动时，CMD 与 PowerShell 控制台均不驻留任务栏。
+- 根 .NET GUI 支持已验证的特殊输入路径；旧 CLI 的交互入口保存在 Legacy。
+- 根 .NET EXE 直接启动 GUI，编码任务不通过 CMD / PowerShell 脚本宿主。
 - 主界面直接读取 Gallery 最近使用与我的最爱，各显示最多 25 个 LUT，并复用缩略图即时预览。
 - 直接调用现有 LUT Gallery，支持 25% / 50% / 75% / 100% LUT 强度；配置界面可直接补齐缺失缩略图。
 - v4.6.2 LUT Gallery 新增“智能过滤”：将 LUT 分类为 Technical / Combined / Creative / Keep，只隐藏高置信度纯 Technical；同一创意 Look 的多种 Log 输入适配版本通过 Creative Family 识别为 Combined 并保留。
@@ -96,38 +99,43 @@ INI 使用 UTF-8 无 BOM；GUI、CLI、StudioBridge 与相关 Utils 工具读取
 
 FilmGrain_Config.ini 现在也是 FGS 唯一的用户自定义配置文件：除上述路径外，还保存 GUI 语言、LUT Gallery“智能过滤”状态、高级设置的全部可修改项目，以及色彩纠正的启用状态、对比度、亮度、饱和度、Gamma 与黑白模式。高级设置分为“编码 / 插帧 / HDR / 其他”，每个页面均提供“恢复默认”，只恢复当前页面。旧版本留下的 Lang\FilmGrain_Language.ini 会在启动时自动迁移语言选择，之后不再作为配置来源。
 
-正式包随附当前已验证的 OpenSVPFlow 插件 DLL 与版本状态文件；首次安装仍由 00_Setup.bat 建立本地运行环境。安装生成的 .env、_PluginBackup 与本机硬件能力缓存不属于正式包。
+正式包随附当前已验证的 OpenSVPFlow 插件 DLL 与版本状态文件；首次安装由 .NET 设置完成；Legacy\_OpenSVPFlow\00_Setup.bat 仅为旧独立入口。安装生成的 .env、_PluginBackup 与本机硬件能力缓存不属于正式包。
 
 文件关系
 --------
-FilmGrain_Universal_GUI.bat
+FilmGrain_Studio.exe
+    当前 .NET GUI 与 Native 调度入口；共享源码位于 dotnet\FilmGrain.Gui。
+
+以下 Legacy 启动器与助手仅属于归档的旧工具，不参与根 .NET EXE 的运行：
+
+Legacy\FilmGrain_Universal_GUI.bat
     GUI 入口；解决 PowerShell 执行策略与 STA 启动问题。
 
 FilmGrain_Config.ini
     全项目共享的外部路径配置。
 
-Utils\FilmGrain_Config.ps1 / FilmGrain_Config_Load.bat
+Legacy\Utils\FilmGrain_Config.ps1 / FilmGrain_Config_Load.bat
     PowerShell / CMD 共用的配置读取层。
 
-Utils\FilmGrain_Studio.ps1
+Legacy\Utils\FilmGrain_Studio.ps1
     WinForms 图形界面。
 
-Utils\FilmGrain_ColorCorrection.ps1
+Legacy\Utils\FilmGrain_ColorCorrection.ps1
     色彩纠正、视频帧时间线及 LUT 最终叠加效果的实时预览窗口。
 
-Utils\FilmGrain_Language.ps1 + Lang\zh-CN.ini / en-US.ini
+Legacy\Utils\FilmGrain_Language.ps1 + Lang\zh-CN.ini / en-US.ini
     GUI 多语言加载层与语言资源；当前语言选择统一保存在根目录 FilmGrain_Config.ini。
 
-Utils\FilmGrain_Studio_Launcher.vbs
+Legacy\Utils\FilmGrain_Studio_Launcher.vbs
     无控制台启动器；异步启动 WinForms 后立即退出，不保留 CMD 任务栏窗口。
 
-Utils\FilmGrain_Universal_HEVC_AV1_StudioBridge.bat
+Legacy\Utils\FilmGrain_Universal_HEVC_AV1_StudioBridge.bat
     GUI / CLI 共用编码核心；GUI 通过 FG_* 参数调用，CLI 使用交互模式。
 
-Utils\FilmGrain_Subtitle_Prepare.ps1
+Legacy\Utils\FilmGrain_Subtitle_Prepare.ps1
     H.264 上传版文本字幕识别、字符集处理、ASS 样式与位置准备。
 
-FilmGrain_Universal_CLI.bat
+Legacy\FilmGrain_Universal_CLI.bat
     CLI 入口，直接进入同一 StudioBridge 核心的交互模式，可独立拖放使用。
 
 请保持两个入口 BAT、Utils、_LUT_Tools 与 _AV1_Grain_Tables 文件夹的相对位置不变。
