@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v4.8.18 Stable · .NET Native-only。** 根 EXE 默认且仅执行 Native；不调用 Legacy BAT/PS1/VBS。旧 CLI/旧 GUI 及配套脚本保存在 Legacy，可以独立移走；共享配置、Lang、实际依赖、SVP .vpy、FGSIM 模板/纹理保留原位置。迁移验收仅覆盖实际测试范围，未测试组合不登记为通过。
+> **Film Grain Studio v4.8.19 Stable · .NET Native-only。** 根 EXE 默认且仅执行 Native；不调用 Legacy BAT/PS1/VBS。旧 CLI/旧 GUI 及配套脚本保存在 Legacy，可以独立移走；共享配置、Lang、实际依赖、SVP .vpy、FGSIM 模板/纹理保留原位置。迁移验收仅覆盖实际测试范围，未测试组合不登记为通过。
 
 ![](images/Film_Grain_Studio.jpg)
 
@@ -35,6 +35,12 @@
 所有新选项默认关闭，保留既有插帧参数。dedup 不重建逐帧时间戳，不是 VFR 或音画同步修复；也不能处理任意连续重复帧。当前脚本输入为 YUV420P8，采用普通 SmoothFps/OpenCL；HDR 直通、隔行旁路及 FRUC 保持原有行为。
 
 本版配套插件为 `nightly-20261011-deadbadae0d9`。启用新选项需要两枚 DLL 通过固定哈希门禁；旧版或不同构建会明确报错。插件更新按钮仍可更新插件，但不同构建不能据版本日期推断新选项可用，须重新确认能力。建议先分别启用选项比较效果，再组合使用。
+
+启动重复 GUI 时提示切换到现有窗口。同一 Windows 会话中的根 EXE、兼容 EXE 和不同目录副本共用单实例限制，内部检测子进程不受影响。
+
+## 启动日志
+
+主界面保留版本、完整日志路径与简短硬件摘要。FRUC 启动检测的完整输出仅写入 Session 日志；实际可用状态及原因可在插帧下拉框和状态栏 tooltip 查看。
 
 ## Framework 成品兼容性检查
 
@@ -1188,4 +1194,4 @@ AV1 无重编码替换兼容旧版与当前名称，只更新颗粒部分，并�
 
 ## 构建与发布
 
-本地构建：`dotnet\build_NET_Preview.bat`。两处EXE必须来自同一源码、版本4.8.18、构建标签Stable，并通过实际成品API审计。正式Stable由维护者的Windows统一发布流程重新构建；目标发布说明见[RELEASE_NOTES](.github/release/RELEASE_NOTES.md)。发布准备包和Dry Run均不表示已经提交、创建Tag、推送或正式发布。
+本地构建：`dotnet\build_NET_Preview.bat`。两处EXE必须来自同一源码、版本4.8.19、构建标签Stable，并通过实际成品API审计。正式Stable由维护者的Windows统一发布流程重新构建；目标发布说明见[RELEASE_NOTES](.github/release/RELEASE_NOTES.md)。发布准备包和Dry Run均不表示已经提交、创建Tag、推送或正式发布。

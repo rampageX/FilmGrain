@@ -1,4 +1,4 @@
-OpenSVPFlow runtime for Film Grain Studio v4.8.18 Stable
+OpenSVPFlow runtime for Film Grain Studio v4.8.19 Stable
 
 Use the application's dependency setup / advanced plugin update entry points.
 The legacy BAT/PowerShell installers are archived under Legacy and are not called by the .NET runtime.

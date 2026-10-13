@@ -1,5 +1,14 @@
 # Film Grain Studio — CHANGELOG
 
+## v4.8.19 — 启动日志与界面完善
+
+本版精简启动日志、限制重复 GUI 启动并调整主界面与 LUT 图库布局。编译及 Framework API 审计通过。
+
+- FRUC 启动检测详情只写入完整 Session 日志，不再显示在主界面日志区；版本、完整日志路径及简短硬件摘要保留。插帧下拉框及状态栏 tooltip、检测逻辑和实际任务错误显示保持。
+
+- GUI 使用同一会话命名互斥量限制重复启动，根 EXE 与 dotnet/build 共用门禁；重复启动提示切换到现有窗口，内部硬件探针及 CheckOnly 不受影响。
+- 主界面核心说明移除 Preview 字样。LUT 图库顶部随控件内容自动高度，缩窄默认窗口及底部留白，在默认尺寸完整显示三行缩略图；窄窗口工具栏可换行。
+
 ## v4.8.18 — OpenSVPFlow 重复帧与静止遮罩选项
 
 新增 OpenSVPFlow dedup、Still、Peel，完善同页插帧设置。2026-10-13 用户确认本轮自动化与人工功能验证完成，并确认 K6W2PJ 界面调整通过。正式 Stable 继续由 Windows runner 打包。

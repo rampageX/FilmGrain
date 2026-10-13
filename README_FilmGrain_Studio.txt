@@ -1,7 +1,7 @@
 Film Grain Studio - 使用说明
 ============================
 
-当前产品版本：v4.8.18；构建 Stable。
+当前产品版本：v4.8.19；构建 Stable。
 
 运行：双击根目录 FilmGrain_Studio.exe，或将视频拖入EXE。
 同源构建位置：dotnet\build\FilmGrain_Studio_NET_Preview.exe；两处EXE内容必须一致。

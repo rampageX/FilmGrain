@@ -98,7 +98,7 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "4.8.18";
+        internal const string ReleaseVersion = "4.8.19";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -123,6 +123,16 @@ namespace FilmGrainStudioPreview
                 }
                 return;
             }
+            bool ownsInstance;
+            using (Mutex instance = new Mutex(true, @"Local\FilmGrainStudio.MainWindow", out ownsInstance))
+            {
+                if (!ownsInstance)
+                {
+                    MessageBox.Show("Film Grain Studio 已在运行，请切换到现有窗口。 / Film Grain Studio is already running.", "Film Grain Studio", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+                try
+                {
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             try
@@ -144,7 +154,10 @@ namespace FilmGrainStudioPreview
             }
             catch (Exception ex)
             {
-                MessageBox.Show(ex.ToString(), "Film Grain Studio .NET Preview", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show(ex.ToString(), "Film Grain Studio .NET", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+                }
+                finally { instance.ReleaseMutex(); }
             }
         }
     }
@@ -495,7 +508,7 @@ namespace FilmGrainStudioPreview
             header.Controls.Add(cmbLanguage);
 
             Label baseline = new Label();
-            baseline.Text = lang.T("app.core") + "  ·  .NET Preview";
+            baseline.Text = lang.T("app.core") + "  ·  .NET";
             baseline.ForeColor = Color.FromArgb(205, 214, 224);
             baseline.AutoSize = true;
             baseline.Anchor = AnchorStyles.Top | AnchorStyles.Right;
@@ -2069,7 +2082,7 @@ namespace FilmGrainStudioPreview
                     }
                     UpdateFrucAvailabilityUi();
                     UpdateFrucStatus();
-                    if (caps != null) AppendLog("[Hardware FRUC] available=" + caps.FrucAvailable + " kind=" + caps.FrucFailureKind + " path=" + caps.FrucFfmpegPath + " reason=" + caps.FrucReason + Environment.NewLine);
+                    if (caps != null) AppendDiagnosticLog("[Hardware FRUC] available=" + caps.FrucAvailable + " kind=" + caps.FrucFailureKind + " path=" + caps.FrucFfmpegPath + " reason=" + caps.FrucReason + Environment.NewLine);
                     if (btnStart != null && (bridgeTaskCoordinator == null || !bridgeTaskCoordinator.IsActive)) btnStart.Enabled = true;
                     ScrollLogToEnd();
                 });
@@ -3326,7 +3339,7 @@ namespace FilmGrainStudioPreview
         {
             if (log != null) AppendLog("[Preview] " + message + Environment.NewLine);
             if (lblRunStage != null) lblRunStage.Text = ".NET Preview · no encoding";
-            MessageBox.Show(this, message, "Film Grain Studio .NET Preview", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this, message, "Film Grain Studio .NET", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
     }
 }

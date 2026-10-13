@@ -66,10 +66,10 @@ namespace FilmGrainStudioPreview
         internal NativeLutGalleryForm(string appRoot,string ffmpeg,string root,string previews)
         {
             this.appRoot=appRoot;this.ffmpeg=ffmpeg;this.root=root;this.previews=previews;
-            Text="电影风格 LUT 图库 · .NET";Size=new Size(1140,790);MinimumSize=new Size(900,600);StartPosition=FormStartPosition.CenterParent;KeyPreview=true;
+            Text="电影风格 LUT 图库 · .NET";Size=new Size(1100,790);MinimumSize=new Size(900,600);StartPosition=FormStartPosition.CenterParent;KeyPreview=true;
             var layout=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=4};Controls.Add(layout);
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute,70));layout.RowStyles.Add(new RowStyle(SizeType.Percent,100));layout.RowStyles.Add(new RowStyle(SizeType.Absolute,35));layout.RowStyles.Add(new RowStyle(SizeType.Absolute,50));
-            var top=new FlowLayoutPanel{Dock=DockStyle.Fill,WrapContents=true};layout.Controls.Add(top,0,0);
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));layout.RowStyles.Add(new RowStyle(SizeType.Percent,100));layout.RowStyles.Add(new RowStyle(SizeType.Absolute,28));layout.RowStyles.Add(new RowStyle(SizeType.Absolute,40));
+            var top=new FlowLayoutPanel{Dock=DockStyle.Fill,WrapContents=true,AutoSize=true,AutoSizeMode=AutoSizeMode.GrowAndShrink};layout.Controls.Add(top,0,0);
             top.Controls.Add(new Label{Text="搜索：",AutoSize=true,Padding=new Padding(0,6,0,0)});top.Controls.Add(search);
             foreach(var item in new[]{new[]{"全部 LUT","All"},new[]{"最近使用","Recent"},new[]{"我的最爱","Favorites"}}) {
                 string target=item[1];var b=new Button{Text=item[0],AutoSize=true};b.Click+=delegate{mode=target;Filter();};top.Controls.Add(b);
