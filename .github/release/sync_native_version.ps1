@@ -56,10 +56,11 @@ if (-not $m.Success) {
 if (-not $m.Success -or [string]::IsNullOrWhiteSpace($m.Groups['body'].Value)) { throw 'Release changelog section missing or empty.' }
 $notes = '# Film Grain Studio v' + $Version + $crlf + $crlf + $m.Groups['body'].Value.Trim() + $crlf
 $readme = Read-ReleaseText 'README.md'
-$intro = [regex]::Match($readme,'(?s)\A# Film Grain Studio\r?\n.*?(?=!\[\]\(images/Film_Grain_Studio\.jpg\))')
-if (-not $intro.Success) { throw 'Unexpected README header.' }
-$header = '# Film Grain Studio' + $crlf + $crlf + '> **Film Grain Studio v' + $Version + ' Stable · .NET Native-only。** 根 EXE 默认且仅执行 Native；不调用 Legacy BAT/PS1/VBS。旧 CLI/旧 GUI 及配套脚本保存在 Legacy，可以独立移走；共享配置、Lang、实际依赖、SVP .vpy、FGSIM 模板/纹理保留原位置。迁移验收仅覆盖实际测试范围，未测试组合不登记为通过。' + $crlf + $crlf
-$readme = $header + $readme.Substring($intro.Length)
+# Keep the README body and layout intact; synchronize only its version marker.
+$intro = [regex]::Match($readme,'(?m)^> \*\*Film Grain Studio v[0-9.]+')
+if (-not $intro.Success) { throw 'Unexpected README version marker.' }
+$marker = '> **Film Grain Studio v' + $Version
+$readme = $readme.Substring(0,$intro.Index) + $marker + $readme.Substring($intro.Index+$intro.Length)
 $readme = [regex]::Replace($readme,'产品版本仍为 4\.8\.14[^\r\n]*','产品版本与实际 EXE 显示为 v' + $Version + '，构建标签 Stable。')
 $studio = Read-ReleaseText 'README_FilmGrain_Studio.txt'
 $toolkit = Read-ReleaseText 'README_Toolkit.txt'
@@ -83,6 +84,7 @@ $baseline = @(
     'Acceptance applies only to explicitly tested combinations, not every container/timestamp/clip/hardware combination.',
     'Windows Full: 101 encodes + 6 boundaries. Next: 29 + 10 merged technical passes. Native-only: 6 + 1 merged technical passes.',
     'User manual checks including new ADDED picture/sync confirmed. Merged results are not single full reruns.',
+    'AV1 grain-copy phase: Windows SDR 242 / HDR 241 technical checks passed; fast paths and preview/log-toolbar fixes confirmed within their actual scope.',
     'Root and compatible executables are rebuilt from the same committed C# source with Stable label.',
     'Shared Lang, SVP vpy/plugins, FGSIM template/texture and original grain tables remain in their shared locations.',
     'Exclude local configuration, caches, private environments, downloads, generated hooks, logs, Tests_Shared and test-delivery markers.',

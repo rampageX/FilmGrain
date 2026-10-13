@@ -56,6 +56,62 @@ namespace FilmGrainStudioPreview
                 return "";
             }
         }
+        // Fast eligibility reads only MOV sample-table metadata, never compressed video.
+        // A single stts run and no nonzero composition offsets prove regular packet PTS.
+        internal static bool HasRegularTimeline(string path, string averageRate)
+        {
+            try
+            {
+                string[] rate = (averageRate ?? "").Split('/');
+                ulong rateNum, rateDen;
+                if (rate.Length != 2 || !ulong.TryParse(rate[0], out rateNum) || !ulong.TryParse(rate[1], out rateDen) || rateNum == 0 || rateDen == 0) return false;
+                using (var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+                {
+                    var reader = new Reader(file);
+                    foreach (var root in reader.Boxes(0, file.Length)) if (root.Type == "moov")
+                        foreach (var track in reader.Boxes(root.Data, root.End)) if (track.Type == "trak")
+                        {
+                            var media = reader.Child(track, "mdia"); if (media == null) continue;
+                            var handler = reader.Child(media, "hdlr"); if (handler == null || handler.End - handler.Data < 12) return false;
+                            file.Position = handler.Data + 8; if (reader.U32() != 0x76696465) continue;
+                            var edits = reader.Child(track, "edts");
+                            if (edits != null)
+                            {
+                                var list = reader.Child(edits, "elst"); if (list == null || list.End - list.Data < 20) return false;
+                                file.Position = list.Data; uint editVersion = reader.U32() >> 24;
+                                if (editVersion > 1 || reader.U32() != 1) return false;
+                                if (list.End - list.Data != (editVersion == 1 ? 28 : 20)) return false;
+                                file.Position = list.Data + (editVersion == 1 ? 16 : 12);
+                                if (reader.U32() != 0 || editVersion == 1 && reader.U32() != 0 || reader.U32() != 65536) return false;
+                            }
+                            var header = reader.Child(media, "mdhd"); if (header == null || header.End - header.Data < 24) return false;
+                            file.Position = header.Data; uint version = reader.U32() >> 24;
+                            if (version > 1) return false;
+                            long scaleOffset = header.Data + (version == 1 ? 20 : 12);
+                            if (header.End - scaleOffset < 4) return false;
+                            file.Position = scaleOffset; uint scale = reader.U32();
+                            var minf = reader.Child(media, "minf"); if (minf == null) return false;
+                            var table = reader.Child(minf, "stbl"); if (table == null) return false;
+                            var timing = reader.Child(table, "stts"); if (timing == null || timing.End - timing.Data != 16) return false;
+                            file.Position = timing.Data + 4;
+                            if (reader.U32() != 1 || reader.U32() == 0) return false;
+                            uint delta = reader.U32(); if (delta == 0 || scale == 0 || (decimal)scale * rateDen != (decimal)delta * rateNum) return false;
+                            var offsets = reader.Child(table, "ctts");
+                            if (offsets != null)
+                            {
+                                if (offsets.End - offsets.Data < 8) return false;
+                                file.Position = offsets.Data + 4; uint count = reader.U32();
+                                if (count > 4096 || offsets.End - offsets.Data != 8L + count * 8L) return false;
+                                for (uint i = 0; i < count; i++) if (reader.U32() == 0 || reader.U32() != 0) return false;
+                            }
+                            return true;
+                        }
+                }
+            }
+            catch { }
+            return false;
+        }
+
         internal static string Read(Stream input,int width,int height)
         {
             var reader=new Reader(input);
@@ -99,6 +155,7 @@ namespace FilmGrainStudioPreview
         public int Width;
         public int Height;
         public string AvgFrameRate = "";
+        public string VideoStartTime = "";
         public string FieldOrder = "";
         public string FieldOrderSource = "ffprobe-stream";
         public string ContainerFieldOrder = "";
@@ -173,6 +230,7 @@ namespace FilmGrainStudioPreview
                             info.Width = GetInt(stream, "width");
                             info.Height = GetInt(stream, "height");
                             info.AvgFrameRate = GetString(stream, "avg_frame_rate");
+                            info.VideoStartTime = GetString(stream, "start_time");
                             info.FieldOrder = GetString(stream, "field_order");
                             info.VideoBitRate = GetString(stream, "bit_rate");
                             info.PixelFormat = GetString(stream, "pix_fmt");
@@ -293,7 +351,7 @@ namespace FilmGrainStudioPreview
                 psi.CreateNoWindow = true;
                 psi.RedirectStandardOutput = true;
                 psi.RedirectStandardError = true;
-                psi.Arguments = "-v error -show_entries format=format_name,duration,bit_rate:stream=codec_type,codec_name,profile,width,height,avg_frame_rate,field_order,bit_rate,channels,channel_layout,sample_rate,pix_fmt,bits_per_raw_sample,color_range,color_space,color_transfer,color_primaries -of json " + QuoteArgument(path);
+                psi.Arguments = "-v error -show_entries format=format_name,duration,bit_rate:stream=codec_type,codec_name,profile,width,height,avg_frame_rate,start_time,field_order,bit_rate,channels,channel_layout,sample_rate,pix_fmt,bits_per_raw_sample,color_range,color_space,color_transfer,color_primaries -of json " + QuoteArgument(path);
 
                 process = new Process();
                 process.StartInfo = psi;

@@ -59,6 +59,7 @@ namespace FilmGrainStudioPreview
     internal sealed class BridgeExecutionStage
     {
         public Func<string> BeforeRunPreparation { get; set; }
+        public Func<bool> ShouldRun { get; set; }
         public IList<string> FrucArguments { get; set; }
         public string FrucProbePath { get; set; }
         public string FrucTimelineReferenceInput { get; set; }
@@ -77,6 +78,7 @@ namespace FilmGrainStudioPreview
     internal sealed class BridgeExecutionRequest
     {
         public string ExecutionNotice { get; set; }
+        public bool LogStageTimings { get; set; }
         public string ToolPath { get; set; }
         public string WorkingDirectory { get; set; }
         public IList<string> InputFiles { get; set; }
@@ -282,6 +284,8 @@ namespace FilmGrainStudioPreview
                             RaiseLog(BridgeLogStream.System, stage.BeforeRunPreparation());
                             if (cancelRequested) break;
                         }
+                        if (stage.ShouldRun != null && !stage.ShouldRun()) continue;
+                        Stopwatch stageTimer = request.LogStageTimings ? Stopwatch.StartNew() : null;
                         if (stage.FrucArguments != null)
                         {
                             RaiseProgress(new BridgeProgressEventArgs(false, 0, false, "", "", "", true,
@@ -297,6 +301,7 @@ namespace FilmGrainStudioPreview
                         exitCode = string.IsNullOrEmpty(stage.PipeProducerPath)
                             ? RunProcess(BuildStartInfo(request, stage), stage.ToolPath, out failure)
                             : RunPipedProcess(request, stage, out failure);
+                        if (stageTimer != null) RaiseLog(BridgeLogStream.System, "[AV1 Copy] stage_seconds=" + stageTimer.Elapsed.TotalSeconds.ToString("0.000", CultureInfo.InvariantCulture) + " stage=" + stage.StageText);
                         if (failure != null || exitCode != 0 || cancelRequested) break;
                     }
                     if (cancelRequested && exitCode == 0) exitCode = -1;

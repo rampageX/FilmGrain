@@ -1,80 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v4.8.19 Stable · .NET Native-only。** 根 EXE 默认且仅执行 Native；不调用 Legacy BAT/PS1/VBS。旧 CLI/旧 GUI 及配套脚本保存在 Legacy，可以独立移走；共享配置、Lang、实际依赖、SVP .vpy、FGSIM 模板/纹理保留原位置。迁移验收仅覆盖实际测试范围，未测试组合不登记为通过。
-
-![](images/Film_Grain_Studio.jpg)
-
-## 启用颗粒
-
-主界面颗粒区域的“启用颗粒”默认勾选。关闭后，颗粒类型、强度、文件等控件灰显但保留原参数，重新开启即可恢复；开关状态保存到根目录 `FilmGrain_Config.ini` 的 `[General] GRAIN_ENABLED`，重启恢复，旧 INI 缺少此项时默认开启。
-
-| 路线 | 关闭后的行为 |
-|---|---|
-| x264 / HEVC | 真正跳过 Digital Grain、Grain Plate 叠加和 FGSIM 滤镜 |
-| AV1 普通重新编码 | 跳过像素颗粒和 grav1synth 添加/替换 Film Grain metadata |
-| 依赖及临时资源 | 不要求本任务未使用的颗粒文件、表、纹理或仅用于颗粒的 grav1synth，不生成仅供颗粒的资源 |
-| x264 主输出及实际 libx264 上传副本 | 取消 FGS 自动附加的 `tune grain`；preset、码率和其它质量设置保持 |
-| 命名与状态 | 去掉本次添加颗粒的文件名标记，日志/状态显示“颗粒：关闭” |
-
-插帧、调色、LUT、字幕、画幅、反交错等继续按实际设置执行，其依赖仍正常检查。HDR 自动判定只考虑实际启用的处理：关闭颗粒时，保存的 FGSIM 选择不会使输出自动转 SDR；实际调色/LUT等限制与用户明确 HDR 策略仍生效。
-
-关闭表示“不主动添加 FGS 颗粒”，不是降噪，不清除输入已有像素颗粒。普通 AV1 重编码使用实际 FFmpeg 解码路径，输入已有 Film Grain metadata 可能在解码时合成为像素；不承诺重新编码原样保留 metadata，也不自动增加清除步骤。颗粒检测/查看独立于添加开关。
-
-“AV1 不重编码 · 添加/替换胶片颗粒”专用模式强制启用颗粒并禁用总开关；tooltip说明原因。进入/离开该模式保留并恢复普通转码开关状态，不静默转为重新编码。
-
-## OpenSVPFlow 重复帧、Still 与 Peel
-
-“高级 → 插帧”左侧保留算法、分析、Speed/Tuning/Block Size 和 FRUC 参数，右侧为以下 SVP 选项；恢复默认作用于整页，确定后保存。
-
-| 选项 | 默认及建议 | 用途 |
-|---|---|---|
-| 重复帧阈值 dedup | 0 关闭；建议开启值 0.5，范围 0–10 | 按采样亮度差判断孤立重复帧，将后续运动跨两个帧时长展开 |
-| 保护静止文字 / Logo（Still） | 关闭；limit 4.5、edge 5、tolerance 30 | GPU 静止遮罩，减少固定文字与 Logo 拖影 |
-| 剥离 HUD 后重合成（Peel） | 关闭；limit 6 | GPU HUD 剥离再合成 |
-
-所有新选项默认关闭，保留既有插帧参数。dedup 不重建逐帧时间戳，不是 VFR 或音画同步修复；也不能处理任意连续重复帧。当前脚本输入为 YUV420P8，采用普通 SmoothFps/OpenCL；HDR 直通、隔行旁路及 FRUC 保持原有行为。
-
-本版配套插件为 `nightly-20261011-deadbadae0d9`。启用新选项需要两枚 DLL 通过固定哈希门禁；旧版或不同构建会明确报错。插件更新按钮仍可更新插件，但不同构建不能据版本日期推断新选项可用，须重新确认能力。建议先分别启用选项比较效果，再组合使用。
-
-启动重复 GUI 时提示切换到现有窗口。同一 Windows 会话中的根 EXE、兼容 EXE 和不同目录副本共用单实例限制，内部检测子进程不受影响。
-
-## 启动日志
-
-主界面保留版本、完整日志路径与简短硬件摘要。FRUC 启动检测的完整输出仅写入 Session 日志；实际可用状态及原因可在插帧下拉框和状态栏 tooltip 查看。
-
-## Framework 成品兼容性检查
-
-构建与发布均对两处实际 EXE 进行 Framework API 审计，两处成品必须一致。Windows 本机构建使用 `dotnet/build_NET_Preview.bat`，正式构建由 Windows 发布流程完成；均使用明确的 Microsoft Framework API 基准，失败停止，不提供跳过门禁或 Mono 默认引用回退。构建、发布与本地测试 BAT/PS1 可以保留。
-
-## FRUC Vulkan 能力诊断与参数
-
-共享预检核对实际构建的 fps/perf/grid 选项及性能常量，保留设备 0 的小样本运行证据与错误；成功不等于实际输入或编码组合通过。任务日志保留 FFmpeg 版本、请求参数及实际返回的设备/网格，未报告的信息不推测。插帧选择与 FRUC 硬件状态 tooltip 共用简短摘要，不显示完整诊断日志或路径；失败时提示查看任务日志。参数默认仍 medium/auto，现有滤镜和时间轴策略保持。
-
-当前上游 auto 选择设备支持的最细网格，通常是 1，不能理解成速度优先；较粗网格用更少向量和内存，但损失细节。没有增加上游未暴露的 hint 或 sc_threshold，也没有假定 Vulkan 可直接交给 NVENC。
-
-## OpenSVPFlow 高级参数
-
-在“高级 → 插帧”调整：
-
-| 设置 | 可选值 | 生效方式 |
-|---|---|---|
-| Speed | FGS / medium / fast / faster / fastest | 调整 pel、自动块尺寸、重叠及 refine；FGS 保持已有成本设置 |
-| Tuning | FGS / weak / film / smooth / animation | weak 改为较短 coarse 搜索并在正常场景模式启用切镜混合；animation 使用 type=2、distance=-6、无 refine；film/smooth 当前同义 |
-| Block Size | auto / 8 / 16 / 32 | auto 随 Speed/Tuning 选择；指定值只覆盖块尺寸 |
-
-三项默认 `FGS / FGS / auto` 保持既有 Super、Analyse、SmoothFps 参数；旧 INI 未含新键时使用这些默认值。Algo、Mask Area、主界面场景模式与目标帧率仍独立生效。BASE 仅支持新项默认值，选择其他预设时界面明确切换并禁用 Analyse Profile 为 ENCODEGUI；手动配置非法组合则停止准备并报实际原因。
-
-这是对前端预设的映射，不是向插件直接传入 `speed` / `tuning` API 字段。映射参考 2026-10-12 的 [OpenSVPFlow](https://github.com/Z1xus/open-svpflow) 与 [smoothie 网页](https://smoothie.z1x.us/) 实际脚本；保留 FGS 的 `full:true`、有理数帧率、cubic/linear、Algo、Mask 和场景模式。FGS Speed 配合新 Tuning 时保留 pel=1、自动 16 块（animation 除外），因此不宣称与网页整个输出完全一致。新映射保持 FGS 的 GPU 路径，本批不引入 CPU/GPU 后端切换。
-
-高级设置各页的“恢复默认”位于确定左侧，只恢复当前页、确定后保存；插帧说明使用控件/标签tooltip，插件更新按钮仅在插帧页显示。
-
-## 验收范围
-
-v4.8.18 的 SVP 新选项及同页界面已于 2026-10-13 由用户确认自动化、人工功能和 UI 验收通过。
-
-v4.8.17 的颗粒总开关与累计修复已按本轮既定测试验收：用户确认 G7N2VX 测试及后续普通剪切TS、FRUC、V3K8MS的HEVC/AV1＋SVP补测通过。静态/模拟、软件执行、Windows技术检查和人工观察分别记录；该确认不扩大到未测硬件、HDR、时间戳、容器或任意功能叠加组合。
-
-v4.8.16 已验收的 OpenSVPFlow高级参数、设置布局、FRUC提示与能力诊断保留。此前 RTX4080、指定FFmpeg下1080p/4K/实际剪切TS、目标60fps的18个FRUC观察案例仍仅覆盖其已测范围；没有为文档和版本同步重复整套视频矩阵。
+> **Film Grain Studio v4.8.20 Stable · .NET Native-only。** AV1、HEVC、x264 使用当前 .NET 原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 基于 **FFmpeg、NVIDIA NVENC、libx264 与 grav1synth** 的 Windows 视频处理工具。当前入口为 .NET 图形界面，支持向 EXE 传入或拖入视频文件。
 
@@ -103,6 +29,8 @@ Film Grain Studio 的目标不是只提供一种“加颗粒”方法，而是�
 
 ---
 
+![](images/Film_Grain_Studio.jpg)
+
 ## 快速开始
 
 ### 首次运行与依赖准备
@@ -123,7 +51,9 @@ FilmGrain_Studio.exe
 
 支持将一个或多个视频拖到 EXE，或通过快捷方式 / 命令行传入文件；相对路径按启动工作目录解析，重复输入保留首个位置。启动只导入列表，不自动编码。请保持完整应用目录，不要只复制 EXE。
 
-同源构建入口 `dotnet\build\FilmGrain_Studio_NET_Preview.exe` 使用同一界面和配置；与根EXE内容一致。
+同源构建入口 `dotnet\build\FilmGrain_Studio_NET_Preview.exe` 使用同一界面和配置；与根 EXE 内容一致。
+
+启动重复 GUI 时提示切换到现有窗口。同一 Windows 会话中的根 EXE、兼容 EXE 和不同目录副本共用单实例限制，内部检测子进程不受影响。
 
 基本流程：
 
@@ -139,6 +69,10 @@ GUI 输出默认保存在源视频所在目录，也可以在右上角“配置�
 日志窗口聚焦阶段、结果、警告与失败原因；成功硬件探测的长段 FFmpeg 诊断、参数转储和逐行进度不再刷屏。原始内容继续写入完整 Session / Task 日志文件，任务状态区仍显示进度、fps、speed 和 ETA；未知诊断不会被一律隐藏。
 
 FGS 运行日志保存在根目录 `Logs`。主界面的“日志目录”按钮左键用于打开该目录，右键可清理 FGS 自己生成的 `FGS_*.log`；不会删除 `Logs` 目录或其中的其他文件。配置中的“日志条目限制”控制自动保留数量，默认 `100`，可设置 `0–10000`，其中 `0` 表示不限制；创建新的 Session / Task 日志时会自动清理超出上限的旧日志。
+
+启动日志保留版本、完整日志路径和简短硬件摘要。FRUC 启动检测详情写入完整 Session 日志；实际状态与失败原因在插帧下拉框及状态栏 tooltip 查看。日志工具栏的 fps / speed / ETA 保持单行，四个日志按钮独立显示。
+
+高级设置各页的“恢复默认”位于确定左侧，只恢复当前页、确定后保存；插帧说明使用控件/标签tooltip，插件更新按钮仅在插帧页显示。
 
 ### .NET 执行范围与多文件队列
 
@@ -174,6 +108,26 @@ FGS 当前把几种不同性质的颗粒方案放在同一项目中。它们的�
 | **GPU Film Grain (FGSIM)** | 直接烘焙进像素 | 使用 GPU shader / Vulkan 路径生成 Film Grain 效果 | AV1 / HEVC / x264 |
 
 三条主编码路线尽量共用同一套画幅、字幕、LUT、反交错、OpenSVPFlow 与码率策略；真正不同的部分主要集中在 Film Grain 机制和最终编码器。
+
+---
+
+### 启用颗粒
+
+主界面颗粒区域的“启用颗粒”默认勾选。关闭后，颗粒类型、强度、文件等控件灰显但保留原参数，重新开启即可恢复；开关状态保存到根目录 `FilmGrain_Config.ini` 的 `[General] GRAIN_ENABLED`，重启恢复，旧 INI 缺少此项时默认开启。
+
+| 路线 | 关闭后的行为 |
+|---|---|
+| x264 / HEVC | 真正跳过 Digital Grain、Grain Plate 叠加和 FGSIM 滤镜 |
+| AV1 普通重新编码 | 跳过像素颗粒和 grav1synth 添加/替换 Film Grain metadata |
+| 依赖及临时资源 | 不要求本任务未使用的颗粒文件、表、纹理或仅用于颗粒的 grav1synth，不生成仅供颗粒的资源 |
+| x264 主输出及实际 libx264 上传副本 | 取消 FGS 自动附加的 `tune grain`；preset、码率和其它质量设置保持 |
+| 命名与状态 | 去掉本次添加颗粒的文件名标记，日志/状态显示“颗粒：关闭” |
+
+插帧、调色、LUT、字幕、画幅、反交错等继续按实际设置执行，其依赖仍正常检查。HDR 自动判定只考虑实际启用的处理：关闭颗粒时，保存的 FGSIM 选择不会使输出自动转 SDR；实际调色/LUT等限制与用户明确 HDR 策略仍生效。
+
+关闭表示“不主动添加 FGS 颗粒”，不是降噪，不清除输入已有像素颗粒。普通 AV1 重编码使用实际 FFmpeg 解码路径，输入已有 Film Grain metadata 可能在解码时合成为像素；不承诺重新编码原样保留 metadata，也不自动增加清除步骤。颗粒检测/查看独立于添加开关。
+
+“AV1 不重编码 · 添加/替换胶片颗粒”专用模式强制启用颗粒并禁用总开关；tooltip说明原因。进入/离开该模式保留并恢复普通转码开关状态，不静默转为重新编码。
 
 ---
 
@@ -273,6 +227,10 @@ ISO 800 · 3840×2160 · BT.2020 · Photon
 项目正式包中整理的 Grain Table 继续按分辨率分类，具体上游来源见 `_AV1_Grain_Tables\README.txt`。第三方表文件仍受其原项目条款约束，FGS 只负责扫描、分类、选择和调用。
 
 选择 Grain Table 后，Film 格式、Film stock、ISO 与 Chroma 参数自动禁用，因为颗粒参数已经由表文件本身决定。
+
+随包提供 `Netflix_FGS_Dune2.txt` 原强度表，以及 `Netflix_FGS_Dune2_Strength75.txt` 减弱版。减弱版将亮度和彩色颗粒强度曲线参数缩放到原表的 75%，保留纹理系数和分段事件；视觉感受不保证恰好减弱四分之一。两份都是动态表，AV1 不重编码时使用兼容流程。
+
+当前 Grain Table 没有百分比强度控件；减弱效果需选择已调整强度的外部表。影视来源的表可能包含多个随时间变化的事件，降低强度不会把动态表变成静态表；AV1 不重编码时仍按实际快速条件选择路径。
 
 ### AV1 UHQ
 
@@ -528,7 +486,7 @@ AV1 / HEVC / H.264 共用约 **2.39:1** 的 Cinematic Style。
 
 ## 自动反交错与 Field-rate
 
-GUI 默认启用自动反交错，并根据 FFprobe 的 `field_order` 判断输入是否为隔行素材。原生任务与自动测试复用同一判断。
+GUI 默认启用自动反交错，并根据 FFprobe 的 `field_order` 判断输入是否为隔行素材。MP4/MOV 中明确的 `fiel` 声明用于补齐 FFprobe 漏报；GUI、原生任务与自动测试共用探测和判断。
 
 | 模式 | 定位 | Field-rate |
 |---|---|---|
@@ -580,6 +538,34 @@ HEVC/x264 已覆盖路线使用 VSPipe Y4M → FFmpeg 管道，AV1 使用共享 
 
 高级 → 插帧提供原生“更新 OpenSVPFlow 插件”：下载 / ZIP 校验、暂存自检、备份、替换和安装位置复检，失败或取消恢复原插件与版本记录。成功后重启 FGS 并重检测硬件；更新前关闭其他占用插件的进程。随包插件作为已验证基线，私有环境、缓存与插件备份属于本机运行状态。
 
+#### 高级参数
+
+在“高级 → 插帧”调整：
+
+| 设置 | 可选值 | 生效方式 |
+|---|---|---|
+| Speed | FGS / medium / fast / faster / fastest | 调整 pel、自动块尺寸、重叠及 refine；FGS 保持已有成本设置 |
+| Tuning | FGS / weak / film / smooth / animation | weak 改为较短 coarse 搜索并在正常场景模式启用切镜混合；animation 使用 type=2、distance=-6、无 refine；film/smooth 当前同义 |
+| Block Size | auto / 8 / 16 / 32 | auto 随 Speed/Tuning 选择；指定值只覆盖块尺寸 |
+
+三项默认 `FGS / FGS / auto` 保持既有 Super、Analyse、SmoothFps 参数；旧 INI 未含新键时使用这些默认值。Algo、Mask Area、主界面场景模式与目标帧率仍独立生效。BASE 仅支持新项默认值，选择其他预设时界面明确切换并禁用 Analyse Profile 为 ENCODEGUI；手动配置非法组合则停止准备并报实际原因。
+
+这是对前端预设的映射，不是向插件直接传入 `speed` / `tuning` API 字段。映射参考 2026-10-12 的 [OpenSVPFlow](https://github.com/Z1xus/open-svpflow) 与 [smoothie 网页](https://smoothie.z1x.us/) 实际脚本；保留 FGS 的 `full:true`、有理数帧率、cubic/linear、Algo、Mask 和场景模式。FGS Speed 配合新 Tuning 时保留 pel=1、自动 16 块（animation 除外），因此不宣称与网页整个输出完全一致。新映射保持 FGS 的 GPU 路径，本批不引入 CPU/GPU 后端切换。
+
+#### 重复帧、Still 与 Peel
+
+“高级 → 插帧”左侧保留算法、分析、Speed/Tuning/Block Size 和 FRUC 参数，右侧为以下 SVP 选项；恢复默认作用于整页，确定后保存。
+
+| 选项 | 默认及建议 | 用途 |
+|---|---|---|
+| 重复帧阈值 dedup | 0 关闭；建议开启值 0.5，范围 0–10 | 按采样亮度差判断孤立重复帧，将后续运动跨两个帧时长展开 |
+| 保护静止文字 / Logo（Still） | 关闭；limit 4.5、edge 5、tolerance 30 | GPU 静止遮罩，减少固定文字与 Logo 拖影 |
+| 剥离 HUD 后重合成（Peel） | 关闭；limit 6 | GPU HUD 剥离再合成 |
+
+所有新选项默认关闭，保留既有插帧参数。dedup 不重建逐帧时间戳，不是 VFR 或音画同步修复；也不能处理任意连续重复帧。当前脚本输入为 YUV420P8，采用普通 SmoothFps/OpenCL；HDR 直通、隔行旁路及 FRUC 保持原有行为。
+
+本版配套插件为 `nightly-20261011-deadbadae0d9`。启用新选项需要两枚 DLL 通过固定哈希门禁；旧版或不同构建会明确报错。插件更新按钮仍可更新插件，但不同构建不能据版本日期推断新选项可用，须重新确认能力。建议先分别启用选项比较效果，再组合使用。
+
 ### FRUC Vulkan
 
 FRUC 使用含 `fruc_vulkan` 滤镜的 FFmpeg 构建，可在配置中沿用主 FFmpeg 或指定独立程序；普通 FFmpeg 未包含此滤镜时不可使用。高级 → 插帧提供 perf（slow / medium / fast，默认 medium）和 grid（auto / 1 / 2 / 4 / 8，默认 auto）。
@@ -588,6 +574,12 @@ FRUC 使用含 `fruc_vulkan` 滤镜的 FFmpeg 构建，可在配置中沿用主 
 
 AV1、HEVC、x264 的已覆盖逐行 SDR 路线接入共享 FRUC 预处理。时间轴按音视频共同起点归一并恢复视频相对延迟；AV1 封装使用实际 IVF 探测结果。不叠加额外输出 -r/CFR 去补齐延迟首帧。不同容器、VFR、负起点或剪辑源仍应按具体素材验证，未测组合不能推断为同步通过。
 
+
+#### 能力诊断
+
+共享预检核对实际构建的 fps/perf/grid 选项及性能常量，保留设备 0 的小样本运行证据与错误；成功不等于实际输入或编码组合通过。任务日志保留 FFmpeg 版本、请求参数及实际返回的设备/网格，未报告的信息不推测。插帧选择与 FRUC 硬件状态 tooltip 共用简短摘要，不显示完整诊断日志或路径；失败时提示查看任务日志。参数默认仍 medium/auto，现有滤镜和时间轴策略保持。
+
+当前上游 auto 选择设备支持的最细网格，通常是 1，不能理解成速度优先；较粗网格用更少向量和内存，但损失细节。没有增加上游未暴露的 hint 或 sc_threshold，也没有假定 Vulkan 可直接交给 NVENC。
 ---
 
 ## 色彩纠正与 LUT 实时预览
@@ -818,6 +810,26 @@ AAC 256 kbps
 
 ---
 
+### 剪切 TS 与音画起点
+
+普通无颗粒x264/HEVC转码保留音视频共同起点，在LUT等局部时钟处理后恢复视频相对延迟；AV1临时IVF使用局部视频时钟，最终封装恢复相对延迟。无颗粒HEVC＋SVP的TS/MTS/M2TS管道复用x264的共享时间轴处理，保留前导音频；上传副本沿用主输出时间轴。
+
+三线共用时间戳探测、开关与执行判断，编码器/管道/封装仍保留必要适配，不能把某一路线通过视为全部路径通过。修复范围为本轮实际覆盖的无颗粒路线，没有扩大为启用颗粒的任意时间轴组合已通过。
+
+---
+
+## 输出文件命名
+
+输出名称按 GUI 面板顺序组织：原名 → 编码方式 → 速度 / 非默认多遍参数 → 码率 / 位深 → 帧率 / 反交错 / 画幅 → 颗粒及参数 → LUT → HDR / 字幕等其它标识。
+
+- `Nature_AV1_UHQ_6000k_24p_GS_Classic35.mp4`
+- `Nature_X264_SLOW_3PASS_18000k_24p_FG_DG68.mp4`
+- `Nature_HEVC_FAST_12000k_24p_FG_CT35_STR85.mp4`
+
+AV1 无重编码替换兼容旧版与当前名称，只更新颗粒部分，并保留单个 `_REPLACED` / `_ADDED`。上传副本以实际 X264 参数开头，末尾标识来源。旧顺序文件不会自动改名；新任务按当前名称判断是否已存在。
+
+---
+
 ## H.264 上传母版
 
 视频平台通常会重新编码上传文件，因此 AV1 Film Grain metadata 很可能无法继续保留。FGS 可额外生成 H.264/AAC 上传副本；启用颗粒时按实际路线保留或烘焙颗粒，关闭颗粒时不主动添加颗粒。
@@ -848,42 +860,31 @@ HEVC 上传副本按实际路线读取最终主输出，或在启用 Grain Plate
 
 ## 为现有 AV1 免重编码添加或替换 Film Grain
 
-在GUI编码方式中选择“AV1 不重编码 · 添加/替换胶片颗粒”。该专用模式的颗粒总开关固定开启。
+输入列表只有一个 AV1 文件、媒体探测完成后，在编码方式中选择“AV1 不重编码 · 添加/替换胶片颗粒”。该模式固定启用颗粒，并禁用码率、速度、反交错、LUT、Cinematic、上传版等需要重新编码的功能。
 
-处理流程：
+没有 Film Grain metadata 时添加，已有时替换；视频流始终不重新编码。输出名称使用 `_ADDED` / `_REPLACED`，连续替换不会无限累积颗粒标签。MKV 尽量保留源音频、字幕、附件、数据流、章节和元数据；MP4 音频转换为 AAC 256 kbps，不保留字幕、附件和数据流。失败记录实际原因并清理未完成输出和任务临时文件。
 
-```text
-现有 AV1 视频
-    ↓ stream copy
-IVF
-    ↓ grav1synth --replace
-带新 Film Grain 的 AV1
-    ↓ remux
-MKV 或 MP4
-    ↓
-grav1synth inspect
-```
+### 自动快速处理与兼容流程
 
-特点：
+符合条件时直接让 grav1synth 读取源 MP4，省去整片 IVF 提取；随后沿用原来的源流映射和输出封装。其它输入先提取 IVF，再添加/替换颗粒并封装。`compatibility` 表示选择了原处理流程，不表示任务失败。
 
-- AV1 视频流不重新编码；
-- 没有 Film Grain 时执行添加，已有时执行替换；
-- 输出命名区分 `_ADDED` / `_REPLACED`；
-- 连续替换时清理旧的 FGS Grain 标签，避免文件名无限增长；
-- 默认 MKV 尽量保留原始流；
-- MP4 模式将音频转换为 AAC 256 kbps；
-- 失败时记录实际原因，保留任务日志，临时文件按当前清理策略处理；
-- 非AV1输入或未知/失败的颗粒探测会报告实际原因并停止准备。
+| 颗粒模式 | 快速处理条件 |
+|---|---|
+| 内置预设 | 常规 MP4、视频零起点、均匀帧时间；无非零 composition offset 或复杂编辑列表 |
+| Photon ISO | 满足上述时间轴条件，并且开头四包 IVF 的尺寸、传递函数和色彩范围与源探测结果一致 |
+| Grain Table | 满足上述时间轴条件，且表只有一个启用事件，从零开始并覆盖整个视频 |
 
-该功能也已经接入 GUI。当输入列表中只有 **1 个 AV1 文件**且媒体探测完成后，可以选择：
+MKV、VFR、非零或未知起点、复杂编辑列表及动态外部颗粒表保留兼容流程。无重编码裁剪的 MP4 可能藏有播放器不显示的前置视频包；即使 FFprobe 显示起点为零，也不保证满足快速条件。选择关键帧重新裁样本可改善时间轴，但可能丢掉开头画面，不能用强制归零代替同步检查。
 
-```text
-AV1 不重编码 · 添加/替换胶片颗粒
-```
+ISO 首次出现“核对原 IVF 色彩条件后选择处理路径”；后续 `fast` 或 `compatibility` 日志才是最终路径。缺少 FFprobe、核对失败/超时或色彩不一致时保留兼容流程。核对成功可在同一次 FGS 运行中复用，源文件、工具或探测色彩信息变化后重新核对，重启也会重新核对；不新增磁盘缓存。首次核对有开销，短视频不保证更快。
 
-此模式会禁用码率、速度、反交错、LUT、Cinematic、上传版等需要重编码的功能，只保留 AV1 Film Grain 参数与容器选择。
+### 颗粒预览与输出检查
 
-> “No Re-encode”仅指视频流。选择 MP4 时，音频仍会转换为 AAC。
+颗粒区域的“预览(右键切换模式)”左键打开对照预览，右键设置自动快速路径和完整颗粒检查，设置保存到配置文件。
+
+预览打开后自动生成，左右使用同一帧比较无颗粒画面与实际解码合成的颗粒效果；最多显示八张采样图，支持滑块、播放和 1:1 中心裁切。默认跳过开头近黑帧，底部显示跳过数量；可关闭该项后重新生成。全黑内容会保留并提示，加载失败显示原因。HDR 预览仅为显示而转换，不改正式输出的 HDR 策略。预览复用 FFmpeg / libdav1d，不新增 Python 或 VapourSynth 依赖。
+
+默认对内置预设、ISO 和静态表检查开头 sequence header；动态外部颗粒表保留完整输出检查。需要时可从预览按钮右键开启完整检查。任务日志记录各处理阶段耗时。
 
 ---
 
@@ -1081,9 +1082,9 @@ Tests_Shared/（仅本地测试；不提交、不进入正式 Stable ZIP）
 
 ## 本地测试与历史基准
 
-当前原生本地测试入口为完整测试包中的 `Tests_Shared/Run_GrainSwitch_Tests.bat`，使用实际交付EXE和共享执行判断。`-Gui`检查开关状态，`-Execute`使用规范命名样本编码；`-ClipOnly`用于剪切TS，`-Interpolation SVP`或`FRUC`用于插帧专项，可用`-Codecs X264,HEVC,AV1`筛选路线。
+专项测试脚本、样本、Results 和交付证据只供本地验证，不进入正式 Stable 包。仓库历史 benchmark 报告保留追踪，不作为当前版本的新增验收证据。开发检查、软件模拟、实际执行和人工画质/同步观察分别记录；某个样本或编码路线通过不代表所有硬件、HDR、容器、时间轴和功能组合都已验证。
 
-Tests_Shared、样本与Results只供本地测试，正式Stable ZIP和GitHub不携带该目录。仓库已有benchmark历史报告继续保留追踪，在正式Stable包中排除；历史脚本结果不作为当前.NET版本的新增验收证据。开发检查、软件模拟、实际编码和人工画质/同步观察分别记录。
+当前版本的变更及实际验证范围见 [CHANGELOG.md](CHANGELOG.md)，无需为单纯文档和版本同步重复完整视频矩阵。
 
 ## FFmpeg 与 NVIDIA 驱动
 
@@ -1172,26 +1173,8 @@ ffmpeg -hide_banner -h decoder=libdav1d
 
 需要上传到会二次转码的视频平台时，再额外生成一份将 Grain 烘焙到像素的 H.264 / AAC 上传母版。
 
-### 输出文件命名
-
-输出名称按 GUI 面板顺序组织：原名 → 编码方式 → 速度 / 非默认多遍参数 → 码率 / 位深 → 帧率 / 反交错 / 画幅 → 颗粒及参数 → LUT → HDR / 字幕等其它标识。
-
-- `Nature_AV1_UHQ_6000k_24p_GS_Classic35.mp4`
-- `Nature_X264_SLOW_3PASS_18000k_24p_FG_DG68.mp4`
-- `Nature_HEVC_FAST_12000k_24p_FG_CT35_STR85.mp4`
-
-AV1 无重编码替换兼容旧版与当前名称，只更新颗粒部分，并保留单个 `_REPLACED` / `_ADDED`。上传副本以实际 X264 参数开头，末尾标识来源。旧顺序文件不会自动改名；新任务按当前名称判断是否已存在。
-
-隔行探测：MP4/MOV 明确 fiel 声明补齐 FFprobe 漏报；自动入口与 GUI 共用探测，相关补测已按实际范围通过。
-
-随包 EXE 使用 Microsoft .NET Framework 4.5 参考程序集编译，编译兼容性修复及后续验收已完成。
-
-## 无颗粒转码与剪切 TS 时间轴
-
-普通无颗粒x264/HEVC转码保留音视频共同起点，在LUT等局部时钟处理后恢复视频相对延迟；AV1临时IVF使用局部视频时钟，最终封装恢复相对延迟。无颗粒HEVC＋SVP的TS/MTS/M2TS管道复用x264的共享时间轴处理，保留前导音频；上传副本沿用主输出时间轴。
-
-三线共用时间戳探测、开关与执行判断，编码器/管道/封装仍保留必要适配，不能把某一路线通过视为全部路径通过。修复范围为本轮实际覆盖的无颗粒路线，没有扩大为启用颗粒的任意时间轴组合已通过。颗粒性能、LUT分辨率和框架升级不属于本版改动。
-
 ## 构建与发布
 
-本地构建：`dotnet\build_NET_Preview.bat`。两处EXE必须来自同一源码、版本4.8.19、构建标签Stable，并通过实际成品API审计。正式Stable由维护者的Windows统一发布流程重新构建；目标发布说明见[RELEASE_NOTES](.github/release/RELEASE_NOTES.md)。发布准备包和Dry Run均不表示已经提交、创建Tag、推送或正式发布。
+本地构建：`dotnet\build_NET_Preview.bat`。正式 Stable 由 Windows runner 使用统一发布核心重新构建；两处 EXE 来自同一源码，版本为 4.8.20、构建标签为 Stable，并通过 Microsoft Framework API 成品审计。审计失败会停止构建或发布。
+
+维护者先运行 `release.bat --dry-run 4.8.20`，通过后执行 `release.bat 4.8.20`。目标发布说明见 [RELEASE_NOTES](.github/release/RELEASE_NOTES.md)。发布准备源码包与 Dry Run 成功均不表示已经提交、创建 Tag、推送或正式发布。

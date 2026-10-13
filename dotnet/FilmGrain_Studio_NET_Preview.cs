@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -98,7 +98,7 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "4.8.19";
+        internal const string ReleaseVersion = "4.8.20";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -869,7 +869,7 @@ namespace FilmGrainStudioPreview
 
             TableLayoutPanel shell = new TableLayoutPanel();
             shell.Dock = DockStyle.Fill; shell.Padding = new Padding(5); shell.ColumnCount = 1; shell.RowCount = 3;
-            shell.RowStyles.Add(new RowStyle(SizeType.Absolute, 28)); shell.RowStyles.Add(new RowStyle(SizeType.Absolute, 34)); shell.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            shell.RowStyles.Add(new RowStyle(SizeType.Absolute, 32)); shell.RowStyles.Add(new RowStyle(SizeType.Absolute, 34)); shell.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             cmbGrainMode = Combo(new string[] { lang.T("grain.mode.film"), lang.T("grain.mode.iso"), lang.T("grain.mode.table"), lang.T("grain.mode.digital"), lang.T("grain.mode.fgsim") }, 0);
             grainContent = new Panel(); grainContent.Dock = DockStyle.Fill;
             chkGrainEnabled = Check(UiText("启用颗粒", "Enable grain"), ordinaryGrainEnabled);
@@ -885,7 +885,20 @@ namespace FilmGrainStudioPreview
                 UpdateBitrateDisplays();
                 UpdateSfeUi();
             };
-            shell.Controls.Add(chkGrainEnabled, 0, 0); shell.Controls.Add(cmbGrainMode, 0, 1); shell.Controls.Add(grainContent, 0, 2);
+            var grainHeader = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = Padding.Empty };
+            grainHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); grainHeader.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            grainHeader.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            chkGrainEnabled.Margin = new Padding(4, 0, 3, 0);
+            var previewButton = new Button { Text = UiText("预览(右键切换模式)", "Preview (right-click for modes)"), AutoSize = true, Dock = DockStyle.Fill, Margin = Padding.Empty, Padding = new Padding(6, 0, 6, 0) };
+            previewButton.Click += delegate { OpenGrainPreview(); };
+            var grainMenu = new ContextMenuStrip();
+            var fastCopy = new ToolStripMenuItem(UiText("不重编码：自动快速路径", "No-reencode: automatic fast path")) { CheckOnClick = true, Checked = config.Get("AV1_COPY_FAST") != "false" };
+            var fullVerify = new ToolStripMenuItem(UiText("不重编码：完整颗粒检查", "No-reencode: full grain verification")) { CheckOnClick = true, Checked = config.GetBool("AV1_COPY_FULL_VERIFY") };
+            fastCopy.CheckedChanged += delegate { try { config.SaveValue("AV1_COPY_FAST", fastCopy.Checked ? "true" : "false"); } catch (Exception ex) { MessageBox.Show(this, ex.Message, UiText("保存设置失败", "Could not save settings")); } };
+            fullVerify.CheckedChanged += delegate { try { config.SaveValue("AV1_COPY_FULL_VERIFY", fullVerify.Checked ? "true" : "false"); } catch (Exception ex) { MessageBox.Show(this, ex.Message, UiText("保存设置失败", "Could not save settings")); } };
+            grainMenu.Items.Add(fastCopy); grainMenu.Items.Add(fullVerify); previewButton.ContextMenuStrip = grainMenu;
+            grainHeader.Controls.Add(chkGrainEnabled, 0, 0); grainHeader.Controls.Add(previewButton, 1, 0);
+            shell.Controls.Add(grainHeader, 0, 0); shell.Controls.Add(cmbGrainMode, 0, 1); shell.Controls.Add(grainContent, 0, 2);
             grpGrain.Controls.Add(shell);
             cmbGrainMode.SelectedIndexChanged += delegate
             {
@@ -1278,21 +1291,28 @@ namespace FilmGrainStudioPreview
             box.Margin = new Padding(10, 2, 10, 4);
 
             TableLayoutPanel layout = new TableLayoutPanel(); layout.Dock = DockStyle.Fill; layout.RowCount = 2; layout.ColumnCount = 1;
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 28)); layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 32)); layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             box.Controls.Add(layout);
 
-            TableLayoutPanel toolbar = new TableLayoutPanel(); toolbar.Dock = DockStyle.Fill; toolbar.ColumnCount = 6; toolbar.RowCount = 1; toolbar.Padding = new Padding(3, 0, 0, 0);
-            toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 220)); toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 84)); toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 84));
-            toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 92)); toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 92));
+            TableLayoutPanel toolbar = new TableLayoutPanel(); toolbar.Dock = DockStyle.Fill; toolbar.ColumnCount = 6; toolbar.RowCount = 1; toolbar.Margin = Padding.Empty; toolbar.Padding = new Padding(3, 0, 0, 0);
+            toolbar.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 84)); toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 84));
+            toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 94)); toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 94));
             lblRunStage = new Label(); lblRunStage.Text = lang.T("log.waiting"); lblRunStage.Dock = DockStyle.Fill; lblRunStage.TextAlign = ContentAlignment.MiddleLeft; lblRunStage.AutoEllipsis = true;
-            lblRunMetric = new Label(); lblRunMetric.Text = "fps: —   speed: —"; lblRunMetric.Dock = DockStyle.Fill; lblRunMetric.TextAlign = ContentAlignment.MiddleLeft; lblRunMetric.ForeColor = ColorMuted; lblRunMetric.AutoEllipsis = true;
-            Button copy = new Button(); copy.Text = lang.T("button.copy_log"); copy.Size = new Size(78, 24); copy.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            Button clear = new Button(); clear.Text = lang.T("button.clear_log"); clear.Size = new Size(78, 24); clear.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            lblRunMetric = new Label(); lblRunMetric.Text = "fps: —   speed: —"; lblRunMetric.AutoSize = true; lblRunMetric.MinimumSize = new Size(360, 0); lblRunMetric.Anchor = AnchorStyles.Left; lblRunMetric.TextAlign = ContentAlignment.MiddleLeft; lblRunMetric.ForeColor = ColorMuted; lblRunMetric.AutoEllipsis = false;
+            Button copy = new Button(); copy.Text = lang.T("button.copy_log"); copy.Size = new Size(78, 24); copy.Anchor = AnchorStyles.Right;
+            Button clear = new Button(); clear.Text = lang.T("button.clear_log"); clear.Size = new Size(78, 24); clear.Anchor = AnchorStyles.Right;
             copy.Click += delegate { if (log.TextLength > 0) Clipboard.SetText(log.Text); };
             clear.Click += delegate { log.Clear(); };
             toolbar.Controls.Add(lblRunStage, 0, 0); toolbar.Controls.Add(lblRunMetric, 1, 0); toolbar.Controls.Add(copy, 2, 0); toolbar.Controls.Add(clear, 3, 0);
             Button openLog = new Button(); openLog.Text = UiText("完整日志", "Full log"); openLog.Size = new Size(88, 24);
             Button openFolder = new Button(); openFolder.Text = UiText("日志目录", "Log folder"); openFolder.Size = new Size(88, 24);
+            foreach (Button button in new Button[] { copy, clear, openLog, openFolder })
+            {
+                button.MinimumSize = new Size(button.Width, 24);
+                button.Margin = new Padding(3);
+                button.Anchor = AnchorStyles.Right;
+            }
             openLog.Click += delegate { OpenFullLog(false); };
             openFolder.Click += delegate { OpenFullLog(true); };
             ContextMenuStrip logFolderMenu = new ContextMenuStrip();
@@ -3247,6 +3267,29 @@ namespace FilmGrainStudioPreview
             if (listFiles.SelectedItems.Count == 1) return listFiles.SelectedItems[0].Tag as string ?? "";
             if (listFiles.Items.Count == 1) return listFiles.Items[0].Tag as string ?? "";
             return "";
+        }
+
+        private void OpenGrainPreview()
+        {
+            if (bridgeTaskCoordinator != null && bridgeTaskCoordinator.IsActive)
+            { MessageBox.Show(this, UiText("请等待当前任务结束后再生成颗粒预览。", "Wait for the current task to finish before rendering a grain preview.")); return; }
+            string input = GetPreviewVideoPath();
+            MediaProbeInfo info = null;
+            if (!string.IsNullOrEmpty(input)) mediaProbeCache.TryGetValue(input, out info);
+            if (string.IsNullOrEmpty(input) || info == null || info.VideoCodec != "av1")
+            { MessageBox.Show(this, UiText("请选择一个 AV1 视频。首版真实颗粒预览只支持 AV1 输入。", "Select one AV1 video. This preview currently requires AV1 input.")); return; }
+            if (cmbCodec.SelectedIndex != 0 && cmbCodec.SelectedIndex != 3 || cmbGrainMode.SelectedIndex > 2 || !IsGrainEnabled())
+            { MessageBox.Show(this, UiText("请启用颗粒并选择 AV1 的预设、ISO 或颗粒表模式。", "Enable grain and select an AV1 preset, ISO or table mode.")); return; }
+            var state = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            state["FG_AV1_FORMAT"] = (av1FormatIndex + 1).ToString(CultureInfo.InvariantCulture);
+            state["FG_AV1_STOCK"] = (av1StockIndex + 1).ToString(CultureInfo.InvariantCulture);
+            state["FG_AV1_ISO"] = av1IsoValue.ToString(CultureInfo.InvariantCulture);
+            state["FG_AV1_CHROMA"] = av1ChromaEnabled ? "1" : "0";
+            state["FG_AV1_GRAIN_TABLE"] = selectedAv1GrainTable;
+            var args = new List<string>(); string tag, reason;
+            string mode = new string[] { "PRESET", "ISO", "TABLE" }[cmbGrainMode.SelectedIndex];
+            if (!NativeAv1GrainReplaceCore.TryBuildGrainArgs(mode, state, args, out tag, out reason)) { MessageBox.Show(this, reason); return; }
+            using (var window = new NativeGrainPreviewForm(Path.Combine(config.Get("FFMPEG_DIR"), "ffmpeg.exe"), config.Get("GRAV1SYNTH"), input, args, info)) window.ShowDialog(this);
         }
 
         private void OpenColorCorrection()
