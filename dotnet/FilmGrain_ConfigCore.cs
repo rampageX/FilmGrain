@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -26,7 +26,7 @@ namespace FilmGrainStudioPreview
             new KeyValuePair<string, string[]>("General", new string[] { "LANGUAGE", "SETUP_VERSION", "NETWORK_PROXY_MODE", "NETWORK_PROXY_URL", "LOG_ENTRY_LIMIT", "GRAIN_ENABLED" }),
             new KeyValuePair<string, string[]>("LUTGallery", new string[] { "SMART_FILTER_ENABLED" }),
             new KeyValuePair<string, string[]>("Advanced.Encoding", new string[] { "H264_HIGH10", "X264_RATE_MODE", "X264_PRESET", "NVENC_SPATIAL_AQ", "NVENC_TEMPORAL_AQ" }),
-            new KeyValuePair<string, string[]>("Advanced.Interpolation", new string[] { "SVP_ALGO", "SVP_ANALYSE", "SVP_MASK_AREA", "SVP_SPEED", "SVP_TUNING", "SVP_BLOCK_SIZE", "FRUC_PERF", "FRUC_GRID", "INTERPOLATION_TARGET_FPS" }),
+            new KeyValuePair<string, string[]>("Advanced.Interpolation", new string[] { "SVP_ALGO", "SVP_ANALYSE", "SVP_MASK_AREA", "SVP_SPEED", "SVP_TUNING", "SVP_BLOCK_SIZE", "SVP_DEDUP", "SVP_STILL", "SVP_STILL_LIMIT", "SVP_STILL_EDGE", "SVP_STILL_TOLERANCE", "SVP_PEEL", "SVP_PEEL_LIMIT", "FRUC_PERF", "FRUC_GRID", "INTERPOLATION_TARGET_FPS" }),
             new KeyValuePair<string, string[]>("Advanced.HDR", new string[] { "HDR_POLICY", "TONE_MAP_ALGO" }),
             new KeyValuePair<string, string[]>("Advanced.Other", new string[] { "CINEMATIC_CROP_PER_SIDE", "COLOR_PREVIEW_LARGE_UI" }),
             new KeyValuePair<string, string[]>("ColorCorrection", new string[] { "COLOR_CORRECTION_ENABLED", "COLOR_CONTRAST", "COLOR_BRIGHTNESS", "COLOR_SATURATION", "COLOR_GAMMA", "COLOR_BLACK_WHITE" })
@@ -73,6 +73,14 @@ namespace FilmGrainStudioPreview
             defaults["SVP_SPEED"] = "FGS";
             defaults["SVP_TUNING"] = "FGS";
             defaults["SVP_BLOCK_SIZE"] = "auto";
+            defaults["SVP_DEDUP"] = "0";
+            defaults["SVP_STILL"] = "false";
+            defaults["SVP_STILL_LIMIT"] = "4.5";
+            defaults["SVP_STILL_EDGE"] = "5";
+            defaults["SVP_STILL_TOLERANCE"] = "30";
+            defaults["SVP_PEEL"] = "false";
+            defaults["SVP_PEEL_LIMIT"] = "6";
+
             defaults["FRUC_PERF"] = "medium";
             defaults["FRUC_GRID"] = "auto";
             defaults["INTERPOLATION_TARGET_FPS"] = "60";

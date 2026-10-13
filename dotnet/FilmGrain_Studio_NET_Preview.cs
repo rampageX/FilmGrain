@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -98,7 +98,7 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "4.8.17";
+        internal const string ReleaseVersion = "4.8.18";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)

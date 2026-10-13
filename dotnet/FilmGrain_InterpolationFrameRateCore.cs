@@ -353,6 +353,57 @@ namespace FilmGrainStudioPreview
             return true;
         }
 
+        // D8P6WK: fixed upstream release, checked by bytes rather than a mutable marker.
+        internal const string OptionsPlugin1Hash = "36258dfa4f1c8f4a3b88a61c0327c2271ec3fc6a107ce0c1e0cb859b23f7fa9d";
+        internal const string OptionsPlugin2Hash = "da82451364b65241b6547b703739e761422d922c45b8f111fcd98f805faf58eb";
+
+        internal static string[] ExtraArguments(IDictionary<string,string> state)
+        {
+            string dedup = ExtraNumber(state,"FG_SVP_DEDUP","0",10);
+            string still = ExtraSwitch(state,"FG_SVP_STILL");
+            string peel = ExtraSwitch(state,"FG_SVP_PEEL");
+            string limit = ExtraNumber(state,"FG_SVP_STILL_LIMIT","4.5",100);
+            string edge = ExtraNumber(state,"FG_SVP_STILL_EDGE","5",100);
+            string tolerance = ExtraNumber(state,"FG_SVP_STILL_TOLERANCE","30",100);
+            string peelLimit = ExtraNumber(state,"FG_SVP_PEEL_LIMIT","6",100);
+            if(dedup=="0" && still=="0" && peel=="0") return new string[0];
+            return new string[]{"--arg","dedup="+dedup,"--arg","still="+still,
+                "--arg","still_limit="+limit,"--arg","still_edge="+edge,
+                "--arg","still_tolerance="+tolerance,"--arg","peel="+peel,"--arg","peel_limit="+peelLimit};
+        }
+
+        private static string ExtraNumber(IDictionary<string,string> state,string key,string fallback,double maximum)
+        {
+            string text=Option(state,key,fallback);double value;
+            if(!double.TryParse(text,NumberStyles.Float,CultureInfo.InvariantCulture,out value) ||
+                double.IsNaN(value)||double.IsInfinity(value)||value<0||value>maximum)
+                throw new ArgumentException("OpenSVPFlow input error: "+key+" must be finite and within 0.."+maximum.ToString(CultureInfo.InvariantCulture));
+            return value.ToString("0.#########",CultureInfo.InvariantCulture);
+        }
+
+        private static string ExtraSwitch(IDictionary<string,string> state,string key)
+        {
+            string value=Option(state,key,"false");
+            if(value=="1" || string.Equals(value,"true",StringComparison.OrdinalIgnoreCase))return "1";
+            if(value=="0" || string.Equals(value,"false",StringComparison.OrdinalIgnoreCase))return "0";
+            throw new ArgumentException("OpenSVPFlow input error: "+key+" must be true/false or 1/0");
+        }
+
+        internal static void ValidateExtraPlugins(string plugins)
+        {
+            string[] files={"svpflow1_vs.dll","svpflow2_vs.dll"};
+            string[] hashes={OptionsPlugin1Hash,OptionsPlugin2Hash};
+            for(int i=0;i<files.Length;i++) {
+                string path=Path.Combine(plugins,files[i]);
+                if(!File.Exists(path))throw new IOException("OpenSVPFlow new options require nightly-20261011-deadbadae0d9: "+path);
+                using(var sha=System.Security.Cryptography.SHA256.Create())
+                using(var stream=File.OpenRead(path)) {
+                    string actual=BitConverter.ToString(sha.ComputeHash(stream)).Replace("-","").ToLowerInvariant();
+                    if(actual!=hashes[i])throw new IOException("OpenSVPFlow 新选项需要本版配套固定插件 nightly-20261011-deadbadae0d9；当前 DLL 未通过能力门禁。 / New options require the pinned plugin: "+files[i]);
+                }
+            }
+        }
+
         private static string Option(IDictionary<string,string> state, string key, string defaultValue)
         { string value; return state.TryGetValue(key, out value) ? value ?? "" : defaultValue; }
 
@@ -369,12 +420,16 @@ namespace FilmGrainStudioPreview
             string speed = Option(state, "FG_SVP_SPEED", "FGS"), tuning = Option(state, "FG_SVP_TUNING", "FGS"), block = Option(state, "FG_SVP_BLOCK_SIZE", "auto");
             string optionError;
             if (!TryValidateOptions(speed, tuning, block, analyse, out optionError)) throw new ArgumentException(optionError);
+            string[] extra = ExtraArguments(state);
+            if(extra.Length>0) ValidateExtraPlugins(plugins);
             stage.PipeProducerPath = vspipe;
-            stage.PipeProducerArguments = JoinArgs(new string[]{"--progress", "-c", "y4m", "--arg", "input=" + input,
+            var producerArgs = new List<string>(new string[]{"--progress", "-c", "y4m", "--arg", "input=" + input,
                 "--arg", "plugin_dir=" + plugins, "--arg", "target_num=" + outputFps.Split('/')[0], "--arg", "target_den=" + (outputFps.Contains("/") ? outputFps.Split('/')[1] : "1"),
                 "--arg", "algo=" + algo, "--arg", "analyse_profile=" + analyse,
                 "--arg", "scene_mode=" + scene, "--arg", "mask_area=" + mask,
-                "--arg", "speed=" + speed, "--arg", "tuning=" + tuning, "--arg", "block_size=" + block, vpy, "-"});
+                "--arg", "speed=" + speed, "--arg", "tuning=" + tuning, "--arg", "block_size=" + block});
+            producerArgs.AddRange(extra);producerArgs.Add(vpy);producerArgs.Add("-");
+            stage.PipeProducerArguments = JoinArgs(producerArgs);
         }
 
 

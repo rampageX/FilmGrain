@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -41,6 +41,14 @@ namespace FilmGrainStudioPreview
         public string SvpSpeed = "FGS";
         public string SvpTuning = "FGS";
         public string SvpBlockSize = "auto";
+        public string SvpDedup = "0";
+        public string SvpStill = "false";
+        public string SvpStillLimit = "4.5";
+        public string SvpStillEdge = "5";
+        public string SvpStillTolerance = "30";
+        public string SvpPeel = "false";
+        public string SvpPeelLimit = "6";
+
         public string Deinterlace = "";
         public string DeintMethod = "";
         public bool CinematicFrame;
@@ -136,6 +144,14 @@ namespace FilmGrainStudioPreview
             state["FG_SVP_SPEED"] = snapshot.SvpSpeed;
             state["FG_SVP_TUNING"] = snapshot.SvpTuning;
             state["FG_SVP_BLOCK_SIZE"] = snapshot.SvpBlockSize;
+            state["FG_SVP_DEDUP"] = snapshot.SvpDedup;
+            state["FG_SVP_STILL"] = snapshot.SvpStill;
+            state["FG_SVP_STILL_LIMIT"] = snapshot.SvpStillLimit;
+            state["FG_SVP_STILL_EDGE"] = snapshot.SvpStillEdge;
+            state["FG_SVP_STILL_TOLERANCE"] = snapshot.SvpStillTolerance;
+            state["FG_SVP_PEEL"] = snapshot.SvpPeel;
+            state["FG_SVP_PEEL_LIMIT"] = snapshot.SvpPeelLimit;
+
             state["FG_DEINTERLACE"] = snapshot.Deinterlace;
             state["FG_DEINT_METHOD"] = snapshot.DeintMethod;
             state["FG_CINEMATIC_FRAME"] = snapshot.CinematicFrame ? "1" : "0";

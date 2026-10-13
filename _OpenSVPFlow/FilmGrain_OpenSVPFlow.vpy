@@ -1,5 +1,7 @@
 import os
 import sys
+import math
+import hashlib
 import vapoursynth as vs
 
 core = vs.core
@@ -7,7 +9,9 @@ core = vs.core
 
 def build_svp_parameters(speed="FGS", tuning="FGS", block_size="auto",
                          analyse_profile="ENCODEGUI", algo=13, scene_mode=0,
-                         mask_area=100, target_num=60, target_den=1):
+                         mask_area=100, target_num=60, target_den=1,
+                         dedup=0.0, still=False, still_limit=4.5, still_edge=5.0,
+                         still_tolerance=30.0, peel=False, peel_limit=6.0):
     # Speed/Tuning are front-end presets, not plugin API fields.
     # Mapping inspected from smoothie.z1x.us worker-oUtBbSR_.js on 2026-10-12.
     # Keep the existing FGS strings byte-for-byte at the default settings.
@@ -27,6 +31,19 @@ def build_svp_parameters(speed="FGS", tuning="FGS", block_size="auto",
         raise ValueError("Invalid scene mode or mask area")
     if target_num <= 0 or target_den <= 0:
         raise ValueError("Target frame rate must be positive")
+
+    for name, value, maximum in [("dedup",dedup,10), ("still_limit",still_limit,100),
+                                  ("still_edge",still_edge,100), ("still_tolerance",still_tolerance,100), ("peel_limit",peel_limit,100)]:
+        if not math.isfinite(value) or value < 0 or value > maximum:
+            raise ValueError(f"Invalid OpenSVPFlow {name}: expected finite 0..{maximum}")
+    if not isinstance(still, bool) or not isinstance(peel, bool):
+        raise ValueError("still and peel must be boolean")
+    mask_extra = ""
+    if still:
+        mask_extra += f",still:{{limit:{still_limit:g},edge:{still_edge:g},tolerance:{still_tolerance:g}}}"
+    if peel:
+        mask_extra += f",peel:{{limit:{peel_limit:g}}}"
+    dedup_extra = f"dedup:{dedup:g}," if dedup > 0 else ""
 
     # full:true is intentional: the bundled nightly has a known full:false crash.
     pel = 2 if speed == "medium" else 1
@@ -67,8 +84,8 @@ def build_svp_parameters(speed="FGS", tuning="FGS", block_size="auto",
 
     smooth_params = (
         f"{{gpuid:0,rate:{{num:{target_num},den:{target_den},abs:true}},"
-        f"algo:{algo},cubic:1,linear:true,"
-        f"mask:{{cover:80,area:{mask_area},area_sharp:1.2}},"
+        f"algo:{algo},cubic:1,linear:true,{dedup_extra}"
+        f"mask:{{cover:80,area:{mask_area},area_sharp:1.2{mask_extra}}},"
     )
     # Preserve FGS scene-mode selection, exact fractional FPS, cubic/linear and mask.
     # Weak only enables the upstream scene blend when scene mode is normal (0).
@@ -97,14 +114,30 @@ mask_area = int(arg("mask_area", "100"))
 speed = str(arg("speed", "FGS"))
 tuning = str(arg("tuning", "FGS"))
 block_size = str(arg("block_size", "auto"))
+def option_bool(name):
+    value = str(arg(name, "0")).lower()
+    if value not in {"0", "1", "false", "true"}:
+        raise vs.Error(f"Invalid {name}: expected true/false or 1/0")
+    return value in {"1", "true"}
+try:
+    dedup_value = float(arg("dedup", "0"))
+    still_value = option_bool("still")
+    peel_value = option_bool("peel")
+    still_limit = float(arg("still_limit", "4.5"))
+    still_edge = float(arg("still_edge", "5"))
+    still_tolerance = float(arg("still_tolerance", "30"))
+    peel_limit = float(arg("peel_limit", "6"))
+except (ValueError, OverflowError) as exc:
+    raise vs.Error(f"Invalid OpenSVPFlow extra option: {exc}")
 
 try:
     super_params, analyse_params, smooth_params = build_svp_parameters(
         speed, tuning, block_size, analyse_profile, algo_value, scene_mode,
-        mask_area, target_num, target_den)
+        mask_area, target_num, target_den, dedup_value, still_value, still_limit,
+        still_edge, still_tolerance, peel_value, peel_limit)
 except ValueError as exc:
     raise vs.Error(str(exc))
-print(f"[OpenSVPFlow options] speed={speed} tuning={tuning} block_size={block_size} analyse={analyse_profile}", file=sys.stderr, flush=True)
+print(f"[OpenSVPFlow options] speed={speed} tuning={tuning} block_size={block_size} analyse={analyse_profile} dedup={dedup_value:g} still={still_value} peel={peel_value} effective=YUV420P8/OpenCL", file=sys.stderr, flush=True)
 print(f"[OpenSVPFlow params] Super={super_params} Analyse={analyse_params} SmoothFps={smooth_params}", file=sys.stderr, flush=True)
 
 if algo_value not in {1, 2, 11, 13, 21, 22, 23}:
@@ -125,6 +158,15 @@ if not os.path.isfile(svp1_path):
     raise vs.Error(f"Plugin not found: {svp1_path}")
 if not os.path.isfile(svp2_path):
     raise vs.Error(f"Plugin not found: {svp2_path}")
+
+if dedup_value > 0 or still_value or peel_value:
+    expected = [(svp1_path, "36258dfa4f1c8f4a3b88a61c0327c2271ec3fc6a107ce0c1e0cb859b23f7fa9d"),
+                (svp2_path, "da82451364b65241b6547b703739e761422d922c45b8f111fcd98f805faf58eb")]
+    for path, digest in expected:
+        with open(path, "rb") as stream:
+            actual = hashlib.sha256(stream.read()).hexdigest()
+        if actual != digest:
+            raise vs.Error("New OpenSVPFlow options require pinned nightly-20261011-deadbadae0d9")
 
 core.std.LoadPlugin(svp1_path)
 core.std.LoadPlugin(svp2_path)

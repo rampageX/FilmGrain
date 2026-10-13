@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v4.8.17 Stable · .NET Native-only。** 根 EXE 默认且仅执行 Native；不调用 Legacy BAT/PS1/VBS。旧 CLI/旧 GUI 及配套脚本保存在 Legacy，可以独立移走；共享配置、Lang、实际依赖、SVP .vpy、FGSIM 模板/纹理保留原位置。迁移验收仅覆盖实际测试范围，未测试组合不登记为通过。
+> **Film Grain Studio v4.8.18 Stable · .NET Native-only。** 根 EXE 默认且仅执行 Native；不调用 Legacy BAT/PS1/VBS。旧 CLI/旧 GUI 及配套脚本保存在 Legacy，可以独立移走；共享配置、Lang、实际依赖、SVP .vpy、FGSIM 模板/纹理保留原位置。迁移验收仅覆盖实际测试范围，未测试组合不登记为通过。
 
 ![](images/Film_Grain_Studio.jpg)
 
@@ -21,6 +21,20 @@
 关闭表示“不主动添加 FGS 颗粒”，不是降噪，不清除输入已有像素颗粒。普通 AV1 重编码使用实际 FFmpeg 解码路径，输入已有 Film Grain metadata 可能在解码时合成为像素；不承诺重新编码原样保留 metadata，也不自动增加清除步骤。颗粒检测/查看独立于添加开关。
 
 “AV1 不重编码 · 添加/替换胶片颗粒”专用模式强制启用颗粒并禁用总开关；tooltip说明原因。进入/离开该模式保留并恢复普通转码开关状态，不静默转为重新编码。
+
+## OpenSVPFlow 重复帧、Still 与 Peel
+
+“高级 → 插帧”左侧保留算法、分析、Speed/Tuning/Block Size 和 FRUC 参数，右侧为以下 SVP 选项；恢复默认作用于整页，确定后保存。
+
+| 选项 | 默认及建议 | 用途 |
+|---|---|---|
+| 重复帧阈值 dedup | 0 关闭；建议开启值 0.5，范围 0–10 | 按采样亮度差判断孤立重复帧，将后续运动跨两个帧时长展开 |
+| 保护静止文字 / Logo（Still） | 关闭；limit 4.5、edge 5、tolerance 30 | GPU 静止遮罩，减少固定文字与 Logo 拖影 |
+| 剥离 HUD 后重合成（Peel） | 关闭；limit 6 | GPU HUD 剥离再合成 |
+
+所有新选项默认关闭，保留既有插帧参数。dedup 不重建逐帧时间戳，不是 VFR 或音画同步修复；也不能处理任意连续重复帧。当前脚本输入为 YUV420P8，采用普通 SmoothFps/OpenCL；HDR 直通、隔行旁路及 FRUC 保持原有行为。
+
+本版配套插件为 `nightly-20261011-deadbadae0d9`。启用新选项需要两枚 DLL 通过固定哈希门禁；旧版或不同构建会明确报错。插件更新按钮仍可更新插件，但不同构建不能据版本日期推断新选项可用，须重新确认能力。建议先分别启用选项比较效果，再组合使用。
 
 ## Framework 成品兼容性检查
 
@@ -49,6 +63,8 @@
 高级设置各页的“恢复默认”位于确定左侧，只恢复当前页、确定后保存；插帧说明使用控件/标签tooltip，插件更新按钮仅在插帧页显示。
 
 ## 验收范围
+
+v4.8.18 的 SVP 新选项及同页界面已于 2026-10-13 由用户确认自动化、人工功能和 UI 验收通过。
 
 v4.8.17 的颗粒总开关与累计修复已按本轮既定测试验收：用户确认 G7N2VX 测试及后续普通剪切TS、FRUC、V3K8MS的HEVC/AV1＋SVP补测通过。静态/模拟、软件执行、Windows技术检查和人工观察分别记录；该确认不扩大到未测硬件、HDR、时间戳、容器或任意功能叠加组合。
 
@@ -1172,4 +1188,4 @@ AV1 无重编码替换兼容旧版与当前名称，只更新颗粒部分，并�
 
 ## 构建与发布
 
-本地构建：`dotnet\build_NET_Preview.bat`。两处EXE必须来自同一源码、版本4.8.17、构建标签Stable，并通过实际成品API审计。正式Stable由维护者的Windows统一发布流程重新构建；目标发布说明见[RELEASE_NOTES](.github/release/RELEASE_NOTES.md)。发布准备包和Dry Run均不表示已经提交、创建Tag、推送或正式发布。
+本地构建：`dotnet\build_NET_Preview.bat`。两处EXE必须来自同一源码、版本4.8.18、构建标签Stable，并通过实际成品API审计。正式Stable由维护者的Windows统一发布流程重新构建；目标发布说明见[RELEASE_NOTES](.github/release/RELEASE_NOTES.md)。发布准备包和Dry Run均不表示已经提交、创建Tag、推送或正式发布。

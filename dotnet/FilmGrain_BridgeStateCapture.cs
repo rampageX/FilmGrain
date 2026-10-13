@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -105,6 +105,14 @@ namespace FilmGrainStudioPreview
             snapshot.SvpSpeed = config.Get("SVP_SPEED");
             snapshot.SvpTuning = config.Get("SVP_TUNING");
             snapshot.SvpBlockSize = config.Get("SVP_BLOCK_SIZE");
+            snapshot.SvpDedup = config.Get("SVP_DEDUP");
+            snapshot.SvpStill = config.Get("SVP_STILL");
+            snapshot.SvpStillLimit = config.Get("SVP_STILL_LIMIT");
+            snapshot.SvpStillEdge = config.Get("SVP_STILL_EDGE");
+            snapshot.SvpStillTolerance = config.Get("SVP_STILL_TOLERANCE");
+            snapshot.SvpPeel = config.Get("SVP_PEEL");
+            snapshot.SvpPeelLimit = config.Get("SVP_PEEL_LIMIT");
+
             if (snapshot.SvpInterpolate && snapshot.InterpolationEngine == "SVP" &&
                 !SharedSvpCore.TryValidateOptions(snapshot.SvpSpeed, snapshot.SvpTuning, snapshot.SvpBlockSize, snapshot.SvpAnalyse, out error))
                 return null;
