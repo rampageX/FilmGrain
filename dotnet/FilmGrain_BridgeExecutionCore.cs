@@ -89,6 +89,7 @@ namespace FilmGrainStudioPreview
         public IList<string> OutputFiles { get; set; }
         public IList<string> TemporaryFiles { get; set; }
         public Func<string> PostRunValidation { get; set; }
+        public Action PostRunCommit { get; set; }
         public double ProgressDurationSeconds { get; set; }
     }
 
@@ -301,7 +302,7 @@ namespace FilmGrainStudioPreview
                         exitCode = string.IsNullOrEmpty(stage.PipeProducerPath)
                             ? RunProcess(BuildStartInfo(request, stage), stage.ToolPath, out failure)
                             : RunPipedProcess(request, stage, out failure);
-                        if (stageTimer != null) RaiseLog(BridgeLogStream.System, "[AV1 Copy] stage_seconds=" + stageTimer.Elapsed.TotalSeconds.ToString("0.000", CultureInfo.InvariantCulture) + " stage=" + stage.StageText);
+                        if (stageTimer != null) RaiseLog(BridgeLogStream.System, (request.Environment != null && request.Environment.ContainsKey("FG_MODE") && request.Environment["FG_MODE"] == "AV1BAKE" ? "[AV1 Bake]" : "[AV1 Copy]") + " stage_seconds=" + stageTimer.Elapsed.TotalSeconds.ToString("0.000", CultureInfo.InvariantCulture) + " stage=" + stage.StageText);
                         if (failure != null || exitCode != 0 || cancelRequested) break;
                     }
                     if (cancelRequested && exitCode == 0) exitCode = -1;
@@ -318,6 +319,8 @@ namespace FilmGrainStudioPreview
                     if (!string.IsNullOrEmpty(validationError)) throw new InvalidDataException(validationError);
                     RaiseLog(BridgeLogStream.System, "Post-run validation passed");
                 }
+                if (!cancelRequested && exitCode == 0 && failure == null && request.PostRunCommit != null)
+                    request.PostRunCommit();
             }
             catch (Exception ex)
             {

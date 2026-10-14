@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v4.8.20 Stable · .NET Native-only。** AV1、HEVC、x264 使用当前 .NET 原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v4.8.21 Stable · .NET Native-only。** AV1、HEVC、x264 使用当前 .NET 原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 基于 **FFmpeg、NVIDIA NVENC、libx264 与 grav1synth** 的 Windows 视频处理工具。当前入口为 .NET 图形界面，支持向 EXE 传入或拖入视频文件。
 
@@ -830,9 +830,23 @@ AV1 无重编码替换兼容旧版与当前名称，只更新颗粒部分，并�
 
 ---
 
-## H.264 上传母版
+## AV1 颗粒烘焙与 H.264 上传母版
 
 视频平台通常会重新编码上传文件，因此 AV1 Film Grain metadata 很可能无法继续保留。FGS 可额外生成 H.264/AAC 上传副本；启用颗粒时按实际路线保留或烘焙颗粒，关闭颗粒时不主动添加颗粒。
+
+### 将已有 AV1 的颗粒烘焙为兼容副本
+
+输入列表旁的 **AV1 烘焙...** 将列表内已有 AV1 直接重新编码为 H.264 或 HEVC / AAC MP4，不重新生成 AV1 主成片，也不调用 grav1synth 添加或替换颗粒。它使用软件 `libdav1d`、明确开启 Film Grain 合成；源无颗粒 metadata 时正常转码，不额外添加噪声。独立烘焙不应用主界面的插帧、LUT、调色、字幕、电影画幅或颗粒引擎设置。
+
+可选 **x264 单次 VBR**、**H.264 NVENC P7/VBR** 或 **HEVC NVENC Main10 P7/VBR**；自动码率沿用所选 FGS 编码线推荐，也可输入手动码率。输出目录沿用全局输出设置，命名为 `_BAKED_H264_X264_码率k.mp4`、`_BAKED_H264_NVENC_码率k.mp4` 或 `_BAKED_HEVC_MAIN10_NVENC_码率k.mp4`。复用原任务日志、进度、队列和取消机制；唯一临时文件验证完成后才提交最终输出，不覆盖已有文件。
+
+当前仅支持偶数尺寸、逐行、4:2:0 8/10-bit 普通 SDR AV1；最终 H.264 为 High 8-bit 4:2:0，音频为 AAC 256 kbps/stereo/48 kHz。HDR/BT.2020 直接烘焙尚不支持。源中明确的 SDR 色彩标签保留；缺失标签不擅自补齐。H.264/HEVC 像素颗粒均不依赖 AV1 Film Grain metadata，但平台再次压制仍可能削弱颗粒。
+
+HEVC 烘焙使用 4:2:0 Main10、P010、AAC stereo 48 kHz 和 MP4 `hvc1`。10-bit 源保留编码位深；8-bit 源转换为 10-bit，不增加原始细节，也不代表 HDR。P7/VBR、fullres multipass、Spatial AQ=8、Temporal AQ=OFF、Lookahead=27 固定；实际编码预检先验证 `bf=4`，失败后验证 `bf=0`，采用哪一组会写入日志。两组均失败则停止，不改用其他编码器。T600 按实际预检结果处理，不按型号强制 B 帧。
+
+HEVC Main10 需要播放器具备 HEVC 10-bit 解码能力；Windows 系统播放器可能需要 HEVC 扩展，见 [Microsoft 支持说明](https://support.microsoft.com/en-us/windows/apps/photos/photos-app-video-editor-error-can-t-view-this-file-type)。MP4 `hvc1` 不保证所有浏览器、电视或二次转码平台都支持；上传平台未确认支持时优先选 H.264 High 8-bit/AAC。HEVC 质量与首尾同步需播放确认，有损输出不要求与源逐像素相同。
+
+H.264 NVENC 使用真实参数预检，不可用时提示改选 x264，不静默降低参数或更换编码器；HEVC 的 B 帧兼容方案按上文单独验证。当前仍用软件解码；NVDEC 尚未接入。x264 和 NVENC 输出均有损，颗粒合成正确性与编码后的视觉保留分别验证。
 
 ### 主流程附加上传版
 
@@ -852,7 +866,9 @@ AAC 256 kbps / stereo / 48 kHz
 
 上传版始终保持标准 H.264 High 8-bit，以平台兼容性为优先；H.264 High10 只作用于 H.264 x264 Grain 主输出。
 
-AV1 上传版会从最终 AV1 主成片读取，并通过 `libdav1d` 将 Film Grain metadata 合成为真实颗粒像素后再压制。
+AV1 上传版会从最终 AV1 主成片读取，并通过明确开启颗粒合成的 `libdav1d` 将 Film Grain metadata 合成为真实颗粒像素后再压制。上传版复选框右键可选择 **x264（默认）** 或 **H.264 NVENC**；该选择只作用于 AV1 上传副本，HEVC 上传副本沿用 x264。
+
+NVENC 固定单次 FFmpeg 编码，使用 P7/VBR/fullres、Spatial AQ 8、Temporal AQ 关闭、B-frames 3、lookahead 27；高级设置中的 x264 preset 和 2/3-Pass 仍保留，切回 x264 后继续生效。NVENC 上传副本文件名使用 `_H264_NVENC_P7`，避免与已存在的 x264 副本混淆。已有 AV1 主输出复用和 HDR Preserve 跳过上传副本的策略保持。
 
 HEVC 上传副本按实际路线读取最终主输出，或在启用 Grain Plate 且不插帧的路线复用原处理链。关闭颗粒时读取主输出并保留时间轴，不重复添加颗粒或插帧。
 
@@ -1175,6 +1191,6 @@ ffmpeg -hide_banner -h decoder=libdav1d
 
 ## 构建与发布
 
-本地构建：`dotnet\build_NET_Preview.bat`。正式 Stable 由 Windows runner 使用统一发布核心重新构建；两处 EXE 来自同一源码，版本为 4.8.20、构建标签为 Stable，并通过 Microsoft Framework API 成品审计。审计失败会停止构建或发布。
+本地构建：`dotnet\build_NET_Preview.bat`。正式 Stable 由 Windows runner 使用统一发布核心重新构建；两处 EXE 来自同一源码，版本为 4.8.21、构建标签为 Stable，并通过 Microsoft Framework API 成品审计。审计失败会停止构建或发布。
 
-维护者先运行 `release.bat --dry-run 4.8.20`，通过后执行 `release.bat 4.8.20`。目标发布说明见 [RELEASE_NOTES](.github/release/RELEASE_NOTES.md)。发布准备源码包与 Dry Run 成功均不表示已经提交、创建 Tag、推送或正式发布。
+维护者先运行 `release.bat --dry-run 4.8.21`，通过后执行 `release.bat 4.8.21`。目标发布说明见 [RELEASE_NOTES](.github/release/RELEASE_NOTES.md)。发布准备源码包与 Dry Run 成功均不表示已经提交、创建 Tag、推送或正式发布。

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -15,6 +15,67 @@ namespace FilmGrainStudioPreview
 {
     internal sealed partial class MainForm
     {
+        private void SetAv1UploadEncoder(string value)
+        {
+            try { config.SaveValue("AV1_UPLOAD_ENCODER",value);RefreshAv1UploadEncoder();UpdateHardwareDependentControls(); }
+            catch(Exception ex){MessageBox.Show(this,ex.Message,UiText("保存设置失败", "Could not save settings"),MessageBoxButtons.OK,MessageBoxIcon.Warning);}
+        }
+
+        private void RefreshAv1UploadEncoder()
+        {
+            if(chkUpload==null||cmbCodec==null)return;
+            bool nvenc=cmbCodec.SelectedIndex==0&&config.Get("AV1_UPLOAD_ENCODER")=="NVENC";
+            chkUpload.Text=nvenc?UiText("H.264 上传版 · NVENC", "H.264 upload · NVENC"):lang.T("encode.upload_h264");
+            if(sfeToolTip!=null)sfeToolTip.SetToolTip(chkUpload,UiText("右键选择 AV1 上传副本编码器：x264 或 NVENC。NVENC 固定单次处理；x264 的多遍设置保留。", "Right-click to choose the AV1 upload encoder. NVENC uses one FFmpeg pass; x264 pass settings are retained."));
+        }
+
+        private void ShowAv1BakeDialog()
+        {
+            if(bridgeTaskCoordinator==null||bridgeTaskCoordinator.IsActive)return;
+            var inputs=new List<string>();
+            foreach(ListViewItem item in listFiles.Items){string path=item.Tag as string;if(!string.IsNullOrWhiteSpace(path))inputs.Add(path);}
+            if(inputs.Count==0){MessageBox.Show(this,lang.T("info.add_video"),Text);return;}
+            foreach(string input in inputs){MediaProbeInfo info;if(!mediaProbeCache.TryGetValue(input,out info)){MessageBox.Show(this,UiText("请等待输入媒体探测完成。", "Wait for input media probing."),Text);return;}}
+            using(var dlg=new Form())
+            {
+                dlg.Text=UiText("AV1 颗粒烘焙 · SDR", "AV1 grain bake · SDR");dlg.StartPosition=FormStartPosition.CenterParent;
+                dlg.FormBorderStyle=FormBorderStyle.FixedDialog;dlg.MaximizeBox=false;dlg.MinimizeBox=false;dlg.ClientSize=new Size(470,240);
+                var description=new Label{Text=UiText("将输入列表中的已有 AV1 转为 H.264 或 HEVC / AAC。\n合成源内已有颗粒，不再添加颗粒；不应用主界面的插帧、调色或字幕设置。HDR 本阶段不支持。", "Convert the input AV1 list to H.264 or HEVC / AAC.\nSynthesize existing grain only. Main-window transformations do not apply. HDR is deferred."),Location=new Point(16,14),Size=new Size(438,66)};
+                var encoder=new ComboBox{DropDownStyle=ComboBoxStyle.DropDownList,Location=new Point(126,88),Size=new Size(312,26)};
+                encoder.Items.AddRange(new object[]{"x264 · VBR 1-Pass","H.264 NVENC · P7 / VBR","HEVC NVENC · Main10 / P7 / VBR"});encoder.SelectedIndex=config.Get("AV1_UPLOAD_ENCODER")=="NVENC"?1:0;
+                var auto=new CheckBox{Text=UiText("自动码率（沿用所选编码线推荐）", "Automatic bitrate (selected FGS encoder recommendation)"),Checked=true,Location=new Point(16,123),Size=new Size(300,25)};
+                var bitrate=new NumericUpDown{Minimum=100,Maximum=500000,Value=16000,Increment=1000,Location=new Point(326,123),Size=new Size(112,26),Enabled=false};auto.CheckedChanged+=delegate{bitrate.Enabled=!auto.Checked;};
+                var start=new Button{Text=UiText("开始烘焙", "Start baking"),Location=new Point(230,191),Size=new Size(106,30),DialogResult=DialogResult.OK};
+                var cancel=new Button{Text=lang.T("config.cancel"),Location=new Point(342,191),Size=new Size(96,30),DialogResult=DialogResult.Cancel};
+                dlg.Controls.AddRange(new Control[]{description,new Label{Text=UiText("视频编码器", "Video encoder"),Location=new Point(16,92),Size=new Size(105,23)},encoder,auto,bitrate,start,cancel});dlg.AcceptButton=start;dlg.CancelButton=cancel;
+                if(dlg.ShowDialog(this)!=DialogResult.OK)return;
+                var tasks=new List<BridgeTaskRequest>();var paths=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                try
+                {
+                    foreach(string input in inputs)
+                    {
+                        var info=mediaProbeCache[input];double fps=BitrateRecommendationCore.ParseMediaFps(info);
+                        long rate=auto.Checked?BitrateRecommendationCore.GetRecommendedBitrate(encoder.SelectedIndex==2?1:2,info.Width,info.Height,fps,false):(long)bitrate.Value;
+                        var state=new SortedDictionary<string,string>(StringComparer.OrdinalIgnoreCase){
+                            {"FG_MODE","AV1BAKE"},{"FG_GRAIN_ENABLED","1"},{"FG_UPLOAD_MODE",encoder.SelectedIndex==2?"HEVC_NVENC":encoder.SelectedIndex==1?"NVENC":"X264"},
+                            {"FG_UPLOAD_BITRATE",rate.ToString(CultureInfo.InvariantCulture)},
+                            {"FG_OUTPUT_MODE",config.Get("OUTPUT_MODE")},{"FG_OUTPUT_CUSTOM_DIR",config.Get("OUTPUT_CUSTOM_DIR")}};
+                        string output=Path.GetFullPath(NativeAv1BakeCore.OutputPath(input,state,rate,encoder.SelectedIndex==1));
+                        if(!paths.Add(output))throw new IOException("Bake queue output collision: "+output);
+                        BridgePreparedExecution prepared;string reason;
+                        if(!NativeExecutionPreparationCore.TryPrepare(appRoot,input,info,state,hardwareCaps,false,out prepared,out reason))throw new InvalidOperationException(reason);
+                        tasks.Add(BridgeRequestPreparationCore.CreateTask(prepared,fps));
+                    }
+                    if(taskLog!=null)taskLog.Dispose();taskLog=new FullLogFileCore(appRoot,"Task",GetLogEntryLimit());fullLogErrorReported=false;
+                    AppendTaskLog("[Task log] "+taskLog.FilePath+Environment.NewLine+"[AV1 Bake] build="+TestBuild+Environment.NewLine);
+                    foreach(string input in inputs)AppendTaskLog("[AV1 Bake input] "+input+Environment.NewLine);
+                    activeRunNativeBackend=true;activeRunCodecName="AV1 Bake";
+                    bridgeTaskCoordinator.StartQueue(tasks);
+                }
+                catch(Exception ex){foreach(var task in tasks)BridgeExecutionCore.CleanupTemporaryFiles(task.ExecutionRequest);MessageBox.Show(this,ex.Message,dlg.Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);}
+            }
+        }
+
         private void ShowNetworkProxyDialog()
         {
             config.Load();

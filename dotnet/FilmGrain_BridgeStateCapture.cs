@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -14,7 +14,9 @@ namespace FilmGrainStudioPreview
         {
             BridgeEnvironmentSnapshot snapshot = CaptureBridgeEnvironmentSnapshot(out error);
             if (snapshot == null) return null;
-            return BridgeEnvironmentCore.Build(snapshot);
+            var state = BridgeEnvironmentCore.Build(snapshot);
+            if (snapshot.Mode == "AV1" && config.Get("AV1_UPLOAD_ENCODER") == "NVENC") state["FG_UPLOAD_MODE"] = "NVENC";
+            return state;
         }
 
         private SortedDictionary<string, string> BuildNoReencodeEnvironment(out string error)

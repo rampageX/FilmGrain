@@ -98,7 +98,7 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "4.8.20";
+        internal const string ReleaseVersion = "4.8.21";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -591,6 +591,8 @@ namespace FilmGrainStudioPreview
             remove.Click += delegate { RemoveSelected(); };
             clear.Click += delegate { listFiles.Items.Clear(); UpdateSelectedInfo(); UpdateStatusCount(); };
             buttons.Controls.Add(add); buttons.Controls.Add(remove); buttons.Controls.Add(clear);
+            var bake = new Button { Text = UiText("AV1 烘焙...", "AV1 Bake..."), Size = new Size(106,29) };
+            bake.Click += delegate { ShowAv1BakeDialog(); }; buttons.Controls.Add(bake);
             layout.Controls.Add(buttons, 0, 0);
 
             listFiles = new ListView();
@@ -747,6 +749,14 @@ namespace FilmGrainStudioPreview
             TableLayoutPanel upload = new TableLayoutPanel(); upload.Dock = DockStyle.Fill; upload.Margin = Padding.Empty; upload.ColumnCount = 3; upload.RowCount = 1;
             upload.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 52)); upload.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 48)); upload.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 62));
             chkUpload = Check(lang.T("encode.upload_h264"), false);
+            var uploadEncoderMenu = new ContextMenuStrip();
+            var uploadX264 = new ToolStripMenuItem(UiText("AV1 上传副本：x264（默认）", "AV1 upload: x264 (default)"));
+            var uploadNvenc = new ToolStripMenuItem(UiText("AV1 上传副本：H.264 NVENC", "AV1 upload: H.264 NVENC"));
+            uploadEncoderMenu.Items.Add(uploadX264); uploadEncoderMenu.Items.Add(uploadNvenc);
+            uploadEncoderMenu.Opening += delegate { uploadX264.Checked=config.Get("AV1_UPLOAD_ENCODER")!="NVENC";uploadNvenc.Checked=!uploadX264.Checked;uploadX264.Enabled=uploadNvenc.Enabled=cmbCodec.SelectedIndex==0; };
+            uploadX264.Click += delegate { SetAv1UploadEncoder("X264"); };
+            uploadNvenc.Click += delegate { SetAv1UploadEncoder("NVENC"); };
+            chkUpload.ContextMenuStrip=uploadEncoderMenu;
             cmbUploadBitrate = ComboEditable(new string[] { "3000", "3500", "4000", "5000", "6000", "7500", "9000", "11000", "15000", "22000", "30000" }, "7500"); cmbUploadBitrate.Enabled = false;
             chkUploadBitrateAuto = Check(lang.T("encode.auto"), true); chkUploadBitrateAuto.Enabled = false;
             chkUpload.CheckedChanged += delegate { cmbUploadBitrate.Enabled = chkUpload.Checked; chkUploadBitrateAuto.Enabled = chkUpload.Checked; UpdateBitrateDisplays(); UpdateHdrRouteStatus(GetSelectedMediaInfo()); };
@@ -1703,6 +1713,7 @@ namespace FilmGrainStudioPreview
         private void UpdateNoReencodeUi()
         {
             if (cmbCodec == null) return;
+            RefreshAv1UploadEncoder();
             bool active = cmbCodec.SelectedIndex == 3;
             UpdateGrainEnableUi();
             if (active)
@@ -2321,7 +2332,7 @@ namespace FilmGrainStudioPreview
         {
             if (chkUpload != null && cmbCodec != null && cmbCodec.SelectedIndex != 3)
             {
-                bool x264Ok = !hardwareCapsReady || hardwareCaps == null || hardwareCaps.X264Available;
+                bool x264Ok = (cmbCodec.SelectedIndex == 0 && config.Get("AV1_UPLOAD_ENCODER") == "NVENC") || !hardwareCapsReady || hardwareCaps == null || hardwareCaps.X264Available;
                 chkUpload.Enabled = cmbCodec.SelectedIndex != 2 && x264Ok;
                 if (!chkUpload.Enabled)
                 {

@@ -33,3 +33,11 @@
 /Tests_Grain_R8G2VX/
 /Tests_AV1Speed_K8R5VN/
 /Tests_LogToolbar_R6P9TW/
+
+# Local baking test outputs and samples
+/Test_Bake_S1/Results_*/
+/Test_Bake_S1/Samples/*.mp4
+/Test_Bake_S1/Samples/*.mkv
+/Test_Bake_S1/Samples/*.webm
+/Test_Bake_S1/Samples/*.ivf
+/Test_Bake_S2/Results_*/
