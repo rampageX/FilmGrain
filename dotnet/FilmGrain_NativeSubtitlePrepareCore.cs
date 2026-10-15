@@ -62,6 +62,8 @@ namespace FilmGrainStudioPreview
                     return false;
                 }
 
+                if (!embeddedOrdinal.HasValue) SharedEncodePreviewCore.ShiftExternalAss(temp, state);
+
                 string font = Get(state, "FG_SUB_FONT");
                 if (string.IsNullOrWhiteSpace(font)) font = "huiwen-mincho";
                 int fontSize;

@@ -59,6 +59,7 @@ namespace FilmGrainStudioPreview
     internal sealed class BridgeExecutionStage
     {
         public Func<string> BeforeRunPreparation { get; set; }
+        internal Func<Func<bool>, string> PrepareWithCancellation { get; set; }
         public Func<bool> ShouldRun { get; set; }
         public IList<string> FrucArguments { get; set; }
         public string FrucProbePath { get; set; }
@@ -78,6 +79,8 @@ namespace FilmGrainStudioPreview
     internal sealed class BridgeExecutionRequest
     {
         public string ExecutionNotice { get; set; }
+        internal Func<Func<bool>, BridgeExecutionRequest> ContinueAfterStages { get; set; }
+        internal IList<string> TemporaryDirectories { get; set; }
         public bool LogStageTimings { get; set; }
         public string ToolPath { get; set; }
         public string WorkingDirectory { get; set; }
@@ -270,14 +273,21 @@ namespace FilmGrainStudioPreview
             int exitCode = -1;
             Exception failure = null;
             DateTime runStartedUtc = DateTime.UtcNow;
+            List<BridgeExecutionRequest> previewOwners = new List<BridgeExecutionRequest>();
             try
             {
+            runPreparedRequest:
                 if (!string.IsNullOrEmpty(request.ExecutionNotice)) RaiseLog(BridgeLogStream.System,request.ExecutionNotice);
                 if (request.DirectStages != null && request.DirectStages.Count > 0)
                 {
                     foreach (BridgeExecutionStage stage in request.DirectStages)
                     {
                         if (cancelRequested) break;
+                        if (stage.PrepareWithCancellation != null)
+                        {
+                            RaiseLog(BridgeLogStream.System, stage.PrepareWithCancellation(delegate { return cancelRequested; }));
+                            if (cancelRequested) break;
+                        }
                         if (stage.BeforeRunPreparation != null)
                         {
                             RaiseProgress(new BridgeProgressEventArgs(false, 0, false, "", "", "", true,
@@ -310,6 +320,17 @@ namespace FilmGrainStudioPreview
                 else
                 {
                     exitCode = RunProcess(BuildStartInfo(request, null), request.ToolPath, out failure);
+                }
+                if (!cancelRequested && exitCode == 0 && failure == null && request.ContinueAfterStages != null)
+                {
+                    previewOwners.Add(request);
+                    BridgeExecutionRequest next = request.ContinueAfterStages(delegate { return cancelRequested; });
+                    if (next == null) throw new InvalidOperationException("Preview preparation returned no request");
+                    request = next;
+                    NativeProcessPolicy.ValidateRequest(request);
+                    lock (sync) { activeRequest = request; }
+                    ResetProgressState(request.ProgressDurationSeconds);
+                    if (!cancelRequested) goto runPreparedRequest;
                 }
                 if (!cancelRequested && exitCode == 0 && failure == null && request.PostRunValidation != null)
                 {
@@ -360,6 +381,7 @@ namespace FilmGrainStudioPreview
                     }
                 }
                 CleanupTemporaryFiles(request);
+                foreach (BridgeExecutionRequest owner in previewOwners) CleanupTemporaryFiles(owner);
 
                 lock (sync)
                 {
@@ -816,8 +838,8 @@ namespace FilmGrainStudioPreview
 
         internal static void CleanupTemporaryFiles(BridgeExecutionRequest request)
         {
-            if (request == null || request.TemporaryFiles == null) return;
-            foreach (string tempFile in request.TemporaryFiles)
+            if (request == null) return;
+            foreach (string tempFile in request.TemporaryFiles ?? new string[0])
             {
                 try
                 {
@@ -825,6 +847,8 @@ namespace FilmGrainStudioPreview
                 }
                 catch { }
             }
+            if (request.TemporaryDirectories != null) foreach (string directory in request.TemporaryDirectories)
+                try { if (Directory.Exists(directory)) Directory.Delete(directory, false); } catch { }
         }
 
         private static string GetRequestEnvironment(BridgeExecutionRequest request, string key)

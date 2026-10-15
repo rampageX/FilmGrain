@@ -62,6 +62,9 @@ namespace FilmGrainStudioPreview
             if(info==null){reason="media probe cache is not ready: "+input;return false;}
             if(!info.HasVideo){reason="input has no usable video stream: "+input;return false;}
             if(state==null){reason="missing execution state";return false;}
+            string preview;
+            if (state.TryGetValue("FG_ENCODE_PREVIEW", out preview) && preview == "1")
+                return SharedEncodePreviewCore.TryPrepare(appRoot, input, info, state, caps, noReencode, out prepared, out reason);
             string svpEnabled, svpEngine;
             state.TryGetValue("FG_SVP_INTERPOLATE", out svpEnabled); state.TryGetValue("FG_INTERPOLATION_ENGINE", out svpEngine);
             if (!noReencode && svpEnabled == "1" && (string.IsNullOrEmpty(svpEngine) || string.Equals(svpEngine, "SVP", StringComparison.OrdinalIgnoreCase)))
@@ -97,6 +100,225 @@ namespace FilmGrainStudioPreview
             catch(Exception ex){reason="Native preparation failed: "+ex.Message;}
             if(prepared!=null && prepared.ExecutionRequest!=null)BridgeExecutionCore.CleanupTemporaryFiles(prepared.ExecutionRequest);
             prepared=null;reason=NativeRuntimeBoundaryCore.FailureReason(reason);return false;
+        }
+    }
+
+    // One stream-copy boundary for all native encoding paths. Disabled unless explicitly requested.
+    internal static class SharedEncodePreviewCore
+    {
+        internal static bool TryParseStart(string text, out double seconds)
+        {
+            seconds = 0;
+            if (text == null || !System.Text.RegularExpressions.Regex.IsMatch(text, @"^\d{2}:[0-5]\d:[0-5]\d$")) return false;
+            seconds = int.Parse(text.Substring(0, 2), System.Globalization.CultureInfo.InvariantCulture) * 3600
+                + int.Parse(text.Substring(3, 2), System.Globalization.CultureInfo.InvariantCulture) * 60
+                + int.Parse(text.Substring(6, 2), System.Globalization.CultureInfo.InvariantCulture);
+            return true;
+        }
+        private static string Get(IDictionary<string,string> state, string key)
+        { string value; return state.TryGetValue(key, out value) ? value ?? "" : ""; }
+        private static string Number(double value) { return value.ToString("0.######", System.Globalization.CultureInfo.InvariantCulture); }
+        private static double ParseNumber(string value)
+        { double n; return double.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out n) ? n : 0; }
+        internal static string Quote(string value)
+        {
+            // Windows CreateProcess argument quoting, never a command shell.
+            System.Text.StringBuilder result = new System.Text.StringBuilder("\""); int slashes = 0;
+            foreach (char c in value) {
+                if (c == '\\') { slashes++; continue; }
+                if (c == '"') result.Append('\\', slashes * 2 + 1);
+                else result.Append('\\', slashes);
+                result.Append(c); slashes = 0;
+            }
+            result.Append('\\', slashes * 2); return result.Append('"').ToString();
+        }
+        internal static bool TryPrepare(string appRoot, string input, MediaProbeInfo info, IDictionary<string,string> state,
+            HardwareCapabilitySnapshot caps, bool noReencode, out BridgePreparedExecution prepared, out string reason)
+        {
+            prepared = null; reason = "";
+            double start; int length;
+            if (!TryParseStart(Get(state,"FG_PREVIEW_START"), out start) ||
+                !int.TryParse(Get(state,"FG_PREVIEW_SECONDS"), out length) || length < 1 || length > 86400)
+            { reason = "预览时间无效 / Invalid preview range"; return false; }
+            double sourceDuration = ParseNumber(info.Duration);
+            if (sourceDuration > 0 && start >= sourceDuration)
+            { reason = "预览起始时间已超出视频时长 / Preview starts beyond the source duration"; return false; }
+            var config = new FgsConfig(appRoot, null); config.Load();
+            string ffmpeg = Path.Combine(config.Get("FFMPEG_DIR"), "ffmpeg.exe");
+            string ffprobe = Path.Combine(config.Get("FFMPEG_DIR"), "ffprobe.exe");
+            if (!File.Exists(ffmpeg) || !File.Exists(ffprobe)) { reason = "Preview requires ffmpeg.exe and ffprobe.exe"; return false; }
+            var captured = new Dictionary<string,string>(state, StringComparer.OrdinalIgnoreCase);
+            captured["FG_ENCODE_PREVIEW"] = "0";
+            string tempMode = Get(state,"FG_TEMP_MODE").ToUpperInvariant();
+            string tempRoot = tempMode == "SYSTEM" ? Path.Combine(Path.GetTempPath(),"FilmGrain_Studio") :
+                tempMode == "CUSTOM" ? Path.Combine(Get(state,"FG_TEMP_CUSTOM_DIR"),"FilmGrain_Studio") : Path.GetDirectoryName(input);
+            if (tempMode == "CUSTOM" && string.IsNullOrWhiteSpace(Get(state,"FG_TEMP_CUSTOM_DIR")))
+            { reason = "Custom temporary directory is empty"; return false; }
+            string directory = Path.Combine(tempRoot, "__FGPREVIEW_" + Guid.NewGuid().ToString("N"));
+            string stem = Path.GetFileNameWithoutExtension(input) + "_PREVIEW_" + Get(state,"FG_PREVIEW_START").Replace(":", "") + "_" + length + "s";
+            string clip = Path.Combine(directory, stem + Path.GetExtension(input));
+            string outputDirectory = Get(state,"FG_OUTPUT_MODE") == "CUSTOM" ? Get(state,"FG_OUTPUT_CUSTOM_DIR") : Path.GetDirectoryName(input);
+            captured["FG_OUTPUT_MODE"] = "CUSTOM"; captured["FG_OUTPUT_CUSTOM_DIR"] = outputDirectory;
+            // Resolve sidecars against the original source before its temporary name changes.
+            if (Get(captured,"FG_SUBTITLE") == "1") {
+                string mode = Get(captured,"FG_SUB_MODE").ToUpperInvariant();
+                string external = mode == "EXTERNAL" ? Get(captured,"FG_SUB_PATH") : "";
+                if ((mode == "AUTO" || mode == "EXTERNAL") && string.IsNullOrWhiteSpace(external)) external = SubtitleCore.FindSameName(input);
+                if (!string.IsNullOrWhiteSpace(external)) { captured["FG_SUB_MODE"] = "EXTERNAL"; captured["FG_SUB_PATH"] = external; }
+            }
+            var request = new BridgeExecutionRequest {
+                DirectProcess = true, ToolPath = ffmpeg, WorkingDirectory = appRoot,
+                InputFiles = new List<string> { input }, Environment = captured,
+                TemporaryFiles = new List<string> { clip }, TemporaryDirectories = new List<string> { directory },
+                ProgressDurationSeconds = length,
+                ExecutionNotice = "[Preview] 关键帧无损裁剪 / keyframe stream copy: start=" + Get(state,"FG_PREVIEW_START") + " requested_seconds=" + length + "; actual start/duration may differ."
+            };
+            double alignedStart = start;
+            double sourceOrigin = 0;
+            var cut = new BridgeExecutionStage {
+                ToolPath = ffmpeg, WorkingDirectory = appRoot, StageCurrent = 1, StageTotal = 1,
+                StageText = "预览：关键帧裁剪 / Preview: keyframe clip", ProgressDurationSeconds = length
+            };
+            // Resolve a real video key packet on the worker thread; no UI blocking and no exact-frame trimming.
+            cut.PrepareWithCancellation = delegate(Func<bool> cancelled) {
+                Directory.CreateDirectory(directory);
+                string json = RunTool(ffprobe, "-v error -select_streams v:0 -read_intervals " + Quote(Number(start) + "%+#4096") +
+                    " -show_packets -show_format -show_entries packet=pts_time,flags:format=start_time -of json " + Quote(input),
+                    cancelled, 30000);
+                var parser = new System.Web.Script.Serialization.JavaScriptSerializer(); parser.MaxJsonLength = 16777216;
+                var root = parser.DeserializeObject(json) as Dictionary<string,object>;
+                object raw; var packets = root != null && root.TryGetValue("packets",out raw) ? raw as object[] : null;
+                Dictionary<string,object> packet = null;
+                if (packets != null) foreach (object entry in packets) {
+                    var candidate = entry as Dictionary<string,object>; object key;
+                    if (candidate != null && candidate.TryGetValue("flags",out key) && Convert.ToString(key).IndexOf('K') >= 0) { packet = candidate; break; }
+                }
+                // Some TS files have no index and seeking near EOF lands after the last keyframe.
+                // Search the preceding window in that case; never fall back to a non-key packet.
+                if (packet == null && start > 0) {
+                    string previous = RunTool(ffprobe, "-v error -select_streams v:0 -read_intervals " + Quote(Number(Math.Max(0,start-30)) + "%" + Number(start+1)) +
+                        " -show_packets -show_entries packet=pts_time,flags -of json " + Quote(input), cancelled, 30000);
+                    var earlier = parser.DeserializeObject(previous) as Dictionary<string,object>;
+                    var previousPackets = earlier != null && earlier.TryGetValue("packets",out raw) ? raw as object[] : null;
+                    if (previousPackets != null) foreach (object entry in previousPackets) {
+                        var candidate = entry as Dictionary<string,object>; object key;
+                        if (candidate != null && candidate.TryGetValue("flags",out key) && Convert.ToString(key).IndexOf('K') >= 0) packet = candidate;
+                    }
+                }
+                object pts;
+                if (packet == null || !packet.TryGetValue("pts_time",out pts))
+                    throw new InvalidDataException("Could not locate a safe video keyframe for preview; no exact-frame fallback is used.");
+                var format = root.TryGetValue("format",out raw) ? raw as Dictionary<string,object> : null;
+                object begin; double origin = format != null && format.TryGetValue("start_time",out begin) ? ParseNumber(Convert.ToString(begin)) : 0;
+                sourceOrigin = origin;
+                alignedStart = Math.Max(0, ParseNumber(Convert.ToString(pts)) - origin);
+                cut.DirectArguments = "-hide_banner -nostdin -n -noaccurate_seek -ss " + Number(alignedStart) + " -i " + Quote(input) +
+                    " -t " + length + " -map 0 -map -0:d? -c copy -avoid_negative_ts make_zero " + Quote(clip);
+                return "[Preview] aligned_start_seconds=" + Number(alignedStart) + "; video/audio stream copy; no video re-encode during clipping.";
+            };
+            request.DirectStages = new List<BridgeExecutionStage> { cut };
+            request.ContinueAfterStages = delegate(Func<bool> cancelled) {
+                MediaProbeInfo clipped = Probe(clip, ffprobe, cancelled);
+                if (cancelled()) throw new OperationCanceledException();
+                if (!clipped.HasVideo || ParseNumber(clipped.Duration) <= 0) throw new InvalidDataException("Preview clip has no usable duration/video.");
+                string timingJson = RunTool(ffprobe, "-v error -show_entries format=start_time -of json " + Quote(clip), cancelled, 30000);
+                var timingRoot = new System.Web.Script.Serialization.JavaScriptSerializer().DeserializeObject(timingJson) as Dictionary<string,object>;
+                object formatObject, startObject;
+                var timingFormat = timingRoot != null && timingRoot.TryGetValue("format",out formatObject) ? formatObject as Dictionary<string,object> : null;
+                double clipOrigin = timingFormat != null && timingFormat.TryGetValue("start_time",out startObject) ? ParseNumber(Convert.ToString(startObject)) : 0;
+                double videoLead = ParseNumber(clipped.VideoStartTime) - clipOrigin;
+                if (Get(captured,"FG_SUBTITLE") == "1" && Get(captured,"FG_SUB_MODE") == "EXTERNAL") {
+                    // Demuxer cluster seeking can start earlier than the selected packet (notably MKV).
+                    // Match the copied first key packet to the original instead of guessing a subtitle offset.
+                    string firstJson = RunTool(ffprobe, "-v error -select_streams v:0 -read_intervals " + Quote("%+#1") +
+                        " -show_packets -show_data_hash sha256 -show_entries packet=data_hash -of json " + Quote(clip), cancelled, 30000);
+                    var hashes = new System.Web.Script.Serialization.JavaScriptSerializer(); hashes.MaxJsonLength = 16777216;
+                    var firstRoot = hashes.DeserializeObject(firstJson) as Dictionary<string,object>; object values;
+                    var firstPackets = firstRoot != null && firstRoot.TryGetValue("packets",out values) ? values as object[] : null;
+                    var firstPacket = firstPackets != null && firstPackets.Length > 0 ? firstPackets[0] as Dictionary<string,object> : null;
+                    object firstHash;
+                    if (firstPacket == null || !firstPacket.TryGetValue("data_hash",out firstHash)) throw new InvalidDataException("Cannot resolve the preview subtitle timeline");
+                    string originalJson = RunTool(ffprobe, "-v error -select_streams v:0 -read_intervals " + Quote(Number(Math.Max(0,sourceOrigin+alignedStart-30)) + "%" + Number(sourceOrigin+alignedStart+30)) +
+                        " -show_packets -show_data_hash sha256 -show_entries packet=pts_time,data_hash -of json " + Quote(input), cancelled, 30000);
+                    var originalRoot = hashes.DeserializeObject(originalJson) as Dictionary<string,object>;
+                    var originalPackets = originalRoot != null && originalRoot.TryGetValue("packets",out values) ? values as object[] : null;
+                    bool matched = false;
+                    if (originalPackets != null) foreach (object value in originalPackets) {
+                        var original = value as Dictionary<string,object>; object hash, timestamp;
+                        if (original != null && original.TryGetValue("data_hash",out hash) && Convert.ToString(hash) == Convert.ToString(firstHash) && original.TryGetValue("pts_time",out timestamp)) {
+                            captured["FG_PREVIEW_SUB_OFFSET"] = Number(Math.Max(0,ParseNumber(Convert.ToString(timestamp))-sourceOrigin-videoLead)); matched = true; break;
+                        }
+                    }
+                    if (!matched) throw new InvalidDataException("Cannot match preview keyframe to the original subtitle timeline; stopped to avoid incorrect subtitle timing.");
+                }
+                BridgePreparedExecution next; string error;
+                if (!NativeExecutionPreparationCore.TryPrepare(appRoot, clip, clipped, captured, caps, noReencode, out next, out error))
+                    throw new InvalidOperationException("Preview encoding preparation failed: " + error);
+                next.ExecutionRequest.ExecutionNotice = "[Preview] actual_clip_seconds=" + clipped.Duration + Environment.NewLine + (next.ExecutionRequest.ExecutionNotice ?? "");
+                return next.ExecutionRequest;
+            };
+            prepared = new BridgePreparedExecution(request, noReencode, ffmpeg, new List<string> { input });
+            return true;
+        }
+        private static MediaProbeInfo Probe(string path, string ffprobe, Func<bool> cancelled)
+        {
+            MediaProbeResult result = null;
+            using (var probe = new MediaProbeCore()) {
+                probe.Completed += delegate(MediaProbeResult value) { System.Threading.Interlocked.Exchange(ref result, value); };
+                probe.Start(path, ffprobe); var watch = System.Diagnostics.Stopwatch.StartNew();
+                while (System.Threading.Interlocked.CompareExchange(ref result,null,null) == null) {
+                    if (cancelled()) throw new OperationCanceledException();
+                    if (watch.ElapsedMilliseconds > 30000) throw new TimeoutException("Preview FFprobe timed out");
+                    System.Threading.Thread.Sleep(50);
+                }
+                if (result.Info == null || result.ExitCode != 0) throw new InvalidDataException("Preview probe failed: " + result.FailureMessage + " " + result.StandardError);
+                return result.Info;
+            }
+        }
+        private static string RunTool(string tool, string arguments, Func<bool> cancelled, int timeout)
+        {
+            var text = new System.Text.StringBuilder(); var errors = new System.Text.StringBuilder();
+            using (var process = new System.Diagnostics.Process()) {
+                process.StartInfo = new System.Diagnostics.ProcessStartInfo(tool, arguments) {
+                    UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true
+                };
+                process.OutputDataReceived += delegate(object sender, System.Diagnostics.DataReceivedEventArgs e) { if (e.Data != null) lock(text) text.AppendLine(e.Data); };
+                process.ErrorDataReceived += delegate(object sender, System.Diagnostics.DataReceivedEventArgs e) { if (e.Data != null) lock(errors) errors.AppendLine(e.Data); };
+                try {
+                    process.Start(); process.BeginOutputReadLine(); process.BeginErrorReadLine();
+                    var watch = System.Diagnostics.Stopwatch.StartNew();
+                    while (!process.WaitForExit(50)) {
+                        if (cancelled()) throw new OperationCanceledException();
+                        if (watch.ElapsedMilliseconds > timeout) throw new TimeoutException("Preview keyframe probe timed out");
+                    }
+                    process.WaitForExit();
+                    if (process.ExitCode != 0) throw new InvalidDataException("Preview keyframe probe failed: " + errors.ToString());
+                    return text.ToString();
+                } finally { try { if (!process.HasExited) { process.Kill(); process.WaitForExit(2000); } } catch { } }
+            }
+        }
+        internal static void ShiftExternalAss(string path, IDictionary<string,string> state)
+        {
+            double offset = ParseNumber(Get(state,"FG_PREVIEW_SUB_OFFSET"));
+            if (offset <= 0) return;
+            var lines = new List<string>();
+            foreach (string line in File.ReadAllLines(path)) {
+                if (!line.StartsWith("Dialogue:", StringComparison.OrdinalIgnoreCase)) { lines.Add(line); continue; }
+                string[] fields = line.Split(new char[] { ',' }, 10);
+                TimeSpan begin, end;
+                if (fields.Length < 10 || !TimeSpan.TryParse(fields[1],System.Globalization.CultureInfo.InvariantCulture,out begin) ||
+                    !TimeSpan.TryParse(fields[2],System.Globalization.CultureInfo.InvariantCulture,out end)) throw new InvalidDataException("Invalid ASS dialogue timestamp");
+                double first = begin.TotalSeconds - offset, last = end.TotalSeconds - offset;
+                if (last <= 0) continue;
+                fields[1] = AssTime(Math.Max(0,first)); fields[2] = AssTime(last);
+                lines.Add(string.Join(",",fields));
+            }
+            File.WriteAllLines(path,lines.ToArray(),new System.Text.UTF8Encoding(false));
+        }
+        private static string AssTime(double seconds)
+        {
+            long cs = (long)Math.Round(seconds * 100);
+            return (cs/360000).ToString() + ":" + ((cs/6000)%60).ToString("00") + ":" + ((cs/100)%60).ToString("00") + "." + (cs%100).ToString("00");
         }
     }
 

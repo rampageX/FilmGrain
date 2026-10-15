@@ -98,7 +98,7 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "4.8.21";
+        internal const string ReleaseVersion = "4.8.22";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -247,6 +247,10 @@ namespace FilmGrainStudioPreview
         private Button btnSubtitle;
         private Label lblFrameHelp;
         private Button btnStart;
+        private CheckBox chkEncodePreview;
+        private MaskedTextBox txtPreviewStart;
+        private NumericUpDown numPreviewDuration;
+        private Panel encodePreviewPanel;
         private Button btnCancelTask;
         private ProgressBar progressRun;
         private ComboBox cmbGpu;
@@ -1411,6 +1415,20 @@ namespace FilmGrainStudioPreview
             progressRun = new ProgressBar(); progressRun.Style = ProgressBarStyle.Blocks; progressRun.Minimum = 0; progressRun.Maximum = 1000; progressRun.Value = 0; progressRun.Size = new Size(220, 20); progressRun.Anchor = AnchorStyles.Top | AnchorStyles.Right; footer.Controls.Add(progressRun);
             btnCancelTask = new Button(); btnCancelTask.Text = lang.T("button.cancel_task"); btnCancelTask.Enabled = false; btnCancelTask.Size = new Size(94, 34); btnCancelTask.Anchor = AnchorStyles.Top | AnchorStyles.Right; footer.Controls.Add(btnCancelTask);
             btnStart = new Button(); btnStart.Text = lang.T("button.start_encode"); btnStart.ForeColor = Color.White; btnStart.BackColor = ColorAccent; btnStart.FlatStyle = FlatStyle.Flat; btnStart.FlatAppearance.BorderSize = 0; btnStart.Size = new Size(126, 36); btnStart.Anchor = AnchorStyles.Top | AnchorStyles.Right; footer.Controls.Add(btnStart);
+            encodePreviewPanel = new Panel(); encodePreviewPanel.Size = new Size(392, 30); footer.Controls.Add(encodePreviewPanel);
+            chkEncodePreview = new CheckBox { Text = UiText("预览编码", "Preview"), AutoSize = true, Location = new Point(0, 6) };
+            txtPreviewStart = new MaskedTextBox("00:00:00") { Text = "000000", Size = new Size(76, 24), Location = new Point(94, 3), Enabled = false, TextMaskFormat = MaskFormat.IncludeLiterals };
+            Label previewStartLabel = new Label { Text = UiText("起始", "Start"), AutoSize = true, Location = new Point(58, 7) };
+            // Keep labels and editors aligned without covering the status area.
+            chkEncodePreview.AutoSize = false; chkEncodePreview.Size = new Size(86, 24); chkEncodePreview.Location = new Point(0, 2);
+            previewStartLabel.Location = new Point(88, 7); txtPreviewStart.Left = 122;
+            Label durationLabel = new Label { Text = UiText("持续", "Length"), AutoSize = true, Location = new Point(206, 7) };
+            numPreviewDuration = new NumericUpDown { Minimum = 1, Maximum = 86400, Value = 30, Size = new Size(66, 24), Location = new Point(248, 3), Enabled = false };
+            Label secondsLabel = new Label { Text = UiText("秒", "s"), AutoSize = true, Location = new Point(320, 7) };
+            encodePreviewPanel.Width = 350;
+            encodePreviewPanel.Controls.AddRange(new Control[] { chkEncodePreview, previewStartLabel, txtPreviewStart, durationLabel, numPreviewDuration, secondsLabel });
+            chkEncodePreview.CheckedChanged += delegate { txtPreviewStart.Enabled = numPreviewDuration.Enabled = chkEncodePreview.Checked; };
+            lutToolTip.SetToolTip(chkEncodePreview, UiText("先按关键帧无损裁剪，再用当前设置编码预览。实际起点和时长允许偏差。", "Stream-copy a keyframe clip, then encode with current settings. Start and duration may differ."));
             btnStart.Click += delegate { StartBridgeExecution(); };
             btnCancelTask.Click += delegate { CancelBridgeExecution(); };
             footer.Resize += delegate
@@ -1418,6 +1436,8 @@ namespace FilmGrainStudioPreview
                 btnStart.Left = footer.ClientSize.Width - btnStart.Width - 14; btnStart.Top = 10;
                 btnCancelTask.Left = btnStart.Left - btnCancelTask.Width - 9; btnCancelTask.Top = 11;
                 progressRun.Left = btnCancelTask.Left - progressRun.Width - 12; progressRun.Top = 19;
+                encodePreviewPanel.Left = progressRun.Left - encodePreviewPanel.Width - 10; encodePreviewPanel.Top = 14;
+                lblStatus.Width = Math.Max(0, encodePreviewPanel.Left - lblStatus.Left - 8);
             };
             footer.PerformLayout();
             return footer;
@@ -2445,6 +2465,16 @@ namespace FilmGrainStudioPreview
                 return;
             }
 
+            if (chkEncodePreview != null && chkEncodePreview.Checked)
+            {
+                double startSeconds;
+                if (!SharedEncodePreviewCore.TryParseStart(txtPreviewStart.Text, out startSeconds))
+                { MessageBox.Show(this, UiText("预览开始时间须为 00:00:00，分钟和秒须小于 60。", "Use HH:MM:SS; minutes and seconds must be below 60."), Text, MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+                state["FG_ENCODE_PREVIEW"] = "1";
+                state["FG_PREVIEW_START"] = txtPreviewStart.Text;
+                state["FG_PREVIEW_SECONDS"] = numPreviewDuration.Value.ToString(CultureInfo.InvariantCulture);
+            }
+
             bool noReencode = cmbCodec != null && cmbCodec.SelectedIndex == 3;
             if (!noReencode && chkInterpolation.Checked && cmbInterpolationMode.SelectedIndex == 2 &&
                 (hardwareCaps == null || !hardwareCaps.FrucReady || !hardwareCaps.FrucAvailable))
@@ -2627,6 +2657,7 @@ namespace FilmGrainStudioPreview
 
                     bool idle = e == null || e.State == BridgeTaskState.Idle;
                     if (btnStart != null) btnStart.Enabled = idle && !hardwareDetectionInProgress;
+                    if (encodePreviewPanel != null) encodePreviewPanel.Enabled = idle;
                     if (btnCancelTask != null) btnCancelTask.Enabled = e != null && e.State == BridgeTaskState.Running;
 
                     if (e == null) return;
