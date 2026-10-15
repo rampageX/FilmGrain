@@ -210,6 +210,7 @@ namespace FilmGrainStudioPreview
         private ListView listFiles;
         private Label lblMediaInfo;
         private Label lblHdrRoute;
+        private Button btnHdrShortcut;
         private Label lblStatus;
         private Label lblRunStage;
         private Label lblRunMetric;
@@ -645,9 +646,49 @@ namespace FilmGrainStudioPreview
             lblHdrRoute.Padding = new Padding(6, 0, 4, 0);
             lblHdrRoute.AutoEllipsis = true;
             lblHdrRoute.Text = lang.T("input.hdr_route_pending");
-            inputStatus.Controls.Add(lblHdrRoute, 0, 1);
+            inputStatus.Controls.Add(WithAdvancedShortcut(lblHdrRoute, 2, "HDR", out btnHdrShortcut), 0, 1);
+            btnHdrShortcut.Visible = false;
             layout.Controls.Add(inputStatus, 0, 3);
             return box;
+        }
+
+        private Control WithAdvancedShortcut(Control content, int tabIndex, string page, out Button shortcut)
+        {
+            TableLayoutPanel row = new TableLayoutPanel();
+            row.Dock = DockStyle.Fill; row.Margin = Padding.Empty;
+            row.ColumnCount = 2; row.RowCount = 1;
+            row.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 28));
+            content.Dock = DockStyle.Fill;
+            shortcut = new Button();
+            shortcut.Text = ""; shortcut.Dock = DockStyle.Fill;
+            shortcut.Margin = Padding.Empty;
+            shortcut.Padding = Padding.Empty;
+            shortcut.FlatStyle = FlatStyle.Flat; shortcut.FlatAppearance.BorderSize = 0;
+            shortcut.FlatAppearance.MouseOverBackColor = Color.FromArgb(220, 235, 250);
+            shortcut.ForeColor = Color.FromArgb(45, 110, 170);
+            // Draw the arrow in the available client area, including short HDR rows.
+            shortcut.Paint += delegate(object sender, PaintEventArgs e) {
+                Button button = (Button)sender;
+                float scale = e.Graphics.DpiX / 96f;
+                float size = Math.Min(8f * scale, Math.Min(button.ClientSize.Width, button.ClientSize.Height) - 4f);
+                if (size < 3f) return;
+                float x = (button.ClientSize.Width - size) / 2f;
+                float y = (button.ClientSize.Height - size) / 2f;
+                using (System.Drawing.Pen pen = new System.Drawing.Pen(button.Enabled ? button.ForeColor : SystemColors.GrayText, 1.3f * scale)) {
+                    e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                    e.Graphics.DrawLine(pen, x, y + size, x + size, y);
+                    e.Graphics.DrawLine(pen, x + size * 0.3f, y, x + size, y);
+                    e.Graphics.DrawLine(pen, x + size, y, x + size, y + size * 0.7f);
+                }
+            };
+            shortcut.Cursor = Cursors.Hand;
+            shortcut.AccessibleName = UiText("打开高级设置：", "Open advanced settings: ") + page;
+            lutToolTip.SetToolTip(shortcut, shortcut.AccessibleName);
+            shortcut.Click += delegate { ShowAdvancedSettingsDialog(tabIndex); };
+            row.Controls.Add(content, 0, 0); row.Controls.Add(shortcut, 1, 0);
+            return row;
         }
 
         private Control BuildEncodeGroup()
@@ -690,7 +731,8 @@ namespace FilmGrainStudioPreview
             interp.ColumnCount = 3; interp.RowCount = 1;
             interp.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             interp.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            interp.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120));
+            interp.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 92));
+            interp.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             chkInterpolation = Check(lang.T("encode.enable"), false); chkInterpolation.Dock = DockStyle.Fill;
             cmbInterpolationMode = Combo(new string[] { "OpenSVP · " + lang.T("interp.smooth"), "OpenSVP · " + lang.T("interp.adaptive"), "FRUC Vulkan" }, 0);
             cmbInterpolationMode.Dock = DockStyle.Fill; cmbInterpolationMode.DropDownWidth = 340;
@@ -770,15 +812,23 @@ namespace FilmGrainStudioPreview
 
             AddLabeledRow(t, 0, lang.T("encode.method"), cmbCodec);
             AddLabeledRow(t, 1, lang.T("encode.container"), cmbContainer);
-            AddLabeledRow(t, 2, lang.T("encode.speed"), cmbSpeed);
+            Button speedShortcut;
+            AddLabeledRow(t, 2, lang.T("encode.speed"), WithAdvancedShortcut(cmbSpeed, 0, lang.T("advanced.tab.encode"), out speedShortcut));
+            speedShortcut.Visible = cmbCodec.SelectedIndex == 1 || cmbCodec.SelectedIndex == 2;
+            cmbCodec.SelectedIndexChanged += delegate { speedShortcut.Visible = cmbCodec.SelectedIndex == 1 || cmbCodec.SelectedIndex == 2; };
             t.Controls.Add(chkSfe, 1, 3);
             AddLabeledRow(t, 4, lang.T("encode.bitrate"), bitrate);
             AddLabeledRow(t, 5, lang.T("encode.fps"), cmbFps);
-            AddLabeledRow(t, 6, lang.T("encode.interpolation"), interp);
+            Button interpShortcut;
+            AddLabeledRow(t, 6, lang.T("encode.interpolation"), WithAdvancedShortcut(interp, 1, lang.T("advanced.tab.interp"), out interpShortcut));
             AddLabeledRow(t, 7, lang.T("encode.deinterlace"), cmbDeint);
             AddLabeledRow(t, 8, lang.T("encode.deinterlace_method"), cmbDeintMethod);
             AddLabeledRow(t, 9, lang.T("encode.gpu"), cmbGpu);
-            t.Controls.Add(chkCinematic, 0, 10); t.SetColumnSpan(chkCinematic, 2);
+            Button cinematicShortcut;
+            Control cinematicRow = WithAdvancedShortcut(chkCinematic, 3, lang.T("advanced.tab.other"), out cinematicShortcut);
+            cinematicShortcut.Enabled = chkCinematic.Checked;
+            chkCinematic.CheckedChanged += delegate { cinematicShortcut.Enabled = chkCinematic.Checked; };
+            t.Controls.Add(cinematicRow, 0, 10); t.SetColumnSpan(cinematicRow, 2);
             AddLabeledRow(t, 11, lang.T("encode.framing"), cmbFrameMode);
             t.Controls.Add(upload, 0, 12); t.SetColumnSpan(upload, 2);
             lblUploadX264Settings = new Label(); lblUploadX264Settings.Dock = DockStyle.Fill;
@@ -1260,6 +1310,15 @@ namespace FilmGrainStudioPreview
             Button clear = new Button(); clear.Text = lang.T("button.clear_lut"); clear.Dock = DockStyle.Fill; clear.Margin = new Padding(3);
             btnLutGallery.Click += delegate { OpenLutGallery(); };
             btnColorCorrection.Click += delegate { OpenColorCorrection(); };
+            ContextMenuStrip colorSizeMenu = new ContextMenuStrip();
+            ToolStripMenuItem largeColorItem = new ToolStripMenuItem(UiText("大界面", "Large interface"));
+            colorSizeMenu.Items.Add(largeColorItem);
+            colorSizeMenu.Opening += delegate { largeColorItem.Checked = config.GetBool("COLOR_PREVIEW_LARGE_UI"); };
+            largeColorItem.Click += delegate {
+                try { config.Save(new Dictionary<string, string> { { "COLOR_PREVIEW_LARGE_UI", config.GetBool("COLOR_PREVIEW_LARGE_UI") ? "false" : "true" } }); }
+                catch (Exception ex) { MessageBox.Show(this, ex.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Error); }
+            };
+            btnColorCorrection.ContextMenuStrip = colorSizeMenu;
             clear.Click += delegate { ClearSelectedLut(); };
             t.Controls.Add(chkLut, 0, 0); t.Controls.Add(btnLutGallery, 1, 0); t.Controls.Add(btnColorCorrection, 2, 0); t.Controls.Add(clear, 3, 0);
 
@@ -2834,6 +2893,7 @@ namespace FilmGrainStudioPreview
         private void UpdateHdrRouteStatus(MediaProbeInfo info)
         {
             if (lblHdrRoute == null) return;
+            if (btnHdrShortcut != null) btnHdrShortcut.Visible = info != null && info.IsHdr && (listFiles == null || listFiles.SelectedItems.Count <= 1);
             string text;
             string detail;
             if (listFiles != null && listFiles.SelectedItems.Count > 1)

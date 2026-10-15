@@ -664,6 +664,11 @@ namespace FilmGrainStudioPreview
 
         private void ShowAdvancedSettingsDialog()
         {
+            ShowAdvancedSettingsDialog(0);
+        }
+
+        private void ShowAdvancedSettingsDialog(int initialTab)
+        {
             config.Load();
             using (Form dlg = new Form())
             using (ToolTip interpTips = new ToolTip())
@@ -683,6 +688,7 @@ namespace FilmGrainStudioPreview
                 TabPage hdr = new TabPage("HDR");
                 TabPage other = new TabPage(lang.T("advanced.tab.other"));
                 tabs.TabPages.Add(enc); tabs.TabPages.Add(interp); tabs.TabPages.Add(hdr); tabs.TabPages.Add(other); dlg.Controls.Add(tabs);
+                tabs.SelectedIndex = Math.Max(0, Math.Min(tabs.TabCount - 1, initialTab));
 
                 CheckBox high10 = new CheckBox(); high10.Text = lang.T("advanced.high10"); high10.Checked = config.GetBool("H264_HIGH10") && (!hardwareCapsReady || hardwareCaps == null || (hardwareCaps.X264Available && hardwareCaps.X264High10Available)); high10.Enabled = !hardwareCapsReady || hardwareCaps == null || (hardwareCaps.X264Available && hardwareCaps.X264High10Available); high10.Location = new Point(28, 18); high10.Size = new Size(620, 26); enc.Controls.Add(high10);
                 Label rateLabel = new Label(); rateLabel.Text = lang.T("advanced.x264_rate"); rateLabel.Location = new Point(28, 58); rateLabel.Size = new Size(150, 24); enc.Controls.Add(rateLabel);
