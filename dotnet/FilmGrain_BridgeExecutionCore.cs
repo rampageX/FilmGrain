@@ -78,6 +78,10 @@ namespace FilmGrainStudioPreview
 
     internal sealed class BridgeExecutionRequest
     {
+        internal bool PixelGrainHdr { get; set; }
+        internal IList<string> PixelGrainEncodeArguments { get; set; }
+        internal string PixelGrainFullFilter { get; set; }
+        internal string PixelGrainCleanFilter { get; set; }
         public string ExecutionNotice { get; set; }
         internal Func<Func<bool>, BridgeExecutionRequest> ContinueAfterStages { get; set; }
         internal IList<string> TemporaryDirectories { get; set; }

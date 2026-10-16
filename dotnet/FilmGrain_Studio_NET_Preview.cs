@@ -98,7 +98,7 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "4.8.22";
+        internal const string ReleaseVersion = "4.8.23";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -270,6 +270,9 @@ namespace FilmGrainStudioPreview
         private bool activeRunNativeBackend;
         private string activeRunCodecName = "";
         private TrackBar trackFilmGrainStrength;
+        private NumericUpDown av1StrengthControl, pixelStrengthControl;
+        private int PixelGrainStrengthPercent { get { int v; return int.TryParse(config.Get("PIXEL_GRAIN_STRENGTH"),out v) ? Math.Max(1,Math.Min(100,v)) : 100; } }
+        private int Av1GrainStrengthPercent { get { int v; return int.TryParse(config.Get("AV1_GRAIN_STRENGTH"), out v) ? Math.Max(1,Math.Min(100,v)) : 100; } }
         private Label lblFilmGrainValue;
         private ComboBox cmbGrainFormat;
         private ComboBox cmbGrainStock;
@@ -363,6 +366,7 @@ namespace FilmGrainStudioPreview
             RefreshLutLists();
             UpdateLutUi();
             UpdateColorCorrectionUi();
+            UpdateCinematicCropLabels();
             UpdateStatusCount();
             UpdateMediaDrivenUi(null);
             BeginHardwareDetection();
@@ -690,7 +694,7 @@ namespace FilmGrainStudioPreview
             shortcut.Cursor = Cursors.Hand;
             shortcut.AccessibleName = UiText("打开高级设置：", "Open advanced settings: ") + page;
             lutToolTip.SetToolTip(shortcut, shortcut.AccessibleName);
-            shortcut.Click += delegate { ShowAdvancedSettingsDialog(tabIndex); };
+            shortcut.Click += delegate { if(tabIndex<0)OpenCinematicCrop();else ShowAdvancedSettingsDialog(tabIndex); };
             row.Controls.Add(content, 0, 0); row.Controls.Add(shortcut, 1, 0);
             return row;
         }
@@ -829,7 +833,7 @@ namespace FilmGrainStudioPreview
             AddLabeledRow(t, 8, lang.T("encode.deinterlace_method"), cmbDeintMethod);
             AddLabeledRow(t, 9, lang.T("encode.gpu"), cmbGpu);
             Button cinematicShortcut;
-            Control cinematicRow = WithAdvancedShortcut(chkCinematic, 3, lang.T("advanced.tab.other"), out cinematicShortcut);
+            Control cinematicRow = WithAdvancedShortcut(chkCinematic, -1, UiText("可视化裁剪", "Visual crop"), out cinematicShortcut);
             cinematicShortcut.Enabled = chkCinematic.Checked;
             chkCinematic.CheckedChanged += delegate { cinematicShortcut.Enabled = chkCinematic.Checked; };
             t.Controls.Add(cinematicRow, 0, 10); t.SetColumnSpan(cinematicRow, 2);
@@ -1180,6 +1184,30 @@ namespace FilmGrainStudioPreview
                 lblFgsimTextureStatus = MutedLabel(UiText("默认使用本地纹理", "Using local texture by default"));
                 lblFgsimTextureStatus.AutoEllipsis = true;
                 t.Controls.Add(lblFgsimTextureStatus, 0, 3); t.SetColumnSpan(lblFgsimTextureStatus, 2);
+            }
+            if (av1 && mode <= 2)
+            {
+                av1StrengthControl = new NumericUpDown { Minimum=1, Maximum=100, Value=Av1GrainStrengthPercent, Increment=5, Dock=DockStyle.Fill, Margin=new Padding(4,5,6,5) };
+                av1StrengthControl.ValueChanged += delegate { try { config.SaveValue("AV1_GRAIN_STRENGTH", ((int)av1StrengthControl.Value).ToString(CultureInfo.InvariantCulture)); } catch(Exception ex) { MessageBox.Show(this,ex.Message); } };
+                AddLabeledRow(t, 2, UiText("颗粒强度 %", "Grain strength %"), av1StrengthControl);
+                lutToolTip.SetToolTip(av1StrengthControl, UiText("相对当前预设/ISO/颗粒表的强度；100% 保持原效果。预览可比较四档并应用。", "Relative to the selected model; 100% preserves the original. Compare four strengths in Preview."));
+            }
+            if (!(av1 && mode <= 2))
+            {
+                // Keep four rows. The texture status shares the existing texture-update row.
+                if (lblFgsimTextureStatus != null && btnFgsimTextureUpdate != null)
+                {
+                    t.Controls.Remove(lblFgsimTextureStatus);t.Controls.Remove(btnFgsimTextureUpdate);
+                    var textureRow=new FlowLayoutPanel {Dock=DockStyle.Fill,WrapContents=false,Margin=Padding.Empty};
+                    btnFgsimTextureUpdate.Dock=DockStyle.None;btnFgsimTextureUpdate.AutoSize=true;
+                    lblFgsimTextureStatus.Dock=DockStyle.None;lblFgsimTextureStatus.AutoSize=true;
+                    textureRow.Controls.Add(btnFgsimTextureUpdate);textureRow.Controls.Add(lblFgsimTextureStatus);
+                    t.Controls.Add(textureRow,0,2);t.SetColumnSpan(textureRow,2);
+                }
+                pixelStrengthControl=new NumericUpDown {Minimum=1,Maximum=100,Value=PixelGrainStrengthPercent,Increment=5,Dock=DockStyle.Fill,Margin=new Padding(4,5,6,5)};
+                pixelStrengthControl.ValueChanged+=delegate {try {config.SaveValue("PIXEL_GRAIN_STRENGTH",((int)pixelStrengthControl.Value).ToString(CultureInfo.InvariantCulture));}catch(Exception ex){MessageBox.Show(this,ex.Message);}};
+                AddLabeledRow(t,3,UiText("相对强度 %","Relative strength %"),pixelStrengthControl);
+                lutToolTip.SetToolTip(pixelStrengthControl,UiText("相对上方已选颗粒风格；100% 保持原效果。三条编码线共用此像素颗粒比例。", "Relative to the selected grain profile; 100% preserves the existing effect. Shared across pixel-grain routes."));
             }
             grainContent.Controls.Add(t);
             UpdateGrainEnableUi();
@@ -3360,7 +3388,12 @@ namespace FilmGrainStudioPreview
         {
             if (btnColorCorrection == null) return;
             string baseText = lang.T("button.color_correction");
-            btnColorCorrection.Text = colorCorrectionEnabled ? baseText.TrimEnd('\u2026') + "  ✓" : baseText;
+            btnColorCorrection.Text = colorCorrectionEnabled ? UiText("调色已启用", "Color: ON") : baseText;
+            btnColorCorrection.UseVisualStyleBackColor = !colorCorrectionEnabled;
+            btnColorCorrection.BackColor = colorCorrectionEnabled ? Color.FromArgb(185,65,20) : SystemColors.Control;
+            btnColorCorrection.ForeColor = colorCorrectionEnabled ? Color.White : SystemColors.ControlText;
+            btnColorCorrection.FlatStyle = colorCorrectionEnabled ? FlatStyle.Flat : FlatStyle.Standard;
+            btnColorCorrection.FlatAppearance.BorderColor = colorCorrectionEnabled ? Color.FromArgb(135,40,10) : SystemColors.ControlDark;
             UpdateHdrRouteStatus(GetSelectedMediaInfo());
         }
 
@@ -3378,9 +3411,20 @@ namespace FilmGrainStudioPreview
             string input = GetPreviewVideoPath();
             MediaProbeInfo info = null;
             if (!string.IsNullOrEmpty(input)) mediaProbeCache.TryGetValue(input, out info);
-            if (string.IsNullOrEmpty(input) || info == null || info.VideoCodec != "av1")
-            { MessageBox.Show(this, UiText("请选择一个 AV1 视频。首版真实颗粒预览只支持 AV1 输入。", "Select one AV1 video. This preview currently requires AV1 input.")); return; }
-            if (cmbCodec.SelectedIndex != 0 && cmbCodec.SelectedIndex != 3 || cmbGrainMode.SelectedIndex > 2 || !IsGrainEnabled())
+            bool metadata = (cmbCodec.SelectedIndex == 0 || cmbCodec.SelectedIndex == 3) && cmbGrainMode.SelectedIndex <= 2;
+            if (string.IsNullOrEmpty(input) || info == null)
+            { MessageBox.Show(this, UiText("请选择一个已完成探测的视频。", "Select one fully probed video.")); return; }
+            if (!metadata)
+            {
+                if (!IsGrainEnabled()) {MessageBox.Show(this,UiText("请先启用颗粒。","Enable grain first."));return;}
+                string error;var pixelState=BuildBridgeEnvironment(out error);
+                if(pixelState==null){MessageBox.Show(this,error);return;}
+                using(var window=new NativeGrainPreviewForm(Path.Combine(config.Get("FFMPEG_DIR"),"ffmpeg.exe"),appRoot,input,pixelState,hardwareCaps,info))
+                {window.ShowDialog(this);if(window.SelectedStrength>0 && pixelStrengthControl!=null)pixelStrengthControl.Value=window.SelectedStrength;}
+                return;
+            }
+            if (info.VideoCodec != "av1") {MessageBox.Show(this,UiText("AV1 元数据颗粒预览需要 AV1 输入；其它编码的源可使用下方预览编码。","AV1 metadata preview requires AV1 input; use preview encoding for other source codecs."));return;}
+            if (!IsGrainEnabled())
             { MessageBox.Show(this, UiText("请启用颗粒并选择 AV1 的预设、ISO 或颗粒表模式。", "Enable grain and select an AV1 preset, ISO or table mode.")); return; }
             var state = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             state["FG_AV1_FORMAT"] = (av1FormatIndex + 1).ToString(CultureInfo.InvariantCulture);
@@ -3391,7 +3435,36 @@ namespace FilmGrainStudioPreview
             var args = new List<string>(); string tag, reason;
             string mode = new string[] { "PRESET", "ISO", "TABLE" }[cmbGrainMode.SelectedIndex];
             if (!NativeAv1GrainReplaceCore.TryBuildGrainArgs(mode, state, args, out tag, out reason)) { MessageBox.Show(this, reason); return; }
-            using (var window = new NativeGrainPreviewForm(Path.Combine(config.Get("FFMPEG_DIR"), "ffmpeg.exe"), config.Get("GRAV1SYNTH"), input, args, info)) window.ShowDialog(this);
+            using (var window = new NativeGrainPreviewForm(Path.Combine(config.Get("FFMPEG_DIR"), "ffmpeg.exe"), config.Get("GRAV1SYNTH"), input, args, info))
+            {
+                window.ShowDialog(this);
+                if (window.SelectedStrength > 0 && av1StrengthControl != null) av1StrengthControl.Value = window.SelectedStrength;
+            }
+        }
+
+        private void UpdateCinematicCropLabels()
+        {
+            if(cmbFrameMode==null)return;int side=config.GetInt("CINEMATIC_CROP_PER_SIDE",0);
+            int horizontal=config.GetInt("CINEMATIC_CROP_HORIZONTAL",0);
+            if(horizontal>0){cmbFrameMode.Items[0]="加黑边 / Bars · V"+side+" H"+horizontal;cmbFrameMode.Items[1]="裁剪 / Crop · V"+side+" H"+horizontal;return;}
+            cmbFrameMode.Items[0]=side>0?UiText("加黑边 · 上下各 "+side+" px","Letterbox · "+side+" px per side"):lang.T("cinematic.letterbox");
+            cmbFrameMode.Items[1]=side>0?UiText("裁剪 · 上下各 "+side+" px","Crop · "+side+" px per side"):lang.T("cinematic.crop");
+        }
+
+        private void OpenCinematicCrop()
+        {
+            string input=GetPreviewVideoPath();MediaProbeInfo media;
+            if(string.IsNullOrEmpty(input)||!mediaProbeCache.TryGetValue(input,out media)) {MessageBox.Show(this,UiText("请先选择并探测视频。","Select and probe a video first."));return;}
+            if(media.Width<2||media.Height<2){MessageBox.Show(this,UiText("视频尺寸无效。","Invalid video dimensions."));return;}
+            if(bridgeTaskCoordinator!=null && bridgeTaskCoordinator.IsActive)return;
+            using(var window=new NativeCinematicCropForm(Path.Combine(config.Get("FFMPEG_DIR"),"ffmpeg.exe"),input,media,
+                config.GetInt("CINEMATIC_CROP_PER_SIDE",0),cmbFrameMode.SelectedIndex,config.GetInt("CINEMATIC_CROP_HORIZONTAL",0)))
+            {
+                if(window.ShowDialog(this)!=DialogResult.OK)return;
+                try {config.SaveValue("CINEMATIC_CROP_PER_SIDE",window.CropPerSide.ToString(CultureInfo.InvariantCulture));config.SaveValue("CINEMATIC_CROP_HORIZONTAL",window.CropHorizontal.ToString(CultureInfo.InvariantCulture));}
+                catch(Exception ex){MessageBox.Show(this,ex.Message);return;}
+                cmbFrameMode.SelectedIndex=window.FrameMode;UpdateCinematicCropLabels();UpdateBitrateDisplays();
+            }
         }
 
         private void OpenColorCorrection()

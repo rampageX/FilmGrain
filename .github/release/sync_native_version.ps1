@@ -86,6 +86,8 @@ $baseline = @(
     'User manual checks including new ADDED picture/sync confirmed. Merged results are not single full reruns.',
     'AV1 grain-copy phase: Windows SDR 242 / HDR 241 technical checks passed; fast paths and preview/log-toolbar fixes confirmed within their actual scope.',
     $(if ([version]$Version -ge [version]'4.8.22') { 'v4.8.22 preview acceptance: 48 Windows shared-entry smoke checks passed; user manual checks confirmed. Smoke mode labels do not imply full encoder reruns.' }),
+    $(if ([version]$Version -ge [version]'4.8.23') { 'v4.8.23 staged acceptance: AV1 strength 70, pixel strength 252, crop UI 99 and expanded crop 585 Windows checks passed; associated manual acceptance confirmed. These are separate stages, not one full rerun.' }),
+    $(if ([version]$Version -ge [version]'4.8.23') { 'Pixel-stage intended HDR cases reported as SDR do not establish complete HDR-preservation automatic coverage. Six actual FFmpeg crop/bar filter executions passed.' }),
     'Root and compatible executables are rebuilt from the same committed C# source with Stable label.',
     'Shared Lang, SVP vpy/plugins, FGSIM template/texture and original grain tables remain in their shared locations.',
     'Exclude local configuration, caches, private environments, downloads, generated hooks, logs, Tests_Shared and test-delivery markers.',

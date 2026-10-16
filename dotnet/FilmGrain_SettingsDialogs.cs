@@ -686,8 +686,7 @@ namespace FilmGrainStudioPreview
                 TabPage enc = new TabPage(lang.T("advanced.tab.encode"));
                 TabPage interp = new TabPage(lang.T("advanced.tab.interp"));
                 TabPage hdr = new TabPage("HDR");
-                TabPage other = new TabPage(lang.T("advanced.tab.other"));
-                tabs.TabPages.Add(enc); tabs.TabPages.Add(interp); tabs.TabPages.Add(hdr); tabs.TabPages.Add(other); dlg.Controls.Add(tabs);
+                tabs.TabPages.Add(enc); tabs.TabPages.Add(interp); tabs.TabPages.Add(hdr); dlg.Controls.Add(tabs);
                 tabs.SelectedIndex = Math.Max(0, Math.Min(tabs.TabCount - 1, initialTab));
 
                 CheckBox high10 = new CheckBox(); high10.Text = lang.T("advanced.high10"); high10.Checked = config.GetBool("H264_HIGH10") && (!hardwareCapsReady || hardwareCaps == null || (hardwareCaps.X264Available && hardwareCaps.X264High10Available)); high10.Enabled = !hardwareCapsReady || hardwareCaps == null || (hardwareCaps.X264Available && hardwareCaps.X264High10Available); high10.Location = new Point(28, 18); high10.Size = new Size(620, 26); enc.Controls.Add(high10);
@@ -774,12 +773,6 @@ namespace FilmGrainStudioPreview
                 EventHandler updateHdr = delegate { bool enabled = hdrPolicy.SelectedIndex != 1; tone.Enabled = enabled; toneLabel.Enabled = enabled; };
                 hdrPolicy.SelectedIndexChanged += updateHdr; updateHdr(null, EventArgs.Empty);
 
-                Label cropTitle = new Label(); cropTitle.Text = lang.T("advanced.crop_title"); cropTitle.Location = new Point(28, 30); cropTitle.Size = new Size(260, 26); other.Controls.Add(cropTitle);
-                Label cropLabel = new Label(); cropLabel.Text = lang.T("advanced.crop_value"); cropLabel.Location = new Point(28, 82); cropLabel.Size = new Size(150, 24); other.Controls.Add(cropLabel);
-                NumericUpDown crop = new NumericUpDown(); crop.Location = new Point(190, 78); crop.Size = new Size(120, 26); crop.Minimum = 0; crop.Maximum = 2000; crop.Increment = 1; crop.Value = Math.Max(crop.Minimum, Math.Min(crop.Maximum, config.GetInt("CINEMATIC_CROP_PER_SIDE", 0))); other.Controls.Add(crop);
-                Label cropInfo = new Label(); cropInfo.Location = new Point(28, 128); cropInfo.Size = new Size(620, 118); cropInfo.ForeColor = ColorMuted; cropInfo.Text = lang.T("advanced.crop_info"); other.Controls.Add(cropInfo);
-                CheckBox largeColor = new CheckBox(); largeColor.Text = lang.T("advanced.color_preview_large"); largeColor.Checked = config.GetBool("COLOR_PREVIEW_LARGE_UI"); largeColor.Location = new Point(28, 258); largeColor.Size = new Size(500, 26); other.Controls.Add(largeColor);
-
                 Button ok = new Button(); ok.Text = lang.T("advanced.ok"); ok.Location = new Point(514, 406); ok.Size = new Size(88, 30); dlg.Controls.Add(ok);
                 Button cancel = new Button(); cancel.Text = lang.T("advanced.cancel"); cancel.Location = new Point(610, 406); cancel.Size = new Size(88, 30); cancel.DialogResult = DialogResult.Cancel; dlg.Controls.Add(cancel);
                 dlg.CancelButton = cancel;
@@ -791,7 +784,6 @@ namespace FilmGrainStudioPreview
                     if (tabs.SelectedTab == enc) { high10.Checked = false; rate.SelectedIndex = 0; preset.SelectedIndex = 0; aq.SelectedIndex = 2; temporal.Checked = false; }
                     else if (tabs.SelectedTab == interp) { svpSpeed.SelectedIndex = 0; svpTuning.SelectedIndex = 0; svpBlock.SelectedIndex = 0; algo.SelectedItem = "13"; analyse.SelectedIndex = 0; mask.Value = 100; frucPerf.SelectedIndex = 1; frucGrid.SelectedIndex = 0; dedup.Value=0;still.Checked=false;stillLimit.Value=4.5m;stillEdge.Value=5;stillTolerance.Value=30;peel.Checked=false;peelLimit.Value=6; }
                     else if (tabs.SelectedTab == hdr) { hdrPolicy.SelectedIndex = 0; tone.SelectedIndex = 0; updateHdr(null, EventArgs.Empty); }
-                    else if (tabs.SelectedTab == other) { crop.Value = 0; largeColor.Checked = false; }
                 };
 
                 interpTips.InitialDelay = 500; interpTips.ReshowDelay = 100; interpTips.AutoPopDelay = 15000; interpTips.ShowAlways = true;
@@ -833,8 +825,6 @@ namespace FilmGrainStudioPreview
                     updates["FRUC_GRID"] = Convert.ToString(frucGrid.SelectedItem, CultureInfo.InvariantCulture);
                     updates["HDR_POLICY"] = hdrPolicy.SelectedIndex == 1 ? "PRESERVE" : (hdrPolicy.SelectedIndex == 2 ? "SDR" : "AUTO");
                     string[] toneValues = new string[] { "hable", "mobius", "reinhard", "gamma", "linear", "clip" }; updates["TONE_MAP_ALGO"] = toneValues[Math.Max(0, Math.Min(toneValues.Length - 1, tone.SelectedIndex))];
-                    updates["CINEMATIC_CROP_PER_SIDE"] = ((int)crop.Value).ToString(CultureInfo.InvariantCulture);
-                    updates["COLOR_PREVIEW_LARGE_UI"] = largeColor.Checked ? "true" : "false";
                     try
                     {
                         config.Save(updates);

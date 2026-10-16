@@ -148,6 +148,7 @@ namespace FilmGrainStudioPreview
             snapshot.CinematicFrame = chkCinematic != null && chkCinematic.Checked;
             snapshot.FrameMode = cmbFrameMode != null && cmbFrameMode.SelectedIndex == 1 ? "CROP" : "LETTERBOX";
             snapshot.CropPerSide = config.Get("CINEMATIC_CROP_PER_SIDE");
+            snapshot.CropHorizontal = config.Get("CINEMATIC_CROP_HORIZONTAL");
             snapshot.H264High10 = config.GetBool("H264_HIGH10") && (!hardwareCapsReady || hardwareCaps == null || (hardwareCaps.X264Available && hardwareCaps.X264High10Available));
             snapshot.X264Preset = config.Get("X264_PRESET");
             snapshot.X264PassMode = config.Get("X264_RATE_MODE");
@@ -239,6 +240,8 @@ namespace FilmGrainStudioPreview
 
         private void CaptureCommonEnvironmentState(BridgeEnvironmentSnapshot snapshot)
         {
+            snapshot.Av1GrainStrength = Av1GrainStrengthPercent;
+            snapshot.PixelGrainStrength = PixelGrainStrengthPercent;
             snapshot.TempMode = config.Get("TEMP_MODE");
             snapshot.TempCustomDir = config.Get("TEMP_CUSTOM_DIR");
             snapshot.OutputMode = config.Get("OUTPUT_MODE");

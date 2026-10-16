@@ -182,7 +182,9 @@ namespace FilmGrainStudioPreview
             catch (Exception ex) { reason = "cannot create output directory: " + ex.Message; return false; }
 
             string subSuffix = Get(state, "FG_SUBTITLE") == "1" ? "_SUB" : "";
+            int pixelPercent = grainEnabled ? PixelGrainStrengthCore.Read(state) : 100;
             string grainFileName = !grainEnabled ? "" : plateMode ? "_FG_" + grainTag + "_STR" + plateStrengthPercent.ToString(CultureInfo.InvariantCulture) : fgsimMode ? "_FG_FGSIM_" + fgsimTag : "_FG_DG" + procStrength.ToString(CultureInfo.InvariantCulture);
+            if (grainEnabled && pixelPercent != 100) grainFileName += "_GS" + pixelPercent.ToString(CultureInfo.InvariantCulture);
             string output = Path.Combine(outDir, Path.GetFileNameWithoutExtension(input) + "_X264" + x264Suffix + "_" + bitrate.ToString(CultureInfo.InvariantCulture) + "k" + (high10 ? "_HIGH10" : "") + fpsSuffix + deinterlaceSuffix + frame.FileSuffix + grainFileName + colorSuffix + lutNamingSuffix + (hdrToSdr ? "_SDR_" + tonemapLabel : "") + subSuffix + (mkv ? ".mkv" : ".mp4"));
             if (File.Exists(output)) { reason = "native output already exists: " + output; return false; }
 
@@ -240,6 +242,12 @@ namespace FilmGrainStudioPreview
                     filter = baseFilter + ";[procbase]split=4[seed][masksrc][base][blacksrc];[seed]scale=" + pw.ToString(CultureInfo.InvariantCulture) + ":" + ph.ToString(CultureInfo.InvariantCulture) + ",lutyuv=y=128:u=128:v=128,noise=c0s=100:c0f=t+u,deflate=threshold0=15,dilation=threshold0=10,eq=contrast=3,scale=" + info.Width.ToString(CultureInfo.InvariantCulture) + ":" + info.Height.ToString(CultureInfo.InvariantCulture) + "[n];[masksrc]lutyuv=y='" + procMask + "*(182-abs(75-val))':u=128:v=128[o];[n][o]blend=c0_mode=multiply,negate[a];[base][a]alphamerge[c];[blacksrc]drawbox=color=black:t=fill[black];[black][c]overlay=shortest=1" + frame.Filter + subtitleFilter + ",format=" + (high10 ? "yuv420p10le" : "yuv420p") + "[vout]";
                 }
 
+                string pixelFull = grainEnabled ? filter : null;
+                string pixelClean = grainEnabled ? SharedGrainCore.BuildWithoutGrain(deinterlaceFilter + fpsFilter + colorFilter,
+                    EscapeFilterPath(lutCompatName), lutOpacity, frame.Filter + subtitleFilter + ",format=" + (high10 ? "yuv420p10le" : "yuv420p")) : null;
+                if (grainEnabled && (plateMode)) pixelClean=pixelClean.Replace("[0:v:0]","[0:v:0]setpts=PTS-STARTPTS,");
+                if (grainEnabled) filter = PixelGrainStrengthCore.Wrap(filter,pixelClean,pixelPercent);
+
                 if (fruc)
                 {
                     string perf = Get(state, "FG_FRUC_PERF").ToLowerInvariant();
@@ -255,6 +263,8 @@ namespace FilmGrainStudioPreview
                 string workingDirectory = string.IsNullOrEmpty(lutCompatPath) ? Path.GetDirectoryName(input) : Path.GetDirectoryName(lutCompatPath);
                 List<string> requestInputs = new List<string>(); requestInputs.Add(input); if (plateMode) requestInputs.Add(grainInput);
                 BridgeExecutionRequest request = new BridgeExecutionRequest();
+                request.PixelGrainFullFilter = pixelFull;
+                request.PixelGrainCleanFilter = pixelClean;
                 request.ToolPath = ffmpeg;
                 request.WorkingDirectory = workingDirectory;
                 request.InputFiles = requestInputs;
@@ -280,6 +290,7 @@ namespace FilmGrainStudioPreview
                 if (passMode == "VBR1")
                 {
                     List<string> args = BuildEncodeArgs(encodeInput, grainInput, filter, output, preset, highMotion, bitrate, max, buf, fps, duration, plateMode, autoFps, high10, mkv, deinterlace, 0, "", true, svp, grainEnabled);
+                    request.PixelGrainEncodeArguments = args;
                     if (hdrToSdr || separateDeint || svp || fruc || !grainEnabled)
                     {
                         stages.Add(MakeStage(ffmpeg, workingDirectory, args, durationSeconds, stageOffset + 1, stageTotal, "x264 final encode"));
@@ -497,6 +508,25 @@ namespace FilmGrainStudioPreview
             plan.ActiveHeight = info.Height;
             reason = "";
             if (Get(state, "FG_CINEMATIC_FRAME") != "1") return true;
+            int horizontal;
+            int.TryParse(Get(state,"FG_CROP_HORIZONTAL"),NumberStyles.Integer,CultureInfo.InvariantCulture,out horizontal);
+            if(horizontal>0)
+            {
+                int vertical;int.TryParse(Get(state,"FG_CROP_PER_SIDE"),NumberStyles.Integer,CultureInfo.InvariantCulture,out vertical);
+                vertical=Math.Max(0,vertical);
+                if(horizontal>(info.Width-2)/2||vertical>(info.Height-2)/2){reason="custom crop is too large for input dimensions";return false;}
+                bool cutting=Get(state,"FG_FRAME_MODE").ToUpperInvariant()=="CROP";
+                int w=info.Width-horizontal*2,h=info.Height-vertical*2;
+                string x=horizontal.ToString(CultureInfo.InvariantCulture),y=vertical.ToString(CultureInfo.InvariantCulture);
+                plan.FileSuffix=(cutting?"_CROP":"_BARS")+"V"+y+"H"+x;
+                if(cutting){plan.ActiveWidth=w;plan.ActiveHeight=h;plan.Filter=",crop=w="+w.ToString(CultureInfo.InvariantCulture)+":h="+h.ToString(CultureInfo.InvariantCulture)+":x="+x+":y="+y+":exact=1";}
+                else {
+                    plan.Filter=",drawbox=x=0:y=0:w="+x+":h=ih:color=black:t=fill,drawbox=x=iw-"+x+":y=0:w="+x+":h=ih:color=black:t=fill";
+                    if(vertical>0)plan.Filter+=",drawbox=x=0:y=0:w=iw:h="+y+":color=black:t=fill,drawbox=x=0:y=ih-"+y+":w=iw:h="+y+":color=black:t=fill";
+                }
+                return true;
+            }
+
             int custom = 0;
             int.TryParse(Get(state, "FG_CROP_PER_SIDE"), NumberStyles.Integer, CultureInfo.InvariantCulture, out custom);
             if (custom < 0) custom = 0;

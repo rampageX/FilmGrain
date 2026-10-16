@@ -406,8 +406,10 @@ namespace FilmGrainStudioPreview
 
             string subSuffix = Get(state, "FG_SUBTITLE") == "1" ? "_SUB" : "";
 
+            int pixelPercent = grainEnabled ? PixelGrainStrengthCore.Read(state) : 100;
             string grainFileName = !grainEnabled ? "" : plateMode ? "_FG_" + grainTag + "_STR" + plateStrengthPercent.ToString(CultureInfo.InvariantCulture) : fgsimMode ? "_FG_FGSIM_" + fgsimTag : "_FG_DG" + procStrength.ToString(CultureInfo.InvariantCulture);
 
+            if (grainEnabled && pixelPercent != 100) grainFileName += "_GS" + pixelPercent.ToString(CultureInfo.InvariantCulture);
             string output = Path.Combine(outDir, Path.GetFileNameWithoutExtension(input) + "_HEVC_" + speedSuffix + "_" + bitrate.ToString(CultureInfo.InvariantCulture) + "k" + rcSuffix + fpsSuffix + deinterlaceSuffix + frame.FileSuffix + grainFileName + colorSuffix + lutNamingSuffix + (hdrToSdr ? "_SDR_" + tonemapLabel : "") + subSuffix + (mkv ? ".mkv" : ".mp4"));
 
             string uploadOutput = upload ? Path.Combine(outDir, Path.GetFileNameWithoutExtension(input) + "_X264" + BuildX264FileSuffix(Get(state, "FG_X264_PRESET").ToLowerInvariant(), uploadPass) + "_" + uploadBitrate.ToString(CultureInfo.InvariantCulture) + "k" + fpsSuffix + deinterlaceSuffix + frame.FileSuffix + grainFileName + colorSuffix + lutNamingSuffix + (hdrToSdr ? "_SDR_" + tonemapLabel : "") + "_UPLOAD_FROM_HEVC_" + speedSuffix + "_" + bitrate.ToString(CultureInfo.InvariantCulture) + "k" + rcSuffix + subSuffix + ".mp4") : "";
@@ -572,6 +574,12 @@ namespace FilmGrainStudioPreview
 
 
 
+                string pixelFull = grainEnabled ? filter : null;
+                string pixelClean = grainEnabled ? SharedGrainCore.BuildWithoutGrain(deinterlaceFilter + fpsFilter + colorFilter,
+                    EscapeFilterPath(lutCompatName), lutOpacity, frame.Filter + subtitleFilter + (hdrPreserve ? BuildHdrFrameFilter(info) : "") + ",format=p010le") : null;
+                if (grainEnabled && (plateMode || (fgsimMode && hdrPreserve))) pixelClean=pixelClean.Replace("[0:v:0]","[0:v:0]setpts=PTS-STARTPTS,");
+                if (grainEnabled) filter = PixelGrainStrengthCore.Wrap(filter,pixelClean,pixelPercent);
+
                 if (fruc)
 
                 {
@@ -602,6 +610,9 @@ namespace FilmGrainStudioPreview
 
                 BridgeExecutionRequest request = new BridgeExecutionRequest();
 
+                request.PixelGrainHdr = hdrPreserve;
+                request.PixelGrainFullFilter = pixelFull;
+                request.PixelGrainCleanFilter = pixelClean;
                 request.ToolPath = ffmpeg;
 
                 request.WorkingDirectory = workingDirectory;
@@ -685,6 +696,7 @@ namespace FilmGrainStudioPreview
                     }
 
                     else request.DirectArguments = JoinArgs(hevcArgs);
+                    request.PixelGrainEncodeArguments = hevcArgs;
 
                 }
 
@@ -1628,6 +1640,25 @@ namespace FilmGrainStudioPreview
             reason = "";
 
             if (Get(state, "FG_CINEMATIC_FRAME") != "1") return true;
+            int horizontal;
+            int.TryParse(Get(state,"FG_CROP_HORIZONTAL"),NumberStyles.Integer,CultureInfo.InvariantCulture,out horizontal);
+            if(horizontal>0)
+            {
+                int vertical;int.TryParse(Get(state,"FG_CROP_PER_SIDE"),NumberStyles.Integer,CultureInfo.InvariantCulture,out vertical);
+                vertical=Math.Max(0,vertical);
+                if(horizontal>(info.Width-2)/2||vertical>(info.Height-2)/2){reason="custom crop is too large for input dimensions";return false;}
+                bool cutting=Get(state,"FG_FRAME_MODE").ToUpperInvariant()=="CROP";
+                int w=info.Width-horizontal*2,h=info.Height-vertical*2;
+                string x=horizontal.ToString(CultureInfo.InvariantCulture),y=vertical.ToString(CultureInfo.InvariantCulture);
+                plan.FileSuffix=(cutting?"_CROP":"_BARS")+"V"+y+"H"+x;
+                if(cutting){plan.ActiveWidth=w;plan.ActiveHeight=h;plan.Filter=",crop=w="+w.ToString(CultureInfo.InvariantCulture)+":h="+h.ToString(CultureInfo.InvariantCulture)+":x="+x+":y="+y+":exact=1";}
+                else {
+                    plan.Filter=",drawbox=x=0:y=0:w="+x+":h=ih:color=black:t=fill,drawbox=x=iw-"+x+":y=0:w="+x+":h=ih:color=black:t=fill";
+                    if(vertical>0)plan.Filter+=",drawbox=x=0:y=0:w=iw:h="+y+":color=black:t=fill,drawbox=x=0:y=ih-"+y+":w=iw:h="+y+":color=black:t=fill";
+                }
+                return true;
+            }
+
 
             int custom = 0;
 

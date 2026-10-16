@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -13,6 +13,8 @@ namespace FilmGrainStudioPreview
     {
         public bool NoReencode;
         public bool GrainEnabled = true;
+        public int Av1GrainStrength = 100;
+        public int PixelGrainStrength = 100;
 
         public string TempMode = "";
         public string TempCustomDir = "";
@@ -54,6 +56,7 @@ namespace FilmGrainStudioPreview
         public bool CinematicFrame;
         public string FrameMode = "";
         public string CropPerSide = "";
+        public string CropHorizontal = "";
         public bool H264High10;
         public string X264Preset = "";
         public string X264PassMode = "";
@@ -111,6 +114,8 @@ namespace FilmGrainStudioPreview
 
             SortedDictionary<string, string> state = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             state["FG_STUDIO_MODE"] = "1";
+            state["FG_AV1_GRAIN_STRENGTH"] = snapshot.Av1GrainStrength.ToString(CultureInfo.InvariantCulture);
+            state["FG_PIXEL_GRAIN_STRENGTH"] = snapshot.PixelGrainStrength.ToString(CultureInfo.InvariantCulture);
             state["FG_GRAIN_ENABLED"] = snapshot.NoReencode || snapshot.GrainEnabled ? "1" : "0";
             state["FG_TOOL_NO_PAUSE"] = "1";
             state["FG_TEMP_MODE"] = snapshot.TempMode;
@@ -157,6 +162,7 @@ namespace FilmGrainStudioPreview
             state["FG_CINEMATIC_FRAME"] = snapshot.CinematicFrame ? "1" : "0";
             state["FG_FRAME_MODE"] = snapshot.FrameMode;
             state["FG_CROP_PER_SIDE"] = snapshot.CropPerSide;
+            state["FG_CROP_HORIZONTAL"] = snapshot.CropHorizontal;
             state["FG_H264_HIGH10"] = snapshot.H264High10 ? "1" : "0";
             state["FG_X264_PRESET"] = snapshot.X264Preset;
             state["FG_X264_PASS_MODE"] = snapshot.X264PassMode;
@@ -242,6 +248,8 @@ namespace FilmGrainStudioPreview
             int grainMode = snapshot.GrainMode;
             SortedDictionary<string, string> state = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             state["FG_STUDIO_MODE"] = "1";
+            state["FG_AV1_GRAIN_STRENGTH"] = snapshot.Av1GrainStrength.ToString(CultureInfo.InvariantCulture);
+            state["FG_PIXEL_GRAIN_STRENGTH"] = snapshot.PixelGrainStrength.ToString(CultureInfo.InvariantCulture);
             state["FG_GRAIN_ENABLED"] = snapshot.NoReencode || snapshot.GrainEnabled ? "1" : "0";
             state["FG_TOOL_NO_PAUSE"] = "1";
             state["FG_TEMP_MODE"] = snapshot.TempMode;

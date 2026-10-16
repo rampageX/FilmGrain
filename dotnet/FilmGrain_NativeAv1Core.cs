@@ -105,6 +105,7 @@ namespace FilmGrainStudioPreview
             {
                 string mode = Get(state, "FG_AV1_GRAIN_MODE").ToUpperInvariant();
                 if (!TryBuildGrainArgs(mode, state, out grainArgs, out grainTag, out grainLabel, out reason)) return false;
+                if (Av1GrainStrengthCore.Read(state) != 100) grainTag += "_GS" + Av1GrainStrengthCore.Read(state).ToString(CultureInfo.InvariantCulture);
             }
             else if (proceduralGrain)
             {
@@ -123,6 +124,8 @@ namespace FilmGrainStudioPreview
                 grainLabel = "FGSIM " + selectedFgsimPreset;
             }
 
+            int pixelPercent = grainEnabled && !metadataGrain ? PixelGrainStrengthCore.Read(state) : 100;
+            if (pixelPercent != 100) grainTag += "_GS" + pixelPercent.ToString(CultureInfo.InvariantCulture);
             double sourceFps = BitrateRecommendationCore.ParseMediaFps(info);
             if (sourceFps <= 0.0) { reason = "invalid source FPS"; return false; }
             double outputFps = deinterlace ? sourceFps * 2.0 : (Eq(state, "FG_FPS_MODE", "SOURCE")
@@ -277,6 +280,15 @@ namespace FilmGrainStudioPreview
                     : AppendProceduralFilter(filterGraph, frame.ActiveWidth, frame.ActiveHeight, strength);
             }
 
+            string pixelFull = grainEnabled && !metadataGrain ? filterGraph : null;
+            string pixelClean = null;
+            if (pixelFull != null)
+            {
+                pixelClean = BuildFilterGraph(info,frame,state,deinterlaceFilter,colorFilter,lutCompatName,lutOpacity,subtitleFilter,
+                    proceduralGrain || hdrPreserve,fgsimGrain && !hdrPreserve,false,hdrPreserve).Replace("[baseout]",",format=p010le[vout]");
+                if(hdrPreserve)pixelClean=pixelClean.Replace("[vout]",BuildHdrFrameFilter(info)+"[vout]");
+                filterGraph=PixelGrainStrengthCore.Wrap(filterGraph,pixelClean,pixelPercent);
+            }
             List<string> encode = new List<string>();
             Add(encode, "-hide_banner", "-stats", "-progress", "pipe:2", "-stats_period", "0.5", "-y");
             if (fgsimGrain || (bwdifVulkan && !fieldWorkfile && !separateDeint)) Add(encode, "-init_hw_device", "vulkan=vk:0", "-filter_hw_device", "vk");
@@ -320,7 +332,9 @@ namespace FilmGrainStudioPreview
                 Add(apply, "--replace", "-y");
             }
 
-            string remuxVideo = metadataGrain ? grainIvf : cleanIvf;
+            int grainPercent = metadataGrain ? Av1GrainStrengthCore.Read(state) : 100;
+            string strengthIvf = grainIvf + ".strength.ivf";
+            string remuxVideo = metadataGrain ? (grainPercent == 100 ? grainIvf : strengthIvf) : cleanIvf;
             List<string> remux = new List<string>();
             Add(remux, "-hide_banner", "-stats", "-progress", "pipe:2", "-stats_period", "0.5", "-y", "-i", remuxVideo, "-i", input,
                 "-map", "0:v:0", "-map", "1:a?");
@@ -333,6 +347,10 @@ namespace FilmGrainStudioPreview
             Add(remux, output);
 
             BridgeExecutionRequest request = new BridgeExecutionRequest();
+            request.PixelGrainHdr = hdrPreserve;
+            request.PixelGrainEncodeArguments = encode;
+            request.PixelGrainFullFilter = pixelFull;
+            request.PixelGrainCleanFilter = pixelClean;
             request.ToolPath = ffmpeg;
             request.WorkingDirectory = tempRoot;
             request.InputFiles = new List<string> { input };
@@ -376,6 +394,7 @@ namespace FilmGrainStudioPreview
             {
                 directStages.Add(Stage(ffmpeg, encodeWorkingDirectory, encode, duration, preStages + 1, totalStages, "AV1 Main10 encode"));
                 directStages.Add(Stage(grav1synth, tempRoot, apply, duration, preStages + 2, totalStages, "AV1 Film Grain metadata"));
+                if (grainPercent != 100) directStages.AddRange(Av1GrainStrengthCore.Stages(grav1synth,tempRoot,delegate { return grainIvf; },strengthIvf,grainPercent,request.TemporaryFiles));
                 directStages.Add(Stage(ffmpeg, tempRoot, remux, duration, preStages + 3, totalStages, uploadSkippedForHdrPreserve ? "AV1 container remux (H.264 upload copy skipped by HDR Preserve)" : "AV1 container remux"));
             }
             else
@@ -402,6 +421,7 @@ namespace FilmGrainStudioPreview
                 foreach (BridgeExecutionStage stage in directStages)
                     if (stage.StageText.StartsWith("AV1 container remux", StringComparison.Ordinal))
                         SharedFrucCore.AttachAv1RemuxTimeline(stage, ffprobe, remuxVideo, input, remux, !grainEnabled && !interpolate ? "ordinary no-grain" : fruc ? "FRUC" : "OpenSVPFlow");
+            if (grainPercent != 100) Av1GrainStrengthCore.NumberStages(directStages);
             request.DirectStages = directStages;
             if(info.IsHdr && info.IsInterlaced && !deinterlace)request.ExecutionNotice="[Native .NET] 反交错 OFF：沿用不反交错的逐帧处理，不启用 bob/光流或双倍场率；不保证隔行编码标记。 / Deinterlace OFF: frame processing without bob/interpolation; no interlaced-encoding flags are added.";
             prepared = new BridgePreparedExecution(request, false, ffmpeg, new List<string> { input });
@@ -577,6 +597,25 @@ namespace FilmGrainStudioPreview
             plan.ActiveHeight = info.Height;
             reason = "";
             if (Get(state, "FG_CINEMATIC_FRAME") != "1") return true;
+            int horizontal;
+            int.TryParse(Get(state,"FG_CROP_HORIZONTAL"),NumberStyles.Integer,CultureInfo.InvariantCulture,out horizontal);
+            if(horizontal>0)
+            {
+                int vertical;int.TryParse(Get(state,"FG_CROP_PER_SIDE"),NumberStyles.Integer,CultureInfo.InvariantCulture,out vertical);
+                vertical=Math.Max(0,vertical);
+                if(horizontal>(info.Width-2)/2||vertical>(info.Height-2)/2){reason="custom crop is too large for input dimensions";return false;}
+                bool cutting=Get(state,"FG_FRAME_MODE").ToUpperInvariant()=="CROP";
+                int w=info.Width-horizontal*2,h=info.Height-vertical*2;
+                string x=horizontal.ToString(CultureInfo.InvariantCulture),y=vertical.ToString(CultureInfo.InvariantCulture);
+                plan.FileSuffix=(cutting?"_CROP":"_BARS")+"V"+y+"H"+x;
+                if(cutting){plan.ActiveWidth=w;plan.ActiveHeight=h;plan.Filter=",crop=w="+w.ToString(CultureInfo.InvariantCulture)+":h="+h.ToString(CultureInfo.InvariantCulture)+":x="+x+":y="+y+":exact=1";}
+                else {
+                    plan.Filter=",drawbox=x=0:y=0:w="+x+":h=ih:color=black:t=fill,drawbox=x=iw-"+x+":y=0:w="+x+":h=ih:color=black:t=fill";
+                    if(vertical>0)plan.Filter+=",drawbox=x=0:y=0:w=iw:h="+y+":color=black:t=fill,drawbox=x=0:y=ih-"+y+":w=iw:h="+y+":color=black:t=fill";
+                }
+                return true;
+            }
+
             int custom = 0;
             int.TryParse(Get(state, "FG_CROP_PER_SIDE"), NumberStyles.Integer, CultureInfo.InvariantCulture, out custom);
             if (custom < 0) custom = 0;
@@ -876,7 +915,7 @@ namespace FilmGrainStudioPreview
                 if (i > 0) command.Append(' ');
                 command.Append(Quote(args[i]));
             }
-            return new BridgeExecutionStage { ToolPath = tool, WorkingDirectory = cwd, DirectArguments = command.ToString(), ProgressDurationSeconds = duration, StageCurrent = current, StageTotal = total, StageText = text };
+            return new BridgeExecutionStage { ToolPath = tool, WorkingDirectory = cwd, OriginalArguments = new List<string>(args), DirectArguments = command.ToString(), ProgressDurationSeconds = duration, StageCurrent = current, StageTotal = total, StageText = text };
         }
 
         private static void Add(List<string> target, params string[] values) { if (values != null) target.AddRange(values); }

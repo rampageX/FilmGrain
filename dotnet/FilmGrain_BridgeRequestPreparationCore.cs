@@ -260,7 +260,7 @@ namespace FilmGrainStudioPreview
             prepared = new BridgePreparedExecution(request, noReencode, ffmpeg, new List<string> { input });
             return true;
         }
-        private static MediaProbeInfo Probe(string path, string ffprobe, Func<bool> cancelled)
+        internal static MediaProbeInfo Probe(string path, string ffprobe, Func<bool> cancelled)
         {
             MediaProbeResult result = null;
             using (var probe = new MediaProbeCore()) {

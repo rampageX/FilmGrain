@@ -30,6 +30,8 @@ namespace FilmGrainStudioPreview
             List<string> grainArgs = new List<string>();
             string grainTag;
             if (!TryBuildGrainArgs(mode, state, grainArgs, out grainTag, out reason)) return false;
+            int grainPercent = Av1GrainStrengthCore.Read(state);
+            if (grainPercent != 100) grainTag += "_GS" + grainPercent.ToString(CultureInfo.InvariantCulture);
             bool mkv = Eq(state, "FG_CONTAINER", "MKV");
             if (!mkv && !Eq(state, "FG_CONTAINER", "MP4")) { reason = "unsupported AV1 no-reencode container"; return false; }
             string extension = mkv ? ".mkv" : ".mp4";
@@ -65,13 +67,14 @@ namespace FilmGrainStudioPreview
             string baseIvf = Path.Combine(tempRoot, job + "_base.ivf");
             string grainIvf = Path.Combine(tempRoot, job + (fast ? ((info.FormatName ?? "").IndexOf("mov", StringComparison.OrdinalIgnoreCase) >= 0 ? "_grain.mp4" : "_grain.mkv") : "_grain.ivf"));
             string verifyTable = Path.Combine(tempRoot, job + "_verify.txt");
+            string strengthOutput = Path.Combine(tempRoot,job + "_strength" + Path.GetExtension(grainIvf));
 
             List<string> extract = new List<string> { "-hide_banner", "-stats", "-progress", "pipe:2", "-stats_period", "0.5", "-y", "-i", input, "-map", "0:v:0", "-c:v", "copy", "-f", "ivf", baseIvf };
             List<string> apply = new List<string> { "apply", fast ? input : baseIvf, "-o", grainIvf };
             apply.AddRange(grainArgs);
             apply.AddRange(new string[] { "--replace", "-y" });
 
-            List<string> remux = new List<string> { "-hide_banner", "-stats", "-progress", "pipe:2", "-stats_period", "0.5", "-y", "-i", grainIvf, "-i", input, "-map", "0:v:0", "-map", "1:a?" };
+            List<string> remux = new List<string> { "-hide_banner", "-stats", "-progress", "pipe:2", "-stats_period", "0.5", "-y", "-i", grainPercent == 100 ? grainIvf : strengthOutput, "-i", input, "-map", "0:v:0", "-map", "1:a?" };
             if (mkv) remux.AddRange(new string[] { "-map", "1:s?", "-map", "1:t?", "-map", "1:d?" });
             remux.AddRange(new string[] { "-map_metadata", "1", "-map_chapters", "1", "-c:v", "copy" });
             if (mkv) remux.AddRange(new string[] { "-c", "copy" });
@@ -110,7 +113,9 @@ namespace FilmGrainStudioPreview
             else if (!fast) request.DirectStages.Add(Stage(ffmpeg, tempRoot, extract, duration, ++step, total, "提取原视频（不重新编码）"));
             var applyStage = Stage(grav1synth, tempRoot, apply, duration, ++step, total, "添加或更换颗粒效果");
             var remuxStage = Stage(ffmpeg, tempRoot, remux, duration, ++step, total, "保留源流并封装输出");
-            request.DirectStages.Add(applyStage); request.DirectStages.Add(remuxStage);
+            request.DirectStages.Add(applyStage);
+            if (grainPercent != 100) foreach (var stage in Av1GrainStrengthCore.Stages(grav1synth,tempRoot,delegate { return grainIvf; },strengthOutput,grainPercent,request.TemporaryFiles)) request.DirectStages.Add(stage);
+            request.DirectStages.Add(remuxStage);
             if (fullVerify) request.DirectStages.Add(Stage(grav1synth, tempRoot, inspect, duration, ++step, total, "完整检查输出 AV1 颗粒元数据"));
             if (isoGuard)
             {
@@ -123,7 +128,7 @@ namespace FilmGrainStudioPreview
                     {
                         grainIvf = Path.Combine(tempRoot, job + "_grain.ivf");
                         apply[1] = baseIvf; apply[3] = grainIvf;
-                        remux[remux.IndexOf("-i") + 1] = grainIvf;
+                        remux[remux.IndexOf("-i") + 1] = grainPercent == 100 ? grainIvf : strengthOutput;
                         applyStage.DirectArguments = Stage(grav1synth, tempRoot, apply, duration, 1, 1, "").DirectArguments;
                         remuxStage.DirectArguments = Stage(ffmpeg, tempRoot, remux, duration, 1, 1, "").DirectArguments;
                     }
@@ -148,6 +153,7 @@ namespace FilmGrainStudioPreview
                 }
                 return ValidateGrainHeader(ffmpeg, output);
             };
+            if (grainPercent != 100) Av1GrainStrengthCore.NumberStages(request.DirectStages);
             prepared = new BridgePreparedExecution(request, true, ffmpeg, new List<string> { input });
             return true;
         }
