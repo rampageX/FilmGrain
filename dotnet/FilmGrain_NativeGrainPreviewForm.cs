@@ -347,20 +347,19 @@ namespace FilmGrainStudioPreview
     {
         internal static Rectangle Region(int width,int height,int perSide,int mode,int horizontal)
         {
-            if(horizontal<=0)return Region(width,height,perSide,mode);
-            if(width<2||height<2||horizontal>(width-2)/2||perSide<0||perSide>(height-2)/2)throw new ArgumentOutOfRangeException("crop");
-            return new Rectangle(horizontal,perSide,width-2*horizontal,height-2*perSide);
+            if(width<2||height<2)throw new ArgumentException("Invalid video dimensions.");
+            if(perSide<0||perSide>(height-2)/2||horizontal>(width-2)/2)throw new ArgumentOutOfRangeException("crop");
+            var state=new Dictionary<string,string> {
+                {"FG_CINEMATIC_FRAME","1"},{"FG_FRAME_MODE",mode==1?"CROP":"BARS"},
+                {"FG_CROP_PER_SIDE",perSide.ToString(CultureInfo.InvariantCulture)},
+                {"FG_CROP_HORIZONTAL",horizontal.ToString(CultureInfo.InvariantCulture)}};
+            CinematicFramePlan plan;string reason;
+            if(!CinematicFrameCore.TryBuild(new MediaProbeInfo {Width=width,Height=height},state,out plan,out reason))
+                throw new ArgumentException(reason);
+            return new Rectangle(plan.ContentX,plan.ContentY,plan.ContentWidth,plan.ContentHeight);
         }
         internal static Rectangle Region(int width,int height,int perSide,int mode)
-        {
-            if(width<2||height<2)throw new ArgumentException("Invalid video dimensions.");
-            if(perSide<0||perSide>(height-2)/2)throw new ArgumentOutOfRangeException("perSide");
-            if(perSide>0)return new Rectangle(0,perSide,width,height-perSide*2);
-            if((long)width*100L>=(long)height*239L)return new Rectangle(0,0,width,height);
-            if(mode==1){int h=(int)(((long)width*100L+239L)/478L)*2;int y=((height-h)/2/2)*2;return new Rectangle(0,y,width,h);}
-            int bar=(int)(((long)height*239L-(long)width*100L)/478L)/2*2;
-            return new Rectangle(0,bar,width,height-2*bar);
-        }
+        {return Region(width,height,perSide,mode,0);}
     }
 
     internal sealed class NativeCinematicCropForm : Form

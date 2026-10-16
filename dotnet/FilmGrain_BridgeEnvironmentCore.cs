@@ -305,7 +305,7 @@ namespace FilmGrainStudioPreview
         internal static bool ValidateHdr(MediaProbeInfo info, IDictionary<string,string> state, out string reason)
         {
             reason=""; string policy, color, lut;
-            if(IsEnabled(state) || info==null || !info.IsHdr)return true;
+            if(info==null || !info.IsHdr)return true;
             state.TryGetValue("FG_HDR_POLICY",out policy); state.TryGetValue("FG_COLOR_ENABLED",out color); state.TryGetValue("FG_LUT_PATH",out lut);
             if(string.Equals(policy,"PRESERVE",StringComparison.OrdinalIgnoreCase) && (color=="1" || !string.IsNullOrWhiteSpace(lut)))
             { reason="HDR 保留与当前 SDR 调色/LUT 不兼容；请选择 AUTO/转 SDR，或关闭调色/LUT。 / HDR Preserve conflicts with SDR color/LUT processing."; return false; }

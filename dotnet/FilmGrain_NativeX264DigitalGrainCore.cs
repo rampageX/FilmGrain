@@ -9,13 +9,7 @@ namespace FilmGrainStudioPreview
 {
     internal static class NativeX264DigitalGrainCore
     {
-        private sealed class FramePlan
-        {
-            internal string Filter = "";
-            internal string FileSuffix = "";
-            internal int ActiveWidth;
-            internal int ActiveHeight;
-        }
+
 
         internal static bool TryPrepare(string appRoot, string input, MediaProbeInfo info, IDictionary<string,string> state, out BridgePreparedExecution prepared, out string reason)
         {
@@ -130,8 +124,8 @@ namespace FilmGrainStudioPreview
             }
             if (high10 && !SupportsHigh10(ffmpeg)) { reason = "this libx264 build does not advertise yuv420p10le"; return false; }
 
-            FramePlan frame;
-            if (!TryBuildFramePlan(info, state, out frame, out reason)) return false;
+            CinematicFramePlan frame;
+            if (!CinematicFrameCore.TryBuild(info, state, out frame, out reason)) return false;
             bool highMotion = Get(state, "FG_HIGH_MOTION") == "1";
             if (Eq(state, "FG_BITRATE_MODE", "AUTO"))
             {
@@ -501,73 +495,7 @@ namespace FilmGrainStudioPreview
             return stage;
         }
 
-        private static bool TryBuildFramePlan(MediaProbeInfo info, IDictionary<string,string> state, out FramePlan plan, out string reason)
-        {
-            plan = new FramePlan();
-            plan.ActiveWidth = info.Width;
-            plan.ActiveHeight = info.Height;
-            reason = "";
-            if (Get(state, "FG_CINEMATIC_FRAME") != "1") return true;
-            int horizontal;
-            int.TryParse(Get(state,"FG_CROP_HORIZONTAL"),NumberStyles.Integer,CultureInfo.InvariantCulture,out horizontal);
-            if(horizontal>0)
-            {
-                int vertical;int.TryParse(Get(state,"FG_CROP_PER_SIDE"),NumberStyles.Integer,CultureInfo.InvariantCulture,out vertical);
-                vertical=Math.Max(0,vertical);
-                if(horizontal>(info.Width-2)/2||vertical>(info.Height-2)/2){reason="custom crop is too large for input dimensions";return false;}
-                bool cutting=Get(state,"FG_FRAME_MODE").ToUpperInvariant()=="CROP";
-                int w=info.Width-horizontal*2,h=info.Height-vertical*2;
-                string x=horizontal.ToString(CultureInfo.InvariantCulture),y=vertical.ToString(CultureInfo.InvariantCulture);
-                plan.FileSuffix=(cutting?"_CROP":"_BARS")+"V"+y+"H"+x;
-                if(cutting){plan.ActiveWidth=w;plan.ActiveHeight=h;plan.Filter=",crop=w="+w.ToString(CultureInfo.InvariantCulture)+":h="+h.ToString(CultureInfo.InvariantCulture)+":x="+x+":y="+y+":exact=1";}
-                else {
-                    plan.Filter=",drawbox=x=0:y=0:w="+x+":h=ih:color=black:t=fill,drawbox=x=iw-"+x+":y=0:w="+x+":h=ih:color=black:t=fill";
-                    if(vertical>0)plan.Filter+=",drawbox=x=0:y=0:w=iw:h="+y+":color=black:t=fill,drawbox=x=0:y=ih-"+y+":w=iw:h="+y+":color=black:t=fill";
-                }
-                return true;
-            }
 
-            int custom = 0;
-            int.TryParse(Get(state, "FG_CROP_PER_SIDE"), NumberStyles.Integer, CultureInfo.InvariantCulture, out custom);
-            if (custom < 0) custom = 0;
-            string mode = Get(state, "FG_FRAME_MODE").ToUpperInvariant();
-            if (mode == "CROP")
-            {
-                plan.FileSuffix = custom > 0 ? "_CROP" + custom.ToString(CultureInfo.InvariantCulture) : "_239";
-                if (custom > 0)
-                {
-                    int target = info.Height - custom * 2;
-                    if (target <= 1) { reason = "custom crop is too large for input height"; return false; }
-                    plan.ActiveHeight = target;
-                    plan.Filter = ",crop=w=iw:h=" + target.ToString(CultureInfo.InvariantCulture) + ":x=0:y=" + custom.ToString(CultureInfo.InvariantCulture) + ":exact=1";
-                    return true;
-                }
-                long aspectLeft = (long)info.Width * 100L;
-                long aspectRight = (long)info.Height * 239L;
-                if (aspectLeft >= aspectRight) return true;
-                int targetH = (int)(((long)info.Width * 100L + 239L) / 478L) * 2;
-                if (targetH >= info.Height || targetH <= 0) return true;
-                int cropY = (info.Height - targetH) / 2; cropY = (cropY / 2) * 2;
-                plan.ActiveHeight = targetH;
-                plan.Filter = ",crop=w=iw:h=" + targetH.ToString(CultureInfo.InvariantCulture) + ":x=0:y=" + cropY.ToString(CultureInfo.InvariantCulture);
-                return true;
-            }
-
-            plan.FileSuffix = custom > 0 ? "_BARS" + custom.ToString(CultureInfo.InvariantCulture) : "_239LB";
-            if (custom > 0)
-            {
-                int content = info.Height - custom * 2;
-                if (content <= 1) { reason = "custom black bars are too large for input height"; return false; }
-                plan.Filter = ",drawbox=x=0:y=0:w=iw:h=" + custom.ToString(CultureInfo.InvariantCulture) + ":color=black:t=fill,drawbox=x=0:y=ih-" + custom.ToString(CultureInfo.InvariantCulture) + ":w=iw:h=" + custom.ToString(CultureInfo.InvariantCulture) + ":color=black:t=fill";
-                return true;
-            }
-            if ((long)info.Width * 100L >= (long)info.Height * 239L) return true;
-            int barRaw = (int)(((long)info.Height * 239L - (long)info.Width * 100L) / 478L);
-            int barH = (barRaw / 2) * 2;
-            if (barH <= 0) return true;
-            plan.Filter = ",drawbox=x=0:y=0:w=iw:h=" + barH.ToString(CultureInfo.InvariantCulture) + ":color=black:t=fill,drawbox=x=0:y=ih-" + barH.ToString(CultureInfo.InvariantCulture) + ":w=iw:h=" + barH.ToString(CultureInfo.InvariantCulture) + ":color=black:t=fill";
-            return true;
-        }
 
         private static string BuildX264FileSuffix(string preset, string passMode)
         {

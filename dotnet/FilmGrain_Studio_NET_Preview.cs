@@ -98,7 +98,7 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "4.8.23";
+        internal const string ReleaseVersion = "4.8.24";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -3003,7 +3003,7 @@ namespace FilmGrainStudioPreview
                     preserve = true;
                     detail = UiText("AV1 不重编码只更换颗粒元数据，不执行色调映射。", "AV1 no-reencode only changes grain metadata; tone mapping is not run.");
                 }
-                else if (!IsGrainEnabled() && policy == "PRESERVE" && (color || lut))
+                else if (policy == "PRESERVE" && (color || lut))
                 {
                     unsupported = true;
                     detail = UiText("HDR 保留与当前 SDR 调色/LUT 不兼容；请关闭这些处理或选择 AUTO/转 SDR。", "HDR Preserve conflicts with SDR color/LUT processing; disable them or choose AUTO/SDR.");
