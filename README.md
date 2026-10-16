@@ -1,6 +1,8 @@
 # Film Grain Studio
 
-> **Film Grain Studio v4.8.24 · Stable · .NET Native-only。** AV1、HEVC、x264 使用当前 .NET 原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v4.8.25 · Stable · .NET Native-only。** AV1、HEVC、x264 使用当前 .NET 原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+
+> 发布准备：v4.8.25 的颗粒 HDR 专项已通过自动及人工验收；版本字段和正式 EXE 由既有 Windows 发布流程同步。
 
 基于 **FFmpeg、NVIDIA NVENC、libx264 与 grav1synth** 的 Windows 视频处理工具。当前入口为 .NET 图形界面，支持向 EXE 传入或拖入视频文件。
 
@@ -36,6 +38,8 @@ AV1、HEVC、x264 与可视化窗口共用画幅几何核心。自动画幅沿�
 - 预览复用当前编码线的颗粒滤镜，先生成同一次颗粒样本的干净/颗粒双路无损中间视频，再派生 25/50/75/100% 四格，避免四次随机生成导致纹理不可比。点击档位应用到主界面，关闭窗口不改变百分比。
 - 像素颗粒预览接受已探测的视频输入，不要求输入已是 AV1。仍只显示颗粒：关闭 LUT、调色、字幕、画幅及插帧，保留当前 HDR 策略及原有场处理。原图参考保留源中已有的像素颗粒/解码合成颗粒，只是不添加本工具的新颗粒。
 - 正式输出由 HDR 策略决定。x264 不能保留 HDR；HEVC/AV1 按实际组合保留或转 SDR，FGSIM 保留 HDR 需明确选择 PRESERVE。PRESERVE 与当前 SDR 调色/LUT 不兼容，不论颗粒开关状态都会提示冲突；请选择 AUTO/转 SDR，或关闭调色/LUT。预览窗口中的 HDR 转换仅用于 SDR 显示。
+- HEVC Grain Plate 的非100%相对强度可与上传副本共用：主输出与上传副本均保留完整强度合成；100%沿用原路径。AUTO遇上传请求会转SDR，PRESERVE则跳过上传副本。
+- FGSIM的AUTO对HDR输入转SDR；AV1/HEVC显式PRESERVE保留HDR，x264不支持HDR保留。PQ与HLG均按输入传递函数标记识别。
 - 非 100% 会增加干净分支与合成开销；高分辨率双路无损预览也会占用较多临时空间。GPU 颗粒使用既有 Vulkan/libplacebo 依赖；预览不调用 AV1/HEVC 最终编码器，但原有 HDR/场预处理需要时仍会执行。
 
 ### AV1 颗粒强度与四档对比

@@ -706,11 +706,8 @@ namespace FilmGrainStudioPreview
 
                         string uploadSubtitle = string.IsNullOrEmpty(subtitleAss) ? "" : ",subtitles=filename='" + EscapeFilterPath(subtitleAss) + "'";
 
-                        string oldTail = subtitleFilter + ",format=p010le[vout]";
-
-                        if (!filter.EndsWith(oldTail, StringComparison.Ordinal)) { reason = "cannot derive Grain Plate upload filter"; return false; }
-
-                        uploadFilter = filter.Substring(0, filter.Length - oldTail.Length) + ",format=yuv420p" + uploadSubtitle + "[vout]";
+                        if (!TryBuildPlateUploadFilter(filter, subtitleFilter, uploadSubtitle, pixelPercent, out uploadFilter))
+                        { reason = "cannot derive Grain Plate upload filter"; return false; }
 
                     }
 
@@ -1936,6 +1933,28 @@ namespace FilmGrainStudioPreview
         private static string Get(IDictionary<string,string> s, string k) { string v; return s.TryGetValue(k, out v) ? (v ?? "") : ""; }
 
         private static bool Eq(IDictionary<string,string> s, string k, string v) { return string.Equals(Get(s, k), v, StringComparison.OrdinalIgnoreCase); }
+
+        // Relative strength produces its own final blend; convert that completed result once.
+        // Keep the established 100% subtitle/conversion order unchanged.
+        internal static bool TryBuildPlateUploadFilter(string filter, string subtitleFilter, string uploadSubtitle,
+            int pixelPercent, out string uploadFilter)
+        {
+            uploadFilter = "";
+            if (string.IsNullOrEmpty(filter)) return false;
+            if (pixelPercent != 100)
+            {
+                const string output = "[vout]";
+                if (!filter.EndsWith(output, StringComparison.Ordinal)) return false;
+                uploadFilter = filter.Substring(0, filter.Length - output.Length) +
+                    "[plateupload10];[plateupload10]format=yuv420p[vout]";
+                return true;
+            }
+            string oldTail = subtitleFilter + ",format=p010le[vout]";
+            if (!filter.EndsWith(oldTail, StringComparison.Ordinal)) return false;
+            uploadFilter = filter.Substring(0, filter.Length - oldTail.Length) +
+                ",format=yuv420p" + uploadSubtitle + "[vout]";
+            return true;
+        }
 
         private static string GetFfmpegDir(string root)
 
