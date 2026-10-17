@@ -11,6 +11,14 @@ using System.Threading;
 using System.Windows.Forms;
 using System.Web.Script.Serialization;
 
+// Explorer VERSIONINFO and managed assembly versions follow the same product constant.
+[assembly: System.Reflection.AssemblyTitle("FilmGrain Studio")]
+[assembly: System.Reflection.AssemblyProduct("FilmGrain Studio")]
+[assembly: System.Reflection.AssemblyDescription("FilmGrain Studio")]
+[assembly: System.Reflection.AssemblyVersion(FilmGrainStudioPreview.Program.FileReleaseVersion)]
+[assembly: System.Reflection.AssemblyFileVersion(FilmGrainStudioPreview.Program.FileReleaseVersion)]
+[assembly: System.Reflection.AssemblyInformationalVersion(FilmGrainStudioPreview.Program.ReleaseVersion)]
+
 namespace FilmGrainStudioPreview
 {
     // A session log survives visible-log trimming/clearing and is flushed before UI updates.
@@ -98,7 +106,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "4.8.27";
+        internal const string ReleaseVersion = "5.0.00";
+        internal const string FileReleaseVersion = "5.0.0.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)

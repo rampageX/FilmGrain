@@ -54,6 +54,33 @@ internal static class FrameworkApiAudit
         return true; // ECMA-335 array intrinsics are provided by CLR, not mscorlib method rows.
     }
 
+    private static Version FourParts(string value)
+    {
+        Version v = new Version(value);
+        return new Version(v.Major,v.Minor,Math.Max(0,v.Build),Math.Max(0,v.Revision));
+    }
+    private static void CheckProductMetadata(AssemblyDefinition candidate,string path)
+    {
+        var program=candidate.MainModule.GetType("FilmGrainStudioPreview.Program");
+        if(program==null)throw new InvalidDataException("Product Program type missing for metadata validation.");
+        var version=program.Fields.FirstOrDefault(f=>f.Name=="ReleaseVersion" && f.HasConstant);
+        if(version==null)throw new InvalidDataException("Product ReleaseVersion constant missing.");
+        string release=Convert.ToString(version.Constant,System.Globalization.CultureInfo.InvariantCulture);
+        Version expected=FourParts(release);
+        var fixedVersion=program.Fields.FirstOrDefault(f=>f.Name=="FileReleaseVersion" && f.HasConstant);
+        if(fixedVersion==null || Convert.ToString(fixedVersion.Constant)!=expected.ToString())throw new InvalidDataException("Fixed file version does not match release version.");
+        if(candidate.Name.Version!=expected)throw new InvalidDataException("Assembly version differs from ReleaseVersion.");
+        var product=candidate.CustomAttributes.FirstOrDefault(a=>a.AttributeType.FullName=="System.Reflection.AssemblyProductAttribute");
+        var file=candidate.CustomAttributes.FirstOrDefault(a=>a.AttributeType.FullName=="System.Reflection.AssemblyFileVersionAttribute");
+        var info=candidate.CustomAttributes.FirstOrDefault(a=>a.AttributeType.FullName=="System.Reflection.AssemblyInformationalVersionAttribute");
+        if(product==null || Convert.ToString(product.ConstructorArguments[0].Value)!="FilmGrain Studio" || file==null || FourParts(Convert.ToString(file.ConstructorArguments[0].Value))!=expected || info==null || Convert.ToString(info.ConstructorArguments[0].Value)!=release)
+            throw new InvalidDataException("Managed product/file/informational version metadata missing or incorrect.");
+        var native=System.Diagnostics.FileVersionInfo.GetVersionInfo(Path.GetFullPath(path));
+        if(native.ProductName!="FilmGrain Studio" || native.FileDescription!="FilmGrain Studio" || native.FileVersion!=expected.ToString() || native.ProductVersion!=release || new Version(native.FileMajorPart,native.FileMinorPart,native.FileBuildPart,native.FilePrivatePart)!=expected)
+            throw new InvalidDataException("Windows VERSIONINFO product/name/version missing or incorrect.");
+        Console.WriteLine("Product metadata: "+native.ProductName+"; FileDescription="+native.FileDescription+"; FileVersion="+native.FileVersion+"; ProductVersion="+native.ProductVersion+"; AssemblyVersion="+candidate.Name.Version);
+    }
+
     public static int Main(string[] args)
     {
         try
@@ -77,6 +104,7 @@ internal static class FrameworkApiAudit
                     throw new InvalidDataException("Microsoft Framework reference assemblies required; implementation libraries rejected.");
                 using(var candidate=AssemblyDefinition.ReadAssembly(args[0],new ReaderParameters{AssemblyResolver=resolver}))
                 {
+                    CheckProductMetadata(candidate,args[0]);
                     resolver.Register(candidate);
                     int checks=0,failures=0;
                     foreach(var module in candidate.Modules)

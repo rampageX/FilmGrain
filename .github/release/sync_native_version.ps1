@@ -25,6 +25,12 @@ $pattern = '(internal const string ReleaseVersion\s*=\s*)"([0-9.]+)"'
 $m = [regex]::Matches($native, $pattern)
 if ($m.Count -ne 1) { throw 'Native ReleaseVersion must occur exactly once.' }
 $native = $native.Substring(0,$m[0].Index) + $m[0].Groups[1].Value + '"' + $Version + '"' + $native.Substring($m[0].Index+$m[0].Length)
+$parsedVersion = [version]$Version
+$fixedVersion = '{0}.{1}.{2}.{3}' -f $parsedVersion.Major,$parsedVersion.Minor,[Math]::Max(0,$parsedVersion.Build),[Math]::Max(0,$parsedVersion.Revision)
+$filePattern = '(internal const string FileReleaseVersion\s*=\s*)"([0-9.]+)"'
+$fileMatch = [regex]::Matches($native,$filePattern)
+if ($fileMatch.Count -ne 1) { throw 'Native FileReleaseVersion must occur exactly once.' }
+$native = $native.Substring(0,$fileMatch[0].Index) + $fileMatch[0].Groups[1].Value + '"' + $fixedVersion + '"' + $native.Substring($fileMatch[0].Index+$fileMatch[0].Length)
 $buildPattern = '(internal const string BuildLabel\s*=\s*)"[^"\r\n]+"'
 $m = [regex]::Matches($native,$buildPattern)
 if ($m.Count -ne 1 -or $native -notmatch 'private const string TestBuild\s*=\s*Program\.BuildLabel\s*;') { throw 'Unexpected Native build-label declaration.' }
@@ -89,6 +95,7 @@ $baseline = @(
     $(if ([version]$Version -ge [version]'4.8.26') { 'v4.8.26: baseline measurement 42 cases x3=126 executions; 66 pre-encode hash/PTS cases passed; 42 reference/candidate real encodes completed. Two first-run output checks were test-path false negatives, resolved by read-only verification of 4 existing outputs; no new encodes.' }),
     $(if ([version]$Version -ge [version]'4.8.26') { 'v4.8.26: user manual picture/A-V sync spot checks passed; measured 4K SDR/50% wall time reduced approximately29-51% on RTX4080/FFmpeg9.0.2. Results do not cover every strength, hardware or filter combination.' }),
     $(if ([version]$Version -ge [version]'4.8.27') { 'v4.8.27:212 PASS/0 FAIL/0 SKIP, including12 real preview tasks and180 full-variant PNG comparisons across3 rounds (1440 matching PNG pairs). User manual SDR/HDR preview spot checks passed. Prior synthetic HDR input gap closed with22 PASS including8 real encodes; old failed reports retained.' }),
+    $(if ([version]$Version -ge [version]'5.0.00') { 'v5.0.00: .NET native milestone based on published4.8.27. EXE ProductName/FileDescription=FilmGrain Studio; file/fixed numeric/assembly version5.0.0.0; product version string5.0.00. Build gate requires matching managed attributes and native VERSIONINFO. Video behavior remains the accepted4.8.27 implementation.' }),
     'Root and compatible executables are rebuilt from the same committed C# source with Stable label.',
     'Shared Lang, SVP vpy/plugins, FGSIM template/texture and original grain tables remain in their shared locations.',
     'Exclude local configuration, caches, private environments, downloads, generated hooks, logs, Tests_Shared and test-delivery markers.',
