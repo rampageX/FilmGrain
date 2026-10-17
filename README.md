@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.0.03 · Stable · .NET Native-only。** AV1、HEVC、x264使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.04 · Stable · .NET Native-only。** AV1、HEVC、x264使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 基于 **FFmpeg、NVIDIA NVENC、libx264 与 grav1synth** 的 Windows 视频处理工具。当前入口为 .NET 图形界面，支持向 EXE 传入或拖入视频文件。
 
@@ -1275,3 +1275,10 @@ ffmpeg -hide_banner -h decoder=libdav1d
 默认 Hable 转换在共享预处理开始前实际检查 Vulkan/libplacebo 能力，支持时使用 GPU；不支持时自动沿用 CPU 并在任务日志说明原因。其他色调映射算法保持原实现。HDR 保留不受影响。源码发布准备包需先完成 Windows 编译。
 
 可视化裁剪窗口的“自动 2.39:1 / Auto”：左键恢复自动 2.39:1；右键将两轴归零并恢复完整原始画幅，不裁剪也不加黑边。点击“应用”保存，取消不保存；重新打开保留选择。手动修改裁剪值后退出原始画幅重置状态。
+
+### 界面主题
+
+底部状态栏点击月亮图标切换暗色，点击太阳图标切换浅色，选择自动保存。旧配置默认浅色。当前覆盖主界面；高级设置、依赖向导、裁剪、调色、颗粒预览、LUT 图库等子窗口保留原外观。设置/高级设置的恢复默认不改变主题；点击太阳图标即可恢复浅色默认。
+
+主界面颗粒强度提供 10%～100% 十档，支持手动输入原范围 1%～100%；预览时长提供 30/60/120 秒，可手动输入 1～86400 整数秒。文件列表列宽适配窗口，不再水平滚动，完整路径可通过悬停提示查看；日志自动换行，保留垂直滚动。
+

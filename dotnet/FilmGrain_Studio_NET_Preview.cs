@@ -106,8 +106,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.03";
-        internal const string FileReleaseVersion = "5.0.3.0";
+        internal const string ReleaseVersion = "5.0.04";
+        internal const string FileReleaseVersion = "5.0.4.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -258,7 +258,7 @@ namespace FilmGrainStudioPreview
         private Button btnStart;
         private CheckBox chkEncodePreview;
         private MaskedTextBox txtPreviewStart;
-        private NumericUpDown numPreviewDuration;
+        private ThemeIntegerCombo numPreviewDuration;
         private Panel encodePreviewPanel;
         private Button btnCancelTask;
         private ProgressBar progressRun;
@@ -279,7 +279,7 @@ namespace FilmGrainStudioPreview
         private bool activeRunNativeBackend;
         private string activeRunCodecName = "";
         private TrackBar trackFilmGrainStrength;
-        private NumericUpDown av1StrengthControl, pixelStrengthControl;
+        private ThemeIntegerCombo av1StrengthControl, pixelStrengthControl;
         private int PixelGrainStrengthPercent { get { int v; return int.TryParse(config.Get("PIXEL_GRAIN_STRENGTH"),out v) ? Math.Max(1,Math.Min(100,v)) : 100; } }
         private int Av1GrainStrengthPercent { get { int v; return int.TryParse(config.Get("AV1_GRAIN_STRENGTH"), out v) ? Math.Max(1,Math.Min(100,v)) : 100; } }
         private Label lblFilmGrainValue;
@@ -379,6 +379,7 @@ namespace FilmGrainStudioPreview
             UpdateCinematicCropLabels();
             UpdateStatusCount();
             UpdateMediaDrivenUi(null);
+            InitializeTheme();
             BeginHardwareDetection();
             Shown += delegate { SetupPhase1.ShowIfNeeded(this, appRoot, config, setupTest); };
             FormClosed += delegate
@@ -427,6 +428,7 @@ namespace FilmGrainStudioPreview
 
         private void BuildUi()
         {
+            SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
             Text = "Film Grain Studio";
             StartPosition = FormStartPosition.CenterScreen;
             ClientSize = new Size(1320, 994);
@@ -466,7 +468,7 @@ namespace FilmGrainStudioPreview
             header.Dock = DockStyle.Fill;
             header.BackColor = ColorHeader;
 
-            Label title = new Label();
+            Label title = new ThemeLabel();
             title.Text = "Film Grain Studio";
             title.ForeColor = Color.White;
             title.Font = UiFont(18f, FontStyle.Bold);
@@ -474,7 +476,7 @@ namespace FilmGrainStudioPreview
             title.Location = new Point(20, 10);
             header.Controls.Add(title);
 
-            Label subtitle = new Label();
+            Label subtitle = new ThemeLabel();
             subtitle.Text = lang.T("app.subtitle");
             subtitle.ForeColor = Color.FromArgb(205, 214, 224);
             subtitle.Font = UiFont(9f, FontStyle.Regular);
@@ -492,7 +494,7 @@ namespace FilmGrainStudioPreview
             header.Controls.Add(btnAdvanced);
             header.Controls.Add(btnProxy);
 
-            cmbLanguage = new ComboBox();
+            cmbLanguage = new ThemeComboBox();
             cmbLanguage.DropDownStyle = ComboBoxStyle.DropDownList;
             cmbLanguage.Size = new Size(116, 28);
             cmbLanguage.Anchor = AnchorStyles.Top | AnchorStyles.Right;
@@ -526,7 +528,7 @@ namespace FilmGrainStudioPreview
             };
             header.Controls.Add(cmbLanguage);
 
-            Label baseline = new Label();
+            Label baseline = new ThemeLabel();
             baseline.Text = lang.T("app.core") + "  ·  .NET";
             baseline.ForeColor = Color.FromArgb(205, 214, 224);
             baseline.AutoSize = true;
@@ -553,7 +555,7 @@ namespace FilmGrainStudioPreview
 
         private Button HeaderButton(string text, int width)
         {
-            Button b = new Button();
+            Button b = new ThemeButton();
             b.Text = text;
             b.Size = new Size(width, 30);
             b.Anchor = AnchorStyles.Top | AnchorStyles.Right;
@@ -583,7 +585,7 @@ namespace FilmGrainStudioPreview
 
         private Control BuildInputGroup()
         {
-            GroupBox box = new GroupBox();
+            GroupBox box = new ThemeGroupBox();
             box.Text = lang.T("input.group");
             box.Dock = DockStyle.Fill;
             box.Margin = new Padding(0, 0, 6, 0);
@@ -603,14 +605,14 @@ namespace FilmGrainStudioPreview
             buttons.Dock = DockStyle.Fill;
             buttons.FlowDirection = FlowDirection.LeftToRight;
             buttons.WrapContents = false;
-            Button add = new Button(); add.Text = lang.T("button.add"); add.Size = new Size(92, 29);
-            Button remove = new Button(); remove.Text = lang.T("button.remove"); remove.Size = new Size(82, 29);
-            Button clear = new Button(); clear.Text = lang.T("button.clear"); clear.Size = new Size(62, 29);
+            Button add = new ThemeButton(); add.Text = lang.T("button.add"); add.Size = new Size(92, 29);
+            Button remove = new ThemeButton(); remove.Text = lang.T("button.remove"); remove.Size = new Size(82, 29);
+            Button clear = new ThemeButton(); clear.Text = lang.T("button.clear"); clear.Size = new Size(62, 29);
             add.Click += delegate { AddFilesWithDialog(); };
             remove.Click += delegate { RemoveSelected(); };
             clear.Click += delegate { listFiles.Items.Clear(); UpdateSelectedInfo(); UpdateStatusCount(); };
             buttons.Controls.Add(add); buttons.Controls.Add(remove); buttons.Controls.Add(clear);
-            var bake = new Button { Text = UiText("AV1 烘焙...", "AV1 Bake..."), Size = new Size(106,29) };
+            var bake = new ThemeButton { Text = UiText("AV1 烘焙...", "AV1 Bake..."), Size = new Size(106,29) };
             bake.Click += delegate { ShowAv1BakeDialog(); }; buttons.Controls.Add(bake);
             layout.Controls.Add(buttons, 0, 0);
 
@@ -625,16 +627,26 @@ namespace FilmGrainStudioPreview
             listFiles.Columns.Add(lang.T("input.column.filename"), 178);
             listFiles.Columns.Add(lang.T("input.column.size"), 72);
             listFiles.Columns.Add(lang.T("input.column.directory"), 260);
+            listFiles.ClientSizeChanged += delegate { FitFileColumns(); };
+            listFiles.ColumnWidthChanged += delegate {
+                int total=0;foreach(ColumnHeader column in listFiles.Columns)total+=column.Width;
+                if(!fittingFileColumns && total>Math.Max(0,listFiles.ClientSize.Width-4))FitFileColumns();
+            };
+            listFiles.ColumnWidthChanging += delegate(object sender, ColumnWidthChangingEventArgs e) {
+                int total=0; for(int i=0;i<listFiles.Columns.Count;i++) total += i==e.ColumnIndex ? e.NewWidth : listFiles.Columns[i].Width;
+                if(total>Math.Max(0,listFiles.ClientSize.Width-4)) { e.Cancel=true; e.NewWidth=listFiles.Columns[e.ColumnIndex].Width; }
+            };
+            FitFileColumns();
             listFiles.DragEnter += OnDragEnter;
             listFiles.DragDrop += OnDragDrop;
             listFiles.SelectedIndexChanged += delegate { UpdateSelectedInfo(); };
             layout.Controls.Add(listFiles, 0, 1);
 
-            GroupBox info = new GroupBox();
+            GroupBox info = new ThemeGroupBox();
             info.Text = lang.T("input.info_group");
             info.Dock = DockStyle.Fill;
             info.Margin = new Padding(0, 5, 0, 3);
-            lblMediaInfo = new Label();
+            lblMediaInfo = new ThemeLabel();
             lblMediaInfo.Dock = DockStyle.Fill;
             lblMediaInfo.Padding = new Padding(7, 4, 7, 3);
             lblMediaInfo.TextAlign = ContentAlignment.TopLeft;
@@ -650,14 +662,14 @@ namespace FilmGrainStudioPreview
             inputStatus.RowCount = 2;
             inputStatus.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));
             inputStatus.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            Label note = new Label();
+            Label note = new ThemeLabel();
             note.Dock = DockStyle.Fill;
             note.ForeColor = ColorMuted;
             note.Padding = new Padding(6, 3, 4, 0);
             note.AutoEllipsis = true;
             note.Text = lang.T("input.note");
             inputStatus.Controls.Add(note, 0, 0);
-            lblHdrRoute = new Label();
+            lblHdrRoute = new ThemeLabel();
             lblHdrRoute.Dock = DockStyle.Fill;
             lblHdrRoute.ForeColor = ColorMuted;
             lblHdrRoute.Font = UiFont(8.5f, FontStyle.Bold);
@@ -679,7 +691,7 @@ namespace FilmGrainStudioPreview
             row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 28));
             content.Dock = DockStyle.Fill;
-            shortcut = new Button();
+            shortcut = new ThemeButton();
             shortcut.Text = ""; shortcut.Dock = DockStyle.Fill;
             shortcut.Margin = Padding.Empty;
             shortcut.Padding = Padding.Empty;
@@ -711,7 +723,7 @@ namespace FilmGrainStudioPreview
 
         private Control BuildEncodeGroup()
         {
-            GroupBox box = new GroupBox();
+            GroupBox box = new ThemeGroupBox();
             box.Text = lang.T("encode.group");
             box.Dock = DockStyle.Fill;
             box.Margin = new Padding(6, 0, 6, 0);
@@ -822,11 +834,11 @@ namespace FilmGrainStudioPreview
             chkUpload.CheckedChanged += delegate { cmbUploadBitrate.Enabled = chkUpload.Checked; chkUploadBitrateAuto.Enabled = chkUpload.Checked; UpdateBitrateDisplays(); UpdateHdrRouteStatus(GetSelectedMediaInfo()); };
             upload.Controls.Add(chkUpload, 0, 0); upload.Controls.Add(cmbUploadBitrate, 1, 0); upload.Controls.Add(chkUploadBitrateAuto, 2, 0);
 
-            btnSubtitle = new Button(); btnSubtitle.Text = lang.T("button.subtitle"); btnSubtitle.Dock = DockStyle.Fill; btnSubtitle.Margin = new Padding(3, 4, 8, 4);
+            btnSubtitle = new ThemeButton(); btnSubtitle.Text = lang.T("button.subtitle"); btnSubtitle.Dock = DockStyle.Fill; btnSubtitle.Margin = new Padding(3, 4, 8, 4);
             btnSubtitle.Click += delegate { ShowSubtitleDialog(); };
             RefreshSubtitleButton();
 
-            lblFrameHelp = new Label(); lblFrameHelp.Dock = DockStyle.Fill; lblFrameHelp.AutoEllipsis = true; lblFrameHelp.ForeColor = ColorMuted; lblFrameHelp.TextAlign = ContentAlignment.TopLeft; lblFrameHelp.Padding = new Padding(8, 6, 8, 0); lblFrameHelp.Text = lang.T("encode.frame_help");
+            lblFrameHelp = new ThemeLabel(); lblFrameHelp.Dock = DockStyle.Fill; lblFrameHelp.AutoEllipsis = true; lblFrameHelp.ForeColor = ColorMuted; lblFrameHelp.TextAlign = ContentAlignment.TopLeft; lblFrameHelp.Padding = new Padding(8, 6, 8, 0); lblFrameHelp.Text = lang.T("encode.frame_help");
 
             AddLabeledRow(t, 0, lang.T("encode.method"), cmbCodec);
             AddLabeledRow(t, 1, lang.T("encode.container"), cmbContainer);
@@ -849,7 +861,7 @@ namespace FilmGrainStudioPreview
             t.Controls.Add(cinematicRow, 0, 10); t.SetColumnSpan(cinematicRow, 2);
             AddLabeledRow(t, 11, lang.T("encode.framing"), cmbFrameMode);
             t.Controls.Add(upload, 0, 12); t.SetColumnSpan(upload, 2);
-            lblUploadX264Settings = new Label(); lblUploadX264Settings.Dock = DockStyle.Fill;
+            lblUploadX264Settings = new ThemeLabel(); lblUploadX264Settings.Dock = DockStyle.Fill;
             lblUploadX264Settings.ForeColor = ColorMuted; lblUploadX264Settings.TextAlign = ContentAlignment.MiddleLeft;
             lblUploadX264Settings.Padding = new Padding(3, 0, 0, 0);
             t.Controls.Add(lblUploadX264Settings, 0, 13); t.SetColumnSpan(lblUploadX264Settings, 2);
@@ -940,7 +952,7 @@ namespace FilmGrainStudioPreview
 
         private Control BuildGrainGroup()
         {
-            grpGrain = new GroupBox();
+            grpGrain = new ThemeGroupBox();
             grpGrain.Text = lang.T("grain.av1_metadata");
             grpGrain.Dock = DockStyle.Fill;
             grpGrain.Margin = new Padding(0, 0, 0, 5);
@@ -967,7 +979,7 @@ namespace FilmGrainStudioPreview
             grainHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); grainHeader.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             grainHeader.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             chkGrainEnabled.Margin = new Padding(4, 0, 3, 0);
-            var previewButton = new Button { Text = UiText("预览(右键切换模式)", "Preview (right-click for modes)"), AutoSize = true, Dock = DockStyle.Fill, Margin = Padding.Empty, Padding = new Padding(6, 0, 6, 0) };
+            var previewButton = new ThemeButton { Text = UiText("预览(右键切换模式)", "Preview (right-click for modes)"), AutoSize = true, Dock = DockStyle.Fill, Margin = Padding.Empty, Padding = new Padding(6, 0, 6, 0) };
             previewButton.Click += delegate { OpenGrainPreview(); };
             var grainMenu = new ContextMenuStrip();
             var fastCopy = new ToolStripMenuItem(UiText("不重编码：自动快速路径", "No-reencode: automatic fast path")) { CheckOnClick = true, Checked = config.Get("AV1_COPY_FAST") != "false" };
@@ -1071,7 +1083,7 @@ namespace FilmGrainStudioPreview
             }
             else if (av1 && mode == 1)
             {
-                numGrainIso = new NumericUpDown(); numGrainIso.Minimum = 1; numGrainIso.Maximum = 1000000; numGrainIso.Value = Math.Max(1, Math.Min(1000000, av1IsoValue)); numGrainIso.Increment = 100; numGrainIso.ThousandsSeparator = true; numGrainIso.Dock = DockStyle.Fill; numGrainIso.Margin = new Padding(4, 5, 6, 5);
+                numGrainIso = new ThemeNumericUpDown(); numGrainIso.Minimum = 1; numGrainIso.Maximum = 1000000; numGrainIso.Value = Math.Max(1, Math.Min(1000000, av1IsoValue)); numGrainIso.Increment = 100; numGrainIso.ThousandsSeparator = true; numGrainIso.Dock = DockStyle.Fill; numGrainIso.Margin = new Padding(4, 5, 6, 5);
                 chkGrainChroma = Check(lang.T("grain.chroma"), av1ChromaEnabled);
                 numGrainIso.ValueChanged += delegate { av1IsoValue = (int)numGrainIso.Value; };
                 chkGrainChroma.CheckedChanged += delegate { av1ChromaEnabled = chkGrainChroma.Checked; };
@@ -1091,7 +1103,7 @@ namespace FilmGrainStudioPreview
                 tablePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 42));
                 tablePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 30));
 
-                cmbGrainTable = new ComboBox(); cmbGrainTable.DropDownStyle = ComboBoxStyle.DropDownList; cmbGrainTable.Dock = DockStyle.Fill; cmbGrainTable.Margin = new Padding(4, 5, 3, 5); cmbGrainTable.DropDownWidth = 560;
+                cmbGrainTable = new ThemeComboBox(); cmbGrainTable.DropDownStyle = ComboBoxStyle.DropDownList; cmbGrainTable.Dock = DockStyle.Fill; cmbGrainTable.Margin = new Padding(4, 5, 3, 5); cmbGrainTable.DropDownWidth = 560;
                 int selectedIndex = -1;
                 for (int i = 0; i < displayedAv1GrainTableFiles.Count; i++)
                 {
@@ -1123,9 +1135,9 @@ namespace FilmGrainStudioPreview
                     };
                 }
 
-                Button refreshTable = new Button(); refreshTable.Text = "↻"; refreshTable.Dock = DockStyle.Fill; refreshTable.Margin = new Padding(0, 4, 0, 4);
+                Button refreshTable = new ThemeButton(); refreshTable.Text = "↻"; refreshTable.Dock = DockStyle.Fill; refreshTable.Margin = new Padding(0, 4, 0, 4);
                 refreshTable.Click += delegate { RefreshGrainFileCaches(); BuildGrainContent(); };
-                chkShowAllAv1Tables = new CheckBox(); chkShowAllAv1Tables.Text = ""; chkShowAllAv1Tables.Checked = showAllAv1GrainTables; chkShowAllAv1Tables.Dock = DockStyle.Fill; chkShowAllAv1Tables.Margin = new Padding(6, 4, 0, 4);
+                chkShowAllAv1Tables = new ThemeCheckBox(); chkShowAllAv1Tables.Text = ""; chkShowAllAv1Tables.Checked = showAllAv1GrainTables; chkShowAllAv1Tables.Dock = DockStyle.Fill; chkShowAllAv1Tables.Margin = new Padding(6, 4, 0, 4);
                 string tableTip = string.IsNullOrEmpty(preferredTier)
                     ? UiText("默认按当前视频分辨率筛选；勾选后显示全部颗粒表。", "By default tables are filtered to the current video resolution; check to show all tables.")
                     : UiText("当前优先：" + preferredTier + "；勾选后显示全部颗粒表。", "Current preference: " + preferredTier + "; check to show all tables.");
@@ -1144,7 +1156,7 @@ namespace FilmGrainStudioPreview
             }
             else if (!av1 && mode == 1)
             {
-                cmbGrainPlate = new ComboBox(); cmbGrainPlate.DropDownStyle = ComboBoxStyle.DropDownList; cmbGrainPlate.Dock = DockStyle.Fill; cmbGrainPlate.Margin = new Padding(4, 5, 6, 5); cmbGrainPlate.DropDownWidth = 520;
+                cmbGrainPlate = new ThemeComboBox(); cmbGrainPlate.DropDownStyle = ComboBoxStyle.DropDownList; cmbGrainPlate.Dock = DockStyle.Fill; cmbGrainPlate.Margin = new Padding(4, 5, 6, 5); cmbGrainPlate.DropDownWidth = 520;
                 string grainRoot = config.Get("GRAIN_ROOT");
                 int selectedIndex = -1;
                 for (int i = 0; i < grainPlateFiles.Count; i++)
@@ -1185,7 +1197,7 @@ namespace FilmGrainStudioPreview
                     Label note = MutedLabel(lang.T("grain.fgsim_hint"));
                     t.Controls.Add(note, 0, 1); t.SetColumnSpan(note, 2);
                 }
-                btnFgsimTextureUpdate = new Button();
+                btnFgsimTextureUpdate = new ThemeButton();
                 btnFgsimTextureUpdate.Text = UiText("在线更新纹理", "Update texture online");
                 btnFgsimTextureUpdate.Dock = DockStyle.Fill;
                 btnFgsimTextureUpdate.Margin = new Padding(4, 2, 6, 2);
@@ -1197,7 +1209,7 @@ namespace FilmGrainStudioPreview
             }
             if (av1 && mode <= 2)
             {
-                av1StrengthControl = new NumericUpDown { Minimum=1, Maximum=100, Value=Av1GrainStrengthPercent, Increment=5, Dock=DockStyle.Fill, Margin=new Padding(4,5,6,5) };
+                av1StrengthControl = new ThemeIntegerCombo(1,100,Av1GrainStrengthPercent,new int[]{10,20,30,40,50,60,70,80,90,100},true) { Dock=DockStyle.Fill, Margin=new Padding(4,5,6,5) };
                 av1StrengthControl.ValueChanged += delegate { try { config.SaveValue("AV1_GRAIN_STRENGTH", ((int)av1StrengthControl.Value).ToString(CultureInfo.InvariantCulture)); } catch(Exception ex) { MessageBox.Show(this,ex.Message); } };
                 AddLabeledRow(t, 2, UiText("颗粒强度 %", "Grain strength %"), av1StrengthControl);
                 lutToolTip.SetToolTip(av1StrengthControl, UiText("相对当前预设/ISO/颗粒表的强度；100% 保持原效果。预览可比较四档并应用。", "Relative to the selected model; 100% preserves the original. Compare four strengths in Preview."));
@@ -1214,7 +1226,7 @@ namespace FilmGrainStudioPreview
                     textureRow.Controls.Add(btnFgsimTextureUpdate);textureRow.Controls.Add(lblFgsimTextureStatus);
                     t.Controls.Add(textureRow,0,2);t.SetColumnSpan(textureRow,2);
                 }
-                pixelStrengthControl=new NumericUpDown {Minimum=1,Maximum=100,Value=PixelGrainStrengthPercent,Increment=5,Dock=DockStyle.Fill,Margin=new Padding(4,5,6,5)};
+                pixelStrengthControl=new ThemeIntegerCombo(1,100,PixelGrainStrengthPercent,new int[]{10,20,30,40,50,60,70,80,90,100},true) {Dock=DockStyle.Fill,Margin=new Padding(4,5,6,5)};
                 pixelStrengthControl.ValueChanged+=delegate {try {config.SaveValue("PIXEL_GRAIN_STRENGTH",((int)pixelStrengthControl.Value).ToString(CultureInfo.InvariantCulture));}catch(Exception ex){MessageBox.Show(this,ex.Message);}};
                 AddLabeledRow(t,3,UiText("相对强度 %","Relative strength %"),pixelStrengthControl);
                 lutToolTip.SetToolTip(pixelStrengthControl,UiText("相对上方已选颗粒风格；100% 保持原效果。三条编码线共用此像素颗粒比例。", "Relative to the selected grain profile; 100% preserves the existing effect. Shared across pixel-grain routes."));
@@ -1265,11 +1277,11 @@ namespace FilmGrainStudioPreview
 
         private void BuildUnifiedGrainSlider(TableLayoutPanel t, int row, string kind)
         {
-            trackFilmGrainStrength = new TrackBar(); trackFilmGrainStrength.AutoSize = false; trackFilmGrainStrength.Height = 30; trackFilmGrainStrength.Dock = DockStyle.Fill; trackFilmGrainStrength.Margin = new Padding(0, 2, 6, 2); trackFilmGrainStrength.TickStyle = TickStyle.BottomRight;
+            trackFilmGrainStrength = new ThemeTrackBar(); trackFilmGrainStrength.AutoSize = false; trackFilmGrainStrength.Height = 30; trackFilmGrainStrength.Dock = DockStyle.Fill; trackFilmGrainStrength.Margin = new Padding(0, 2, 6, 2); trackFilmGrainStrength.TickStyle = TickStyle.BottomRight;
             if (kind == "DIGITAL") { trackFilmGrainStrength.Minimum = 10; trackFilmGrainStrength.Maximum = 100; trackFilmGrainStrength.Value = Math.Max(10, Math.Min(100, proceduralStrength)); trackFilmGrainStrength.TickFrequency = 10; }
             else if (kind == "FGSIM") { trackFilmGrainStrength.Minimum = 0; trackFilmGrainStrength.Maximum = 2; trackFilmGrainStrength.Value = Math.Max(0, Math.Min(2, fgsimPresetIndex)); trackFilmGrainStrength.TickFrequency = 1; }
             else { trackFilmGrainStrength.Minimum = 0; trackFilmGrainStrength.Maximum = 3; trackFilmGrainStrength.Value = Math.Max(0, Math.Min(3, scannedGrainStrengthIndex)); trackFilmGrainStrength.TickFrequency = 1; }
-            lblFilmGrainValue = new Label(); lblFilmGrainValue.AutoSize = false; lblFilmGrainValue.Dock = DockStyle.Fill; lblFilmGrainValue.Margin = new Padding(4, 0, 0, 2); lblFilmGrainValue.TextAlign = ContentAlignment.MiddleLeft;
+            lblFilmGrainValue = new ThemeLabel(); lblFilmGrainValue.AutoSize = false; lblFilmGrainValue.Dock = DockStyle.Fill; lblFilmGrainValue.Margin = new Padding(4, 0, 0, 2); lblFilmGrainValue.TextAlign = ContentAlignment.MiddleLeft;
             TableLayoutPanel slider = new TableLayoutPanel(); slider.Dock = DockStyle.Fill; slider.Margin = Padding.Empty; slider.ColumnCount = 2; slider.RowCount = 1; slider.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); slider.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 112)); slider.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             slider.Controls.Add(trackFilmGrainStrength, 0, 0); slider.Controls.Add(lblFilmGrainValue, 1, 0);
             AddLabeledRow(t, row, lang.T("grain.strength"), slider);
@@ -1327,7 +1339,7 @@ namespace FilmGrainStudioPreview
 
         private Control BuildLutGroup()
         {
-            GroupBox box = new GroupBox();
+            GroupBox box = new ThemeGroupBox();
             grpLut = box;
             box.Text = lang.T("lut.group");
             box.Dock = DockStyle.Fill;
@@ -1347,9 +1359,9 @@ namespace FilmGrainStudioPreview
             box.Controls.Add(t);
 
             chkLut = Check(lang.T("lut.enable"), false);
-            btnLutGallery = new Button(); btnLutGallery.Text = lang.T("button.open_lut_gallery"); btnLutGallery.Dock = DockStyle.Fill; btnLutGallery.Margin = new Padding(3);
-            btnColorCorrection = new Button(); btnColorCorrection.Text = lang.T("button.color_correction"); btnColorCorrection.Dock = DockStyle.Fill; btnColorCorrection.Margin = new Padding(3);
-            Button clear = new Button(); clear.Text = lang.T("button.clear_lut"); clear.Dock = DockStyle.Fill; clear.Margin = new Padding(3);
+            btnLutGallery = new ThemeButton(); btnLutGallery.Text = lang.T("button.open_lut_gallery"); btnLutGallery.Dock = DockStyle.Fill; btnLutGallery.Margin = new Padding(3);
+            btnColorCorrection = new ThemeButton(); btnColorCorrection.Text = lang.T("button.color_correction"); btnColorCorrection.Dock = DockStyle.Fill; btnColorCorrection.Margin = new Padding(3);
+            Button clear = new ThemeButton(); clear.Text = lang.T("button.clear_lut"); clear.Dock = DockStyle.Fill; clear.Margin = new Padding(3);
             btnLutGallery.Click += delegate { OpenLutGallery(); };
             btnColorCorrection.Click += delegate { OpenColorCorrection(); };
             ContextMenuStrip colorSizeMenu = new ContextMenuStrip();
@@ -1365,25 +1377,25 @@ namespace FilmGrainStudioPreview
             t.Controls.Add(chkLut, 0, 0); t.Controls.Add(btnLutGallery, 1, 0); t.Controls.Add(btnColorCorrection, 2, 0); t.Controls.Add(clear, 3, 0);
 
             Label recentLabel = MidLabel(lang.T("lut.recent"));
-            cmbRecentLut = new ComboBox(); cmbRecentLut.DropDownStyle = ComboBoxStyle.DropDownList; cmbRecentLut.Dock = DockStyle.Fill; cmbRecentLut.Margin = new Padding(4, 5, 6, 5); cmbRecentLut.DropDownWidth = 440; cmbRecentLut.MaxDropDownItems = 25;
+            cmbRecentLut = new ThemeComboBox(); cmbRecentLut.DropDownStyle = ComboBoxStyle.DropDownList; cmbRecentLut.Dock = DockStyle.Fill; cmbRecentLut.Margin = new Padding(4, 5, 6, 5); cmbRecentLut.DropDownWidth = 440; cmbRecentLut.MaxDropDownItems = 25;
             cmbRecentLut.SelectedIndexChanged += delegate { SelectLutFromCombo(cmbRecentLut, "Recent"); };
             t.Controls.Add(recentLabel, 0, 1); t.Controls.Add(cmbRecentLut, 1, 1); t.SetColumnSpan(cmbRecentLut, 3);
 
             Label favoriteLabel = MidLabel(lang.T("lut.favorite"));
-            cmbFavoriteLut = new ComboBox(); cmbFavoriteLut.DropDownStyle = ComboBoxStyle.DropDownList; cmbFavoriteLut.Dock = DockStyle.Fill; cmbFavoriteLut.Margin = new Padding(4, 5, 6, 5); cmbFavoriteLut.DropDownWidth = 440; cmbFavoriteLut.MaxDropDownItems = 25;
+            cmbFavoriteLut = new ThemeComboBox(); cmbFavoriteLut.DropDownStyle = ComboBoxStyle.DropDownList; cmbFavoriteLut.Dock = DockStyle.Fill; cmbFavoriteLut.Margin = new Padding(4, 5, 6, 5); cmbFavoriteLut.DropDownWidth = 440; cmbFavoriteLut.MaxDropDownItems = 25;
             cmbFavoriteLut.SelectedIndexChanged += delegate { SelectLutFromCombo(cmbFavoriteLut, "Favorite"); };
             t.Controls.Add(favoriteLabel, 0, 2); t.Controls.Add(cmbFavoriteLut, 1, 2); t.SetColumnSpan(cmbFavoriteLut, 3);
 
             TableLayoutPanel preview = new TableLayoutPanel(); preview.Dock = DockStyle.Fill; preview.Margin = new Padding(4, 3, 4, 2); preview.ColumnCount = 1; preview.RowCount = 2;
             preview.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); preview.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
             picLutPreview = new PictureBox(); picLutPreview.Size = new Size(240, 135); picLutPreview.Anchor = AnchorStyles.None; picLutPreview.Margin = Padding.Empty; picLutPreview.BackColor = Color.Black; picLutPreview.BorderStyle = BorderStyle.None; picLutPreview.SizeMode = PictureBoxSizeMode.Zoom;
-            lblSelectedLut = new Label(); lblSelectedLut.Text = lang.T("lut.none"); lblSelectedLut.Dock = DockStyle.Fill; lblSelectedLut.AutoEllipsis = true; lblSelectedLut.TextAlign = ContentAlignment.MiddleLeft; lblSelectedLut.ForeColor = ColorMuted; lblSelectedLut.Padding = new Padding(4, 0, 4, 0);
+            lblSelectedLut = new ThemeLabel(); lblSelectedLut.Text = lang.T("lut.none"); lblSelectedLut.Dock = DockStyle.Fill; lblSelectedLut.AutoEllipsis = true; lblSelectedLut.TextAlign = ContentAlignment.MiddleLeft; lblSelectedLut.ForeColor = ColorMuted; lblSelectedLut.Padding = new Padding(4, 0, 4, 0);
             preview.Controls.Add(picLutPreview, 0, 0); preview.Controls.Add(lblSelectedLut, 0, 1);
             t.Controls.Add(preview, 0, 3); t.SetColumnSpan(preview, 4);
 
             lblLutStrengthTitle = MidLabel(lang.T("lut.strength"));
-            trackLutStrength = new TrackBar(); trackLutStrength.Minimum = 0; trackLutStrength.Maximum = 3; trackLutStrength.Value = 2; trackLutStrength.TickStyle = TickStyle.BottomRight; trackLutStrength.Dock = DockStyle.Fill; trackLutStrength.Margin = Padding.Empty; trackLutStrength.Enabled = false;
-            lblLutStrength = new Label(); lblLutStrength.Text = "75%"; lblLutStrength.Dock = DockStyle.Fill; lblLutStrength.TextAlign = ContentAlignment.MiddleLeft; lblLutStrength.Enabled = false;
+            trackLutStrength = new ThemeTrackBar(); trackLutStrength.Minimum = 0; trackLutStrength.Maximum = 3; trackLutStrength.Value = 2; trackLutStrength.TickStyle = TickStyle.BottomRight; trackLutStrength.Dock = DockStyle.Fill; trackLutStrength.Margin = Padding.Empty; trackLutStrength.Enabled = false;
+            lblLutStrength = new ThemeLabel(); lblLutStrength.Text = "75%"; lblLutStrength.Dock = DockStyle.Fill; lblLutStrength.TextAlign = ContentAlignment.MiddleLeft; lblLutStrength.Enabled = false;
             chkLut.CheckedChanged += delegate { UpdateLutUi(); UpdateHdrRouteStatus(GetSelectedMediaInfo()); };
             trackLutStrength.ValueChanged += delegate
             {
@@ -1396,7 +1408,7 @@ namespace FilmGrainStudioPreview
 
         private Control BuildLogArea()
         {
-            GroupBox box = new GroupBox();
+            GroupBox box = new ThemeGroupBox();
             box.Text = lang.T("log.group");
             box.Dock = DockStyle.Fill;
             box.Margin = new Padding(10, 2, 10, 4);
@@ -1409,15 +1421,15 @@ namespace FilmGrainStudioPreview
             toolbar.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 84)); toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 84));
             toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 94)); toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 94));
-            lblRunStage = new Label(); lblRunStage.Text = lang.T("log.waiting"); lblRunStage.Dock = DockStyle.Fill; lblRunStage.TextAlign = ContentAlignment.MiddleLeft; lblRunStage.AutoEllipsis = true;
-            lblRunMetric = new Label(); lblRunMetric.Text = "fps: —   speed: —"; lblRunMetric.AutoSize = true; lblRunMetric.MinimumSize = new Size(360, 0); lblRunMetric.Anchor = AnchorStyles.Left; lblRunMetric.TextAlign = ContentAlignment.MiddleLeft; lblRunMetric.ForeColor = ColorMuted; lblRunMetric.AutoEllipsis = false;
-            Button copy = new Button(); copy.Text = lang.T("button.copy_log"); copy.Size = new Size(78, 24); copy.Anchor = AnchorStyles.Right;
-            Button clear = new Button(); clear.Text = lang.T("button.clear_log"); clear.Size = new Size(78, 24); clear.Anchor = AnchorStyles.Right;
+            lblRunStage = new ThemeLabel(); lblRunStage.Text = lang.T("log.waiting"); lblRunStage.Dock = DockStyle.Fill; lblRunStage.TextAlign = ContentAlignment.MiddleLeft; lblRunStage.AutoEllipsis = true;
+            lblRunMetric = new ThemeLabel(); lblRunMetric.Text = "fps: —   speed: —"; lblRunMetric.AutoSize = true; lblRunMetric.MinimumSize = new Size(360, 0); lblRunMetric.Anchor = AnchorStyles.Left; lblRunMetric.TextAlign = ContentAlignment.MiddleLeft; lblRunMetric.ForeColor = ColorMuted; lblRunMetric.AutoEllipsis = false;
+            Button copy = new ThemeButton(); copy.Text = lang.T("button.copy_log"); copy.Size = new Size(78, 24); copy.Anchor = AnchorStyles.Right;
+            Button clear = new ThemeButton(); clear.Text = lang.T("button.clear_log"); clear.Size = new Size(78, 24); clear.Anchor = AnchorStyles.Right;
             copy.Click += delegate { if (log.TextLength > 0) Clipboard.SetText(log.Text); };
             clear.Click += delegate { log.Clear(); };
             toolbar.Controls.Add(lblRunStage, 0, 0); toolbar.Controls.Add(lblRunMetric, 1, 0); toolbar.Controls.Add(copy, 2, 0); toolbar.Controls.Add(clear, 3, 0);
-            Button openLog = new Button(); openLog.Text = UiText("完整日志", "Full log"); openLog.Size = new Size(88, 24);
-            Button openFolder = new Button(); openFolder.Text = UiText("日志目录", "Log folder"); openFolder.Size = new Size(88, 24);
+            Button openLog = new ThemeButton(); openLog.Text = UiText("完整日志", "Full log"); openLog.Size = new Size(88, 24);
+            Button openFolder = new ThemeButton(); openFolder.Text = UiText("日志目录", "Log folder"); openFolder.Size = new Size(88, 24);
             foreach (Button button in new Button[] { copy, clear, openLog, openFolder })
             {
                 button.MinimumSize = new Size(button.Width, 24);
@@ -1434,7 +1446,7 @@ namespace FilmGrainStudioPreview
             toolbar.Controls.Add(openLog, 4, 0); toolbar.Controls.Add(openFolder, 5, 0);
             layout.Controls.Add(toolbar, 0, 0);
 
-            log = new TextBox(); log.Multiline = true; log.ScrollBars = ScrollBars.Both; log.MaxLength = 0; log.Dock = DockStyle.Fill; log.ReadOnly = true; log.WordWrap = false; log.BackColor = Color.FromArgb(28, 30, 34); log.ForeColor = Color.Gainsboro; log.Font = new Font("Consolas", 9f); log.BorderStyle = BorderStyle.FixedSingle;
+            log = new TextBox(); log.Multiline = true; log.ScrollBars = ScrollBars.Vertical; log.MaxLength = 0; log.Dock = DockStyle.Fill; log.ReadOnly = true; log.WordWrap = true; log.BackColor = Color.FromArgb(28, 30, 34); log.ForeColor = Color.Gainsboro; log.Font = new Font("Consolas", 9f); log.BorderStyle = BorderStyle.FixedSingle;
             fullLog = new FullLogFileCore(appRoot, "Session", GetLogEntryLimit());
             AppendLog("Film Grain Studio v" + Program.ReleaseVersion + " · .NET · " + TestBuild + Environment.NewLine);
             AppendDiagnosticLog("Validated migration baseline: Q9AOL2 / release " + TestBuild + Environment.NewLine);
@@ -1449,20 +1461,20 @@ namespace FilmGrainStudioPreview
         private Control BuildFooter()
         {
             Panel footer = new Panel(); footer.Dock = DockStyle.Fill; footer.BackColor = ColorSubtle;
-            lblStatus = new Label(); lblStatus.AutoSize = false; lblStatus.Size = new Size(560, 30); lblStatus.Location = new Point(14, 14); lblStatus.TextAlign = ContentAlignment.MiddleLeft; footer.Controls.Add(lblStatus);
-            progressRun = new ProgressBar(); progressRun.Style = ProgressBarStyle.Blocks; progressRun.Minimum = 0; progressRun.Maximum = 1000; progressRun.Value = 0; progressRun.Size = new Size(220, 20); progressRun.Anchor = AnchorStyles.Top | AnchorStyles.Right; footer.Controls.Add(progressRun);
-            btnCancelTask = new Button(); btnCancelTask.Text = lang.T("button.cancel_task"); btnCancelTask.Enabled = false; btnCancelTask.Size = new Size(94, 34); btnCancelTask.Anchor = AnchorStyles.Top | AnchorStyles.Right; footer.Controls.Add(btnCancelTask);
-            btnStart = new Button(); btnStart.Text = lang.T("button.start_encode"); btnStart.ForeColor = Color.White; btnStart.BackColor = ColorAccent; btnStart.FlatStyle = FlatStyle.Flat; btnStart.FlatAppearance.BorderSize = 0; btnStart.Size = new Size(126, 36); btnStart.Anchor = AnchorStyles.Top | AnchorStyles.Right; footer.Controls.Add(btnStart);
+            lblStatus = new ThemeLabel(); lblStatus.AutoSize = false; lblStatus.Size = new Size(560, 30); lblStatus.Location = new Point(14, 14); lblStatus.TextAlign = ContentAlignment.MiddleLeft; footer.Controls.Add(lblStatus);
+            progressRun = new ThemeProgressBar(); progressRun.Style = ProgressBarStyle.Blocks; progressRun.Minimum = 0; progressRun.Maximum = 1000; progressRun.Value = 0; progressRun.Size = new Size(220, 20); progressRun.Anchor = AnchorStyles.Top | AnchorStyles.Right; footer.Controls.Add(progressRun);
+            btnCancelTask = new ThemeButton(); btnCancelTask.Text = lang.T("button.cancel_task"); btnCancelTask.Enabled = false; btnCancelTask.Size = new Size(94, 34); btnCancelTask.Anchor = AnchorStyles.Top | AnchorStyles.Right; footer.Controls.Add(btnCancelTask);
+            btnStart = new ThemeButton(); btnStart.Text = lang.T("button.start_encode"); btnStart.ForeColor = Color.White; btnStart.BackColor = ColorAccent; btnStart.FlatStyle = FlatStyle.Flat; btnStart.FlatAppearance.BorderSize = 0; btnStart.Size = new Size(126, 36); btnStart.Anchor = AnchorStyles.Top | AnchorStyles.Right; footer.Controls.Add(btnStart);
             encodePreviewPanel = new Panel(); encodePreviewPanel.Size = new Size(392, 30); footer.Controls.Add(encodePreviewPanel);
-            chkEncodePreview = new CheckBox { Text = UiText("预览编码", "Preview"), AutoSize = true, Location = new Point(0, 6) };
+            chkEncodePreview = new ThemeCheckBox { Text = UiText("预览编码", "Preview"), AutoSize = true, Location = new Point(0, 6) };
             txtPreviewStart = new MaskedTextBox("00:00:00") { Text = "000000", Size = new Size(76, 24), Location = new Point(94, 3), Enabled = false, TextMaskFormat = MaskFormat.IncludeLiterals };
-            Label previewStartLabel = new Label { Text = UiText("起始", "Start"), AutoSize = true, Location = new Point(58, 7) };
+            Label previewStartLabel = new ThemeLabel { Text = UiText("起始", "Start"), AutoSize = true, Location = new Point(58, 7) };
             // Keep labels and editors aligned without covering the status area.
             chkEncodePreview.AutoSize = false; chkEncodePreview.Size = new Size(86, 24); chkEncodePreview.Location = new Point(0, 2);
             previewStartLabel.Location = new Point(88, 7); txtPreviewStart.Left = 122;
-            Label durationLabel = new Label { Text = UiText("持续", "Length"), AutoSize = true, Location = new Point(206, 7) };
-            numPreviewDuration = new NumericUpDown { Minimum = 1, Maximum = 86400, Value = 30, Size = new Size(66, 24), Location = new Point(248, 3), Enabled = false };
-            Label secondsLabel = new Label { Text = UiText("秒", "s"), AutoSize = true, Location = new Point(320, 7) };
+            Label durationLabel = new ThemeLabel { Text = UiText("持续", "Length"), AutoSize = true, Location = new Point(206, 7) };
+            numPreviewDuration = new ThemeIntegerCombo(1,86400,30,new int[]{30,60,120},false) { Size = new Size(66,24), Location = new Point(248,3), Enabled = false };
+            Label secondsLabel = new ThemeLabel { Text = UiText("秒", "s"), AutoSize = true, Location = new Point(320, 7) };
             encodePreviewPanel.Width = 350;
             encodePreviewPanel.Controls.AddRange(new Control[] { chkEncodePreview, previewStartLabel, txtPreviewStart, durationLabel, numPreviewDuration, secondsLabel });
             chkEncodePreview.CheckedChanged += delegate { txtPreviewStart.Enabled = numPreviewDuration.Enabled = chkEncodePreview.Checked; };
@@ -1497,12 +1509,29 @@ namespace FilmGrainStudioPreview
                 statusCapabilities[name] = item; strip.Items.Add(item);
             }
             statusCapabilities["FRUC"].Click += delegate { BeginHardwareDetection(); };
+            BuildThemeMenu(strip);
             strip.Items.Add(version); return strip;
+        }
+
+        private bool fittingFileColumns;
+        private void FitFileColumns()
+        {
+            if(fittingFileColumns || listFiles==null || listFiles.Columns.Count!=3 || listFiles.ClientSize.Width<20)return;
+            fittingFileColumns=true;listFiles.BeginUpdate();
+            try {
+                int width=Math.Max(3,listFiles.ClientSize.Width-4);
+                int name=Math.Max(1,(int)(width*0.47));
+                int size=Math.Max(1,(int)(width*0.19));
+                int[] targets=new int[]{name,size,Math.Max(1,width-name-size)};
+                // Shrink before growing; keep the sum within the available client width.
+                for(int i=0;i<3;i++)if(listFiles.Columns[i].Width>targets[i])listFiles.Columns[i].Width=targets[i];
+                for(int i=0;i<3;i++)if(listFiles.Columns[i].Width!=targets[i])listFiles.Columns[i].Width=targets[i];
+            } finally {listFiles.EndUpdate();fittingFileColumns=false;}
         }
 
         private ComboBox Combo(string[] items, int index)
         {
-            ComboBox c = new ComboBox(); c.DropDownStyle = ComboBoxStyle.DropDownList; c.Dock = DockStyle.Fill; c.Margin = new Padding(4, 5, 6, 5);
+            ComboBox c = new ThemeComboBox(); c.DropDownStyle = ComboBoxStyle.DropDownList; c.Dock = DockStyle.Fill; c.Margin = new Padding(4, 5, 6, 5);
             foreach (string item in items) c.Items.Add(item);
             if (c.Items.Count > 0) c.SelectedIndex = Math.Max(0, Math.Min(index, c.Items.Count - 1));
             return c;
@@ -1510,23 +1539,23 @@ namespace FilmGrainStudioPreview
 
         private ComboBox ComboEditable(string[] items, string text)
         {
-            ComboBox c = new ComboBox(); c.DropDownStyle = ComboBoxStyle.DropDown; c.Dock = DockStyle.Fill; c.Margin = new Padding(4, 5, 3, 5);
+            ComboBox c = new ThemeComboBox(); c.DropDownStyle = ComboBoxStyle.DropDown; c.Dock = DockStyle.Fill; c.Margin = new Padding(4, 5, 3, 5);
             foreach (string item in items) c.Items.Add(item); c.Text = text; return c;
         }
 
         private CheckBox Check(string text, bool value)
         {
-            CheckBox c = new CheckBox(); c.Text = text; c.Checked = value; c.AutoSize = true; c.Dock = DockStyle.Fill; c.Margin = new Padding(4, 7, 3, 3); return c;
+            CheckBox c = new ThemeCheckBox(); c.Text = text; c.Checked = value; c.AutoSize = true; c.Dock = DockStyle.Fill; c.Margin = new Padding(4, 7, 3, 3); return c;
         }
 
         private Label MidLabel(string text)
         {
-            Label l = new Label(); l.Text = text; l.Dock = DockStyle.Fill; l.TextAlign = ContentAlignment.MiddleLeft; l.Padding = new Padding(4, 0, 0, 0); return l;
+            Label l = new ThemeLabel(); l.Text = text; l.Dock = DockStyle.Fill; l.TextAlign = ContentAlignment.MiddleLeft; l.Padding = new Padding(4, 0, 0, 0); return l;
         }
 
         private Label MutedLabel(string text)
         {
-            Label l = new Label(); l.Text = text; l.Dock = DockStyle.Fill; l.TextAlign = ContentAlignment.TopLeft; l.ForeColor = ColorMuted; l.Padding = new Padding(4, 6, 4, 0); return l;
+            Label l = new ThemeLabel(); l.Text = text; l.Dock = DockStyle.Fill; l.TextAlign = ContentAlignment.TopLeft; l.ForeColor = ColorMuted; l.Padding = new Padding(4, 6, 4, 0); return l;
         }
 
         private void AddLabeledRow(TableLayoutPanel table, int row, string text, Control control)
@@ -2499,6 +2528,9 @@ namespace FilmGrainStudioPreview
             }
             if (!ValidateHardwareForSelectedCodec()) return;
 
+            if (av1StrengthControl != null && !av1StrengthControl.IsDisposed && av1StrengthControl.Enabled && !av1StrengthControl.ValidateInput()) return;
+            if (pixelStrengthControl != null && !pixelStrengthControl.IsDisposed && pixelStrengthControl.Enabled && !pixelStrengthControl.ValidateInput()) return;
+            if (chkEncodePreview.Checked && !numPreviewDuration.ValidateInput()) return;
             string error;
             SortedDictionary<string, string> state = BuildBridgeEnvironment(out error);
             if (state == null)
@@ -3408,6 +3440,7 @@ namespace FilmGrainStudioPreview
             btnColorCorrection.ForeColor = colorCorrectionEnabled ? Color.White : SystemColors.ControlText;
             btnColorCorrection.FlatStyle = colorCorrectionEnabled ? FlatStyle.Flat : FlatStyle.Standard;
             btnColorCorrection.FlatAppearance.BorderColor = colorCorrectionEnabled ? Color.FromArgb(135,40,10) : SystemColors.ControlDark;
+            if (uiTheme != null) uiTheme.CorrectionState(btnColorCorrection, colorCorrectionEnabled);
             UpdateHdrRouteStatus(GetSelectedMediaInfo());
         }
 
