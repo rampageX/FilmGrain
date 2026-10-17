@@ -273,7 +273,7 @@ namespace FilmGrainStudioPreview
             if(percent<0||percent>100)throw new ArgumentOutOfRangeException("percent");
             var args=new List<string>{"-v","error","-y","-i",input};
             if(percent==0||percent==100)args.AddRange(new[]{"-map",percent==0?"0:v:0":"0:v:1","-vf",displayFilter});
-            else args.AddRange(new[]{"-filter_complex","[0:v:0][0:v:1]blend=all_expr='A+(B-A)*"+(percent/100.0).ToString("0.00",CultureInfo.InvariantCulture)+"':shortest=1,"+displayFilter+"[preview]","-map","[preview]"});
+            else args.AddRange(new[]{"-filter_complex","[0:v:0][0:v:1]blend="+((percent==25||percent==50||percent==75)?"all_mode=normal:all_opacity="+(1.0-percent/100.0).ToString("0.00",CultureInfo.InvariantCulture):"all_expr='A+(B-A)*"+(percent/100.0).ToString("0.00",CultureInfo.InvariantCulture)+"'")+":shortest=1,"+displayFilter+"[preview]","-map","[preview]"});
             args.AddRange(new[]{"-fps_mode","passthrough","-frames:v","8","-threads","1","-pix_fmt","rgb24",output});return args;
         }
         internal static List<string> PreviewArguments(IList<string> encode,string full,string clean,string output)

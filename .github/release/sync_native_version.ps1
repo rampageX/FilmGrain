@@ -88,6 +88,7 @@ $baseline = @(
     $(if ([version]$Version -ge [version]'4.8.22') { 'v4.8.22 preview acceptance: 48 Windows shared-entry smoke checks passed; user manual checks confirmed. Smoke mode labels do not imply full encoder reruns.' }),
     $(if ([version]$Version -ge [version]'4.8.26') { 'v4.8.26: baseline measurement 42 cases x3=126 executions; 66 pre-encode hash/PTS cases passed; 42 reference/candidate real encodes completed. Two first-run output checks were test-path false negatives, resolved by read-only verification of 4 existing outputs; no new encodes.' }),
     $(if ([version]$Version -ge [version]'4.8.26') { 'v4.8.26: user manual picture/A-V sync spot checks passed; measured 4K SDR/50% wall time reduced approximately29-51% on RTX4080/FFmpeg9.0.2. Results do not cover every strength, hardware or filter combination.' }),
+    $(if ([version]$Version -ge [version]'4.8.27') { 'v4.8.27:212 PASS/0 FAIL/0 SKIP, including12 real preview tasks and180 full-variant PNG comparisons across3 rounds (1440 matching PNG pairs). User manual SDR/HDR preview spot checks passed. Prior synthetic HDR input gap closed with22 PASS including8 real encodes; old failed reports retained.' }),
     'Root and compatible executables are rebuilt from the same committed C# source with Stable label.',
     'Shared Lang, SVP vpy/plugins, FGSIM template/texture and original grain tables remain in their shared locations.',
     'Exclude local configuration, caches, private environments, downloads, generated hooks, logs, Tests_Shared and test-delivery markers.',

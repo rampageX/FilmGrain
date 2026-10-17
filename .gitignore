@@ -41,6 +41,3 @@
 /Test_Bake_S1/Samples/*.webm
 /Test_Bake_S1/Samples/*.ivf
 /Test_Bake_S2/Results_*/
-
-# Local geometry/HDR validation delivery (excluded from releases)
-/Tests_GeometryHdr_R7M2VX/
