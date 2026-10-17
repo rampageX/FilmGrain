@@ -230,6 +230,7 @@ namespace FilmGrainStudioPreview
         public string ColorTransfer = "";
         public string ColorPrimaries = "";
 
+        public readonly List<AudioTrackInfo> AudioTracks = new List<AudioTrackInfo>();
         public bool HasAudio;
         public string AudioCodec = "";
         public string AudioProfile = "";
@@ -285,6 +286,12 @@ namespace FilmGrainStudioPreview
                         Dictionary<string, object> stream = entry as Dictionary<string, object>;
                         if (stream == null) continue;
                         string type = GetString(stream, "codec_type").ToLowerInvariant();
+                        if(type=="audio") {
+                            long rate;long.TryParse(GetString(stream,"bit_rate"),out rate);
+                            if(rate<=0){var tags=GetDictionary(stream,"tags");long.TryParse(GetString(tags,"BPS"),out rate);if(rate<=0)long.TryParse(GetString(tags,"BPS-eng"),out rate);}
+                            info.AudioTracks.Add(new AudioTrackInfo{StreamIndex=GetInt(stream,"index"),Codec=GetString(stream,"codec_name").ToLowerInvariant(),BitRate=rate,Channels=GetInt(stream,"channels"),SampleRate=GetString(stream,"sample_rate")});
+                        }
+
                         if (type == "video" && !info.HasVideo)
                         {
                             info.HasVideo = true;
@@ -420,7 +427,7 @@ namespace FilmGrainStudioPreview
                 psi.CreateNoWindow = true;
                 psi.RedirectStandardOutput = true;
                 psi.RedirectStandardError = true;
-                psi.Arguments = "-v error -show_entries format=format_name,duration,bit_rate:stream=codec_type,codec_name,profile,width,height,avg_frame_rate,start_time,field_order,bit_rate,channels,channel_layout,sample_rate,pix_fmt,bits_per_raw_sample,color_range,color_space,color_transfer,color_primaries -of json " + QuoteArgument(path);
+                psi.Arguments = "-v error -show_entries format=format_name,duration,bit_rate:stream_tags=BPS,BPS-eng:stream=index,codec_type,codec_name,profile,width,height,avg_frame_rate,start_time,field_order,bit_rate,channels,channel_layout,sample_rate,pix_fmt,bits_per_raw_sample,color_range,color_space,color_transfer,color_primaries -of json " + QuoteArgument(path);
 
                 process = new Process();
                 process.StartInfo = psi;

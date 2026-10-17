@@ -59,6 +59,7 @@ namespace FilmGrainStudioPreview
                         var state=new SortedDictionary<string,string>(StringComparer.OrdinalIgnoreCase){
                             {"FG_MODE","AV1BAKE"},{"FG_GRAIN_ENABLED","1"},{"FG_UPLOAD_MODE",encoder.SelectedIndex==2?"HEVC_NVENC":encoder.SelectedIndex==1?"NVENC":"X264"},
                             {"FG_UPLOAD_BITRATE",rate.ToString(CultureInfo.InvariantCulture)},
+                            {"FG_AUDIO_MODE",config.Get("AUDIO_MODE")},{"FG_AUDIO_BITRATE",config.Get("AUDIO_BITRATE")},
                             {"FG_OUTPUT_MODE",config.Get("OUTPUT_MODE")},{"FG_OUTPUT_CUSTOM_DIR",config.Get("OUTPUT_CUSTOM_DIR")}};
                         string output=Path.GetFullPath(NativeAv1BakeCore.OutputPath(input,state,rate,encoder.SelectedIndex==1));
                         if(!paths.Add(output))throw new IOException("Bake queue output collision: "+output);
@@ -703,7 +704,28 @@ namespace FilmGrainStudioPreview
                 aq.Items.Add(lang.T("advanced.hevc_spatial_off")); aq.Items.Add(lang.T("advanced.hevc_spatial_4")); aq.Items.Add(lang.T("advanced.hevc_spatial_8")); aq.Items.Add(lang.T("advanced.hevc_spatial_10")); aq.Items.Add(lang.T("advanced.hevc_spatial_12")); aq.Items.Add(lang.T("advanced.hevc_spatial_15"));
                 int aqValue = config.GetInt("NVENC_SPATIAL_AQ", 8); aq.SelectedIndex = aqValue == 0 ? 0 : (aqValue == 4 ? 1 : (aqValue == 10 ? 3 : (aqValue == 12 ? 4 : (aqValue == 15 ? 5 : 2)))); aq.Enabled = !hardwareCapsReady || hardwareCaps == null || hardwareCaps.Av1Available || hardwareCaps.HevcAvailable; enc.Controls.Add(aq);
                 CheckBox temporal = new CheckBox(); temporal.Text = lang.T("advanced.hevc_temporal_aq"); temporal.Checked = config.GetBool("NVENC_TEMPORAL_AQ"); temporal.Enabled = !hardwareCapsReady || hardwareCaps == null || hardwareCaps.Av1Available || hardwareCaps.HevcAvailable; temporal.Location = new Point(190, 170); temporal.Size = new Size(260, 26); enc.Controls.Add(temporal);
-                Label encInfo = new Label(); encInfo.Location = new Point(28, 206); encInfo.Size = new Size(630, 48); encInfo.ForeColor = ColorMuted; encInfo.Text = lang.T("advanced.encode_info"); enc.Controls.Add(encInfo);
+                var audioModes=new[]{"FGS","SMART","COPY","AAC"};
+                var audioRates=new[]{"SOURCE","128","160","192","256","320"};
+                var multipassValues=new[]{"FGS","DISABLED","QRES","FULLRES"};
+                var audioMode=new ComboBox{DropDownStyle=ComboBoxStyle.DropDownList,Location=new Point(190,204),Size=new Size(440,26)};
+                audioMode.Items.AddRange(new object[]{UiText("跟随容器（原有行为）","Follow container (existing behavior)"),UiText("智能保留：兼容音轨复制，否则 AAC","Smart: copy compatible tracks, otherwise AAC"),UiText("全部复制（不兼容则停止）","Copy all (stop if incompatible)"),UiText("全部转 AAC","Encode all to AAC")});
+                audioMode.SelectedIndex=Math.Max(0,Array.IndexOf(audioModes,config.Get("AUDIO_MODE").ToUpperInvariant()));
+                var audioRate=new ComboBox{DropDownStyle=ComboBoxStyle.DropDownList,Location=new Point(190,242),Size=new Size(260,26)};
+                audioRate.Items.AddRange(new object[]{UiText("接近源音轨（估算/回退）","Near source (estimate/fallback)"),"128 kbps","160 kbps","192 kbps","256 kbps","320 kbps"});
+                int rateIndex=Array.IndexOf(audioRates,config.Get("AUDIO_BITRATE").ToUpperInvariant());audioRate.SelectedIndex=rateIndex<0?4:rateIndex;
+                audioMode.SelectedIndexChanged+=delegate{audioRate.Enabled=audioMode.SelectedIndex!=2;};audioRate.Enabled=audioMode.SelectedIndex!=2;
+                var av1Multipass=new ComboBox{DropDownStyle=ComboBoxStyle.DropDownList,Location=new Point(145,280),Size=new Size(180,26)};
+                var hevcMultipass=new ComboBox{DropDownStyle=ComboBoxStyle.DropDownList,Location=new Point(450,280),Size=new Size(180,26)};
+                object[] mpLabels={UiText("FGS 推荐","FGS recommended"),UiText("关闭","Disabled"),UiText("两遍 · 四分之一分辨率","2-pass: Quarter res"),UiText("两遍 · 完整分辨率","2-pass: Full res")};
+                av1Multipass.Items.AddRange(mpLabels);hevcMultipass.Items.AddRange(mpLabels);
+                av1Multipass.SelectedIndex=Math.Max(0,Array.IndexOf(multipassValues,config.Get("AV1_MULTIPASS").ToUpperInvariant()));hevcMultipass.SelectedIndex=Math.Max(0,Array.IndexOf(multipassValues,config.Get("HEVC_MULTIPASS").ToUpperInvariant()));
+                enc.Controls.AddRange(new Control[]{new Label{Text=UiText("音频处理","Audio policy"),Location=new Point(28,208),Size=new Size(155,24)},audioMode,new Label{Text=UiText("AAC 音频码率","AAC bitrate"),Location=new Point(28,246),Size=new Size(155,24)},audioRate,new Label{Text="AV1 Multipass",Location=new Point(28,284),Size=new Size(115,24)},av1Multipass,new Label{Text="HEVC Multipass",Location=new Point(335,284),Size=new Size(115,24)},hevcMultipass});
+                var encodingTip=new ToolTip();dlg.Disposed+=delegate{encodingTip.Dispose();};
+                encodingTip.SetToolTip(audioMode,UiText("与 MP4/MKV 独立。智能模式下，MP4 复制 AAC/MP3/AC3/EAC3，其它转 AAC；MKV 保留。上传/烘焙仍仅第一音轨，且需要时转换为双声道。","Independent of MP4/MKV. Smart MP4 copies AAC/MP3/AC3/EAC3; other codecs become AAC. Smart MKV copies. Upload/bake retains its first-track/stereo scope."));
+                encodingTip.SetToolTip(audioRate,UiText("仅对转 AAC 的音轨生效，复制不升码率。接近源：先用音轨码率，缺失时最多读取128个音频包估算；仍未知按声道回退（单声道64、双声道128、多声道384k）。不代表跨编码器同等音质。","Only encoded AAC tracks use this rate. Near-source uses per-track metadata or up to128 audio packets, then channel fallback (mono64/stereo128/multichannel384k). Equal bitrate is not equal quality."));
+                string mpTip=UiText("FGS 推荐保留当前参数组合。手动值只覆盖该编码线主输出的 NVENC multipass；不支持则停止，不静默降档。不是整片跑两次。上传/独立烘焙继续使用既有推荐组合。","FGS preserves existing combinations. Overrides apply only to this main NVENC output; unsupported choices stop. This is per-frame analysis, not two full-file runs. Upload/standalone bake retain existing recommendations.");encodingTip.SetToolTip(av1Multipass,mpTip);encodingTip.SetToolTip(hevcMultipass,mpTip);
+                Label encInfo = new Label {Location=new Point(28,318),Size=new Size(630,32),ForeColor=ColorMuted,Text=UiText("默认保持原有组合；复制音轨不使用 AAC 码率设置。","Defaults preserve existing combinations; copied tracks ignore AAC bitrate.")};enc.Controls.Add(encInfo);
+
 
                 Label algoLabel = new Label(); algoLabel.Text = "SmoothFps Algo"; algoLabel.Location = new Point(18, 18); algoLabel.Size = new Size(150, 24); interp.Controls.Add(algoLabel);
                 ComboBox algo = new ComboBox(); algo.DropDownStyle = ComboBoxStyle.DropDownList; algo.Location = new Point(180, 14); algo.Size = new Size(150, 26);
@@ -781,7 +803,7 @@ namespace FilmGrainStudioPreview
                 EventHandler updateAdvancedActions = delegate { updateSvp.Visible = tabs.SelectedTab == interp; };
                 tabs.SelectedIndexChanged += updateAdvancedActions; updateAdvancedActions(null, EventArgs.Empty);
                 pageDefaults.Click += delegate {
-                    if (tabs.SelectedTab == enc) { high10.Checked = false; rate.SelectedIndex = 0; preset.SelectedIndex = 0; aq.SelectedIndex = 2; temporal.Checked = false; }
+                    if (tabs.SelectedTab == enc) { high10.Checked = false; rate.SelectedIndex = 0; preset.SelectedIndex = 0; aq.SelectedIndex = 2; temporal.Checked = false; audioMode.SelectedIndex=0;audioRate.SelectedIndex=4;av1Multipass.SelectedIndex=hevcMultipass.SelectedIndex=0; }
                     else if (tabs.SelectedTab == interp) { svpSpeed.SelectedIndex = 0; svpTuning.SelectedIndex = 0; svpBlock.SelectedIndex = 0; algo.SelectedItem = "13"; analyse.SelectedIndex = 0; mask.Value = 100; frucPerf.SelectedIndex = 1; frucGrid.SelectedIndex = 0; dedup.Value=0;still.Checked=false;stillLimit.Value=4.5m;stillEdge.Value=5;stillTolerance.Value=30;peel.Checked=false;peelLimit.Value=6; }
                     else if (tabs.SelectedTab == hdr) { hdrPolicy.SelectedIndex = 0; tone.SelectedIndex = 0; updateHdr(null, EventArgs.Empty); }
                 };
@@ -807,6 +829,13 @@ namespace FilmGrainStudioPreview
                     updates["X264_PRESET"] = preset.SelectedIndex == 1 ? "medium" : (preset.SelectedIndex == 2 ? "slow" : "faster");
                     int[] aqValues = new int[] { 0, 4, 8, 10, 12, 15 }; updates["NVENC_SPATIAL_AQ"] = aqValues[Math.Max(0, Math.Min(aqValues.Length - 1, aq.SelectedIndex))].ToString(CultureInfo.InvariantCulture);
                     updates["NVENC_TEMPORAL_AQ"] = temporal.Checked ? "true" : "false";
+                    updates["AUDIO_MODE"]=audioModes[audioMode.SelectedIndex];updates["AUDIO_BITRATE"]=audioRates[audioRate.SelectedIndex];
+                    updates["AV1_MULTIPASS"]=multipassValues[av1Multipass.SelectedIndex];updates["HEVC_MULTIPASS"]=multipassValues[hevcMultipass.SelectedIndex];
+                    if(hardwareCapsReady&&hardwareCaps!=null) {
+                        if((av1Multipass.SelectedIndex==2&&!hardwareCaps.Av1MultipassQres)||(av1Multipass.SelectedIndex==3&&!hardwareCaps.Av1MultipassFullres)||(hevcMultipass.SelectedIndex==2&&!hardwareCaps.HevcMultipassQres)||(hevcMultipass.SelectedIndex==3&&!hardwareCaps.HevcMultipassFullres))
+                        {dlg.DialogResult=DialogResult.None;MessageBox.Show(dlg,UiText("硬件检测不支持所选 Multipass；请选择 FGS 推荐或支持的档位。","Selected multipass is unsupported; use FGS or a supported choice."));return;}
+                    }
+
                     updates["SVP_ALGO"] = Convert.ToString(algo.SelectedItem, CultureInfo.InvariantCulture);
                     updates["SVP_ANALYSE"] = analyse.SelectedIndex == 1 ? "BASE" : "ENCODEGUI";
                     updates["SVP_MASK_AREA"] = ((int)mask.Value).ToString(CultureInfo.InvariantCulture);

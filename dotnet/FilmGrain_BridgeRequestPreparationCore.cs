@@ -65,6 +65,9 @@ namespace FilmGrainStudioPreview
             if(info.Identity==null || !info.Identity.IsCurrent(input,currentProbe)) { reason="Input or FFprobe changed; reselect and probe again: "+input;return false; }
             if(!info.HasVideo){reason="input has no usable video stream: "+input;return false;}
             if(state==null){reason="missing execution state";return false;}
+            try { AudioOutputCore.EstimateMissing(input,currentProbe,info,state); }
+            catch(Exception ex){reason=ex.Message;return false;}
+
             string preview;
             if (state.TryGetValue("FG_ENCODE_PREVIEW", out preview) && preview == "1")
             {
@@ -101,7 +104,7 @@ namespace FilmGrainStudioPreview
                     else {reason="unsupported codec: "+mode;return false;}
                 }
                 if(success && prepared!=null && prepared.ExecutionRequest!=null)
-                { info.Identity.RequireCurrent(); prepared.ExecutionRequest.SourceIdentity=info.Identity; prepared.ExecutionRequest.SourceConfigRoot=appRoot; NativeProcessPolicy.ValidateRequest(prepared.ExecutionRequest);return true; }
+                { info.Identity.RequireCurrent(); string audioNotice=AudioOutputCore.Notice(info,state);if(audioNotice.Length>0)prepared.ExecutionRequest.ExecutionNotice=(prepared.ExecutionRequest.ExecutionNotice??"")+Environment.NewLine+audioNotice; prepared.ExecutionRequest.SourceIdentity=info.Identity; prepared.ExecutionRequest.SourceConfigRoot=appRoot; NativeProcessPolicy.ValidateRequest(prepared.ExecutionRequest);return true; }
                 if(success)reason="Native preparation returned no execution request";
             }
             catch(Exception ex){reason="Native preparation failed: "+ex.Message;}

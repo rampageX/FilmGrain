@@ -240,6 +240,11 @@ namespace FilmGrainStudioPreview
 
         private void CaptureCommonEnvironmentState(BridgeEnvironmentSnapshot snapshot)
         {
+            snapshot.AudioMode = config.Get("AUDIO_MODE");
+            snapshot.AudioBitrate = config.Get("AUDIO_BITRATE");
+            snapshot.Av1Multipass = config.Get("AV1_MULTIPASS");
+            snapshot.HevcMultipass = config.Get("HEVC_MULTIPASS");
+
             snapshot.Av1GrainStrength = Av1GrainStrengthPercent;
             snapshot.PixelGrainStrength = PixelGrainStrengthPercent;
             snapshot.TempMode = config.Get("TEMP_MODE");

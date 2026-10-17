@@ -80,6 +80,7 @@ namespace FilmGrainStudioPreview
             if (mkv) remux.AddRange(new string[] { "-c", "copy" });
             else remux.AddRange(new string[] { "-c:a", "aac", "-b:a", "256k", "-movflags", "+faststart" });
             remux.Add(output);
+            AudioOutputCore.Apply(remux,state,info,mkv,false,false);
 
             List<string> inspect = new List<string> { "inspect", output, "-o", verifyTable, "-y" };
             double duration = ParseDuration(info.Duration);

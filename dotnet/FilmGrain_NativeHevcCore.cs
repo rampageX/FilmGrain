@@ -659,7 +659,7 @@ namespace FilmGrainStudioPreview
 
                 {
 
-                    List<string> hevcArgs = BuildHevcArgs(encodeInput, grainInput, filter, output, preset, highMotion, bitrate, max, buf, fps, duration, plateMode, mkv, caps, state, quality, hdrPreserve ? info : null, fruc);
+                    List<string> hevcArgs = BuildHevcArgs(encodeInput, grainInput, filter, output, preset, highMotion, bitrate, max, buf, fps, duration, plateMode, mkv, caps, state, quality, hdrPreserve ? info : null, fruc, info);
 
                     if (svp) ConvertToPipeInput(hevcArgs, encodeInput, mpegTsSvp && !preserveSvpTransportTimeline ? mpegTsVideoOffset : null);
 
@@ -723,15 +723,15 @@ namespace FilmGrainStudioPreview
 
                         AddPasslogTemps(temporaryFiles, passlog);
 
-                        stages.Add(MakeStage(ffmpeg, workingDirectory, plateMode && !interpolate ? BuildPlateUploadArgs(encodeInput, grainInput, uploadFilter, uploadOutput, uploadPreset, uploadBitrate, fps, duration, Get(state, "FG_UPLOAD_HIGH_MOTION") == "1" && caps.X264BStrategy2, 1, passlog) : BuildUploadArgs(output, uploadOutput, uploadPreset, uploadBitrate, fps, Get(state, "FG_UPLOAD_HIGH_MOTION") == "1" && caps.X264BStrategy2, 1, passlog, (hdrToSdr && svp) || fieldWorkfile || separateDeint || hdrOffSdr, hdrToSdr, grainEnabled), durationSeconds, totalStages - uploadPassCount + 1, totalStages, "upload pass 1: analysis"));
+                        stages.Add(MakeStage(ffmpeg, workingDirectory, plateMode && !interpolate ? BuildPlateUploadArgs(encodeInput, grainInput, uploadFilter, uploadOutput, uploadPreset, uploadBitrate, fps, duration, Get(state, "FG_UPLOAD_HIGH_MOTION") == "1" && caps.X264BStrategy2, 1, passlog, state, info) : BuildUploadArgs(output, uploadOutput, uploadPreset, uploadBitrate, fps, Get(state, "FG_UPLOAD_HIGH_MOTION") == "1" && caps.X264BStrategy2, 1, passlog, (hdrToSdr && svp) || fieldWorkfile || separateDeint || hdrOffSdr, hdrToSdr, grainEnabled, state, AudioOutputCore.Derived(info,state,mkv)), durationSeconds, totalStages - uploadPassCount + 1, totalStages, "upload pass 1: analysis"));
 
                         if (uploadPassCount == 3)
 
-                            stages.Add(MakeStage(ffmpeg, workingDirectory, plateMode && !interpolate ? BuildPlateUploadArgs(encodeInput, grainInput, uploadFilter, uploadOutput, uploadPreset, uploadBitrate, fps, duration, Get(state, "FG_UPLOAD_HIGH_MOTION") == "1" && caps.X264BStrategy2, 3, passlog) : BuildUploadArgs(output, uploadOutput, uploadPreset, uploadBitrate, fps, Get(state, "FG_UPLOAD_HIGH_MOTION") == "1" && caps.X264BStrategy2, 3, passlog, (hdrToSdr && svp) || fieldWorkfile || separateDeint || hdrOffSdr, hdrToSdr, grainEnabled), durationSeconds, totalStages - 1, totalStages, "upload pass 3: stats refinement"));
+                            stages.Add(MakeStage(ffmpeg, workingDirectory, plateMode && !interpolate ? BuildPlateUploadArgs(encodeInput, grainInput, uploadFilter, uploadOutput, uploadPreset, uploadBitrate, fps, duration, Get(state, "FG_UPLOAD_HIGH_MOTION") == "1" && caps.X264BStrategy2, 3, passlog, state, info) : BuildUploadArgs(output, uploadOutput, uploadPreset, uploadBitrate, fps, Get(state, "FG_UPLOAD_HIGH_MOTION") == "1" && caps.X264BStrategy2, 3, passlog, (hdrToSdr && svp) || fieldWorkfile || separateDeint || hdrOffSdr, hdrToSdr, grainEnabled, state, AudioOutputCore.Derived(info,state,mkv)), durationSeconds, totalStages - 1, totalStages, "upload pass 3: stats refinement"));
 
                     }
 
-                    stages.Add(MakeStage(ffmpeg, workingDirectory, plateMode && !interpolate ? BuildPlateUploadArgs(encodeInput, grainInput, uploadFilter, uploadOutput, uploadPreset, uploadBitrate, fps, duration, Get(state, "FG_UPLOAD_HIGH_MOTION") == "1" && caps.X264BStrategy2, uploadPassCount == 1 ? 0 : 2, passlog) : BuildUploadArgs(output, uploadOutput, uploadPreset, uploadBitrate, fps, Get(state, "FG_UPLOAD_HIGH_MOTION") == "1" && caps.X264BStrategy2, uploadPassCount == 1 ? 0 : 2, passlog, (hdrToSdr && svp) || fieldWorkfile || separateDeint || hdrOffSdr, hdrToSdr, grainEnabled), durationSeconds, totalStages, totalStages, "H.264 upload final encode"));
+                    stages.Add(MakeStage(ffmpeg, workingDirectory, plateMode && !interpolate ? BuildPlateUploadArgs(encodeInput, grainInput, uploadFilter, uploadOutput, uploadPreset, uploadBitrate, fps, duration, Get(state, "FG_UPLOAD_HIGH_MOTION") == "1" && caps.X264BStrategy2, uploadPassCount == 1 ? 0 : 2, passlog, state, info) : BuildUploadArgs(output, uploadOutput, uploadPreset, uploadBitrate, fps, Get(state, "FG_UPLOAD_HIGH_MOTION") == "1" && caps.X264BStrategy2, uploadPassCount == 1 ? 0 : 2, passlog, (hdrToSdr && svp) || fieldWorkfile || separateDeint || hdrOffSdr, hdrToSdr, grainEnabled, state, AudioOutputCore.Derived(info,state,mkv)), durationSeconds, totalStages, totalStages, "H.264 upload final encode"));
 
                 }
 
@@ -910,7 +910,7 @@ namespace FilmGrainStudioPreview
 
 
 
-        private static List<string> BuildEncodeArgs(string input, string grainInput, string filter, string output, string preset, bool highMotion, long bitrate, long max, long buf, string fps, string duration, bool plateMode, bool autoFps, bool high10, bool mkv, bool deinterlace, int passNumber, string passlog, bool finalOutput)
+        private static List<string> BuildEncodeArgs(string input, string grainInput, string filter, string output, string preset, bool highMotion, long bitrate, long max, long buf, string fps, string duration, bool plateMode, bool autoFps, bool high10, bool mkv, bool deinterlace, int passNumber, string passlog, bool finalOutput, IDictionary<string,string> audioState, MediaProbeInfo audioInfo)
 
         {
 
@@ -996,6 +996,7 @@ namespace FilmGrainStudioPreview
 
             else { a.Add("-f"); a.Add("null"); a.Add("NUL"); }
 
+            if(finalOutput)AudioOutputCore.Apply(a,audioState,audioInfo,mkv,false,false);
             return a;
 
         }
@@ -1114,7 +1115,7 @@ namespace FilmGrainStudioPreview
 
 
 
-        private static List<string> BuildHevcArgs(string input, string grainInput, string filter, string output, string preset, bool highMotion, long bitrate, long max, long buf, string fps, string duration, bool plateMode, bool mkv, HardwareCapabilitySnapshot caps, IDictionary<string,string> state, string quality, MediaProbeInfo hdrInfo, bool fruc)
+        private static List<string> BuildHevcArgs(string input, string grainInput, string filter, string output, string preset, bool highMotion, long bitrate, long max, long buf, string fps, string duration, bool plateMode, bool mkv, HardwareCapabilitySnapshot caps, IDictionary<string,string> state, string quality, MediaProbeInfo hdrInfo, bool fruc, MediaProbeInfo audioInfo)
 
         {
 
@@ -1202,15 +1203,17 @@ namespace FilmGrainStudioPreview
 
             else { a.Add("-c:a"); a.Add("aac"); a.Add("-b:a"); a.Add("256k"); a.Add("-tag:v"); a.Add("hvc1"); a.Add("-movflags"); a.Add("+faststart"); }
 
+            NvencMultipassCore.Apply(a,state,"HEVC",caps);
             a.Add(output);
 
+            AudioOutputCore.Apply(a,state,audioInfo,mkv,false,false);
             return a;
 
         }
 
 
 
-        private static List<string> BuildPlateUploadArgs(string input, string grainInput, string filter, string uploadOutput, string preset, long bitrate, string fps, string duration, bool highMotion, int pass, string passlog)
+        private static List<string> BuildPlateUploadArgs(string input, string grainInput, string filter, string uploadOutput, string preset, long bitrate, string fps, string duration, bool highMotion, int pass, string passlog, IDictionary<string,string> audioState, MediaProbeInfo audioInfo)
 
         {
 
@@ -1266,13 +1269,14 @@ namespace FilmGrainStudioPreview
 
             }
 
+            if(pass==0||pass==2)AudioOutputCore.Apply(a,audioState,audioInfo,false,true,true);
             return a;
 
         }
 
 
 
-        private static List<string> BuildUploadArgs(string mainOutput, string uploadOutput, string preset, long bitrate, string fps, bool highMotion, int pass, string passlog, bool preserveTimeline = false, bool stampBt709 = true, bool grainEnabled = true)
+        private static List<string> BuildUploadArgs(string mainOutput, string uploadOutput, string preset, long bitrate, string fps, bool highMotion, int pass, string passlog, bool preserveTimeline = false, bool stampBt709 = true, bool grainEnabled = true, IDictionary<string,string> audioState = null, MediaProbeInfo audioInfo = null)
 
         {
 
@@ -1324,6 +1328,7 @@ namespace FilmGrainStudioPreview
 
             }
 
+            if(pass==0||pass==2)AudioOutputCore.Apply(a,audioState,audioInfo,false,true,true);
             return preserveTimeline || !grainEnabled ? SharedHdrPreprocessCore.BuildUploadTimeline(a,stampBt709) : a;
 
         }

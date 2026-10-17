@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.0.01 · Stable · .NET Native-only。** AV1、HEVC、x264使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.02 · Stable · .NET Native-only。** AV1、HEVC、x264使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 基于 **FFmpeg、NVIDIA NVENC、libx264 与 grav1synth** 的 Windows 视频处理工具。当前入口为 .NET 图形界面，支持向 EXE 传入或拖入视频文件。
 
@@ -15,6 +15,21 @@ Film Grain Studio 的目标不是只提供一种“加颗粒”方法，而是�
 | **H.264 x264 Grain** | 真实扫描 Grain Plate、Digital Grain、GPU Film Grain (FGSIM) | libx264；启用颗粒时附加 `tune grain` |
 
 默认配置为 **AV1 Main10 + MP4 + AAC 256k**。
+
+### 高级编码：音频与 NVENC Multipass
+
+音频策略与 MP4/MKV 容器分别选择。高级 → 编码提供：
+
+- **跟随容器（默认）**：保留原有行为，MP4 转 AAC，MKV 复制原音轨；AAC 默认 256 kbps。
+- **智能保留**：MP4 按保守兼容策略复制 AAC/MP3/AC3/EAC3，其它音轨转 AAC；MKV 保留原音轨。已有 AAC 128 kbps 可直接保留到 MP4，不会因为默认 256 kbps 再编码。
+- **全部复制**：保留压缩音轨；不符合 MP4 兼容策略时停止并提示，不擅自转换。
+- **全部转 AAC**：可对 MP4 或 MKV 输出 AAC；码率可选 128/160/192/256/320 kbps。
+
+AAC 码率仅对实际重编码的音轨生效，复制音轨忽略此设置。“接近源音轨”逐条读取音频码率；缺失时最多读取 128 个音频包估算，再取相近的常用 AAC 码率。仍未知时按声道回退：单声道 64、双声道 128、多声道 384 kbps，并在任务日志说明。该选项控制码率和体积，不承诺跨编码格式同等音质；不会用整个视频文件的总码率冒充音频码率。
+
+主输出保留原有多音轨映射；上传副本和独立烘焙仍只处理第一音轨，转换时沿用双声道/48 kHz 规则。智能模式复制兼容的单/双声道音轨时保留原采样率和压缩数据；多声道上传需转换，严格复制模式会明确停止。Opus 转 AAC 是本工具面向播放器兼容性的策略，不表示所有 MP4 实现都不能容纳 Opus。
+
+AV1 与 HEVC 主输出可分别选择 NVENC Multipass：**FGS 推荐（默认）／关闭／四分之一分辨率／完整分辨率**。默认保留原速度、质量与高动态推荐组合；手动值仅覆盖该主编码线的 multipass，不重设其它参数。不支持的手动档位明确停止；上传和独立烘焙维持已有视频推荐组合。NVENC multipass 是逐帧内部分析，不是 x264 整片两遍编码。
 
 ### 输入文件与媒体信息
 
@@ -905,7 +920,7 @@ AV1 无重编码替换兼容旧版与当前名称，只更新颗粒部分，并�
 
 可选 **x264 单次 VBR**、**H.264 NVENC P7/VBR** 或 **HEVC NVENC Main10 P7/VBR**；自动码率沿用所选 FGS 编码线推荐，也可输入手动码率。输出目录沿用全局输出设置，命名为 `_BAKED_H264_X264_码率k.mp4`、`_BAKED_H264_NVENC_码率k.mp4` 或 `_BAKED_HEVC_MAIN10_NVENC_码率k.mp4`。复用原任务日志、进度、队列和取消机制；唯一临时文件验证完成后才提交最终输出，不覆盖已有文件。
 
-当前仅支持偶数尺寸、逐行、4:2:0 8/10-bit 普通 SDR AV1；最终 H.264 为 High 8-bit 4:2:0，音频为 AAC 256 kbps/stereo/48 kHz。HDR/BT.2020 直接烘焙尚不支持。源中明确的 SDR 色彩标签保留；缺失标签不擅自补齐。H.264/HEVC 像素颗粒均不依赖 AV1 Film Grain metadata，但平台再次压制仍可能削弱颗粒。
+当前仅支持偶数尺寸、逐行、4:2:0 8/10-bit 普通 SDR AV1；最终 H.264 为 High 8-bit 4:2:0，音频默认 AAC 256 kbps/stereo/48 kHz，可在高级编码中选择音频策略和 AAC 码率。HDR/BT.2020 直接烘焙尚不支持。源中明确的 SDR 色彩标签保留；缺失标签不擅自补齐。H.264/HEVC 像素颗粒均不依赖 AV1 Film Grain metadata，但平台再次压制仍可能削弱颗粒。
 
 HEVC 烘焙使用 4:2:0 Main10、P010、AAC stereo 48 kHz 和 MP4 `hvc1`。10-bit 源保留编码位深；8-bit 源转换为 10-bit，不增加原始细节，也不代表 HDR。P7/VBR、fullres multipass、Spatial AQ=8、Temporal AQ=OFF、Lookahead=27 固定；实际编码预检先验证 `bf=4`，失败后验证 `bf=0`，采用哪一组会写入日志。两组均失败则停止，不改用其他编码器。T600 按实际预检结果处理，不按型号强制 B 帧。
 
@@ -943,7 +958,7 @@ HEVC 上传副本按实际路线读取最终主输出，或在启用 Grain Plate
 
 输入列表只有一个 AV1 文件、媒体探测完成后，在编码方式中选择“AV1 不重编码 · 添加/替换胶片颗粒”。该模式固定启用颗粒，并禁用码率、速度、反交错、LUT、Cinematic、上传版等需要重新编码的功能。
 
-没有 Film Grain metadata 时添加，已有时替换；视频流始终不重新编码。输出名称使用 `_ADDED` / `_REPLACED`，连续替换不会无限累积颗粒标签。MKV 尽量保留源音频、字幕、附件、数据流、章节和元数据；MP4 音频转换为 AAC 256 kbps，不保留字幕、附件和数据流。失败记录实际原因并清理未完成输出和任务临时文件。
+没有 Film Grain metadata 时添加，已有时替换；视频流始终不重新编码。输出名称使用 `_ADDED` / `_REPLACED`，连续替换不会无限累积颗粒标签。MKV 尽量保留源音频、字幕、附件、数据流、章节和元数据；MP4 按高级编码的音频策略复制兼容音轨或转 AAC（默认沿用 AAC 256 kbps），不保留字幕、附件和数据流。失败记录实际原因并清理未完成输出和任务临时文件。
 
 ### 自动快速处理与兼容流程
 
@@ -1111,7 +1126,7 @@ GPU、驱动、FFmpeg、相关依赖或探测规则变化后会重新检测；�
 | 编码与 Grain 方式 | AV1 Main10 + grav1synth |
 | 启用颗粒 | 开启；旧INI缺少GRAIN_ENABLED时同样开启 |
 | 输出容器 | MP4 |
-| 音频 | AAC 256 kbps |
+| 音频 | 默认 AAC 256 kbps，可在高级编码中调整 |
 | 速度模式 | FAST：p5 / qres multipass / lookahead 16 |
 | Cinematic Style | 开启；加黑边、保留原分辨率 |
 | 反交错 | 自动；BWDIF Vulkan |

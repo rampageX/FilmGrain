@@ -25,7 +25,7 @@ namespace FilmGrainStudioPreview
             new KeyValuePair<string, string[]>("Paths", new string[] { "FFMPEG_DIR", "FRUC_FFMPEG_SAME_AS_MAIN", "FRUC_FFMPEG_PATH", "GRAV1SYNTH", "GRAIN_ROOT", "LUT_ROOT", "TEMP_MODE", "TEMP_CUSTOM_DIR", "OUTPUT_MODE", "OUTPUT_CUSTOM_DIR" }),
             new KeyValuePair<string, string[]>("General", new string[] { "LANGUAGE", "SETUP_VERSION", "NETWORK_PROXY_MODE", "NETWORK_PROXY_URL", "LOG_ENTRY_LIMIT", "GRAIN_ENABLED", "AV1_GRAIN_STRENGTH", "PIXEL_GRAIN_STRENGTH", "AV1_COPY_FAST", "AV1_COPY_FULL_VERIFY" }),
             new KeyValuePair<string, string[]>("LUTGallery", new string[] { "SMART_FILTER_ENABLED" }),
-            new KeyValuePair<string, string[]>("Advanced.Encoding", new string[] { "H264_HIGH10", "X264_RATE_MODE", "X264_PRESET", "AV1_UPLOAD_ENCODER", "NVENC_SPATIAL_AQ", "NVENC_TEMPORAL_AQ" }),
+            new KeyValuePair<string, string[]>("Advanced.Encoding", new string[] { "H264_HIGH10", "X264_RATE_MODE", "X264_PRESET", "AV1_UPLOAD_ENCODER", "NVENC_SPATIAL_AQ", "NVENC_TEMPORAL_AQ", "AUDIO_MODE", "AUDIO_BITRATE", "AV1_MULTIPASS", "HEVC_MULTIPASS" }),
             new KeyValuePair<string, string[]>("Advanced.Interpolation", new string[] { "SVP_ALGO", "SVP_ANALYSE", "SVP_MASK_AREA", "SVP_SPEED", "SVP_TUNING", "SVP_BLOCK_SIZE", "SVP_DEDUP", "SVP_STILL", "SVP_STILL_LIMIT", "SVP_STILL_EDGE", "SVP_STILL_TOLERANCE", "SVP_PEEL", "SVP_PEEL_LIMIT", "FRUC_PERF", "FRUC_GRID", "INTERPOLATION_TARGET_FPS" }),
             new KeyValuePair<string, string[]>("Advanced.HDR", new string[] { "HDR_POLICY", "TONE_MAP_ALGO" }),
             new KeyValuePair<string, string[]>("Advanced.Other", new string[] { "CINEMATIC_CROP_PER_SIDE", "CINEMATIC_CROP_HORIZONTAL", "COLOR_PREVIEW_LARGE_UI" }),
@@ -70,6 +70,10 @@ namespace FilmGrainStudioPreview
             defaults["X264_RATE_MODE"] = "VBR1";
             defaults["X264_PRESET"] = "faster";
             defaults["AV1_UPLOAD_ENCODER"] = "X264";
+            defaults["AUDIO_MODE"] = "FGS";
+            defaults["AUDIO_BITRATE"] = "256";
+            defaults["AV1_MULTIPASS"] = "FGS";
+            defaults["HEVC_MULTIPASS"] = "FGS";
             defaults["NVENC_SPATIAL_AQ"] = "8";
             defaults["NVENC_TEMPORAL_AQ"] = "false";
             defaults["SVP_ALGO"] = "13";

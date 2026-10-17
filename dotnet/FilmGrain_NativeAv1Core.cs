@@ -189,9 +189,11 @@ namespace FilmGrainStudioPreview
             {
                 string reuseTemp;
                 if(!TryResolveTempRoot(input,state,out reuseTemp,out reason))return false;
+                MediaProbeInfo reuseAudio=info;
+                if(AudioOutputCore.Get(state,"FG_AUDIO_MODE","FGS")!="FGS"||AudioOutputCore.Get(state,"FG_AUDIO_BITRATE","256")!="256") {reuseAudio=SharedEncodePreviewCore.Probe(output,ffprobe,delegate{return false;});AudioOutputCore.EstimateMissing(output,ffprobe,reuseAudio,state);}
                 string reusePasslog=Path.Combine(reuseTemp,"__FGS_AV1_UPLOAD_X264_"+Guid.NewGuid().ToString("N"));
                 return SharedExistingUploadCore.TryPrepare(ffmpeg,ffprobe,input,output,uploadOutput,reuseTemp,state,uploadPass,reusePasslog,info,outputFps,
-                    delegate(int pass,string log) {return BuildUploadArgs(output,uploadOutput,uploadPreset,uploadBitrate,Get(state,"FG_UPLOAD_HIGH_MOTION")=="1"&&caps!=null&&caps.X264BStrategy2,pass,log,true,hdrToSdr,grainEnabled,nvencUpload);},out prepared,out reason);
+                    delegate(int pass,string log) {return BuildUploadArgs(output,uploadOutput,uploadPreset,uploadBitrate,Get(state,"FG_UPLOAD_HIGH_MOTION")=="1"&&caps!=null&&caps.X264BStrategy2,pass,log,true,hdrToSdr,grainEnabled,nvencUpload, state, reuseAudio);},out prepared,out reason);
             }
             if (caps == null || !caps.Ready || !caps.Av1Available) { reason = "AV1 hardware capability cache is unavailable"; return false; }
             if (Eq(state,"FG_SPEED","UHQ") && !caps.Av1UhqAvailable) { reason="AV1 UHQ is unavailable"; return false; }
@@ -316,6 +318,7 @@ namespace FilmGrainStudioPreview
             if (hdrPreserve) Add(encode, "-color_range", HdrRange(info), "-color_primaries", HdrPrimaries(info), "-color_trc", info.ColorTransfer, "-colorspace", HdrSpace(info));
             else if (hdrToSdr) Add(encode, "-color_range", "tv", "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709");
             if (!grainEnabled && !interpolate) SharedOrdinaryTimelineCore.NormalizeVideoOnly(encode);
+            NvencMultipassCore.Apply(encode,state,"AV1",caps);
             Add(encode, "-f", "ivf", cleanIvf);
 
             List<string> apply = new List<string>();
@@ -339,6 +342,7 @@ namespace FilmGrainStudioPreview
             if (container == "MP4") Add(remux, "-c:a", "aac", "-b:a", "256k", "-movflags", "+faststart");
             else Add(remux, "-c", "copy");
             Add(remux, output);
+            AudioOutputCore.Apply(remux,state,info,container=="MKV",false,false);
 
             BridgeExecutionRequest request = new BridgeExecutionRequest();
             request.PixelGrainHdr = hdrPreserve;
@@ -404,11 +408,11 @@ namespace FilmGrainStudioPreview
                 {
                     passlog = Path.Combine(tempRoot, "__FGS_AV1_UPLOAD_X264_" + Guid.NewGuid().ToString("N"));
                     AddPasslogTemps(request.TemporaryFiles, passlog);
-                    directStages.Add(Stage(ffmpeg, tempRoot, BuildUploadArgs(output, uploadOutput, uploadPreset, uploadBitrate, Get(state, "FG_UPLOAD_HIGH_MOTION") == "1" && caps.X264BStrategy2, 1, passlog, (hdrToSdr && svp) || fieldWorkfile || separateDeint || hdrOffSdr, hdrToSdr, grainEnabled, nvencUpload), duration, preStages + encodeStages + 1, totalStages, "H.264 upload pass 1: analysis"));
+                    directStages.Add(Stage(ffmpeg, tempRoot, BuildUploadArgs(output, uploadOutput, uploadPreset, uploadBitrate, Get(state, "FG_UPLOAD_HIGH_MOTION") == "1" && caps.X264BStrategy2, 1, passlog, (hdrToSdr && svp) || fieldWorkfile || separateDeint || hdrOffSdr, hdrToSdr, grainEnabled, nvencUpload, state, AudioOutputCore.Derived(info,state,container=="MKV")), duration, preStages + encodeStages + 1, totalStages, "H.264 upload pass 1: analysis"));
                     if (uploadPassCount == 3)
-                        directStages.Add(Stage(ffmpeg, tempRoot, BuildUploadArgs(output, uploadOutput, uploadPreset, uploadBitrate, Get(state, "FG_UPLOAD_HIGH_MOTION") == "1" && caps.X264BStrategy2, 3, passlog, (hdrToSdr && svp) || fieldWorkfile || separateDeint || hdrOffSdr, hdrToSdr, grainEnabled, nvencUpload), duration, totalStages - 1, totalStages, "H.264 upload pass 3: stats refinement"));
+                        directStages.Add(Stage(ffmpeg, tempRoot, BuildUploadArgs(output, uploadOutput, uploadPreset, uploadBitrate, Get(state, "FG_UPLOAD_HIGH_MOTION") == "1" && caps.X264BStrategy2, 3, passlog, (hdrToSdr && svp) || fieldWorkfile || separateDeint || hdrOffSdr, hdrToSdr, grainEnabled, nvencUpload, state, AudioOutputCore.Derived(info,state,container=="MKV")), duration, totalStages - 1, totalStages, "H.264 upload pass 3: stats refinement"));
                 }
-                directStages.Add(Stage(ffmpeg, tempRoot, BuildUploadArgs(output, uploadOutput, uploadPreset, uploadBitrate, Get(state, "FG_UPLOAD_HIGH_MOTION") == "1" && caps.X264BStrategy2, uploadPassCount == 1 ? 0 : 2, passlog, (hdrToSdr && svp) || fieldWorkfile || separateDeint || hdrOffSdr, hdrToSdr, grainEnabled, nvencUpload), duration, totalStages, totalStages, nvencUpload ? "H.264 NVENC upload final encode" : "H.264 upload final encode"));
+                directStages.Add(Stage(ffmpeg, tempRoot, BuildUploadArgs(output, uploadOutput, uploadPreset, uploadBitrate, Get(state, "FG_UPLOAD_HIGH_MOTION") == "1" && caps.X264BStrategy2, uploadPassCount == 1 ? 0 : 2, passlog, (hdrToSdr && svp) || fieldWorkfile || separateDeint || hdrOffSdr, hdrToSdr, grainEnabled, nvencUpload, state, AudioOutputCore.Derived(info,state,container=="MKV")), duration, totalStages, totalStages, nvencUpload ? "H.264 NVENC upload final encode" : "H.264 upload final encode"));
             }
             if(fieldWorkfile || separateDeint || hdrOffSdr)SharedHdrPreprocessCore.AttachFieldValidation(directStages[preStages],ffprobe,hdrWorkfile,info,hdrToSdr,!hdrOffSdr);
             if (interpolate || fieldWorkfile || separateDeint || hdrOffSdr || !grainEnabled)
@@ -795,7 +799,7 @@ namespace FilmGrainStudioPreview
             catch (Exception ex) { return "HDR signaling probe failed: " + ex.Message; }
         }
 
-        internal static List<string> BuildUploadArgs(string mainOutput, string uploadOutput, string preset, long bitrate, bool highMotion, int pass, string passlog, bool preserveTimeline = false, bool stampBt709 = true, bool grainEnabled = true, bool nvenc = false)
+        internal static List<string> BuildUploadArgs(string mainOutput, string uploadOutput, string preset, long bitrate, bool highMotion, int pass, string passlog, bool preserveTimeline = false, bool stampBt709 = true, bool grainEnabled = true, bool nvenc = false, IDictionary<string,string> audioState = null, MediaProbeInfo audioInfo = null)
         {
             List<string> args = new List<string>();
             Add(args, "-hide_banner", "-stats", "-progress", "pipe:2", "-stats_period", "0.5", "-y", "-c:v", "libdav1d", "-filmgrain", "1", "-i", mainOutput, "-map", "0:v:0");
@@ -815,6 +819,7 @@ namespace FilmGrainStudioPreview
             if (pass != 0) Add(args, "-pass", pass.ToString(CultureInfo.InvariantCulture), "-passlogfile", passlog);
             if (pass == 1 || pass == 3) Add(args, "-an", "-f", "null", "NUL");
             else Add(args, "-c:a", "aac", "-b:a", "256k", "-ac", "2", "-ar", "48000", "-movflags", "+faststart", uploadOutput);
+            if(pass==0||pass==2)AudioOutputCore.Apply(args,audioState,audioInfo,false,true,true);
             return preserveTimeline || !grainEnabled ? SharedHdrPreprocessCore.BuildUploadTimeline(args,stampBt709) : args;
         }
 
@@ -1015,7 +1020,8 @@ namespace FilmGrainStudioPreview
                 string dir=Path.GetDirectoryName(output);Directory.CreateDirectory(dir);
                 // Encode to our own unique file; final rename refuses collisions. Cleanup never owns pre-existing output.
                 string staging=Path.Combine(dir,"__FGS_BAKE_"+Guid.NewGuid().ToString("N")+".mp4");
-                var args=hevc?SharedBakeHevcCore.BuildArgs(input,staging,bitrate,hevcBFrames):NativeAv1Core.BuildUploadArgs(input,staging,preset,bitrate,false,0,"",true,false,true,nvenc);
+                var args=hevc?SharedBakeHevcCore.BuildArgs(input,staging,bitrate,hevcBFrames):NativeAv1Core.BuildUploadArgs(input,staging,preset,bitrate,false,0,"",true,false,true,nvenc,state,info);
+                if(hevc)AudioOutputCore.Apply(args,state,info,false,true,true);
                 int overwrite=args.IndexOf("-y");if(overwrite>=0)args[overwrite]="-n";
                 Stamp(args,"-color_range",info.ColorRange);Stamp(args,"-colorspace",info.ColorSpace);
                 Stamp(args,"-color_trc",info.ColorTransfer);Stamp(args,"-color_primaries",info.ColorPrimaries);

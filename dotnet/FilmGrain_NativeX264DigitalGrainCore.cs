@@ -283,7 +283,7 @@ namespace FilmGrainStudioPreview
                 }
                 if (passMode == "VBR1")
                 {
-                    List<string> args = BuildEncodeArgs(encodeInput, grainInput, filter, output, preset, highMotion, bitrate, max, buf, fps, duration, plateMode, autoFps, high10, mkv, deinterlace, 0, "", true, svp, grainEnabled);
+                    List<string> args = BuildEncodeArgs(encodeInput, grainInput, filter, output, preset, highMotion, bitrate, max, buf, fps, duration, plateMode, autoFps, high10, mkv, deinterlace, 0, "", true, svp, grainEnabled, state, info);
                     request.PixelGrainEncodeArguments = args;
                     if (hdrToSdr || separateDeint || svp || fruc || !grainEnabled)
                     {
@@ -298,10 +298,10 @@ namespace FilmGrainStudioPreview
                     if (!TryResolveTempRoot(input, state, out tempRoot, out reason)) return false;
                     passlog = Path.Combine(tempRoot, (plateMode ? "__FGS_X264_" : fgsimMode ? "__FGS_X264_FGSIM_" : "__FGS_X264_PROC_") + Guid.NewGuid().ToString("N"));
                     AddPasslogTemps(temporaryFiles, passlog);
-                    stages.Add(MakeStage(ffmpeg, workingDirectory, BuildEncodeArgs(encodeInput, grainInput, filter, output, preset, highMotion, bitrate, max, buf, fps, duration, plateMode, autoFps, high10, mkv, deinterlace, 1, passlog, false, svp, grainEnabled), durationSeconds, stageOffset + 1, stageTotal, !grainEnabled ? "pass 1: analysis / 颗粒：关闭" : plateMode ? "pass 1: Grain Plate analysis" : fgsimMode ? "pass 1: FGSIM analysis" : "pass 1: Digital Grain analysis"));
+                    stages.Add(MakeStage(ffmpeg, workingDirectory, BuildEncodeArgs(encodeInput, grainInput, filter, output, preset, highMotion, bitrate, max, buf, fps, duration, plateMode, autoFps, high10, mkv, deinterlace, 1, passlog, false, svp, grainEnabled, state, info), durationSeconds, stageOffset + 1, stageTotal, !grainEnabled ? "pass 1: analysis / 颗粒：关闭" : plateMode ? "pass 1: Grain Plate analysis" : fgsimMode ? "pass 1: FGSIM analysis" : "pass 1: Digital Grain analysis"));
                     if (passMode == "3PASS")
-                        stages.Add(MakeStage(ffmpeg, workingDirectory, BuildEncodeArgs(encodeInput, grainInput, filter, output, preset, highMotion, bitrate, max, buf, fps, duration, plateMode, autoFps, high10, mkv, deinterlace, 3, passlog, false, svp, grainEnabled), durationSeconds, stageOffset + 2, stageTotal, "pass 3: stats refinement"));
-                    stages.Add(MakeStage(ffmpeg, workingDirectory, BuildEncodeArgs(encodeInput, grainInput, filter, output, preset, highMotion, bitrate, max, buf, fps, duration, plateMode, autoFps, high10, mkv, deinterlace, 2, passlog, true, svp, grainEnabled), durationSeconds, stageTotal, stageTotal, !grainEnabled ? "pass 2: final encode / 颗粒：关闭" : plateMode ? "pass 2: Grain Plate final encode" : fgsimMode ? "pass 2: FGSIM final encode" : "pass 2: Digital Grain final encode"));
+                        stages.Add(MakeStage(ffmpeg, workingDirectory, BuildEncodeArgs(encodeInput, grainInput, filter, output, preset, highMotion, bitrate, max, buf, fps, duration, plateMode, autoFps, high10, mkv, deinterlace, 3, passlog, false, svp, grainEnabled, state, info), durationSeconds, stageOffset + 2, stageTotal, "pass 3: stats refinement"));
+                    stages.Add(MakeStage(ffmpeg, workingDirectory, BuildEncodeArgs(encodeInput, grainInput, filter, output, preset, highMotion, bitrate, max, buf, fps, duration, plateMode, autoFps, high10, mkv, deinterlace, 2, passlog, true, svp, grainEnabled, state, info), durationSeconds, stageTotal, stageTotal, !grainEnabled ? "pass 2: final encode / 颗粒：关闭" : plateMode ? "pass 2: Grain Plate final encode" : fgsimMode ? "pass 2: FGSIM final encode" : "pass 2: Digital Grain final encode"));
                     request.DirectStages = stages;
                 }
 
@@ -406,7 +406,7 @@ namespace FilmGrainStudioPreview
             return SharedHdrPreprocessCore.BuildToSdr(input,output,info,tonemap,true);
         }
 
-        private static List<string> BuildEncodeArgs(string input, string grainInput, string filter, string output, string preset, bool highMotion, long bitrate, long max, long buf, string fps, string duration, bool plateMode, bool autoFps, bool high10, bool mkv, bool deinterlace, int passNumber, string passlog, bool finalOutput, bool svp, bool grainEnabled)
+        private static List<string> BuildEncodeArgs(string input, string grainInput, string filter, string output, string preset, bool highMotion, long bitrate, long max, long buf, string fps, string duration, bool plateMode, bool autoFps, bool high10, bool mkv, bool deinterlace, int passNumber, string passlog, bool finalOutput, bool svp, bool grainEnabled, IDictionary<string,string> audioState, MediaProbeInfo audioInfo)
         {
             List<string> a = new List<string>{"-hide_banner","-stats","-progress","pipe:2","-stats_period","0.5","-y"};
             if (plateMode || filter.Contains("libplacebo=") || filter.Contains("fruc_vulkan=")) { a.Add("-init_hw_device"); a.Add("vulkan=vk:0"); a.Add("-filter_hw_device"); a.Add("vk"); }
@@ -450,6 +450,7 @@ namespace FilmGrainStudioPreview
             }
             else { a.Add("-f"); a.Add("null"); a.Add("NUL"); }
             if (svp) ConvertToPipeInput(a, input);
+            if(finalOutput)AudioOutputCore.Apply(a,audioState,audioInfo,mkv,false,false);
             return a;
         }
 

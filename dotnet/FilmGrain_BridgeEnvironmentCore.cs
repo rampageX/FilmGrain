@@ -60,6 +60,7 @@ namespace FilmGrainStudioPreview
         public bool H264High10;
         public string X264Preset = "";
         public string X264PassMode = "";
+        public string AudioMode = "FGS", AudioBitrate = "256", Av1Multipass = "FGS", HevcMultipass = "FGS";
         public string HevcSpatialAq = "";
         public bool HevcTemporalAq;
         public string HdrPolicy = "";
@@ -127,6 +128,10 @@ namespace FilmGrainStudioPreview
             state["FG_KEEP_FAILED"] = "1";
             state["FG_MODE"] = snapshot.Mode;
             state["FG_CONTAINER"] = snapshot.Container;
+            state["FG_AUDIO_MODE"] = snapshot.AudioMode;
+            state["FG_AUDIO_BITRATE"] = snapshot.AudioBitrate;
+            state["FG_AV1_MULTIPASS"] = snapshot.Av1Multipass;
+            state["FG_HEVC_MULTIPASS"] = snapshot.HevcMultipass;
             state["FG_SPEED"] = snapshot.Speed;
             state["FG_SFE_ENGINES"] = Math.Max(0, snapshot.SfeEngines).ToString(CultureInfo.InvariantCulture);
             state["FG_BITRATE_MODE"] = snapshot.BitrateMode;
@@ -259,6 +264,10 @@ namespace FilmGrainStudioPreview
             state["FG_OUTPUT_CUSTOM_DIR"] = snapshot.OutputCustomDir;
             state["FG_OUTPUT_SPACE_CONFIRMED"] = "1";
             state["FG_CONTAINER"] = snapshot.Container;
+            state["FG_AUDIO_MODE"] = snapshot.AudioMode;
+            state["FG_AUDIO_BITRATE"] = snapshot.AudioBitrate;
+            state["FG_AV1_MULTIPASS"] = snapshot.Av1Multipass;
+            state["FG_HEVC_MULTIPASS"] = snapshot.HevcMultipass;
             string[] av1Modes = new string[] { "PRESET", "ISO", "TABLE" };
             state["FG_AV1_GRAIN_MODE"] = av1Modes[Math.Max(0, Math.Min(2, grainMode))];
             state["FG_AV1_FORMAT"] = (snapshot.Av1FormatIndex + 1).ToString(CultureInfo.InvariantCulture);
@@ -319,4 +328,120 @@ namespace FilmGrainStudioPreview
         }
     }
 
+}
+
+namespace FilmGrainStudioPreview
+{
+    internal sealed class AudioTrackInfo
+    {
+        public int StreamIndex;
+        public string Codec = "";
+        public long BitRate;
+        public int Channels;
+        public string SampleRate = "";
+        public bool Estimated;
+    }
+
+    // Output audio policy is independent of the video encoder and container selector.
+    internal static class AudioOutputCore
+    {
+        internal static string Get(IDictionary<string,string> state,string key,string fallback)
+        { string v;return state!=null && state.TryGetValue(key,out v)&&!string.IsNullOrWhiteSpace(v)?v.ToUpperInvariant():fallback; }
+        internal static List<AudioTrackInfo> Tracks(MediaProbeInfo info)
+        {
+            if(info==null)throw new InvalidOperationException("Audio source metadata is missing.");
+            if(info.AudioTracks.Count>0)return info.AudioTracks;
+            if(!info.HasAudio)return new List<AudioTrackInfo>();
+            long rate;long.TryParse(info.AudioBitRate,out rate);
+            return new List<AudioTrackInfo>{new AudioTrackInfo{Codec=info.AudioCodec,BitRate=rate,Channels=info.Channels,SampleRate=info.SampleRate}};
+        }
+        internal static bool Mp4Copy(string codec)
+        {return codec=="aac"||codec=="mp3"||codec=="ac3"||codec=="eac3";}
+        internal static void Validate(IDictionary<string,string> state)
+        {
+            string mode=Get(state,"FG_AUDIO_MODE","FGS"),rate=Get(state,"FG_AUDIO_BITRATE","256");
+            if(mode!="FGS"&&mode!="SMART"&&mode!="COPY"&&mode!="AAC")throw new InvalidOperationException("Invalid audio mode: "+mode);
+            if(rate!="SOURCE"&&rate!="128"&&rate!="160"&&rate!="192"&&rate!="256"&&rate!="320")throw new InvalidOperationException("Invalid AAC bitrate: "+rate);
+        }
+        internal static bool Copy(AudioTrackInfo track,string mode,bool mkv,bool stereo)
+        {
+            bool compatible=mkv||Mp4Copy(track.Codec);
+            if(mode=="COPY") {
+                if(!compatible)throw new InvalidOperationException("MP4 音频兼容策略不允许复制 "+track.Codec+"；请选择智能保留或 AAC。 / MP4 copy policy rejects this codec; choose Smart or AAC.");
+                if(stereo&&track.Channels>2)throw new InvalidOperationException("上传/烘焙输出要求双声道，不能直接复制多声道音轨；请选择智能或 AAC。 / Stereo output requires audio conversion.");
+                return true;
+            }
+            if(mode=="FGS")return mkv;
+            return mode=="SMART"&&compatible&&(!stereo||track.Channels<=2);
+        }
+        internal static int Rate(AudioTrackInfo track,IDictionary<string,string> state)
+        {
+            string value=Get(state,"FG_AUDIO_BITRATE","256");if(value!="SOURCE")return int.Parse(value,CultureInfo.InvariantCulture);
+            if(track.BitRate<=0)return track.Channels>2?384:track.Channels==1?64:128;
+            int[] rates={32,40,48,56,64,80,96,112,128,160,192,224,256,320,384,448,512};
+            double kb=track.BitRate/1000.0;int result=rates[0];foreach(int r in rates)if(Math.Abs(kb-r)<Math.Abs(kb-result))result=r;return result;
+        }
+        internal static void Apply(List<string> args,IDictionary<string,string> state,MediaProbeInfo source,bool mkv,bool stereo,bool firstOnly)
+        {
+            Validate(state);string mode=Get(state,"FG_AUDIO_MODE","FGS");
+            if(mode=="FGS"&&Get(state,"FG_AUDIO_BITRATE","256")=="256")return; // Preserve every old argument by default.
+            if(args.Contains("-an"))return;
+            var tracks=Tracks(source);if(tracks.Count==0)return;
+            for(int i=0;i<args.Count-1;i++)if(args[i]=="-c:a"||args[i]=="-b:a"||args[i]=="-ac"||args[i]=="-ar"){args.RemoveRange(i,2);i--;}
+            var extra=new List<string>();int count=firstOnly?1:tracks.Count;
+            for(int i=0;i<count;i++){
+                var track=tracks[i];string spec=":a:"+i.ToString(CultureInfo.InvariantCulture);
+                if(Copy(track,mode,mkv,stereo))extra.AddRange(new[]{"-c"+spec,"copy"});
+                else {
+                    extra.AddRange(new[]{"-c"+spec,"aac","-b"+spec,Rate(track,state).ToString(CultureInfo.InvariantCulture)+"k"});
+                    if(stereo)extra.AddRange(new[]{"-ac"+spec,"2","-ar"+spec,"48000"});
+                }
+            }
+            args.InsertRange(args.Count-1,extra);
+        }
+        internal static MediaProbeInfo Derived(MediaProbeInfo source,IDictionary<string,string> state,bool mkv)
+        {
+            var result=new MediaProbeInfo{HasAudio=source.HasAudio};string mode=Get(state,"FG_AUDIO_MODE","FGS");
+            foreach(var t in Tracks(source))result.AudioTracks.Add(new AudioTrackInfo{StreamIndex=t.StreamIndex,Codec=Copy(t,mode,mkv,false)?t.Codec:"aac",BitRate=Copy(t,mode,mkv,false)?t.BitRate:Rate(t,state)*1000L,Channels=t.Channels,SampleRate=t.SampleRate,Estimated=t.Estimated});
+            return result;
+        }
+        internal static void EstimateMissing(string path,string probe,MediaProbeInfo source,IDictionary<string,string> state)
+        {
+            Validate(state);if(Get(state,"FG_AUDIO_BITRATE","256")!="SOURCE"||Get(state,"FG_AUDIO_MODE","FGS")=="COPY")return;
+            bool needed=false;foreach(var t in Tracks(source))if(t.BitRate<=0)needed=true;if(!needed)return;
+            string output,error;var args=new List<string>{"-v","error","-select_streams","a","-read_intervals","%+#128","-show_packets","-show_entries","packet=stream_index,size,duration_time","-of","json",path};
+            if(!SharedFrucCore.Run(probe,SharedFrucCore.JoinArguments(args),15000,out output,out error))return;
+            try {
+                var json=new System.Web.Script.Serialization.JavaScriptSerializer{MaxJsonLength=4194304};var data=json.DeserializeObject(output) as Dictionary<string,object>;object raw;
+                if(data==null||!data.TryGetValue("packets",out raw))return;
+                var bytes=new Dictionary<int,double>();var seconds=new Dictionary<int,double>();
+                foreach(object item in (System.Collections.IEnumerable)raw){var packet=item as Dictionary<string,object>;object index,size,duration;int n;double b,d;
+                    if(packet==null||!packet.TryGetValue("stream_index",out index)||!packet.TryGetValue("size",out size)||!packet.TryGetValue("duration_time",out duration)||!int.TryParse(Convert.ToString(index),out n)||!double.TryParse(Convert.ToString(size),NumberStyles.Float,CultureInfo.InvariantCulture,out b)||!double.TryParse(Convert.ToString(duration),NumberStyles.Float,CultureInfo.InvariantCulture,out d)||d<=0)continue;
+                    if(!bytes.ContainsKey(n)){bytes[n]=0;seconds[n]=0;}bytes[n]+=b;seconds[n]+=d;
+                }
+                foreach(var t in source.AudioTracks)if(t.BitRate<=0&&seconds.ContainsKey(t.StreamIndex)&&seconds[t.StreamIndex]>0){t.BitRate=(long)(bytes[t.StreamIndex]*8/seconds[t.StreamIndex]);t.Estimated=true;}
+            }catch { } // Unknown rates use the documented channel-based fallback, never total file bitrate.
+        }
+        internal static string Notice(MediaProbeInfo source,IDictionary<string,string> state)
+        {
+            string mode=Get(state,"FG_AUDIO_MODE","FGS"),rate=Get(state,"FG_AUDIO_BITRATE","256");
+            if(mode=="FGS"&&rate=="256")return "";
+            var text=new StringBuilder("[Audio] mode="+mode+" AAC="+rate+"; copy keeps original bitrate; conservative MP4 copy codecs: AAC/MP3/AC3/EAC3.");int i=0;
+            foreach(var t in Tracks(source)){text.Append(" a:"+(i++)+" "+t.Codec+" "+t.BitRate+"bps");if(rate=="SOURCE")text.Append(" -> AAC target="+Rate(t,state)+"k ("+(t.Estimated?"estimated from <=128 packets":t.BitRate>0?"source metadata":"unknown; channel-based fallback")+")");}
+            return text.ToString();
+        }
+    }
+
+    internal static class NvencMultipassCore
+    {
+        internal static void Apply(List<string> args,IDictionary<string,string> state,string codec,HardwareCapabilitySnapshot caps)
+        {
+            string choice=AudioOutputCore.Get(state,"FG_"+codec+"_MULTIPASS","FGS");if(choice=="FGS")return;
+            if(choice!="DISABLED"&&choice!="QRES"&&choice!="FULLRES")throw new InvalidOperationException("Invalid NVENC multipass: "+choice);
+            bool supported=choice=="DISABLED"||(caps!=null&&(codec=="AV1"?(choice=="QRES"?caps.Av1MultipassQres:caps.Av1MultipassFullres):(choice=="QRES"?caps.HevcMultipassQres:caps.HevcMultipassFullres)));
+            if(!supported)throw new InvalidOperationException(codec+" NVENC 不支持所选 Multipass；请使用 FGS 推荐或支持的选项。 / Requested multipass unsupported.");
+            for(int i=0;i<args.Count-1;i++)if(args[i]=="-multipass"){args.RemoveRange(i,2);i--;}
+            args.AddRange(new[]{"-multipass",choice.ToLowerInvariant()});
+        }
+    }
 }
