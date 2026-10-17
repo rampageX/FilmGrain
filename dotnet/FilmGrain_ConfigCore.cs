@@ -28,7 +28,7 @@ namespace FilmGrainStudioPreview
             new KeyValuePair<string, string[]>("Advanced.Encoding", new string[] { "H264_HIGH10", "X264_RATE_MODE", "X264_PRESET", "AV1_UPLOAD_ENCODER", "NVENC_SPATIAL_AQ", "NVENC_TEMPORAL_AQ", "AUDIO_MODE", "AUDIO_BITRATE", "AV1_MULTIPASS", "HEVC_MULTIPASS" }),
             new KeyValuePair<string, string[]>("Advanced.Interpolation", new string[] { "SVP_ALGO", "SVP_ANALYSE", "SVP_MASK_AREA", "SVP_SPEED", "SVP_TUNING", "SVP_BLOCK_SIZE", "SVP_DEDUP", "SVP_STILL", "SVP_STILL_LIMIT", "SVP_STILL_EDGE", "SVP_STILL_TOLERANCE", "SVP_PEEL", "SVP_PEEL_LIMIT", "FRUC_PERF", "FRUC_GRID", "INTERPOLATION_TARGET_FPS" }),
             new KeyValuePair<string, string[]>("Advanced.HDR", new string[] { "HDR_POLICY", "TONE_MAP_ALGO" }),
-            new KeyValuePair<string, string[]>("Advanced.Other", new string[] { "CINEMATIC_CROP_PER_SIDE", "CINEMATIC_CROP_HORIZONTAL", "COLOR_PREVIEW_LARGE_UI" }),
+            new KeyValuePair<string, string[]>("Advanced.Other", new string[] { "CINEMATIC_CROP_PER_SIDE", "CINEMATIC_CROP_HORIZONTAL", "CINEMATIC_NO_CROP", "COLOR_PREVIEW_LARGE_UI" }),
             new KeyValuePair<string, string[]>("ColorCorrection", new string[] { "COLOR_CORRECTION_ENABLED", "COLOR_CONTRAST", "COLOR_BRIGHTNESS", "COLOR_SATURATION", "COLOR_GAMMA", "COLOR_BLACK_WHITE" })
         };
 
@@ -97,6 +97,7 @@ namespace FilmGrainStudioPreview
             defaults["TONE_MAP_ALGO"] = "hable";
             defaults["CINEMATIC_CROP_PER_SIDE"] = "0";
             defaults["CINEMATIC_CROP_HORIZONTAL"] = "0";
+            defaults["CINEMATIC_NO_CROP"] = "0";
             defaults["COLOR_PREVIEW_LARGE_UI"] = "false";
             defaults["COLOR_CORRECTION_ENABLED"] = "false";
             defaults["COLOR_CONTRAST"] = "1.00";

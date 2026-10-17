@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.0.02 · Stable · .NET Native-only。** AV1、HEVC、x264使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.03 · Stable · .NET Native-only。** AV1、HEVC、x264使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 基于 **FFmpeg、NVIDIA NVENC、libx264 与 grav1synth** 的 Windows 视频处理工具。当前入口为 .NET 图形界面，支持向 EXE 传入或拖入视频文件。
 
@@ -1268,3 +1268,10 @@ ffmpeg -hide_banner -h decoder=libdav1d
 本地构建运行 `dotnet\build_NET_Preview.bat`。正式 Stable 由 Windows runner 从同一源码构建两处 EXE，并执行 Microsoft Framework API 成品审计；审计失败会停止构建或发布。
 
 维护者使用 `release.bat --dry-run <版本号>` 检查发布准备，通过后执行 `release.bat <版本号>`。版本变化与验证范围见 [CHANGELOG.md](CHANGELOG.md)。
+
+
+### HDR 转 SDR：GPU 默认与兼容回退
+
+默认 Hable 转换在共享预处理开始前实际检查 Vulkan/libplacebo 能力，支持时使用 GPU；不支持时自动沿用 CPU 并在任务日志说明原因。其他色调映射算法保持原实现。HDR 保留不受影响。源码发布准备包需先完成 Windows 编译。
+
+可视化裁剪窗口的“自动 2.39:1 / Auto”：左键恢复自动 2.39:1；右键将两轴归零并恢复完整原始画幅，不裁剪也不加黑边。点击“应用”保存，取消不保存；重新打开保留选择。手动修改裁剪值后退出原始画幅重置状态。

@@ -106,8 +106,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.02";
-        internal const string FileReleaseVersion = "5.0.2.0";
+        internal const string ReleaseVersion = "5.0.03";
+        internal const string FileReleaseVersion = "5.0.3.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -3460,6 +3460,7 @@ namespace FilmGrainStudioPreview
         {
             if(cmbFrameMode==null)return;int side=config.GetInt("CINEMATIC_CROP_PER_SIDE",0);
             int horizontal=config.GetInt("CINEMATIC_CROP_HORIZONTAL",0);
+            if(config.Get("CINEMATIC_NO_CROP")=="1"){cmbFrameMode.Items[0]="加黑边 · 原始画幅 / Bars · Original";cmbFrameMode.Items[1]="裁剪 · 原始画幅 / Crop · Original";return;}
             if(horizontal>0){cmbFrameMode.Items[0]="加黑边 / Bars · V"+side+" H"+horizontal;cmbFrameMode.Items[1]="裁剪 / Crop · V"+side+" H"+horizontal;return;}
             cmbFrameMode.Items[0]=side>0?UiText("加黑边 · 上下各 "+side+" px","Letterbox · "+side+" px per side"):lang.T("cinematic.letterbox");
             cmbFrameMode.Items[1]=side>0?UiText("裁剪 · 上下各 "+side+" px","Crop · "+side+" px per side"):lang.T("cinematic.crop");
@@ -3472,10 +3473,10 @@ namespace FilmGrainStudioPreview
             if(media.Width<2||media.Height<2){MessageBox.Show(this,UiText("视频尺寸无效。","Invalid video dimensions."));return;}
             if(bridgeTaskCoordinator!=null && bridgeTaskCoordinator.IsActive)return;
             using(var window=new NativeCinematicCropForm(Path.Combine(config.Get("FFMPEG_DIR"),"ffmpeg.exe"),input,media,
-                config.GetInt("CINEMATIC_CROP_PER_SIDE",0),cmbFrameMode.SelectedIndex,config.GetInt("CINEMATIC_CROP_HORIZONTAL",0)))
+                config.GetInt("CINEMATIC_CROP_PER_SIDE",0),cmbFrameMode.SelectedIndex,config.GetInt("CINEMATIC_CROP_HORIZONTAL",0),config.Get("CINEMATIC_NO_CROP")=="1"))
             {
                 if(window.ShowDialog(this)!=DialogResult.OK)return;
-                try {config.SaveValue("CINEMATIC_CROP_PER_SIDE",window.CropPerSide.ToString(CultureInfo.InvariantCulture));config.SaveValue("CINEMATIC_CROP_HORIZONTAL",window.CropHorizontal.ToString(CultureInfo.InvariantCulture));}
+                try {config.SaveValue("CINEMATIC_CROP_PER_SIDE",window.CropPerSide.ToString(CultureInfo.InvariantCulture));config.SaveValue("CINEMATIC_CROP_HORIZONTAL",window.CropHorizontal.ToString(CultureInfo.InvariantCulture));config.SaveValue("CINEMATIC_NO_CROP",window.NoCrop?"1":"0");}
                 catch(Exception ex){MessageBox.Show(this,ex.Message);return;}
                 cmbFrameMode.SelectedIndex=window.FrameMode;UpdateCinematicCropLabels();UpdateBitrateDisplays();
             }

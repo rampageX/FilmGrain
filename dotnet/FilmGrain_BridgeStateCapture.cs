@@ -149,6 +149,7 @@ namespace FilmGrainStudioPreview
             snapshot.FrameMode = cmbFrameMode != null && cmbFrameMode.SelectedIndex == 1 ? "CROP" : "LETTERBOX";
             snapshot.CropPerSide = config.Get("CINEMATIC_CROP_PER_SIDE");
             snapshot.CropHorizontal = config.Get("CINEMATIC_CROP_HORIZONTAL");
+            snapshot.NoCrop = config.Get("CINEMATIC_NO_CROP");
             snapshot.H264High10 = config.GetBool("H264_HIGH10") && (!hardwareCapsReady || hardwareCaps == null || (hardwareCaps.X264Available && hardwareCaps.X264High10Available));
             snapshot.X264Preset = config.Get("X264_PRESET");
             snapshot.X264PassMode = config.Get("X264_RATE_MODE");

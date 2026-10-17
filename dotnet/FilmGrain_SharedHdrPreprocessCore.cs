@@ -21,6 +21,74 @@ namespace FilmGrainStudioPreview
             if(retainStreams)args.AddRange(new[]{"-c:a","copy","-c:s","copy","-c:t","copy"});
             args.Add(output);return args;
         }
+
+        // GPU default is resolved immediately before execution, never while merely planning.
+        // The original CPU command remains intact for unsupported devices/builds/algorithms.
+        internal static void AttachAutomatic(BridgeExecutionStage stage,string tonemap)
+        {
+            if(stage==null)throw new ArgumentNullException("stage");
+            var cpu=new List<string>(stage.OriginalArguments);
+            Func<string> previous=stage.BeforeRunPreparation;
+            stage.BeforeRunPreparation=delegate {
+                string prior=previous==null?"":previous();
+                string notice;
+                var selected=SelectAutomatic(stage.ToolPath,cpu,tonemap,out notice);
+                stage.DirectArguments=SharedFrucCore.JoinArguments(selected);
+                return (string.IsNullOrEmpty(prior)?"":prior+"\n")+notice;
+            };
+        }
+        internal static List<string> BuildGpuArguments(IList<string> cpu)
+        {
+            var args=new List<string>(cpu);
+            int vf=args.IndexOf("-vf"),input=args.IndexOf("-i");
+            if(vf<0||vf+1>=args.Count||input<0)throw new InvalidOperationException("HDR command layout changed");
+            string filter=args[vf+1];int linear=filter.IndexOf("zscale=rin=",StringComparison.Ordinal);
+            int clean=filter.IndexOf("sidedata=mode=delete:type=MASTERING_DISPLAY_METADATA",StringComparison.Ordinal);
+            if(linear<0||clean<linear)throw new InvalidOperationException("HDR CPU filter layout changed");
+            string deint=filter.Substring(0,linear);
+            var source=System.Text.RegularExpressions.Regex.Match(filter.Substring(linear),@"^zscale=rin=([^:]+):pin=([^:]+):tin=([^:]+):min=([^:]+):");
+            if(!source.Success)throw new InvalidOperationException("HDR source color layout changed");
+            string sourceTags="setparams=range="+source.Groups[1].Value+":color_primaries="+source.Groups[2].Value+":color_trc="+source.Groups[3].Value+":colorspace="+source.Groups[4].Value+",";
+            args[vf+1]=sourceTags+deint+"format=p010le,hwupload,libplacebo=tonemapping=hable:peak_detect=1:colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv:format=p010le:contrast_recovery=0:gamut_mode=clip,hwdownload,format=p010le,"+filter.Substring(clean);
+            // A Vulkan deinterlace stage already supplies a filter device; reuse it.
+            if(!args.Contains("-filter_hw_device"))args.InsertRange(input,new[]{"-init_hw_device","vulkan=hdrvk:0","-filter_hw_device","hdrvk"});
+            return args;
+        }
+        internal static List<string> SelectAutomatic(string ffmpeg,IList<string> cpu,string tonemap,out string notice)
+        {
+            if(!string.Equals(tonemap,"hable",StringComparison.OrdinalIgnoreCase))
+            {
+                notice="[HDR preprocess] CPU fallback: selected algorithm="+tonemap+"; GPU Hable does not override the selected algorithm.";
+                return new List<string>(cpu);
+            }
+            // Command construction errors are programming errors, not missing GPU support.
+            var gpu=BuildGpuArguments(cpu);
+            var probe=new List<string>{"-hide_banner","-nostdin","-loglevel","verbose"};
+            foreach(string option in new[]{"-init_hw_device","-filter_hw_device"})
+                for(int i=0;i+1<gpu.Count;i++)if(gpu[i]==option)probe.AddRange(new[]{option,gpu[i+1]});
+            probe.AddRange(new[]{"-i",gpu[gpu.IndexOf("-i")+1],"-map","0:v:0","-vf",gpu[gpu.IndexOf("-vf")+1],
+                "-frames:v","3","-an","-sn","-dn","-c:v","hevc_nvenc","-profile:v","main10","-pix_fmt","p010le",
+                "-preset","p4","-tune","lossless","-fps_mode","passthrough","-f","null","-"});
+            string output,reason;
+            bool supported=SharedFrucCore.Run(ffmpeg,SharedFrucCore.JoinArguments(probe),30000,out output,out reason);
+            bool software=false;
+            foreach(string line in output.Split(new[]{'\r','\n'},StringSplitOptions.RemoveEmptyEntries))
+            {
+                string lower=line.ToLowerInvariant();
+                if((lower.Contains("device name:")||lower.Contains("using device:")||lower.Contains(" selected:")) &&
+                    (lower.Contains("llvmpipe")||lower.Contains("lavapipe")||lower.Contains("swiftshader")||lower.Contains("software")))software=true;
+            }
+            if(supported&&!software)
+            {
+                notice="[HDR preprocess] GPU Vulkan/libplacebo Hable / peak_detect=1 / gamut_mode=clip / contrast_recovery=0; actual source/filter/NVENC capability check passed.";
+                return gpu;
+            }
+            string detail=software?"software Vulkan selected":reason;
+            // Include the diagnostic output, bounded by the existing process helper (64 KiB).
+            notice="[HDR preprocess] CPU fallback: GPU capability check unavailable or failed.\n"+detail;
+            return new List<string>(cpu);
+        }
+
         // A dedicated process owns the deinterlace device; the grain process uploads anew.
         internal static string DeinterlaceFilter(string method,MediaProbeInfo info)
         {
@@ -241,7 +309,7 @@ namespace FilmGrainStudioPreview
             plan.ActiveHeight = info.Height;
             plan.ContentWidth = info.Width; plan.ContentHeight = info.Height;
             reason = "";
-            if (Get(state, "FG_CINEMATIC_FRAME") != "1") return true;
+            if (Get(state, "FG_CINEMATIC_FRAME") != "1" || Get(state,"FG_NO_CROP")=="1") return true;
             int horizontal;
             int.TryParse(Get(state,"FG_CROP_HORIZONTAL"),NumberStyles.Integer,CultureInfo.InvariantCulture,out horizontal);
             if(horizontal>0)

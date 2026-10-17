@@ -374,6 +374,7 @@ namespace FilmGrainStudioPreview
             int totalStages = preStages + encodeStages + uploadPassCount;
             List<BridgeExecutionStage> directStages = new List<BridgeExecutionStage>();
             if (hdrToSdr || separateDeint) directStages.Add(Stage(ffmpeg, tempRoot, hdrToSdr ? SharedHdrPreprocessCore.BuildToSdr(input,hdrWorkfile,info,tonemap,fieldWorkfile || hdrOffSdr,fieldWorkfile?fieldFilter:"") : SharedHdrPreprocessCore.BuildDeinterlaced(input,hdrWorkfile,info,fieldFilter), duration, 1, totalStages, hdrToSdr ? "HDR 转 SDR / " + tonemapLabel : "Shared field deinterlace / separate Vulkan device"));
+            if(hdrToSdr)SharedHdrPreprocessCore.AttachAutomatic(directStages[directStages.Count-1],tonemap);
             if (fruc)
             {
                 BridgeExecutionStage preprocess = SharedFrucCore.CreateVideoPreprocess(frucFfmpeg, ffprobe, frucInput, frucWorkfile,

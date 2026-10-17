@@ -349,14 +349,14 @@ namespace FilmGrainStudioPreview
 
     internal static class CinematicPreviewGeometryCore
     {
-        internal static Rectangle Region(int width,int height,int perSide,int mode,int horizontal)
+        internal static Rectangle Region(int width,int height,int perSide,int mode,int horizontal,bool noCrop=false)
         {
             if(width<2||height<2)throw new ArgumentException("Invalid video dimensions.");
             if(perSide<0||perSide>(height-2)/2||horizontal>(width-2)/2)throw new ArgumentOutOfRangeException("crop");
             var state=new Dictionary<string,string> {
                 {"FG_CINEMATIC_FRAME","1"},{"FG_FRAME_MODE",mode==1?"CROP":"BARS"},
                 {"FG_CROP_PER_SIDE",perSide.ToString(CultureInfo.InvariantCulture)},
-                {"FG_CROP_HORIZONTAL",horizontal.ToString(CultureInfo.InvariantCulture)}};
+                {"FG_CROP_HORIZONTAL",horizontal.ToString(CultureInfo.InvariantCulture)},{"FG_NO_CROP",noCrop?"1":"0"}};
             CinematicFramePlan plan;string reason;
             if(!CinematicFrameCore.TryBuild(new MediaProbeInfo {Width=width,Height=height},state,out plan,out reason))
                 throw new ArgumentException(reason);
@@ -384,18 +384,20 @@ namespace FilmGrainStudioPreview
         private bool pending,dragging,dragHorizontal;
         private double requested;
         private Image image;
+        private bool noCrop;
+        internal bool NoCrop {get{return noCrop;}}
         internal int CropPerSide {get{return (int)crop.Value;}}
         internal int CropHorizontal {get{return (int)horizontal.Value;}}
         internal int FrameMode {get{return mode.SelectedIndex;}}
-        internal NativeCinematicCropForm(string ffmpegPath,string source,MediaProbeInfo info,int perSide,int framing,int horizontalSide=0)
+        internal NativeCinematicCropForm(string ffmpegPath,string source,MediaProbeInfo info,int perSide,int framing,int horizontalSide=0,bool originalFrame=false)
         {
-            ffmpeg=ffmpegPath;input=source;media=info;
+            ffmpeg=ffmpegPath;input=source;media=info;this.noCrop=originalFrame;
             Text="Cinematic Style · 可视化裁剪 / Visual crop";Size=new Size(1050,760);MinimumSize=new Size(840,620);StartPosition=FormStartPosition.CenterParent;
             var layout=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=1,RowCount=6,Padding=new Padding(10)};
             layout.RowStyles.Add(new RowStyle(SizeType.Percent,100));layout.RowStyles.Add(new RowStyle(SizeType.Absolute,32));layout.RowStyles.Add(new RowStyle(SizeType.Absolute,46));layout.RowStyles.Add(new RowStyle(SizeType.Absolute,46));layout.RowStyles.Add(new RowStyle(SizeType.Absolute,48));layout.RowStyles.Add(new RowStyle(SizeType.Absolute,40));
             picture.Dock=DockStyle.Fill;picture.BackColor=Color.FromArgb(22,22,22);picture.Paint+=PaintPreview;
             picture.MouseDown+=delegate(object sender,MouseEventArgs e){if(e.Button!=MouseButtons.Left||image==null)return;RectangleF box=ImageBounds();if(!box.Contains(e.Location))return;
-                Rectangle r=CinematicPreviewGeometryCore.Region(media.Width,media.Height,CropPerSide,FrameMode,CropHorizontal);
+                Rectangle r=CinematicPreviewGeometryCore.Region(media.Width,media.Height,CropPerSide,FrameMode,CropHorizontal,noCrop);
                 float dx=Math.Min(Math.Abs(e.X-(box.Left+r.Left*box.Width/media.Width)),Math.Abs(e.X-(box.Left+r.Right*box.Width/media.Width)));
                 float dy=Math.Min(Math.Abs(e.Y-(box.Top+r.Top*box.Height/media.Height)),Math.Abs(e.Y-(box.Top+r.Bottom*box.Height/media.Height)));
                 if(Math.Min(dx,dy)>12)return;dragHorizontal=dx<dy;dragging=true;picture.Capture=true;DragCrop(e.X,e.Y);};
@@ -410,11 +412,11 @@ namespace FilmGrainStudioPreview
             controls.Controls.Add(new Label {Text="时间 / Time",AutoSize=true,Padding=new Padding(0,7,0,0)});controls.Controls.Add(time);controls.Controls.Add(show);
             mode.DropDownStyle=ComboBoxStyle.DropDownList;mode.Width=225;mode.Items.AddRange(new object[]{"加黑边 / Letterbox","裁剪画面 / Crop"});mode.SelectedIndex=framing==1?1:0;mode.SelectedIndexChanged+=delegate{UpdateGeometry();};controls.Controls.Add(mode);layout.Controls.Add(controls,0,2);
             var values=new FlowLayoutPanel {Dock=DockStyle.Fill,WrapContents=false};values.Controls.Add(new Label {Text="上下每边像素 / Per side",AutoSize=true,Padding=new Padding(0,7,0,0)});
-            crop.Minimum=0;crop.Maximum=Math.Max(0,(info.Height-2)/2);crop.Width=90;crop.Value=Math.Min(crop.Maximum,Math.Max(0,perSide));crop.ValueChanged+=delegate {UpdateGeometry();};values.Controls.Add(crop);
+            crop.Minimum=0;crop.Maximum=Math.Max(0,(info.Height-2)/2);crop.Width=90;crop.Value=Math.Min(crop.Maximum,Math.Max(0,perSide));crop.ValueChanged+=delegate {noCrop=false;UpdateGeometry();};values.Controls.Add(crop);
             values.Controls.Add(new Label {Text="左右每边 / Left-right",AutoSize=true,Padding=new Padding(4,7,0,0)});
-            horizontal.Maximum=Math.Max(0,(info.Width-2)/2);horizontal.Width=80;horizontal.Value=Math.Min(horizontal.Maximum,Math.Max(0,horizontalSide));horizontal.ValueChanged+=delegate{UpdateGeometry();};values.Controls.Add(horizontal);
-            var automatic=new Button {Text="自动 2.39:1 / Auto",AutoSize=true};automatic.Click+=delegate{horizontal.Value=0;crop.Value=0;};values.Controls.Add(automatic);geometry.AutoSize=true;geometry.Padding=new Padding(6,7,0,0);layout.Controls.Add(values,0,3);
-            status.AutoSize=true;status.Text="拖动四边对称调整；左右 > 0 时，上下 0 = 不裁剪。HDR 仅转换预览显示。";var details=new FlowLayoutPanel {Dock=DockStyle.Fill,FlowDirection=FlowDirection.TopDown,WrapContents=false};details.Controls.Add(geometry);details.Controls.Add(status);layout.Controls.Add(details,0,4);
+            horizontal.Maximum=Math.Max(0,(info.Width-2)/2);horizontal.Width=80;horizontal.Value=Math.Min(horizontal.Maximum,Math.Max(0,horizontalSide));horizontal.ValueChanged+=delegate{noCrop=false;UpdateGeometry();};values.Controls.Add(horizontal);
+            var automatic=new Button {Text="自动 2.39:1 / Auto",AutoSize=true};automatic.Click+=delegate{horizontal.Value=0;crop.Value=0;noCrop=false;UpdateGeometry();};automatic.MouseUp+=delegate(object sender,MouseEventArgs e){if(e.Button==MouseButtons.Right){horizontal.Value=0;crop.Value=0;noCrop=true;UpdateGeometry();}};automatic.AccessibleDescription="右键恢复原始画幅，不裁剪 / Right-click restores the full frame";values.Controls.Add(automatic);geometry.AutoSize=true;geometry.Padding=new Padding(6,7,0,0);layout.Controls.Add(values,0,3);
+            status.AutoSize=true;status.Text="拖动四边对称调整；左右 > 0 时，上下 0 = 不裁剪。右键自动按钮恢复原始画幅。HDR 仅转换预览显示。";var details=new FlowLayoutPanel {Dock=DockStyle.Fill,FlowDirection=FlowDirection.TopDown,WrapContents=false};details.Controls.Add(geometry);details.Controls.Add(status);layout.Controls.Add(details,0,4);
             var actions=new FlowLayoutPanel {Dock=DockStyle.Fill,FlowDirection=FlowDirection.RightToLeft};var cancel=new Button {Text="取消 / Cancel",AutoSize=true,DialogResult=DialogResult.Cancel};var apply=new Button {Text="应用 / Apply",AutoSize=true};
             apply.Click+=delegate {DialogResult=DialogResult.OK;Close();};actions.Controls.Add(cancel);actions.Controls.Add(apply);layout.Controls.Add(actions,0,5);Controls.Add(layout);CancelButton=cancel;
             debounce.Interval=180;debounce.Tick+=delegate {debounce.Stop();StartFrame();};Shown+=delegate{UpdateGeometry();RequestFrame();};
@@ -430,7 +432,7 @@ namespace FilmGrainStudioPreview
         private void PaintPreview(object sender,PaintEventArgs e)
         {
             if(image==null)return;RectangleF box=ImageBounds();e.Graphics.DrawImage(image,box);
-            Rectangle region=CinematicPreviewGeometryCore.Region(media.Width,media.Height,CropPerSide,FrameMode,CropHorizontal);
+            Rectangle region=CinematicPreviewGeometryCore.Region(media.Width,media.Height,CropPerSide,FrameMode,CropHorizontal,noCrop);
             float top=box.Top+region.Top*box.Height/media.Height,bottom=box.Top+region.Bottom*box.Height/media.Height;
             using(var mask=new SolidBrush(FrameMode==0?Color.Black:Color.FromArgb(165,0,0,0)))using(var line=new Pen(Color.FromArgb(60,210,240),2))
             {e.Graphics.FillRectangle(mask,box.Left,box.Top,box.Width,Math.Max(0,top-box.Top));e.Graphics.FillRectangle(mask,box.Left,bottom,box.Width,Math.Max(0,box.Bottom-bottom));e.Graphics.DrawLine(line,box.Left,top,box.Right,top);e.Graphics.DrawLine(line,box.Left,bottom,box.Right,bottom);
@@ -448,7 +450,7 @@ namespace FilmGrainStudioPreview
         }
         private void UpdateGeometry()
         {
-            Rectangle region=CinematicPreviewGeometryCore.Region(media.Width,media.Height,CropPerSide,FrameMode,CropHorizontal);
+            Rectangle region=CinematicPreviewGeometryCore.Region(media.Width,media.Height,CropPerSide,FrameMode,CropHorizontal,noCrop);
             geometry.Text="有效 / Active: "+region.Width+"×"+region.Height+"   输出 / Output: "+(FrameMode==1?region.Width:media.Width)+"×"+(FrameMode==1?region.Height:media.Height);
             picture.Invalidate();
         }
