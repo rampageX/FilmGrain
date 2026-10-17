@@ -1,12 +1,12 @@
 Film Grain Studio formal stable baseline
 
 Baseline:
-v4.8.25
+v4.8.26
 Supersedes:
-v4.8.24
+v4.8.25
 
 Formal release:
-FilmGrain_Studio_v4.8.25_Stable.zip
+FilmGrain_Studio_v4.8.26_Stable.zip
 
 Application runtime: .NET Native-only. Legacy tools archived and independent.
 Acceptance applies only to explicitly tested combinations, not every container/timestamp/clip/hardware combination.
@@ -14,9 +14,8 @@ Windows Full: 101 encodes + 6 boundaries. Next: 29 + 10 merged technical passes.
 User manual checks including new ADDED picture/sync confirmed. Merged results are not single full reruns.
 AV1 grain-copy phase: Windows SDR 242 / HDR 241 technical checks passed; fast paths and preview/log-toolbar fixes confirmed within their actual scope.
 v4.8.22 preview acceptance: 48 Windows shared-entry smoke checks passed; user manual checks confirmed. Smoke mode labels do not imply full encoder reruns.
-v4.8.23 staged acceptance: AV1 strength 70, pixel strength 252, crop UI 99 and expanded crop 585 Windows checks passed; associated manual acceptance confirmed. These are separate stages, not one full rerun.
-v4.8.24 geometry/HDR acceptance: Windows 312 PASS / 0 FAIL / 0 SKIP / exit 0; software 16, plan-only 220, NVIDIA real encodes 76; associated manual picture/dragging/A-V sync acceptance confirmed. Plan-only checks are not encodes.
-Coverage is limited to tested combinations; FGSIM, external Grain Plate/tables, FRUC/SVP cross-products and HDR ancillary metadata are not a complete regression claim.
+v4.8.26: baseline measurement 42 cases x3=126 executions; 66 pre-encode hash/PTS cases passed; 42 reference/candidate real encodes completed. Two first-run output checks were test-path false negatives, resolved by read-only verification of 4 existing outputs; no new encodes.
+v4.8.26: user manual picture/A-V sync spot checks passed; measured 4K SDR/50% wall time reduced approximately29-51% on RTX4080/FFmpeg9.0.2. Results do not cover every strength, hardware or filter combination.
 Root and compatible executables are rebuilt from the same committed C# source with Stable label.
 Shared Lang, SVP vpy/plugins, FGSIM template/texture and original grain tables remain in their shared locations.
 Exclude local configuration, caches, private environments, downloads, generated hooks, logs, Tests_Shared and test-delivery markers.

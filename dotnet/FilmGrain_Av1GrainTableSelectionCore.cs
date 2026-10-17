@@ -250,6 +250,12 @@ namespace FilmGrainStudioPreview
         {
             if(percent<1||percent>100)throw new ArgumentOutOfRangeException("percent");
             if(percent==100)return full;
+            // Binary-exact quarter weights: identical integer result to the expression,
+            // while FFmpeg can use its native normal-blend implementation.
+            // Other percentages retain the expression and its established rounding.
+            if(percent==25 || percent==50 || percent==75)
+                return Pair(full,clean)+";[gs_clean][gs_full]blend=all_mode=normal:all_opacity="+
+                    (1.0-percent/100.0).ToString("0.00",CultureInfo.InvariantCulture)+":shortest=1[vout]";
             return Pair(full,clean)+";[gs_clean][gs_full]blend=all_expr='A+(B-A)*"+(percent/100.0).ToString("0.00",CultureInfo.InvariantCulture)+"':shortest=1[vout]";
         }
         private static string ColorValue(string value,string fallback)
