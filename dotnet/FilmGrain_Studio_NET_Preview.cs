@@ -106,8 +106,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.00";
-        internal const string FileReleaseVersion = "5.0.0.0";
+        internal const string ReleaseVersion = "5.0.01";
+        internal const string FileReleaseVersion = "5.0.1.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -211,7 +211,7 @@ namespace FilmGrainStudioPreview
         private readonly bool setupTestMode;
         private readonly LanguagePack lang;
         private readonly List<LanguageChoice> languages;
-        private readonly Dictionary<string, MediaProbeInfo> mediaProbeCache = new Dictionary<string, MediaProbeInfo>(StringComparer.OrdinalIgnoreCase);
+        private readonly MediaProbeCache mediaProbeCache = new MediaProbeCache();
         private MediaProbeCore mediaProbeCore;
         private readonly Dictionary<string, string> av1GrainInspectCache = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         private Av1GrainInspectCore av1GrainInspectCore;
@@ -368,6 +368,7 @@ namespace FilmGrainStudioPreview
             bridgeTaskCoordinator.Completed += OnBridgeExecutionCompleted;
             hardwareCapabilityCore = new HardwareCapabilityCore();
             hardwareCapabilityCore.Completed += OnHardwareCapabilityCompleted;
+            mediaProbeCache.ProbePath = delegate { return Path.Combine(config.Get("FFMPEG_DIR"), "ffprobe.exe"); };
             mediaProbeCore = new MediaProbeCore();
             mediaProbeCore.Completed += OnMediaProbeCompleted;
             av1GrainInspectCore = new Av1GrainInspectCore();
@@ -1668,13 +1669,17 @@ namespace FilmGrainStudioPreview
             {
                 BeginInvoke((MethodInvoker)delegate
                 {
-                    if (result == null || IsDisposed || Disposing) return;
+                    if (result == null || IsDisposed || Disposing || !mediaProbeCore.IsCurrentResult(result)) return;
                     if (listFiles.SelectedItems.Count != 1) return;
                     string currentPath = listFiles.SelectedItems[0].Tag as string;
                     if (!string.Equals(currentPath, result.PathValue, StringComparison.OrdinalIgnoreCase)) return;
 
+                    if(result.Identity!=null && !result.Identity.IsCurrent(result.PathValue,mediaProbeCache.ProbePath()))
+                    { SetMediaInfoText("Input or FFprobe changed; reselect and probe again.",true); return; }
+
                     if (result.Info != null)
                     {
+                        if(result.Info.Identity==null || !result.Info.Identity.IsCurrent(result.PathValue,mediaProbeCache.ProbePath())) { SetMediaInfoText("Input or FFprobe changed; reselect and probe again.",true); return; }
                         mediaProbeCache[result.PathValue] = result.Info;
                         string summary = new MediaSummaryCore(lang).FormatMediaSummary(result.Info);
                         SetMediaInfoText(summary, false);

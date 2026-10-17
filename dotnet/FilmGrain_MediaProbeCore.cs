@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -142,8 +142,71 @@ namespace FilmGrainStudioPreview
         }
     }
 
+    // Metadata-only identity: no media payload is read for cache validation.
+    internal sealed class MediaProbeIdentity
+    {
+        internal readonly string Input, Probe, Value;
+        private MediaProbeIdentity(string input, string probe, string value) { Input=input; Probe=probe; Value=value; }
+        internal static string Normalize(string path) { return Path.GetFullPath(path); }
+        private static string Stamp(string path)
+        {
+            var f=new FileInfo(path); f.Refresh();
+            if(!f.Exists) throw new FileNotFoundException("Media/probe file is missing",path);
+            return f.Length.ToString(CultureInfo.InvariantCulture)+":"+f.LastWriteTimeUtc.Ticks+":"+f.CreationTimeUtc.Ticks;
+        }
+        internal static MediaProbeIdentity Capture(string input,string probe)
+        {
+            input=Normalize(input); probe=Normalize(probe);
+            return new MediaProbeIdentity(input,probe,Stamp(input)+"|"+probe.ToUpperInvariant()+"|"+Stamp(probe));
+        }
+        internal bool IsCurrent(string input,string probe)
+        {
+            try { var next=Capture(input,probe); return string.Equals(Input,next.Input,StringComparison.OrdinalIgnoreCase) && Value==next.Value; }
+            catch { return false; }
+        }
+        internal void RequireCurrent()
+        {
+            if(!IsCurrent(Input,Probe)) throw new InvalidOperationException("输入或 FFprobe 已变化，请重新探测并准备任务 / Input or FFprobe changed; re-probe and prepare again: "+Input);
+        }
+    }
+
+    internal sealed class MediaProbeCache : IDictionary<string,MediaProbeInfo>
+    {
+        private readonly Dictionary<string,MediaProbeInfo> entries=new Dictionary<string,MediaProbeInfo>(StringComparer.OrdinalIgnoreCase);
+        internal Func<string> ProbePath;
+        public bool TryGetValue(string path,out MediaProbeInfo info)
+        {
+            info=null;
+            try {
+                string key=MediaProbeIdentity.Normalize(path); MediaProbeInfo found;
+                if(entries.TryGetValue(key,out found) && found!=null && found.Identity!=null && found.Identity.IsCurrent(path,ProbePath())) { info=found;return true; }
+                entries.Remove(key);
+            } catch { }
+            return false;
+        }
+        public MediaProbeInfo this[string path] {
+            get { MediaProbeInfo info; if(!TryGetValue(path,out info))throw new InvalidOperationException("Media changed or probe is not ready; reselect and probe: "+path);return info; }
+            set { if(value!=null && value.Identity!=null && value.Identity.IsCurrent(path,ProbePath())) entries[MediaProbeIdentity.Normalize(path)]=value; }
+        }
+        public bool ContainsKey(string path) { MediaProbeInfo info;return TryGetValue(path,out info); }
+        public void Add(string path,MediaProbeInfo info) { this[path]=info; }
+        public bool Remove(string path) { return entries.Remove(MediaProbeIdentity.Normalize(path)); }
+        public void Clear() { entries.Clear(); }
+        public ICollection<string> Keys { get { var keys=new List<string>();foreach(var key in new List<string>(entries.Keys))if(ContainsKey(key))keys.Add(key);return keys; } }
+        public ICollection<MediaProbeInfo> Values { get { var values=new List<MediaProbeInfo>();foreach(var key in Keys)values.Add(this[key]);return values; } }
+        public int Count { get { return Keys.Count; } }
+        public bool IsReadOnly { get { return false; } }
+        public void Add(KeyValuePair<string,MediaProbeInfo> item) { Add(item.Key,item.Value); }
+        public bool Contains(KeyValuePair<string,MediaProbeInfo> item) { MediaProbeInfo info;return TryGetValue(item.Key,out info)&&object.ReferenceEquals(info,item.Value); }
+        public bool Remove(KeyValuePair<string,MediaProbeInfo> item) { return Contains(item)&&Remove(item.Key); }
+        public void CopyTo(KeyValuePair<string,MediaProbeInfo>[] array,int index) { foreach(var item in this)array[index++]=item; }
+        public IEnumerator<KeyValuePair<string,MediaProbeInfo>> GetEnumerator() { foreach(var key in Keys)yield return new KeyValuePair<string,MediaProbeInfo>(key,this[key]); }
+        IEnumerator IEnumerable.GetEnumerator() { return GetEnumerator(); }
+    }
+
     internal sealed class MediaProbeInfo
     {
+        internal MediaProbeIdentity Identity;
         public string PathValue = "";
         public string FormatName = "";
         public string Duration = "";
@@ -282,6 +345,8 @@ namespace FilmGrainStudioPreview
 
     internal sealed class MediaProbeResult
     {
+        internal int Serial;
+        internal MediaProbeIdentity Identity;
         public string PathValue;
         public MediaProbeInfo Info;
         public int ExitCode;
@@ -315,7 +380,9 @@ namespace FilmGrainStudioPreview
             }
             KillProcessAsync(oldProcess);
 
-            Thread worker = new Thread(new ThreadStart(delegate { RunProbe(path, ffprobePath, serial); }));
+            MediaProbeIdentity identity = null;
+            try { identity=MediaProbeIdentity.Capture(path,ffprobePath); } catch { }
+            Thread worker = new Thread(new ThreadStart(delegate { RunProbe(path, ffprobePath, serial, identity); }));
             worker.IsBackground = true;
             worker.Name = "FGS FFprobe Core";
             worker.Start();
@@ -333,7 +400,9 @@ namespace FilmGrainStudioPreview
             KillProcessAsync(process);
         }
 
-        private void RunProbe(string path, string ffprobePath, int serial)
+        internal bool IsCurrentResult(MediaProbeResult result) { return result!=null && IsCurrent(result.Serial); }
+
+        private void RunProbe(string path, string ffprobePath, int serial, MediaProbeIdentity identity)
         {
             Process process = null;
             string json = "";
@@ -416,7 +485,13 @@ namespace FilmGrainStudioPreview
                 if (!string.IsNullOrEmpty(frameOrder)) { info.FieldOrder = frameOrder; info.FieldOrderSource = "ffprobe-frames"; }
             }
 
+            if(info!=null) {
+                if(identity==null || !identity.IsCurrent(path,ffprobePath)) { info=null;failureMessage="Input or FFprobe changed during probing; reselect and probe again."; }
+                else info.Identity=identity;
+            }
             MediaProbeResult result = new MediaProbeResult();
+            result.Serial = serial;
+            result.Identity = identity;
             result.PathValue = path;
             result.Info = info;
             result.ExitCode = exitCode;

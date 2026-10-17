@@ -1,12 +1,12 @@
 Film Grain Studio formal stable baseline
 
 Baseline:
-v5.0.00
+v5.0.01
 Supersedes:
-v4.8.27
+v5.0.00
 
 Formal release:
-FilmGrain_Studio_v5.0.00_Stable.zip
+FilmGrain_Studio_v5.0.01_Stable.zip
 
 Application runtime: .NET Native-only. Legacy tools archived and independent.
 Acceptance applies only to explicitly tested combinations, not every container/timestamp/clip/hardware combination.

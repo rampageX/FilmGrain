@@ -92,6 +92,8 @@ namespace FilmGrainStudioPreview
 
         private void StartRender()
         {
+            try { if(info.Identity==null)throw new InvalidOperationException("Probe is not ready"); info.Identity.RequireCurrent(); }
+            catch(Exception ex){status.Text=ex.Message;return;}
             double seconds;
             if(!SharedEncodePreviewCore.TryParseStart(start.Text.Trim(),out seconds)) {MessageBox.Show(this,"起始格式 / Start format: 00:00:00");return;}
             double duration;
@@ -105,6 +107,7 @@ namespace FilmGrainStudioPreview
                 string error="";int firstFrame=0;double actualStart=0;
                 try
                 {
+                    info.Identity.RequireCurrent();
                     Directory.CreateDirectory(temporary);
                     foreach(string path in Directory.GetFiles(temporary))File.Delete(path);
                     string sample=Path.Combine(temporary,"sample.mkv"),baseIvf=Path.Combine(temporary,"base.ivf"),model=Path.Combine(temporary,"model.ivf");
@@ -161,6 +164,7 @@ namespace FilmGrainStudioPreview
                         timeline.Enabled=true;render.Enabled=start.Enabled=true;
                         if(error.Length>0){status.Text="预览失败 / Preview failed: "+error;return;}
                         try {
+                            info.Identity.RequireCurrent();
                             cleanFrames.AddRange(Directory.GetFiles(temporary,"clean*.png"));cleanFrames.Sort(StringComparer.Ordinal);
                             for(int i=0;i<4;i++){variants[i].AddRange(Directory.GetFiles(temporary,"variant"+i+"_*.png"));variants[i].Sort(StringComparer.Ordinal);if(variants[i].Count!=cleanFrames.Count)throw new InvalidDataException("Preview frame counts do not match.");}
                             if(cleanFrames.Count==0)throw new InvalidDataException("No preview frames.");
@@ -456,6 +460,7 @@ namespace FilmGrainStudioPreview
             var worker=new Thread(new ThreadStart(delegate {
                 byte[] bytes=null;string failure="";
                 try {
+                    if(media.Identity==null)throw new InvalidOperationException("Probe is not ready");media.Identity.RequireCurrent();
                     Directory.CreateDirectory(temporary);string output=Path.Combine(temporary,"frame.png");
                     var args=new List<string>{"-v","error","-y","-ss",seconds.ToString("0.###",CultureInfo.InvariantCulture),"-i",input,"-map","0:v:0","-vf",NativeGrainPreviewForm.PreviewFilter(media)+",scale=w='min(1280,iw)':h=-2","-frames:v","1","-threads","1",output};
                     using(var process=new Process()) {
@@ -464,6 +469,7 @@ namespace FilmGrainStudioPreview
                         try {var stdout=process.StandardOutput.ReadToEndAsync();var stderr=process.StandardError.ReadToEndAsync();if(!process.WaitForExit(30000)){try{process.Kill();}catch{}throw new TimeoutException("Frame preview timed out.");}stdout.Wait();stderr.Wait();if(process.ExitCode!=0)throw new IOException(stderr.Result);}
                         finally {lock(processSync){active=null;}}
                     }
+                    media.Identity.RequireCurrent();
                     if(!closing)bytes=File.ReadAllBytes(output);
                 }catch(Exception ex){failure=ex.Message;}
                 finally {
@@ -471,6 +477,7 @@ namespace FilmGrainStudioPreview
                     if(closing)Cleanup();
                     else try {BeginInvoke(new Action(delegate {
                         if(closing)return;
+                        if(media.Identity==null || !media.Identity.IsCurrent(input,media.Identity.Probe)){bytes=null;failure="Input or FFprobe changed; close and re-probe.";}
                         if(bytes!=null && Math.Abs(seconds-requested)<0.001){using(var stream=new MemoryStream(bytes))using(var next=Image.FromStream(stream)){var old=image;image=new Bitmap(next);if(old!=null)old.Dispose();}picture.Invalidate();}
                         status.Text=failure.Length==0?"拖动四边对称调整；左右 > 0 时，上下 0 = 不裁剪。HDR 仅用于显示转换。":"预览失败 / Preview failed: "+failure;
                         if(pending)StartFrame();

@@ -60,11 +60,18 @@ namespace FilmGrainStudioPreview
             prepared=null;reason="";
             if(string.IsNullOrWhiteSpace(input)||!File.Exists(input)){reason="input file does not exist or is inaccessible: "+input;return false;}
             if(info==null){reason="media probe cache is not ready: "+input;return false;}
+            var probeConfig=new FgsConfig(appRoot,null);probeConfig.Load();
+            string currentProbe=Path.Combine(probeConfig.Get("FFMPEG_DIR"),"ffprobe.exe");
+            if(info.Identity==null || !info.Identity.IsCurrent(input,currentProbe)) { reason="Input or FFprobe changed; reselect and probe again: "+input;return false; }
             if(!info.HasVideo){reason="input has no usable video stream: "+input;return false;}
             if(state==null){reason="missing execution state";return false;}
             string preview;
             if (state.TryGetValue("FG_ENCODE_PREVIEW", out preview) && preview == "1")
-                return SharedEncodePreviewCore.TryPrepare(appRoot, input, info, state, caps, noReencode, out prepared, out reason);
+            {
+                bool ok=SharedEncodePreviewCore.TryPrepare(appRoot,input,info,state,caps,noReencode,out prepared,out reason);
+                if(ok) { prepared.ExecutionRequest.SourceIdentity=info.Identity;prepared.ExecutionRequest.SourceConfigRoot=appRoot; }
+                return ok;
+            }
             string svpEnabled, svpEngine;
             state.TryGetValue("FG_SVP_INTERPOLATE", out svpEnabled); state.TryGetValue("FG_INTERPOLATION_ENGINE", out svpEngine);
             if (!noReencode && svpEnabled == "1" && (string.IsNullOrEmpty(svpEngine) || string.Equals(svpEngine, "SVP", StringComparison.OrdinalIgnoreCase)))
@@ -94,7 +101,7 @@ namespace FilmGrainStudioPreview
                     else {reason="unsupported codec: "+mode;return false;}
                 }
                 if(success && prepared!=null && prepared.ExecutionRequest!=null)
-                { NativeProcessPolicy.ValidateRequest(prepared.ExecutionRequest);return true; }
+                { info.Identity.RequireCurrent(); prepared.ExecutionRequest.SourceIdentity=info.Identity; prepared.ExecutionRequest.SourceConfigRoot=appRoot; NativeProcessPolicy.ValidateRequest(prepared.ExecutionRequest);return true; }
                 if(success)reason="Native preparation returned no execution request";
             }
             catch(Exception ex){reason="Native preparation failed: "+ex.Message;}

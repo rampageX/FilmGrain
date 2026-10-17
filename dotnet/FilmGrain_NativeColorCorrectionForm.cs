@@ -53,6 +53,7 @@ namespace FilmGrainStudioPreview
         }
 
         private readonly string videoPath;
+        private MediaProbeIdentity sourceIdentity;
         private readonly string ffmpegPath;
         private readonly string ffprobePath;
         private readonly string galleryAppRoot;
@@ -138,7 +139,9 @@ namespace FilmGrainStudioPreview
             compatLutPath = Path.Combine(tempRoot, "preview_lut.cube");
             Directory.CreateDirectory(tempRoot);
 
+            sourceIdentity=MediaProbeIdentity.Capture(videoPath,ffprobePath);
             ProbeVideo();
+            sourceIdentity.RequireCurrent();
             PrepareLut(this.lutPath);
             BuildUi(largeUi, enabled, contrast, brightness, saturation, gamma, blackWhite, useLut);
         }
@@ -731,6 +734,7 @@ namespace FilmGrainStudioPreview
                                 return;
                             }
 
+                            if(!sourceIdentity.IsCurrent(videoPath,ffprobePath)) { if(image!=null){image.Dispose();image=null;}error="Input or FFprobe changed; close and re-probe."; }
                             if (state.Serial == renderSerial && image != null)
                             {
                                 Image oldImage = pic.Image;
@@ -813,6 +817,7 @@ namespace FilmGrainStudioPreview
             }
             filter += ",pad=" + previewWidth.ToString(CultureInfo.InvariantCulture) + ":" + previewHeight.ToString(CultureInfo.InvariantCulture) + ":(ow-iw)/2:(oh-ih)/2:black";
 
+            sourceIdentity.RequireCurrent();
             ProcessStartInfo psi = new ProcessStartInfo();
             psi.FileName = ffmpegPath;
             psi.UseShellExecute = false;
@@ -843,6 +848,7 @@ namespace FilmGrainStudioPreview
                 }
             }
 
+            sourceIdentity.RequireCurrent();
             if (rc != 0 || !File.Exists(output))
             {
                 string detail = (error ?? "").Trim();

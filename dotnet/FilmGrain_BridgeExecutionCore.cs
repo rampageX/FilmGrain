@@ -78,6 +78,15 @@ namespace FilmGrainStudioPreview
 
     internal sealed class BridgeExecutionRequest
     {
+        internal MediaProbeIdentity SourceIdentity;
+        internal string SourceConfigRoot;
+        internal void ValidateSource()
+        {
+            if(SourceIdentity==null)return;
+            var cfg=new FgsConfig(SourceConfigRoot,null);cfg.Load();
+            if(!SourceIdentity.IsCurrent(SourceIdentity.Input,Path.Combine(cfg.Get("FFMPEG_DIR"),"ffprobe.exe")))
+                throw new InvalidOperationException("Input or FFprobe changed; reselect and probe again: "+SourceIdentity.Input);
+        }
         internal bool PixelGrainHdr { get; set; }
         internal IList<string> PixelGrainEncodeArguments { get; set; }
         internal string PixelGrainFullFilter { get; set; }
@@ -190,6 +199,7 @@ namespace FilmGrainStudioPreview
         public void Start(BridgeExecutionRequest request)
         {
             NativeProcessPolicy.ValidateRequest(request);
+            request.ValidateSource();
             if (request.DirectStages != null && request.DirectStages.Count > 0)
             {
                 foreach (BridgeExecutionStage stage in request.DirectStages)
@@ -281,12 +291,14 @@ namespace FilmGrainStudioPreview
             try
             {
             runPreparedRequest:
+                request.ValidateSource();
                 if (!string.IsNullOrEmpty(request.ExecutionNotice)) RaiseLog(BridgeLogStream.System,request.ExecutionNotice);
                 if (request.DirectStages != null && request.DirectStages.Count > 0)
                 {
                     foreach (BridgeExecutionStage stage in request.DirectStages)
                     {
                         if (cancelRequested) break;
+                        request.ValidateSource();
                         if (stage.PrepareWithCancellation != null)
                         {
                             RaiseLog(BridgeLogStream.System, stage.PrepareWithCancellation(delegate { return cancelRequested; }));
@@ -313,6 +325,7 @@ namespace FilmGrainStudioPreview
                         string stageMode;
                         string stagePrefix = request.Environment != null && request.Environment.TryGetValue("FG_MODE", out stageMode) ? stageMode + " step " : "Native step ";
                         RaiseLog(BridgeLogStream.System, stagePrefix + stage.StageCurrent.ToString(CultureInfo.InvariantCulture) + "/" + stage.StageTotal.ToString(CultureInfo.InvariantCulture) + " - " + (stage.StageText ?? ""));
+                        request.ValidateSource();
                         exitCode = string.IsNullOrEmpty(stage.PipeProducerPath)
                             ? RunProcess(BuildStartInfo(request, stage), stage.ToolPath, out failure)
                             : RunPipedProcess(request, stage, out failure);
@@ -327,6 +340,7 @@ namespace FilmGrainStudioPreview
                 }
                 if (!cancelRequested && exitCode == 0 && failure == null && request.ContinueAfterStages != null)
                 {
+                    request.ValidateSource();
                     previewOwners.Add(request);
                     BridgeExecutionRequest next = request.ContinueAfterStages(delegate { return cancelRequested; });
                     if (next == null) throw new InvalidOperationException("Preview preparation returned no request");
