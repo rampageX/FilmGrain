@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Drawing;
@@ -50,7 +50,14 @@ namespace FilmGrainStudioPreview
     }
     internal sealed class NativeLutGalleryForm : Form
     {
-        protected override void OnLoad(EventArgs e) { MainForm.AttachOwnedTheme(this, Owner, cards); base.OnLoad(e); }
+        protected override void OnLoad(EventArgs e)
+        {
+            MainForm.AttachOwnedTheme(this, Owner, cards);
+            base.OnLoad(e);
+            // Complete the synchronous initial gallery load before the first visible frame.
+            // Loading in Shown blocks pending child paints and exposes native white surfaces.
+            Reload();
+        }
         readonly string appRoot,ffmpeg,root,previews;
         List<LutGalleryEntry> all=new List<LutGalleryEntry>(),filtered=new List<LutGalleryEntry>();
         Dictionary<string,NativeLutClassification> classes=new Dictionary<string,NativeLutClassification>();
@@ -94,7 +101,6 @@ namespace FilmGrainStudioPreview
             };
             update.Click+=delegate{Build(false);};change.Click+=delegate{Build(true);};
             KeyDown+=delegate(object sender,KeyEventArgs e){if(e.KeyCode==Keys.Escape)Close();if(e.KeyCode==Keys.Enter&&selected!=null)Commit(selected);};
-            Shown+=delegate {Reload();};
         }
         void UpdateSmart(){smart.Text=smartEnabled?"智能过滤：开":"智能过滤";smart.BackColor=smartEnabled?Color.LightSteelBlue:SystemColors.Control;}
         void Reload()

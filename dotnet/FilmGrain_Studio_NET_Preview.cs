@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -106,8 +106,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.05";
-        internal const string FileReleaseVersion = "5.0.5.0";
+        internal const string ReleaseVersion = "5.0.06";
+        internal const string FileReleaseVersion = "5.0.6.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)

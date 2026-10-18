@@ -843,8 +843,17 @@ namespace FilmGrainStudioPreview
                 }
                 // Cover both native edge pixels; the old single outline left a bright inner rim.
                 // Confine this to the border, preserving the editable child and popup behavior.
-                using (Pen inner = new Pen(UiTheme.Input))
-                    if (ClientSize.Width > 3 && ClientSize.Height > 3) g.DrawRectangle(inner,1,1,ClientSize.Width-3,ClientSize.Height-3);
+                if (ClientSize.Width > 3 && ClientSize.Height > 3) {
+                    // Preserve DrawRectangle's inclusive right/bottom pixels without stroking.
+                    using (Brush inner = new SolidBrush(UiTheme.Input)) {
+                        g.FillRectangle(inner,1,1,ClientSize.Width-2,1);
+                        g.FillRectangle(inner,1,ClientSize.Height-2,ClientSize.Width-2,1);
+                        if (ClientSize.Height > 4) {
+                            g.FillRectangle(inner,1,2,1,ClientSize.Height-4);
+                            g.FillRectangle(inner,ClientSize.Width-2,2,1,ClientSize.Height-4);
+                        }
+                    }
+                }
                 Color edge = !Enabled ? UiTheme.Border : ContainsFocus || DroppedDown ? UiTheme.FieldFocusBorder : pointerOver ? UiTheme.FieldHoverBorder : UiTheme.Border;
                 using (Pen p = new Pen(edge)) g.DrawRectangle(p,0,0,Math.Max(0,ClientSize.Width-1),Math.Max(0,ClientSize.Height-1));
                 int x = arrow.Left+arrow.Width/2, y = arrow.Top+arrow.Height/2;
