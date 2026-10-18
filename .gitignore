@@ -5,7 +5,7 @@
 /Logs/
 /_OpenSVPFlow/_PluginBackup/
 /_Dependencies
-/Tests_Shared
+/_LUT_Tools/LUT_Reference_Current.jpg
 
 # Local runtime environments
 .env/
@@ -17,30 +17,6 @@
 /_OpenSVPFlow/_UserConfig/
 /FilmGrain_Studio.exe
 /dotnet/build/
-
-# Local delivery archives and audit manifests
-/FilmGrain_Studio_v*.zip
-/FilmGrain_Studio_v*.zip.sha256
-/PatchManifest_*.json
-/PATCH_MANIFEST_*.json
-/迁移与测试_*.md
-/测试说明_*.md
-/审查与改动_*.md
-/更新与测试_*.md
-/启动说明_NET_*.md
-
-# Local AV1/UI validation deliveries
-/Tests_Grain_R8G2VX/
-/Tests_AV1Speed_K8R5VN/
-/Tests_LogToolbar_R6P9TW/
-
-# Local baking test outputs and samples
-/Test_Bake_S1/Results_*/
-/Test_Bake_S1/Samples/*.mp4
-/Test_Bake_S1/Samples/*.mkv
-/Test_Bake_S1/Samples/*.webm
-/Test_Bake_S1/Samples/*.ivf
-/Test_Bake_S2/Results_*/
 
 /Utils/_HardwareCaps_Startup.json
 /Utils/_HardwareCaps_Startup.json.*.tmp

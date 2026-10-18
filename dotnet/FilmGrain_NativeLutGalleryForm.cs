@@ -48,7 +48,7 @@ namespace FilmGrainStudioPreview
             }
         }
     }
-    internal sealed class NativeLutGalleryForm : Form
+    internal sealed partial class NativeLutGalleryForm : Form, IMessageFilter
     {
         protected override void OnLoad(EventArgs e)
         {
@@ -58,6 +58,16 @@ namespace FilmGrainStudioPreview
             // Complete the synchronous initial gallery load before the first visible frame.
             // Loading in Shown blocks pending child paints and exposes native white surfaces.
             Reload();
+            if(!IgnoreGallerySize)try {
+                bool restore=new[]{"true","1","yes","on"}.Contains(new FgsConfig(appRoot,null).Get("LUT_GALLERY_FIXED").ToLowerInvariant());
+                if(restore && FitsFullPage())fixedView.Checked=true;
+            }catch(Exception ex){System.Diagnostics.Trace.WriteLine("Gallery lock restore: "+ex.Message);}
+        }
+        protected override void OnShown(EventArgs e)
+        {
+            base.OnShown(e);
+            if(!wheelFilterInstalled){Application.AddMessageFilter(this);wheelFilterInstalled=true;}
+            ValidateFixedSpace();
         }
         bool IgnoreGallerySize { get { return Environment.GetEnvironmentVariable("FGS_AUTOMATION")=="1"
             || Environment.GetEnvironmentVariable("FGS_NO_WINDOW_STATE")=="1"; } }
@@ -79,8 +89,9 @@ namespace FilmGrainStudioPreview
             if(!IgnoreGallerySize)try {
                 Size size=WindowState==FormWindowState.Normal?Size:RestoreBounds.Size;
                 if(size.Width>=MinimumSize.Width && size.Height>=MinimumSize.Height)
-                    new FgsConfig(appRoot,null).SaveValue("LUT_GALLERY_SIZE",size.Width+","+size.Height);
+                    new FgsConfig(appRoot,null).Save(new Dictionary<string,string>{{"LUT_GALLERY_SIZE",size.Width+","+size.Height},{"LUT_GALLERY_FIXED",fixedView.Checked?"true":"false"}});
             }catch(Exception ex){System.Diagnostics.Trace.WriteLine("Gallery size save: "+ex.Message);}
+            RemoveWheelFilter();
             base.OnFormClosed(e);
         }
         sealed class CardSlot
@@ -105,6 +116,10 @@ namespace FilmGrainStudioPreview
         readonly FlowLayoutPanel cards=new FlowLayoutPanel{Dock=DockStyle.Fill,AutoScroll=true,WrapContents=true};
         readonly Label status=new ThemeLabel{Dock=DockStyle.Fill,AutoEllipsis=true,TextAlign=ContentAlignment.MiddleLeft};
         readonly Button smart=new ThemeButton{Text="智能过滤",AutoSize=true};
+        readonly CheckBox fixedView=new ThemeCheckBox{Text="固定界面",AutoSize=true,Margin=new Padding(8,6,3,3)};
+        bool changingFixed,wheelFilterInstalled,wheelQueued;
+        int wheelRemainder,wheelDirection;
+        long lastWheelPage=-1;
         string mode="All";int page;bool updating,smartEnabled;LutGalleryEntry selected;
         const int PageSize=24;
         internal string SelectedLut {get;private set;}
@@ -121,6 +136,9 @@ namespace FilmGrainStudioPreview
                 string target=item[1];var b=new ThemeButton{Text=item[0],AutoSize=true};b.Click+=delegate{mode=target;Filter();};top.Controls.Add(b);
             }
             top.Controls.Add(new ThemeLabel{Text="文件夹：",AutoSize=true,Padding=new Padding(0,6,0,0)});top.Controls.Add(folders);
+            top.Controls.Add(fixedView);
+            fixedView.CheckedChanged+=delegate {ApplyFixedView();};
+            cards.SizeChanged+=delegate {ValidateFixedSpace();};
             layout.Controls.Add(cards,0,1);layout.Controls.Add(status,0,2);
             var bottom=new FlowLayoutPanel{Dock=DockStyle.Fill,WrapContents=true};layout.Controls.Add(bottom,0,3);
             var previous=new ThemeButton{Text="< 上一页",AutoSize=true};var next=new ThemeButton{Text="下一页 >",AutoSize=true};
@@ -128,8 +146,8 @@ namespace FilmGrainStudioPreview
             var change=new ThemeButton{Text="更换参考图",AutoSize=true};var update=new ThemeButton{Text="更新预览图",AutoSize=true};
             var use=new ThemeButton{Text="使用选中的 LUT",AutoSize=true};var none=new ThemeButton{Text="禁用 LUT",AutoSize=true};
             bottom.Controls.Add(change);bottom.Controls.Add(update);bottom.Controls.Add(use);bottom.Controls.Add(none);
-            previous.Click+=delegate{if(page>0){page--;RenderPage();}};next.Click+=delegate{if((page+1)*PageSize<filtered.Count){page++;RenderPage();}};
-            pages.SelectedIndexChanged+=delegate{if(!updating&&pages.SelectedIndex>=0){page=pages.SelectedIndex;RenderPage();}};
+            previous.Click+=delegate{TurnPage(-1);};next.Click+=delegate{TurnPage(1);};
+            pages.SelectedIndexChanged+=delegate{if(!updating&&pages.SelectedIndex>=0){wheelDirection=0;wheelRemainder=0;page=pages.SelectedIndex;selected=null;RenderPage();}};
             search.TextChanged+=delegate{if(!updating)Filter();};folders.SelectedIndexChanged+=delegate{if(!updating)Filter();};
             use.Click+=delegate{Commit(selected);};none.Click+=delegate{DisabledLut=true;DialogResult=DialogResult.OK;Close();};
             smart.Click+=delegate {
@@ -138,6 +156,83 @@ namespace FilmGrainStudioPreview
             };
             update.Click+=delegate{Build(false);};change.Click+=delegate{Build(true);};
             KeyDown+=delegate(object sender,KeyEventArgs e){if(e.KeyCode==Keys.Escape)Close();if(e.KeyCode==Keys.Enter&&selected!=null)Commit(selected);};
+        }
+        internal static int CyclicPage(int current,int count,int direction)
+        {
+            return count<=1?0:((current+(direction<0?-1:1))%count+count)%count;
+        }
+        void TurnPage(int direction)
+        {
+            wheelDirection=0;wheelRemainder=0;
+            int total=Math.Max(1,(filtered.Count+PageSize-1)/PageSize);
+            if(total<=1)return;
+            page=CyclicPage(page,total,direction);selected=null;RenderPage();
+        }
+        bool FitsFullPage()
+        {
+            // Test a complete page even when the current filter/last page has fewer entries.
+            int width=cardSlots.Count==0?264:cardSlots[0].Card.Width+cardSlots[0].Card.Margin.Horizontal;
+            int height=cardSlots.Count==0?200:cardSlots[0].Card.Height+cardSlots[0].Card.Margin.Vertical;
+            int usableWidth=cards.ClientSize.Width-cards.Padding.Horizontal;
+            int usableHeight=cards.ClientSize.Height-cards.Padding.Vertical;
+            int columns=width>0?usableWidth/width:0;
+            return columns>0 && usableHeight>=((PageSize+columns-1)/columns)*height
+                && !cards.HorizontalScroll.Visible && !cards.VerticalScroll.Visible;
+        }
+        void ApplyFixedView()
+        {
+            if(changingFixed)return;
+            if(fixedView.Checked && (WindowState!=FormWindowState.Normal || !FitsFullPage())) {
+                changingFixed=true;fixedView.Checked=false;changingFixed=false;
+                status.Text="请恢复普通窗口并扩大图库，确保每页 24 张缩略图完整显示后再固定。";return;
+            }
+            changingFixed=true;
+            try {
+                Size client=ClientSize;
+                cards.AutoScrollPosition=Point.Empty;cards.AutoScroll=!fixedView.Checked;
+                FormBorderStyle=fixedView.Checked?FormBorderStyle.FixedSingle:FormBorderStyle.Sizable;
+                MaximizeBox=!fixedView.Checked;ClientSize=client;
+                wheelDirection=0;wheelRemainder=0;lastWheelPage=-1;
+            }finally{changingFixed=false;}
+        }
+        void ValidateFixedSpace()
+        {
+            if(!changingFixed && fixedView.Checked && !FitsFullPage()) {
+                fixedView.Checked=false;
+                status.Text="可用空间不足，已解除固定；请调整窗口大小。";
+            }
+        }
+        public bool PreFilterMessage(ref Message message)
+        {
+            if(message.Msg!=0x020A || !fixedView.Checked || IsDisposed || !Visible || Form.ActiveForm!=this)return false;
+            // The wheel may target a focused search box while the pointer is over the cards.
+            Control target=Control.FromChildHandle(message.HWnd);
+            if(target==null || (target!=this && !Contains(target)))return false;
+            if(!cards.RectangleToScreen(cards.ClientRectangle).Contains(Cursor.Position) || folders.DroppedDown || pages.DroppedDown)return false;
+            QueueWheel(unchecked((short)((message.WParam.ToInt64()>>16)&0xffff)),System.Diagnostics.Stopwatch.GetTimestamp());
+            return true;
+        }
+        void QueueWheel(int delta,long stamp)
+        {
+            if(delta==0)return;
+            if(wheelRemainder!=0 && Math.Sign(wheelRemainder)!=Math.Sign(delta))wheelRemainder=0;
+            wheelRemainder+=delta;
+            if(Math.Abs(wheelRemainder)<120)return;
+            int direction=wheelRemainder<0?1:-1;wheelRemainder=0;
+            // Coalesce one wheel burst; no timer, worker or repeated queued callbacks.
+            if(lastWheelPage>=0 && (stamp-lastWheelPage)*1000.0/System.Diagnostics.Stopwatch.Frequency<180)return;
+            lastWheelPage=stamp;wheelDirection=direction;
+            if(wheelQueued)return;
+            wheelQueued=true;
+            BeginInvoke((MethodInvoker)delegate {
+                wheelQueued=false;int turn=wheelDirection;wheelDirection=0;
+                if(turn!=0 && !IsDisposed && Visible && fixedView.Checked)TurnPage(turn);
+            });
+        }
+        void RemoveWheelFilter()
+        {
+            if(wheelFilterInstalled){Application.RemoveMessageFilter(this);wheelFilterInstalled=false;}
+            wheelDirection=0;
         }
         void UpdateSmart(){smart.Text=smartEnabled?"智能过滤：开":"智能过滤";smart.BackColor=smartEnabled?Color.LightSteelBlue:SystemColors.Control;}
         void Reload()
@@ -173,7 +268,7 @@ namespace FilmGrainStudioPreview
             string folder=folders.SelectedIndex>0?Convert.ToString(folders.SelectedItem):"",q=search.Text.Trim();
             filtered=source.Where(x=> (folder.Length==0||x.Relative.StartsWith(folder+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase)) &&
                 (q.Length==0||(x.Name+" "+x.Relative).IndexOf(q,StringComparison.OrdinalIgnoreCase)>=0) && (!smartEnabled||!classes[x.LutPath].Technical)).ToList();
-            page=0;selected=null;RenderPage();
+            wheelDirection=0;wheelRemainder=0;page=0;selected=null;RenderPage();
         }
         void ClearCards()
         {
@@ -230,7 +325,7 @@ namespace FilmGrainStudioPreview
                 Image image=hidden.Picture.Image;hidden.Picture.Image=null;hidden.ImagePath=null;
                 if(image!=null)image.Dispose();
             }
-            cards.ResumeLayout(); status.Text="匹配 "+filtered.Count+" / 共 "+all.Count+"；双击缩略图使用 LUT"+(smartEnabled?"；隐藏纯功能 LUT，保留 Combined":"");
+            cards.ResumeLayout(); ValidateFixedSpace(); status.Text="匹配 "+filtered.Count+" / 共 "+all.Count+"；双击缩略图使用 LUT"+(smartEnabled?"；隐藏纯功能 LUT，保留 Combined":"");
         }
         Bitmap LoadThumbnail(string path)
         {
@@ -282,6 +377,7 @@ namespace FilmGrainStudioPreview
         }
         protected override void Dispose(bool disposing){
             if(disposing) {
+                RemoveWheelFilter();
                 ClearCards();
             }
             base.Dispose(disposing);
