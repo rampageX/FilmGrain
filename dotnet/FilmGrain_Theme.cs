@@ -5,7 +5,39 @@ using System.Windows.Forms;
 
 namespace FilmGrainStudioPreview
 {
-    // Round one: one instance owned by MainForm; no global events or image transforms.
+    // An independent icon per Form; no shared disposed Icon and no file handle retained.
+    internal static class UiWindowIcon
+    {
+        private static readonly Dictionary<Form, Icon> owned = new Dictionary<Form, Icon>();
+        internal static void Apply(Form window, string root)
+        {
+            if(window == null || window.IsDisposed || window.Disposing || owned.ContainsKey(window))return;
+            if(string.IsNullOrEmpty(root))root=AppDomain.CurrentDomain.BaseDirectory;
+            Icon icon=null;
+            try {
+                string[] candidates={System.IO.Path.Combine(root,"Utils","FGS.ico"),System.IO.Path.Combine(root,"images","FGS.ico"),
+                    System.IO.Path.Combine(root,"..","Utils","FGS.ico")};
+                foreach(string path in candidates) {
+                    if(!System.IO.File.Exists(path))continue;
+                    try {using(Icon source=new Icon(path)){icon=(Icon)source.Clone();}break;}catch { }
+                }
+                if(icon==null) {
+                    string executable=System.Reflection.Assembly.GetExecutingAssembly().Location;
+                    using(Icon source=Icon.ExtractAssociatedIcon(executable))if(source!=null)icon=(Icon)source.Clone();
+                }
+                if(icon==null)return;
+                window.Icon=icon;window.ShowIcon=true;
+                owned.Add(window,icon);window.Disposed+=Release;
+            } catch {if(icon!=null)icon.Dispose();}
+        }
+        private static void Release(object sender,EventArgs e)
+        {
+            Form window=(Form)sender;Icon icon;
+            if(!owned.TryGetValue(window,out icon))return;
+            window.Disposed-=Release;owned.Remove(window);icon.Dispose();
+        }
+    }
+    // One engine per registered form; images are never transformed.
     internal sealed class UiTheme : IDisposable
     {
         internal static readonly Color Surface = Color.FromArgb(37, 38, 40);
@@ -56,6 +88,8 @@ namespace FilmGrainStudioPreview
             internal ToolStripRenderer Renderer;
             internal bool OwnerDraw, GridLines;
             internal BorderStyle TextBorder;
+            internal bool PageVisual;
+            internal Color Link, ActiveLink, VisitedLink, DisabledLink;
         }
         internal static Color Foreground(Color value)
         {
@@ -85,10 +119,16 @@ namespace FilmGrainStudioPreview
         }
         private void Register(Control c)
         {
-            if (c is PictureBox || controls.ContainsKey(c)) return;
+            if (c is PictureBox || c is ThemeColorButton || controls.ContainsKey(c)) return;
+            Form window = c as Form;
+            if (window != null) UiWindowIcon.Apply(window, null);
             Snapshot s = new Snapshot(); s.Back = LocalColor(c, "BackColor"); s.Fore = LocalColor(c, "ForeColor");
             Button b = c as Button;
             if (b != null) { s.Flat = b.FlatStyle; s.Visual = b.UseVisualStyleBackColor; s.Edge = b.FlatAppearance.BorderColor; s.Hover = b.FlatAppearance.MouseOverBackColor; s.Down = b.FlatAppearance.MouseDownBackColor; }
+            TabPage page = c as TabPage;
+            if (page != null) s.PageVisual = page.UseVisualStyleBackColor;
+            LinkLabel link = c as LinkLabel;
+            if (link != null) { s.Link=link.LinkColor; s.ActiveLink=link.ActiveLinkColor; s.VisitedLink=link.VisitedLinkColor; s.DisabledLink=link.DisabledLinkColor; }
             MaskedTextBox masked = c as MaskedTextBox;
             if (masked != null) s.TextBorder = masked.BorderStyle;
             ComboBox combo = c as ComboBox;
@@ -102,25 +142,59 @@ namespace FilmGrainStudioPreview
             c.ForeColorChanged += ForeChanged;
             c.BackColorChanged += BackChanged;
             c.ControlAdded += Added;
+            c.ContextMenuStripChanged += ContextMenuChanged;
             c.Disposed += Removed;
             ToolStrip strip = c as ToolStrip;
-            if (strip != null) { s.Renderer = strip.Renderer; foreach (ToolStripItem i in strip.Items) RegisterItem(i); }
+            if (strip != null) { s.Renderer = strip.Renderer; strip.ItemAdded += StripItemAdded; foreach (ToolStripItem i in strip.Items) RegisterItem(i); }
+            if (c.ContextMenuStrip != null) Register(c.ContextMenuStrip);
             foreach (Control child in c.Controls) Register(child);
+        }
+        private void StripItemAdded(object sender, ToolStripItemEventArgs e)
+        {
+            RegisterItem(e.Item);
+        }
+        private void ContextMenuChanged(object sender, EventArgs e)
+        {
+            Control control = (Control)sender;
+            ContextMenuStrip menu = control.ContextMenuStrip;
+            if (control.IsDisposed || menu == null || menu.IsDisposed) return;
+            Register(menu); ApplyBranch(menu);
+        }
+        private static Color LocalItemFore(ToolStripItem item)
+        {
+            System.ComponentModel.PropertyDescriptor descriptor = System.ComponentModel.TypeDescriptor.GetProperties(item)["ForeColor"];
+            return descriptor != null && descriptor.ShouldSerializeValue(item) ? item.ForeColor : Color.Empty;
         }
         private void RegisterItem(ToolStripItem i)
         {
             if (items.ContainsKey(i)) return;
-            items.Add(i, i.ForeColor); i.ForeColorChanged += ItemForeChanged;
+            items.Add(i, LocalItemFore(i)); i.ForeColorChanged += ItemForeChanged; i.Disposed += ItemDisposed;
             ToolStripDropDownItem d = i as ToolStripDropDownItem;
             if (d != null) foreach (ToolStripItem child in d.DropDownItems) RegisterItem(child);
+            if (dark) PaintItem(i);
+        }
+        private void ItemDisposed(object sender, EventArgs e)
+        {
+            ToolStripItem item = (ToolStripItem)sender;
+            item.ForeColorChanged -= ItemForeChanged; item.Disposed -= ItemDisposed; items.Remove(item);
         }
         private void PaintControl(Control c)
         {
             Snapshot s = controls[c]; bool previousApplying = applying; applying = true;
             try {
                 bool field = c is TextBoxBase || c is ComboBox || c is NumericUpDown || c is ListView || c is ListBox;
-                c.BackColor = dark ? (field || c is Button ? Input : Surface) : s.Back;
+                bool selectedCard = c is ThemeSelectionPanel && s.Back.ToArgb() == Color.LightSteelBlue.ToArgb();
+                c.BackColor = dark ? (selectedCard ? Color.FromArgb(35,78,66) : field || c is Button ? Input : Surface) : s.Back;
                 c.ForeColor = dark ? Foreground(s.Fore) : s.Fore;
+                TabPage page = c as TabPage;
+                if (page != null) page.UseVisualStyleBackColor = dark ? false : s.PageVisual;
+                LinkLabel link = c as LinkLabel;
+                if (link != null) {
+                    link.LinkColor = dark ? Color.FromArgb(109,219,154) : s.Link;
+                    link.ActiveLinkColor = dark ? TextColor : s.ActiveLink;
+                    link.VisitedLinkColor = dark ? Color.FromArgb(182,167,218) : s.VisitedLink;
+                    link.DisabledLinkColor = dark ? Muted : s.DisabledLink;
+                }
                 MaskedTextBox masked = c as MaskedTextBox;
                 if (masked != null) masked.BorderStyle = dark ? BorderStyle.FixedSingle : s.TextBorder;
                 IThemeSurface custom = c as IThemeSurface;
@@ -134,7 +208,7 @@ namespace FilmGrainStudioPreview
                     b.FlatAppearance.BorderColor = dark ? Border : s.Edge;
                     b.FlatAppearance.MouseOverBackColor = dark ? Color.FromArgb(53, 56, 60) : s.Hover;
                     b.FlatAppearance.MouseDownBackColor = dark ? Color.FromArgb(35, 78, 66) : s.Down;
-                    if (dark && (s.Back.R > s.Back.G * 1.5 || s.Back.B > s.Back.R * 1.5)) { b.BackColor = s.Back.R > s.Back.G * 1.5 ? s.Back : Accent; b.ForeColor = Color.White; if (s.Back.B > s.Back.R * 1.5) { b.FlatAppearance.MouseOverBackColor = Color.FromArgb(0,170,126); b.FlatAppearance.MouseDownBackColor = Color.FromArgb(0,123,90); } }
+                    if (dark && (s.Back.R > s.Back.G * 1.5 || s.Back.B > s.Back.R * 1.5 || s.Back.ToArgb() == Color.LightSteelBlue.ToArgb())) { b.BackColor = s.Back.R > s.Back.G * 1.5 ? s.Back : Accent; b.ForeColor = Color.White; if (s.Back.B > s.Back.R * 1.5 || s.Back.ToArgb() == Color.LightSteelBlue.ToArgb()) { b.FlatAppearance.MouseOverBackColor = Color.FromArgb(0,170,126); b.FlatAppearance.MouseDownBackColor = Color.FromArgb(0,123,90); } }
                 }
                 ComboBox combo = c as ComboBox;
                 if (combo != null && s.Draw == DrawMode.Normal && combo.DropDownStyle == ComboBoxStyle.DropDownList) combo.DrawMode = dark ? DrawMode.OwnerDrawFixed : s.Draw;
@@ -145,11 +219,14 @@ namespace FilmGrainStudioPreview
         private void PaintItem(ToolStripItem i) { bool previousApplying = applying; applying = true; try { i.ForeColor = dark ? Foreground(items[i]) : items[i]; } finally { applying = previousApplying; } }
         private void ForeChanged(object sender, EventArgs e) { if (applying) return; Control c = (Control)sender; if (LocalColor(c, "ForeColor").IsEmpty) return; controls[c].Fore = c.ForeColor; PaintControl(c); }
         private void BackChanged(object sender, EventArgs e) { if (applying) return; Control c = (Control)sender; if (LocalColor(c, "BackColor").IsEmpty) return; controls[c].Back = c.BackColor; PaintControl(c); }
-        private void ItemForeChanged(object sender, EventArgs e) { if (applying) return; ToolStripItem i = (ToolStripItem)sender; items[i] = i.ForeColor; PaintItem(i); }
+        private void ItemForeChanged(object sender, EventArgs e) { if (applying) return; ToolStripItem i = (ToolStripItem)sender; items[i] = LocalItemFore(i); PaintItem(i); }
         private void Added(object sender, ControlEventArgs e)
         {
             Register(e.Control);
-            if (dark) ApplyBranch(e.Control);
+            if (dark) {
+                ApplyBranch(e.Control);
+                if(e.Control.ContextMenuStrip != null) ApplyBranch(e.Control.ContextMenuStrip);
+            }
         }
         private void ApplyBranch(Control root)
         {
@@ -161,10 +238,11 @@ namespace FilmGrainStudioPreview
         private void Unregister(Control c)
         {
             Snapshot s; if (!controls.TryGetValue(c, out s)) return;
-            c.ForeColorChanged -= ForeChanged; c.BackColorChanged -= BackChanged; c.ControlAdded -= Added; c.Disposed -= Removed;
+            c.ForeColorChanged -= ForeChanged; c.BackColorChanged -= BackChanged; c.ControlAdded -= Added; c.ContextMenuStripChanged -= ContextMenuChanged; c.Disposed -= Removed;
             ComboBox combo = c as ComboBox; if (combo != null && s.Draw == DrawMode.Normal) combo.DrawItem -= DrawCombo;
             ListView list = c as ListView;
             if (list != null && !s.OwnerDraw) { list.DrawColumnHeader -= DrawHeader; list.DrawItem -= DrawListItem; list.DrawSubItem -= DrawSubItem; }
+            ToolStrip strip = c as ToolStrip; if (strip != null) strip.ItemAdded -= StripItemAdded;
             controls.Remove(c);
         }
         private void DrawCombo(object sender, DrawItemEventArgs e)
@@ -212,7 +290,7 @@ namespace FilmGrainStudioPreview
         {
             foreach (Control c in new List<Control>(nativeScrollControls)) RemoveNativeScrollbars(c);
             foreach (Control c in new List<Control>(controls.Keys)) Unregister(c);
-            foreach (ToolStripItem i in items.Keys) i.ForeColorChanged -= ItemForeChanged;
+            foreach (ToolStripItem i in new List<ToolStripItem>(items.Keys)) ItemDisposed(i, EventArgs.Empty);
             items.Clear();
         }
         private sealed class ThemeTable : ProfessionalColorTable
@@ -231,6 +309,84 @@ namespace FilmGrainStudioPreview
         private UiTheme uiTheme;
         private ToolStripButton themeButton;
         private bool selectedDarkTheme;
+        private string selectedThemeMode = "SYSTEM";
+        private bool themeClosing, systemThemeSubscribed;
+        private ContextMenuStrip themeModes;
+        private readonly Dictionary<Form, UiTheme> themedWindows = new Dictionary<Form, UiTheme>();
+        internal static string NormalizeThemeMode(string value)
+        {
+            return string.Equals(value, "DARK", StringComparison.OrdinalIgnoreCase) ? "DARK" :
+                string.Equals(value, "LIGHT", StringComparison.OrdinalIgnoreCase) ? "LIGHT" : "SYSTEM";
+        }
+        internal static bool ReadSystemDarkTheme()
+        {
+            try {
+                using (Microsoft.Win32.RegistryKey key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
+                    @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize")) {
+                    object value = key == null ? null : key.GetValue("AppsUseLightTheme");
+                    return value is int && (int)value == 0;
+                }
+            } catch { return false; } // Stable LIGHT fallback; never prevents startup.
+        }
+        // Resolve through the actual modal owner chain, including setup -> tool task.
+        internal static void AttachOwnedTheme(Form window, IWin32Window owner, Control nativeScroll = null)
+        {
+            Form current = owner as Form;
+            HashSet<Form> visited = new HashSet<Form>();
+            while (current != null && !current.IsDisposed && visited.Add(current)) {
+                MainForm main = current as MainForm;
+                if (main != null) { main.AttachThemeWindow(window, nativeScroll); return; }
+                current = current.Owner;
+            }
+        }
+        private void AttachThemeWindow(Form window, Control nativeScroll = null)
+        {
+            if (themeClosing || window.IsDisposed || themedWindows.ContainsKey(window)) return;
+            UiTheme engine = new UiTheme();
+            if (nativeScroll != null) engine.EnableNativeScrollbars(nativeScroll);
+            themedWindows.Add(window, engine);
+            window.Disposed += ThemeWindowDisposed;
+            engine.Apply(window, selectedDarkTheme);
+        }
+        private void ThemeWindowDisposed(object sender, EventArgs e)
+        {
+            Form window = (Form)sender; UiTheme engine;
+            if (!themedWindows.TryGetValue(window, out engine)) return;
+            window.Disposed -= ThemeWindowDisposed;
+            themedWindows.Remove(window); engine.Dispose();
+        }
+        private void ApplySelectedTheme()
+        {
+            if (themeClosing || IsDisposed || Disposing) return;
+            bool dark = selectedThemeMode == "DARK" || (selectedThemeMode == "SYSTEM" && ReadSystemDarkTheme());
+            uiTheme.Apply(this, dark);
+            foreach (var pair in new List<KeyValuePair<Form, UiTheme>>(themedWindows))
+                if (!pair.Key.IsDisposed && !pair.Key.Disposing) pair.Value.Apply(pair.Key, dark);
+            UpdateThemeMenu(dark);
+            if (themeModes != null) uiTheme.Apply(themeModes, dark);
+        }
+        private void SystemThemeChanged(object sender, Microsoft.Win32.UserPreferenceChangedEventArgs e)
+        {
+            // Always marshal: SystemEvents may run on a worker thread. Mode is checked on UI thread.
+            try {
+                if (themeClosing || IsDisposed || Disposing || !IsHandleCreated) return;
+                BeginInvoke((MethodInvoker)delegate {
+                    if (!themeClosing && !IsDisposed && selectedThemeMode == "SYSTEM") ApplySelectedTheme();
+                });
+            } catch (InvalidOperationException) { }
+        }
+        private void ReleaseThemeResources(object sender, EventArgs e)
+        {
+            if (themeClosing) return;
+            themeClosing = true;
+            if (systemThemeSubscribed) {
+                Microsoft.Win32.SystemEvents.UserPreferenceChanged -= SystemThemeChanged;
+                systemThemeSubscribed = false;
+            }
+            foreach (Form window in new List<Form>(themedWindows.Keys)) ThemeWindowDisposed(window, EventArgs.Empty);
+            uiTheme.Dispose();
+            themeButton.Image = null; themeModes.Dispose(); sunThemeIcon.Dispose(); moonThemeIcon.Dispose();
+        }
         private Bitmap sunThemeIcon, moonThemeIcon;
         private static Bitmap CreateThemeIcon(bool sun)
         {
@@ -265,29 +421,55 @@ namespace FilmGrainStudioPreview
             themeButton.AutoToolTip = false;
             themeButton.Click += delegate { SelectTheme(!selectedDarkTheme); };
             strip.Items.Add(themeButton);
+            themeModes = new ContextMenuStrip();
+            string[] modes = { "SYSTEM", "LIGHT", "DARK" };
+            string[] labels = { UiText("跟随系统", "Follow system"), UiText("浅色", "Light"), UiText("暗色", "Dark") };
+            for (int i = 0; i < modes.Length; i++) {
+                string mode = modes[i];
+                ToolStripMenuItem item = new ToolStripMenuItem(labels[i]); item.Tag = mode;
+                item.Click += delegate { SelectThemeMode(mode); }; themeModes.Items.Add(item);
+            }
+            themeButton.MouseUp += delegate(object sender, MouseEventArgs e) {
+                if (e.Button == MouseButtons.Right) themeModes.Show(Cursor.Position);
+            };
         }
         private void InitializeTheme()
         {
             uiTheme = new UiTheme();
             uiTheme.EnableNativeScrollbars(listFiles);
             uiTheme.EnableNativeScrollbars(log);
-            bool dark = string.Equals(config.Get("UI_THEME"), "DARK", StringComparison.OrdinalIgnoreCase);
-            uiTheme.Apply(this, dark); UpdateThemeMenu(dark);
-            FormClosed += delegate { uiTheme.Dispose(); themeButton.Image = null; sunThemeIcon.Dispose(); moonThemeIcon.Dispose(); };
+            selectedThemeMode = NormalizeThemeMode(config.Get("UI_THEME"));
+            ApplySelectedTheme();
+            try {
+                Microsoft.Win32.SystemEvents.UserPreferenceChanged += SystemThemeChanged;
+                systemThemeSubscribed = true;
+            } catch { systemThemeSubscribed = false; }
+            // Re-read after subscription to close the startup read/subscribe gap.
+            ApplySelectedTheme();
+            HandleCreated += delegate { if (!themeClosing && uiTheme != null) ApplySelectedTheme(); };
+            Disposed += ReleaseThemeResources;
         }
         private void UpdateThemeMenu(bool dark)
         {
             selectedDarkTheme = dark;
             themeButton.Image = dark ? sunThemeIcon : moonThemeIcon;
             themeButton.Text = dark ? UiText("切换为浅色", "Switch to light") : UiText("切换为暗色", "Switch to dark");
-            themeButton.ToolTipText = themeButton.Text;
+            themeButton.ToolTipText = themeButton.Text + UiText("；右键选择模式。当前：", "; right-click for mode. Current: ") +
+                selectedThemeMode + (dark ? " / Dark" : " / Light") +
+                (selectedThemeMode == "SYSTEM" && !systemThemeSubscribed ? UiText("（系统监听不可用，仅启动读取）", " (system listener unavailable; startup read only)") : "");
+            foreach (ToolStripMenuItem item in themeModes.Items) item.Checked = (string)item.Tag == selectedThemeMode;
             themeButton.AccessibleName = themeButton.Text;
         }
         private void SelectTheme(bool dark)
         {
-            try { config.SaveValue("UI_THEME", dark ? "DARK" : "LIGHT"); }
+            SelectThemeMode(dark ? "DARK" : "LIGHT");
+        }
+        private void SelectThemeMode(string mode)
+        {
+            mode = NormalizeThemeMode(mode);
+            try { config.SaveValue("UI_THEME", mode); }
             catch (Exception ex) { MessageBox.Show(this, ex.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
-            uiTheme.Apply(this, dark); UpdateThemeMenu(dark);
+            selectedThemeMode = mode; ApplySelectedTheme();
         }
     }
 }
@@ -330,6 +512,182 @@ namespace FilmGrainStudioPreview
             return f;
         }
     }
+    // Managed paint of the entire tab surface, retaining native tab layout and input.
+    // No post-WM_PAINT overlay: the framework routes painting here in dark mode.
+    internal sealed class ThemeTabControl : TabControl, IThemeSurface
+    {
+        private bool dark, oldUserPaint, oldAllPaint, oldBuffered;
+        private TabDrawMode originalDrawMode;
+        public bool DarkTheme
+        {
+            get { return dark; }
+            set {
+                if (dark == value) return;
+                if (value) {
+                    originalDrawMode = DrawMode;
+                    oldUserPaint = GetStyle(ControlStyles.UserPaint);
+                    oldAllPaint = GetStyle(ControlStyles.AllPaintingInWmPaint);
+                    oldBuffered = GetStyle(ControlStyles.OptimizedDoubleBuffer);
+                }
+                dark = value;
+                DrawMode = dark ? TabDrawMode.OwnerDrawFixed : originalDrawMode;
+                SetStyle(ControlStyles.UserPaint, dark || oldUserPaint);
+                SetStyle(ControlStyles.AllPaintingInWmPaint, dark || oldAllPaint);
+                SetStyle(ControlStyles.OptimizedDoubleBuffer, dark || oldBuffered);
+                UpdateStyles(); Invalidate(true);
+            }
+        }
+        protected override void OnPaintBackground(PaintEventArgs e)
+        {
+            if (!dark) { base.OnPaintBackground(e); return; }
+            using (Brush brush = new SolidBrush(UiTheme.Surface)) e.Graphics.FillRectangle(brush,ClientRectangle);
+        }
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            if (!dark) { base.OnPaint(e); return; }
+            if (IsDisposed || Disposing) return;
+            Rectangle body = DisplayRectangle; body.Inflate(2,2);
+            using (Pen pen = new Pen(UiTheme.Border))
+                e.Graphics.DrawRectangle(pen,body.X,body.Y,Math.Max(0,body.Width-1),Math.Max(0,body.Height-1));
+            for (int i=0; i<TabCount; i++) DrawHeader(e.Graphics,i,GetTabRect(i));
+        }
+        private void DrawHeader(Graphics graphics,int index,Rectangle bounds)
+        {
+            if (IsDisposed || Disposing || index < 0 || index >= TabPages.Count || bounds.Width <= 0 || bounds.Height <= 0) return;
+            bool selected = index == SelectedIndex;
+            using (Brush brush = new SolidBrush(selected ? UiTheme.Input : UiTheme.Surface)) graphics.FillRectangle(brush,bounds);
+            using (Pen pen = new Pen(selected ? UiTheme.FieldFocusBorder : UiTheme.Border))
+                graphics.DrawRectangle(pen,bounds.X,bounds.Y,Math.Max(0,bounds.Width-1),Math.Max(0,bounds.Height-1));
+            ThemeDrawing.DrawText(graphics,TabPages[index].Text,Font,Rectangle.Inflate(bounds,-3,-2),
+                Enabled && TabPages[index].Enabled ? UiTheme.TextColor : UiTheme.Muted,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+            if (selected && Focused && ShowFocusCues)
+                ControlPaint.DrawFocusRectangle(graphics,Rectangle.Inflate(bounds,-3,-3),UiTheme.TextColor,UiTheme.Input);
+        }
+        protected override void OnDrawItem(DrawItemEventArgs e)
+        {
+            if (!dark) { base.OnDrawItem(e); return; }
+            DrawHeader(e.Graphics,e.Index,e.Bounds);
+        }
+        protected override void OnSelectedIndexChanged(EventArgs e) { base.OnSelectedIndexChanged(e); if(dark) Invalidate(); }
+        protected override void OnGotFocus(EventArgs e) { base.OnGotFocus(e); if(dark) Invalidate(); }
+        protected override void OnLostFocus(EventArgs e) { base.OnLostFocus(e); if(dark) Invalidate(); }
+    }
+    // Single-line fields only. Keep the native edit/caret/selection, recolor its NC border.
+    // Never attach this border painter to multi-line logs or scrollbar controls.
+    internal sealed class ThemeTextBox : TextBox, IThemeSurface
+    {
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern IntPtr GetWindowDC(IntPtr window);
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern int ReleaseDC(IntPtr window, IntPtr dc);
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool RedrawWindow(IntPtr window, IntPtr rect, IntPtr region, uint flags);
+        private bool dark, hover;
+        private BorderStyle originalBorder;
+        public bool DarkTheme
+        {
+            get { return dark; }
+            set {
+                if (dark == value) return;
+                if (value) originalBorder = BorderStyle;
+                dark = value;
+                // Keep native edit metrics: no border-style or height change for dark mode.
+                if (!dark) BorderStyle = originalBorder;
+                RefreshBorder();
+            }
+        }
+        private void RefreshBorder()
+        {
+            if (IsDisposed || Disposing || !IsHandleCreated) return;
+            Invalidate();
+            try { RedrawWindow(Handle,IntPtr.Zero,IntPtr.Zero,0x401); }
+            catch (DllNotFoundException) { }
+            catch (EntryPointNotFoundException) { }
+        }
+        protected override void WndProc(ref Message m)
+        {
+            base.WndProc(ref m);
+            if (!dark || Multiline || BorderStyle == BorderStyle.None || IsDisposed || Disposing || !IsHandleCreated ||
+                (m.Msg != 0x85 && m.Msg != 0xF)) return;
+            IntPtr dc = IntPtr.Zero;
+            try {
+                dc=GetWindowDC(Handle);
+                if(dc==IntPtr.Zero)return;
+                using(Graphics g=Graphics.FromHdc(dc))
+                using(Pen pen=new Pen(!Enabled ? UiTheme.Border : Focused ? UiTheme.FieldFocusBorder : hover ? UiTheme.FieldHoverBorder : UiTheme.Border)) {
+                    g.DrawRectangle(pen,0,0,Math.Max(0,Width-1),Math.Max(0,Height-1));
+                    if(BorderStyle==BorderStyle.Fixed3D) {
+                        using(Pen inner=new Pen(UiTheme.Input))
+                            g.DrawRectangle(inner,1,1,Math.Max(0,Width-3),Math.Max(0,Height-3));
+                    }
+                }
+            } catch (DllNotFoundException) { }
+              catch (EntryPointNotFoundException) { }
+            finally { if(dc!=IntPtr.Zero)ReleaseDC(Handle,dc); }
+        }
+        protected override void OnMouseEnter(EventArgs e) { base.OnMouseEnter(e); hover=true; RefreshBorder(); }
+        protected override void OnMouseLeave(EventArgs e) { base.OnMouseLeave(e); hover=false; RefreshBorder(); }
+        protected override void OnGotFocus(EventArgs e) { base.OnGotFocus(e); RefreshBorder(); }
+        protected override void OnLostFocus(EventArgs e) { base.OnLostFocus(e); RefreshBorder(); }
+        protected override void OnEnabledChanged(EventArgs e) { base.OnEnabledChanged(e); RefreshBorder(); }
+    }
+    // Paint a client-area frame; never paint over native scrollbars or the RichEdit NC area.
+    internal sealed class ThemeLogFrame : Panel, IThemeSurface
+    {
+        private readonly RichTextBox edit;
+        private readonly BorderStyle originalBorder;
+        private bool dark;
+        internal ThemeLogFrame(RichTextBox control)
+        {
+            edit=control; originalBorder=control.BorderStyle;
+            Dock=DockStyle.Fill; Margin=Padding.Empty;
+            Controls.Add(control);
+        }
+        public bool DarkTheme
+        {
+            get { return dark; }
+            set {
+                if(dark==value)return;
+                dark=value;
+                Padding=dark ? new Padding(1) : Padding.Empty;
+                edit.BorderStyle=dark ? BorderStyle.None : originalBorder;
+                Invalidate();
+            }
+        }
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            if(!dark || IsDisposed || Disposing)return;
+            using(Pen pen=new Pen(UiTheme.Border))
+                e.Graphics.DrawRectangle(pen,0,0,Math.Max(0,ClientSize.Width-1),Math.Max(0,ClientSize.Height-1));
+        }
+    }
+    // Gallery UI only: preserve LightSteelBlue selection semantics through palette snapshots.
+    internal sealed class ThemeSelectionPanel : Panel, IThemeSurface
+    {
+        private bool dark;
+        private BorderStyle originalBorder;
+        public bool DarkTheme
+        {
+            get { return dark; }
+            set {
+                if(dark==value)return;
+                if(value)originalBorder=BorderStyle;
+                dark=value;BorderStyle=dark?BorderStyle.None:originalBorder;Invalidate();
+            }
+        }
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            if(!dark || IsDisposed || Disposing)return;
+            using(Pen pen=new Pen(BackColor.ToArgb()==Color.FromArgb(35,78,66).ToArgb()?UiTheme.FieldFocusBorder:UiTheme.Border))
+                e.Graphics.DrawRectangle(pen,0,0,Math.Max(0,ClientSize.Width-1),Math.Max(0,ClientSize.Height-1));
+        }
+    }
+    // Semantic color swatch: its BackColor is data read by ColorDialog and subtitle state.
+    // Keep native rendering and all explicit colors outside palette remapping.
+    internal sealed class ThemeColorButton : Button { }
     internal sealed class ThemeLabel : Label, IThemeSurface
     {
         public ThemeLabel() { SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true); }

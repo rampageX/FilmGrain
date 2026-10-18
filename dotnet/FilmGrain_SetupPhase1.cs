@@ -40,11 +40,11 @@ namespace FilmGrainStudioPreview
                 form.Text = test ? "设置测试模式 - 首次运行设置" : "Film Grain Studio - 首次运行设置";
                 form.Width = 1020; form.Height = 495; form.StartPosition = FormStartPosition.CenterParent;
                 form.FormBorderStyle = FormBorderStyle.FixedDialog; form.MaximizeBox = false;
-                Label header = new Label { Left = 20, Top = 15, Width = 975, Height = 52, Text = test ? "测试模式：初次扫描模拟缺失。指定路径或刷新后进行真实验证。\r\n测试模式禁止安装；配置只保存在本次运行的临时 INI。" : "优先复用现有工具；下载的新工具放在 FGS\\_Dependencies。OpenSVPFlow 插帧可选。\r\n下载与安装请在复制出的完整 FGS 目录中测试；成功后窗口自动关闭。" };
+                Label header = new ThemeLabel { Left = 20, Top = 15, Width = 975, Height = 52, Text = test ? "测试模式：初次扫描模拟缺失。指定路径或刷新后进行真实验证。\r\n测试模式禁止安装；配置只保存在本次运行的临时 INI。" : "优先复用现有工具；下载的新工具放在 FGS\\_Dependencies。OpenSVPFlow 插帧可选。\r\n下载与安装请在复制出的完整 FGS 目录中测试；成功后窗口自动关闭。" };
                 form.Controls.Add(header);
-                Label ff = new Label { Left = 20, Top = 78, Width = 460, Height = 44 };
-                Label grav = new Label { Left = 20, Top = 140, Width = 460, Height = 44 };
-                Label svp = new Label { Left = 20, Top = 203, Width = 460, Height = 55 };
+                Label ff = new ThemeLabel { Left = 20, Top = 78, Width = 460, Height = 44 };
+                Label grav = new ThemeLabel { Left = 20, Top = 140, Width = 460, Height = 44 };
+                Label svp = new ThemeLabel { Left = 20, Top = 203, Width = 460, Height = 55 };
                 form.Controls.Add(ff); form.Controls.Add(grav); form.Controls.Add(svp);
                 string ffLocal = Path.Combine(root, "_Dependencies", "FFmpeg");
                 string gravLocal = Path.Combine(root, "_Dependencies", "Grav1synth", "grav1synth.exe");
@@ -60,9 +60,9 @@ namespace FilmGrainStudioPreview
                 string ffPath = FfmpegOnPath();
                 string configuredProxy = c.Get("NETWORK_PROXY_MODE").Equals("CUSTOM", StringComparison.OrdinalIgnoreCase) ? c.Get("NETWORK_PROXY_URL") : "";
                 if (configuredProxy.Length == 0) configuredProxy = Environment.GetEnvironmentVariable("FGS_SETUP_PROXY") ?? Environment.GetEnvironmentVariable("HTTPS_PROXY") ?? Environment.GetEnvironmentVariable("https_proxy") ?? "";
-                Label proxyLabel = new Label { Left = 20, Top = 312, Width = 470, Height = 22, Text = "FGS 网络代理（可选；留空使用系统设置）：" };
-                TextBox proxyInput = new TextBox { Left = 500, Top = 308, Width = 470, Text = configuredProxy };
-                CheckBox useSystemPython = new CheckBox { Left = 500, Top = 268, Width = 470, Height = 29, Text = "使用系统 Python（需 3.12+、能创建 venv；默认不使用）", Checked = false };
+                Label proxyLabel = new ThemeLabel { Left = 20, Top = 312, Width = 470, Height = 22, Text = "FGS 网络代理（可选；留空使用系统设置）：" };
+                TextBox proxyInput = new ThemeTextBox { Left = 500, Top = 308, Width = 470, Text = configuredProxy };
+                CheckBox useSystemPython = new ThemeCheckBox { Left = 500, Top = 268, Width = 470, Height = 29, Text = "使用系统 Python（需 3.12+、能创建 venv；默认不使用）", Checked = false };
                 form.Controls.Add(proxyLabel); form.Controls.Add(proxyInput); form.Controls.Add(useSystemPython);
                 bool installing = false;
                 Action<string> saveProxy = delegate(string value) {
@@ -104,27 +104,27 @@ namespace FilmGrainStudioPreview
                     finally{installing=false;header.Text="优先复用已有依赖；下载的新工具位于 _Dependencies。安装过程使用 .NET，不启动 PowerShell。";}
 
                 };
-                Button ffChoose = new Button { Left = 500, Top = 86, Width = 150, Text = "指定 FFmpeg 目录" };
+                Button ffChoose = new ThemeButton { Left = 500, Top = 86, Width = 150, Text = "指定 FFmpeg 目录" };
                 ffChoose.Click += delegate { using (FolderBrowserDialog dlg = new FolderBrowserDialog()) { if (dlg.ShowDialog(form) == DialogResult.OK) { simulatedFf = false; if (Exists(Path.Combine(dlg.SelectedPath, "ffmpeg.exe")) && Exists(Path.Combine(dlg.SelectedPath, "ffprobe.exe"))) c.SaveValue("FFMPEG_DIR", dlg.SelectedPath); else MessageBox.Show(form, "须同时包含 ffmpeg.exe 和 ffprobe.exe。"); refresh(); } } };
-                Button ffPathChoice = new Button { Left = 660, Top = 86, Width = 150, Text = ffPath.Length > 0 ? "使用 PATH 中的" : "PATH 未发现", Enabled = ffPath.Length > 0 };
+                Button ffPathChoice = new ThemeButton { Left = 660, Top = 86, Width = 150, Text = ffPath.Length > 0 ? "使用 PATH 中的" : "PATH 未发现", Enabled = ffPath.Length > 0 };
                 ffPathChoice.Click += delegate { if (ffPath.Length > 0) { c.SaveValue("FFMPEG_DIR", ffPath); simulatedFf = false; refresh(); } };
-                Button ffInstall = new Button { Left = 820, Top = 86, Width = 150, Text = "下载并安装 Full" };
+                Button ffInstall = new ThemeButton { Left = 820, Top = 86, Width = 150, Text = "下载并安装 Full" };
                 ffInstall.Click += delegate { install("FFmpeg"); };
-                Button gravChoose = new Button { Left = 500, Top = 148, Width = 150, Text = "指定 grav1synth" };
+                Button gravChoose = new ThemeButton { Left = 500, Top = 148, Width = 150, Text = "指定 grav1synth" };
                 gravChoose.Click += delegate { using (OpenFileDialog dlg = new OpenFileDialog { Filter = "grav1synth.exe|grav1synth.exe", CheckFileExists = true }) { if (dlg.ShowDialog(form) == DialogResult.OK) { simulatedGrav = false; if (string.Equals(Path.GetFileName(dlg.FileName), "grav1synth.exe", StringComparison.OrdinalIgnoreCase)) c.SaveValue("GRAV1SYNTH", dlg.FileName); refresh(); } } };
-                Button gravInstall = new Button { Left = 820, Top = 148, Width = 150, Text = "下载并安装" };
+                Button gravInstall = new ThemeButton { Left = 820, Top = 148, Width = 150, Text = "下载并安装" };
                 gravInstall.Click += delegate { install("Grav1synth"); };
-                Button svpInstall = new Button { Left = 820, Top = 209, Width = 150, Text = "安装可选插帧" };
+                Button svpInstall = new ThemeButton { Left = 820, Top = 209, Width = 150, Text = "安装可选插帧" };
                 svpInstall.Click += delegate { install("OpenSVPFlow"); };
-                Button refreshButton = new Button { Left = 660, Top = 209, Width = 150, Text = "刷新检测" };
+                Button refreshButton = new ThemeButton { Left = 660, Top = 209, Width = 150, Text = "刷新检测" };
                 refreshButton.Click += delegate { simulatedFf = false; simulatedGrav = false; simulatedSvp = false; refresh(); };
-                Button done = new Button { Left = 675, Top = 382, Width = 145, Text = "保存并继续" };
+                Button done = new ThemeButton { Left = 675, Top = 382, Width = 145, Text = "保存并继续" };
                 done.Click += delegate { if (installing) { MessageBox.Show(form, "请等待安装结束。"); return; } try { saveProxy(proxyInput.Text); } catch (Exception ex) { MessageBox.Show(form, ex.Message); return; } if (!Ffmpeg(c)) MessageBox.Show(form, "FFmpeg / ffprobe 尚未就绪，编码功能暂不可用。"); else if (!test) c.SaveValue("SETUP_VERSION", Version); form.Close(); };
-                Button later = new Button { Left = 830, Top = 382, Width = 140, Text = "稍后设置" };
+                Button later = new ThemeButton { Left = 830, Top = 382, Width = 140, Text = "稍后设置" };
                 later.Click += delegate { form.Close(); };
                 form.Controls.Add(ffChoose); form.Controls.Add(ffPathChoice); form.Controls.Add(ffInstall); form.Controls.Add(gravChoose); form.Controls.Add(gravInstall);
                 form.Controls.Add(svpInstall); form.Controls.Add(refreshButton); form.Controls.Add(done); form.Controls.Add(later);
-                refresh(); form.ShowDialog(owner);
+                refresh(); MainForm.AttachOwnedTheme(form, owner); form.ShowDialog(owner);
             }
         }
     }

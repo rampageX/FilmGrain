@@ -106,8 +106,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.04";
-        internal const string FileReleaseVersion = "5.0.4.0";
+        internal const string ReleaseVersion = "5.0.05";
+        internal const string FileReleaseVersion = "5.0.5.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -1565,12 +1565,7 @@ namespace FilmGrainStudioPreview
 
         private void TryLoadIcon()
         {
-            string path = Path.Combine(appRoot, "Utils", "FGS.ico");
-            if (!File.Exists(path)) path = Path.Combine(appRoot, "images", "FGS.ico");
-            if (File.Exists(path))
-            {
-                try { Icon = new Icon(path); } catch { }
-            }
+            UiWindowIcon.Apply(this, appRoot);
         }
 
         private void AddFilesWithDialog()

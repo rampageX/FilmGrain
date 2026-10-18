@@ -17,9 +17,9 @@ namespace FilmGrainStudioPreview
                 dialog.Text=title;dialog.Size=new Size(880,580);dialog.MinimumSize=new Size(680,420);dialog.StartPosition=FormStartPosition.CenterParent;
                 var layout=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=3};
                 layout.RowStyles.Add(new RowStyle(SizeType.Absolute,40));layout.RowStyles.Add(new RowStyle(SizeType.Percent,100));layout.RowStyles.Add(new RowStyle(SizeType.Absolute,45));dialog.Controls.Add(layout);
-                var phase=new Label{Dock=DockStyle.Fill,Text="准备执行…",AutoEllipsis=true,TextAlign=ContentAlignment.MiddleLeft};layout.Controls.Add(phase,0,0);
-                var log=new RichTextBox{Dock=DockStyle.Fill,ReadOnly=true,WordWrap=false,Font=new Font("Consolas",9)};layout.Controls.Add(log,0,1);
-                var button=new Button{Text="取消",Width=110,Dock=DockStyle.Right};layout.Controls.Add(button,0,2);
+                var phase=new ThemeLabel{Dock=DockStyle.Fill,Text="准备执行…",AutoEllipsis=true,TextAlign=ContentAlignment.MiddleLeft};layout.Controls.Add(phase,0,0);
+                var log=new RichTextBox{Dock=DockStyle.Fill,ReadOnly=true,WordWrap=false,Font=new Font("Consolas",9)};var logFrame=new ThemeLogFrame(log){Margin=log.Margin};layout.Controls.Add(logFrame,0,1);
+                var button=new ThemeButton{Text="取消",Width=110,Dock=DockStyle.Right};layout.Controls.Add(button,0,2);
                 var lines=new ConcurrentQueue<string>();bool finished=false;LibraryToolResult result=null;Thread worker=null;
                 Action requestCancel=delegate {if(finished){dialog.Close();return;} if(cancel.IsCancellationRequested)return;
                     if(MessageBox.Show(dialog,"取消当前工具任务？已完成的文件会保留。",title,MessageBoxButtons.YesNo,MessageBoxIcon.Question)!=DialogResult.Yes)return;
@@ -43,22 +43,24 @@ namespace FilmGrainStudioPreview
                         catch(Exception ex){result=new LibraryToolResult{Failed=1};lines.Enqueue("失败："+ex.Message);}
                     });worker.IsBackground=true;worker.Name="FGS Native Library Utility";worker.Start();timer.Start();
                 };
+                MainForm.AttachOwnedTheme(dialog, owner, log);
                 dialog.ShowDialog(owner);timer.Stop();return result??new LibraryToolResult{Cancelled=true};
             }
         }
     }
     internal sealed class NativeLutGalleryForm : Form
     {
+        protected override void OnLoad(EventArgs e) { MainForm.AttachOwnedTheme(this, Owner, cards); base.OnLoad(e); }
         readonly string appRoot,ffmpeg,root,previews;
         List<LutGalleryEntry> all=new List<LutGalleryEntry>(),filtered=new List<LutGalleryEntry>();
         Dictionary<string,NativeLutClassification> classes=new Dictionary<string,NativeLutClassification>();
         HashSet<string> favorites=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        readonly TextBox search=new TextBox{Width=220};
-        readonly ComboBox folders=new ComboBox{Width=250,DropDownStyle=ComboBoxStyle.DropDownList};
-        readonly ComboBox pages=new ComboBox{Width=90,DropDownStyle=ComboBoxStyle.DropDownList};
+        readonly TextBox search=new ThemeTextBox{Width=220};
+        readonly ComboBox folders=new ThemeComboBox{Width=250,DropDownStyle=ComboBoxStyle.DropDownList};
+        readonly ComboBox pages=new ThemeComboBox{Width=90,DropDownStyle=ComboBoxStyle.DropDownList};
         readonly FlowLayoutPanel cards=new FlowLayoutPanel{Dock=DockStyle.Fill,AutoScroll=true,WrapContents=true};
-        readonly Label status=new Label{Dock=DockStyle.Fill,AutoEllipsis=true,TextAlign=ContentAlignment.MiddleLeft};
-        readonly Button smart=new Button{Text="智能过滤",AutoSize=true};
+        readonly Label status=new ThemeLabel{Dock=DockStyle.Fill,AutoEllipsis=true,TextAlign=ContentAlignment.MiddleLeft};
+        readonly Button smart=new ThemeButton{Text="智能过滤",AutoSize=true};
         string mode="All";int page;bool updating,smartEnabled;LutGalleryEntry selected;
         const int PageSize=24;
         internal string SelectedLut {get;private set;}
@@ -70,17 +72,17 @@ namespace FilmGrainStudioPreview
             var layout=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=4};Controls.Add(layout);
             layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));layout.RowStyles.Add(new RowStyle(SizeType.Percent,100));layout.RowStyles.Add(new RowStyle(SizeType.Absolute,28));layout.RowStyles.Add(new RowStyle(SizeType.Absolute,40));
             var top=new FlowLayoutPanel{Dock=DockStyle.Fill,WrapContents=true,AutoSize=true,AutoSizeMode=AutoSizeMode.GrowAndShrink};layout.Controls.Add(top,0,0);
-            top.Controls.Add(new Label{Text="搜索：",AutoSize=true,Padding=new Padding(0,6,0,0)});top.Controls.Add(search);
+            top.Controls.Add(new ThemeLabel{Text="搜索：",AutoSize=true,Padding=new Padding(0,6,0,0)});top.Controls.Add(search);
             foreach(var item in new[]{new[]{"全部 LUT","All"},new[]{"最近使用","Recent"},new[]{"我的最爱","Favorites"}}) {
-                string target=item[1];var b=new Button{Text=item[0],AutoSize=true};b.Click+=delegate{mode=target;Filter();};top.Controls.Add(b);
+                string target=item[1];var b=new ThemeButton{Text=item[0],AutoSize=true};b.Click+=delegate{mode=target;Filter();};top.Controls.Add(b);
             }
-            top.Controls.Add(new Label{Text="文件夹：",AutoSize=true,Padding=new Padding(0,6,0,0)});top.Controls.Add(folders);
+            top.Controls.Add(new ThemeLabel{Text="文件夹：",AutoSize=true,Padding=new Padding(0,6,0,0)});top.Controls.Add(folders);
             layout.Controls.Add(cards,0,1);layout.Controls.Add(status,0,2);
             var bottom=new FlowLayoutPanel{Dock=DockStyle.Fill,WrapContents=true};layout.Controls.Add(bottom,0,3);
-            var previous=new Button{Text="< 上一页",AutoSize=true};var next=new Button{Text="下一页 >",AutoSize=true};
+            var previous=new ThemeButton{Text="< 上一页",AutoSize=true};var next=new ThemeButton{Text="下一页 >",AutoSize=true};
             bottom.Controls.Add(previous);bottom.Controls.Add(pages);bottom.Controls.Add(next);bottom.Controls.Add(smart);
-            var change=new Button{Text="更换参考图",AutoSize=true};var update=new Button{Text="更新预览图",AutoSize=true};
-            var use=new Button{Text="使用选中的 LUT",AutoSize=true};var none=new Button{Text="禁用 LUT",AutoSize=true};
+            var change=new ThemeButton{Text="更换参考图",AutoSize=true};var update=new ThemeButton{Text="更新预览图",AutoSize=true};
+            var use=new ThemeButton{Text="使用选中的 LUT",AutoSize=true};var none=new ThemeButton{Text="禁用 LUT",AutoSize=true};
             bottom.Controls.Add(change);bottom.Controls.Add(update);bottom.Controls.Add(use);bottom.Controls.Add(none);
             previous.Click+=delegate{if(page>0){page--;RenderPage();}};next.Click+=delegate{if((page+1)*PageSize<filtered.Count){page++;RenderPage();}};
             pages.SelectedIndexChanged+=delegate{if(!updating&&pages.SelectedIndex>=0){page=pages.SelectedIndex;RenderPage();}};
@@ -139,11 +141,11 @@ namespace FilmGrainStudioPreview
             cards.SuspendLayout();ClearCards();int total=Math.Max(1,(filtered.Count+PageSize-1)/PageSize);page=Math.Max(0,Math.Min(page,total-1));updating=true;
             pages.Items.Clear();for(int n=1;n<=total;n++)pages.Items.Add(n+" / "+total);pages.SelectedIndex=page;updating=false;
             foreach(var e in filtered.Skip(page*PageSize).Take(PageSize)) {
-                var card=new Panel{Width=254,Height=190,Margin=new Padding(5),BorderStyle=BorderStyle.FixedSingle};
+                var card=new ThemeSelectionPanel{Width=254,Height=190,Margin=new Padding(5),BorderStyle=BorderStyle.FixedSingle};
                 var pic=new PictureBox{Width=240,Height=135,Left=6,Top=4,SizeMode=PictureBoxSizeMode.Zoom};
                 try {pic.Image=LoadThumbnail(e.PreviewPath);}catch { }
-                var name=new Label{Text=e.Name,Left=6,Top=144,Width=204,Height=36,AutoEllipsis=true};
-                var fav=new Button{Text=favorites.Contains(NativeLutRecords.Key(e.LutPath))?"★":"☆",Left=215,Top=143,Width=31,Height=30};
+                var name=new ThemeLabel{Text=e.Name,Left=6,Top=144,Width=204,Height=36,AutoEllipsis=true};
+                var fav=new ThemeButton{Text=favorites.Contains(NativeLutRecords.Key(e.LutPath))?"★":"☆",Left=215,Top=143,Width=31,Height=30};
                 var tip=new ToolTip();tip.SetToolTip(name,e.Relative);card.Disposed+=delegate{tip.Dispose();};
                 Action choose=delegate{selected=e;status.Text=e.Relative;foreach(Control c in cards.Controls)c.BackColor=c==card?Color.LightSteelBlue:SystemColors.Control;};
                 pic.Click+=delegate{choose();};name.Click+=delegate{choose();};card.Click+=delegate{choose();};

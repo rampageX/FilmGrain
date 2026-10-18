@@ -27,8 +27,10 @@ namespace FilmGrainStudioPreview
         public int LutStrength = 75;
     }
 
-    internal sealed class NativeColorCorrectionForm : Form
+    internal sealed class NativeColorCorrectionForm : Form, IThemeSurface
     {
+        public bool DarkTheme { get; set; }
+        protected override void OnLoad(EventArgs e) { MainForm.AttachOwnedTheme(this, Owner); base.OnLoad(e); }
         private sealed class AdjustmentControl
         {
             public TrackBar Track;
@@ -292,19 +294,19 @@ namespace FilmGrainStudioPreview
             timelinePanel.MouseLeave += TimelineMouseLeave;
             Controls.Add(timelinePanel);
 
-            timeLabel = new Label();
+            timeLabel = new ThemeLabel();
             timeLabel.Location = new Point(14, timeLabelY);
             timeLabel.Size = new Size(previewWidth, 24);
             timeLabel.TextAlign = ContentAlignment.MiddleCenter;
             Controls.Add(timeLabel);
 
-            GroupBox group = new GroupBox();
+            GroupBox group = new ThemeGroupBox();
             group.Text = S("调整参数", "Adjustments");
             group.Location = new Point(rightX, 14);
             group.Size = new Size(278, 480);
             Controls.Add(group);
 
-            checkEnable = new CheckBox();
+            checkEnable = new ThemeCheckBox();
             checkEnable.Text = S("启用色彩纠正", "Enable color correction");
             checkEnable.Location = new Point(18, 30);
             checkEnable.Size = new Size(230, 24);
@@ -321,7 +323,7 @@ namespace FilmGrainStudioPreview
             AddAdjustment(group, "Saturation", S("饱和度", "Saturation"), 0, 300, saturation, 1.0, y); y += 70;
             AddAdjustment(group, "Gamma", "Gamma", 1, 300, gamma, 1.0, y);
 
-            checkBlackWhite = new CheckBox();
+            checkBlackWhite = new ThemeCheckBox();
             checkBlackWhite.Text = S("黑白模式", "Black and white mode");
             checkBlackWhite.Location = new Point(18, 344);
             checkBlackWhite.Size = new Size(230, 24);
@@ -338,7 +340,7 @@ namespace FilmGrainStudioPreview
             };
             group.Controls.Add(checkBlackWhite);
 
-            Button reset = new Button();
+            Button reset = new ThemeButton();
             reset.Text = S("恢复默认", "Reset");
             reset.Location = new Point(18, 438);
             reset.Size = new Size(100, 28);
@@ -360,7 +362,7 @@ namespace FilmGrainStudioPreview
             };
             group.Controls.Add(reset);
 
-            originalButton = new Button();
+            originalButton = new ThemeButton();
             originalButton.Text = S("按住查看原图", "Hold for original");
             originalButton.Location = new Point(130, 438);
             originalButton.Size = new Size(130, 28);
@@ -384,14 +386,14 @@ namespace FilmGrainStudioPreview
             };
             group.Controls.Add(originalButton);
 
-            openLutGallery = new Button();
+            openLutGallery = new ThemeButton();
             openLutGallery.Text = S("打开 LUT 图库…", "Open LUT Gallery…");
             openLutGallery.Location = new Point(14, lutRowY);
             openLutGallery.Size = new Size(120, 26);
             openLutGallery.Click += delegate { OpenLutGalleryAsync(); };
             Controls.Add(openLutGallery);
 
-            checkLut = new CheckBox();
+            checkLut = new ThemeCheckBox();
             checkLut.Text = S("预览当前 LUT", "Preview current LUT");
             checkLut.Location = new Point(142, lutRowY);
             checkLut.Size = new Size(140, 24);
@@ -403,7 +405,7 @@ namespace FilmGrainStudioPreview
             };
             Controls.Add(checkLut);
 
-            lutLabel = new Label();
+            lutLabel = new ThemeLabel();
             lutLabel.Location = new Point(286, lutRowY);
             lutLabel.Size = new Size(previewWidth - 272, 24);
             lutLabel.AutoEllipsis = true;
@@ -411,14 +413,14 @@ namespace FilmGrainStudioPreview
             Controls.Add(lutLabel);
 
             int strengthY = lutRowY + 25;
-            lutStrengthTitle = new Label();
+            lutStrengthTitle = new ThemeLabel();
             lutStrengthTitle.Text = S("LUT 强度", "LUT Strength");
             lutStrengthTitle.Location = new Point(14, strengthY);
             lutStrengthTitle.Size = new Size(82, 34);
             lutStrengthTitle.TextAlign = ContentAlignment.MiddleLeft;
             Controls.Add(lutStrengthTitle);
 
-            lutStrengthTrack = new TrackBar();
+            lutStrengthTrack = new ThemeTrackBar();
             lutStrengthTrack.Minimum = 0;
             lutStrengthTrack.Maximum = 3;
             lutStrengthTrack.Value = lutStrength == 25 ? 0 : (lutStrength == 50 ? 1 : (lutStrength == 100 ? 3 : 2));
@@ -428,19 +430,19 @@ namespace FilmGrainStudioPreview
             lutStrengthTrack.ValueChanged += delegate { UpdateLutUi(); RequestRender(false); };
             Controls.Add(lutStrengthTrack);
 
-            lutStrengthLabel = new Label();
+            lutStrengthLabel = new ThemeLabel();
             lutStrengthLabel.Location = new Point(previewWidth - 54, strengthY);
             lutStrengthLabel.Size = new Size(68, 34);
             lutStrengthLabel.TextAlign = ContentAlignment.MiddleCenter;
             Controls.Add(lutStrengthLabel);
 
-            status = new Label();
+            status = new ThemeLabel();
             status.Location = new Point(rightX, 510);
             status.Size = new Size(278, 110);
             status.TextAlign = ContentAlignment.TopLeft;
             Controls.Add(status);
 
-            Button ok = new Button();
+            Button ok = new ThemeButton();
             ok.Text = S("确定", "OK");
             ok.Location = new Point(dialogWidth - 214, buttonY);
             ok.Size = new Size(96, 32);
@@ -462,7 +464,7 @@ namespace FilmGrainStudioPreview
             };
             Controls.Add(ok);
 
-            Button cancel = new Button();
+            Button cancel = new ThemeButton();
             cancel.Text = S("取消", "Cancel");
             cancel.Location = new Point(dialogWidth - 110, buttonY);
             cancel.Size = new Size(96, 32);
@@ -494,14 +496,14 @@ namespace FilmGrainStudioPreview
 
         private void AddAdjustment(Control parent, string key, string caption, int min, int max, double value, double defaultValue, int y)
         {
-            Label label = new Label();
+            Label label = new ThemeLabel();
             label.Text = caption;
             label.Location = new Point(14, y);
             label.Size = new Size(80, 22);
             label.TextAlign = ContentAlignment.MiddleLeft;
             parent.Controls.Add(label);
 
-            TrackBar track = new TrackBar();
+            TrackBar track = new ThemeTrackBar();
             track.Minimum = min;
             track.Maximum = max;
             track.Value = Math.Max(min, Math.Min(max, (int)Math.Round(value * 100.0)));
@@ -512,7 +514,7 @@ namespace FilmGrainStudioPreview
             track.Size = new Size(120, 35);
             parent.Controls.Add(track);
 
-            NumericUpDown number = new NumericUpDown();
+            NumericUpDown number = new ThemeNumericUpDown();
             number.DecimalPlaces = 2;
             number.Increment = 0.01M;
             number.Minimum = (decimal)min / 100M;
@@ -612,9 +614,9 @@ namespace FilmGrainStudioPreview
             int right = Math.Max(left + 1, timelinePanel.ClientSize.Width - 10);
             int y = timelinePanel.ClientSize.Height / 2;
             int thumbX = left + (int)Math.Round((right - left) * ((double)timelineValue / 10000.0));
-            using (Pen rail = new Pen(Color.FromArgb(175, 180, 188), 4F))
-            using (Pen fill = new Pen(Color.FromArgb(35, 120, 220), 4F))
-            using (SolidBrush brush = new SolidBrush(Color.FromArgb(35, 120, 220)))
+            using (Pen rail = new Pen(DarkTheme ? UiTheme.Border : Color.FromArgb(175, 180, 188), 4F))
+            using (Pen fill = new Pen(DarkTheme ? UiTheme.Accent : Color.FromArgb(35, 120, 220), 4F))
+            using (SolidBrush brush = new SolidBrush(DarkTheme ? UiTheme.Accent : Color.FromArgb(35, 120, 220)))
             {
                 rail.StartCap = System.Drawing.Drawing2D.LineCap.Round;
                 rail.EndCap = System.Drawing.Drawing2D.LineCap.Round;

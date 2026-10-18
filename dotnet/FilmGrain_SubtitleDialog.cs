@@ -60,7 +60,7 @@ namespace FilmGrainStudioPreview
                 table.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
                 table.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
                 dialog.Controls.Add(table);
-                ComboBox source = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill, DropDownWidth = 500 };
+                ComboBox source = new ThemeComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill, DropDownWidth = 500 };
                 List<SubtitleChoice> choices = new List<SubtitleChoice>();
                 Action<string, int, string, string, string> add = (mode, index, path, label, display) =>
                 {
@@ -96,34 +96,34 @@ namespace FilmGrainStudioPreview
                 source.SelectedIndex = desired;
                 Action<int, string, Control, int> row = (index, key, control, span) =>
                 {
-                    Label label = new Label { Text = lang.T(key), Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Margin = new Padding(4, 3, 3, 3) };
+                    Label label = new ThemeLabel { Text = lang.T(key), Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Margin = new Padding(4, 3, 3, 3) };
                     table.Controls.Add(label, 0, index);
                     control.Dock = DockStyle.Fill;
                     table.Controls.Add(control, 1, index);
                     if (span == 2) table.SetColumnSpan(control, 2);
                 };
                 row(0, "subtitle.source", source, 1);
-                Button browse = new Button { Text = lang.T("config.browse"), Dock = DockStyle.Fill, Margin = new Padding(3, 4, 3, 4) };
+                Button browse = new ThemeButton { Text = lang.T("config.browse"), Dock = DockStyle.Fill, Margin = new Padding(3, 4, 3, 4) };
                 table.Controls.Add(browse, 2, 0);
-                TextBox font = new TextBox { Text = subtitleState.FontName, Margin = new Padding(4, 6, 3, 5) };
+                TextBox font = new ThemeTextBox { Text = subtitleState.FontName, Margin = new Padding(4, 6, 3, 5) };
                 row(1, "subtitle.font", font, 2);
-                NumericUpDown size = new NumericUpDown { Minimum = 6, Maximum = 200, Value = subtitleState.FontSize };
+                NumericUpDown size = new ThemeNumericUpDown { Minimum = 6, Maximum = 200, Value = subtitleState.FontSize };
                 row(2, "subtitle.size", size, 2);
-                Button primary = new Button(); SetSubtitleColor(primary, subtitleState.PrimaryHex);
+                Button primary = new ThemeColorButton(); SetSubtitleColor(primary, subtitleState.PrimaryHex);
                 row(3, "subtitle.primary_color", primary, 2);
-                Button border = new Button(); SetSubtitleColor(border, subtitleState.BorderHex);
+                Button border = new ThemeColorButton(); SetSubtitleColor(border, subtitleState.BorderHex);
                 row(4, "subtitle.border_color", border, 2);
-                NumericUpDown outline = new NumericUpDown { DecimalPlaces = 1, Increment = .5m, Minimum = 0, Maximum = 10, Value = subtitleState.Outline };
+                NumericUpDown outline = new ThemeNumericUpDown { DecimalPlaces = 1, Increment = .5m, Minimum = 0, Maximum = 10, Value = subtitleState.Outline };
                 row(5, "subtitle.outline", outline, 2);
-                NumericUpDown shadow = new NumericUpDown { DecimalPlaces = 1, Increment = .5m, Minimum = 0, Maximum = 10, Value = subtitleState.Shadow };
+                NumericUpDown shadow = new ThemeNumericUpDown { DecimalPlaces = 1, Increment = .5m, Minimum = 0, Maximum = 10, Value = subtitleState.Shadow };
                 row(6, "subtitle.shadow", shadow, 2);
-                NumericUpDown margin = new NumericUpDown { Minimum = 0, Maximum = 300, Value = subtitleState.MarginV };
+                NumericUpDown margin = new ThemeNumericUpDown { Minimum = 0, Maximum = 300, Value = subtitleState.MarginV };
                 row(7, "subtitle.margin_bottom", margin, 2);
-                Label note = new Label { Dock = DockStyle.Fill, Text = lang.T("subtitle.note"), ForeColor = Color.FromArgb(100, 107, 116), Padding = new Padding(4, 6, 4, 0) };
+                Label note = new ThemeLabel { Dock = DockStyle.Fill, Text = lang.T("subtitle.note"), ForeColor = Color.FromArgb(100, 107, 116), Padding = new Padding(4, 6, 4, 0) };
                 table.Controls.Add(note, 0, 8); table.SetColumnSpan(note, 3);
                 FlowLayoutPanel buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft, WrapContents = false };
-                Button ok = new Button { Text = lang.T("advanced.ok"), Width = 82, DialogResult = DialogResult.OK };
-                Button cancel = new Button { Text = lang.T("advanced.cancel"), Width = 82, DialogResult = DialogResult.Cancel };
+                Button ok = new ThemeButton { Text = lang.T("advanced.ok"), Width = 82, DialogResult = DialogResult.OK };
+                Button cancel = new ThemeButton { Text = lang.T("advanced.cancel"), Width = 82, DialogResult = DialogResult.Cancel };
                 buttons.Controls.Add(ok); buttons.Controls.Add(cancel);
                 table.Controls.Add(buttons, 0, 9); table.SetColumnSpan(buttons, 3);
                 dialog.AcceptButton = ok; dialog.CancelButton = cancel;
@@ -146,6 +146,7 @@ namespace FilmGrainStudioPreview
                             source.SelectedIndex = source.Items.Count - 1;
                         }
                     };
+                    AttachThemeWindow(dialog);
                     if (dialog.ShowDialog(this) != DialogResult.OK) return;
                 }
                 SubtitleChoice selected = choices[source.SelectedIndex];

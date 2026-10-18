@@ -12,6 +12,7 @@ namespace FilmGrainStudioPreview
 {
     internal sealed class NativeGrainPreviewForm : Form
     {
+        protected override void OnLoad(EventArgs e) { MainForm.AttachOwnedTheme(this, Owner); base.OnLoad(e); }
         private readonly string ffmpeg, grav1synth, source;
         private readonly List<string> grainArgs;
         private readonly MediaProbeInfo info;
@@ -25,14 +26,14 @@ namespace FilmGrainStudioPreview
         private readonly PictureBox[] panes = { new PictureBox(), new PictureBox(), new PictureBox(), new PictureBox() };
         private readonly List<string>[] variants = { new List<string>(), new List<string>(), new List<string>(), new List<string>() };
         private readonly int[] strengths = {25,50,75,100};
-        private readonly Button[] choose = {new Button(),new Button(),new Button(),new Button()};
-        private readonly Label status = new Label();
-        private readonly TrackBar frame = new TrackBar();
+        private readonly Button[] choose = {new ThemeButton(),new ThemeButton(),new ThemeButton(),new ThemeButton()};
+        private readonly Label status = new ThemeLabel();
+        private readonly TrackBar frame = new ThemeTrackBar();
         private readonly List<string> cleanFrames = new List<string>();
         private readonly System.Windows.Forms.Timer playback = new System.Windows.Forms.Timer();
-        private readonly Button play = new Button(), render = new Button();
-        private readonly CheckBox actualSize = new CheckBox(), skipBlack = new CheckBox(), showClean = new CheckBox();
-        private readonly TextBox start = new TextBox();
+        private readonly Button play = new ThemeButton(), render = new ThemeButton();
+        private readonly CheckBox actualSize = new ThemeCheckBox(), skipBlack = new ThemeCheckBox(), showClean = new ThemeCheckBox();
+        private readonly TextBox start = new ThemeTextBox();
         private readonly NativeSeekStrip timeline = new NativeSeekStrip();
         private volatile bool running;
         internal int SelectedStrength { get; private set; }
@@ -66,7 +67,7 @@ namespace FilmGrainStudioPreview
             actualSize.Checked=true;
             skipBlack.Text="跳过黑帧 / Skip black";skipBlack.Checked=true;skipBlack.AutoSize=true;
             showClean.Text="查看原图 / Clean";showClean.AutoSize=true;showClean.Enabled=false;showClean.CheckedChanged+=delegate {ShowFrame();};
-            bar.Controls.Add(new Label {Text="起始 / Start",AutoSize=true,Padding=new Padding(0,7,0,0)});bar.Controls.Add(start);bar.Controls.Add(render);bar.Controls.Add(play);bar.Controls.Add(frame);bar.Controls.Add(actualSize);bar.Controls.Add(skipBlack);bar.Controls.Add(showClean);
+            bar.Controls.Add(new ThemeLabel {Text="起始 / Start",AutoSize=true,Padding=new Padding(0,7,0,0)});bar.Controls.Add(start);bar.Controls.Add(render);bar.Controls.Add(play);bar.Controls.Add(frame);bar.Controls.Add(actualSize);bar.Controls.Add(skipBlack);bar.Controls.Add(showClean);
             double sourceDuration;double.TryParse(info.Duration,NumberStyles.Float,CultureInfo.InvariantCulture,out sourceDuration);
             timeline.Duration=Math.Min(359999,Math.Max(0,sourceDuration));timeline.Dock=DockStyle.Fill;
             timeline.PositionChanged+=delegate {start.Text=NativeSeekStrip.FormatTime(timeline.Position);};
@@ -324,8 +325,9 @@ namespace FilmGrainStudioPreview
         private void Cleanup() { try { if (Directory.Exists(temporary)) Directory.Delete(temporary, true); } catch { } }
     }
     // Same painted rail/filled thumb technique as the color window; commits once on mouse-up.
-    internal sealed class NativeSeekStrip : Panel
+    internal sealed class NativeSeekStrip : Panel, IThemeSurface
     {
+        public bool DarkTheme { get; set; }
         internal event EventHandler PositionChanged;
         internal event EventHandler SeekCommitted;
         internal double Duration;
@@ -337,8 +339,8 @@ namespace FilmGrainStudioPreview
         {
             base.OnPaint(e);int left=9,right=Math.Max(10,Width-10),y=Height/2;
             int x=left+(int)Math.Round((right-left)*(Duration>0?Position/Duration:0));
-            Color color=Enabled?Color.FromArgb(35,120,220):SystemColors.GrayText;
-            using(var rail=new Pen(Color.FromArgb(175,180,188),4))using(var fill=new Pen(color,4))using(var brush=new SolidBrush(color))
+            Color color=Enabled?(DarkTheme?UiTheme.Accent:Color.FromArgb(35,120,220)):(DarkTheme?UiTheme.Muted:SystemColors.GrayText);
+            using(var rail=new Pen(DarkTheme?UiTheme.Border:Color.FromArgb(175,180,188),4))using(var fill=new Pen(color,4))using(var brush=new SolidBrush(color))
             {e.Graphics.SmoothingMode=System.Drawing.Drawing2D.SmoothingMode.AntiAlias;rail.StartCap=rail.EndCap=fill.StartCap=fill.EndCap=System.Drawing.Drawing2D.LineCap.Round;e.Graphics.DrawLine(rail,left,y,right,y);e.Graphics.DrawLine(fill,left,y,x,y);e.Graphics.FillEllipse(brush,x-7,y-7,14,14);}
         }
         private void Seek(int x){Position=Duration*Math.Max(0,Math.Min(1,(x-9.0)/Math.Max(1,Width-19)));}
@@ -368,14 +370,15 @@ namespace FilmGrainStudioPreview
 
     internal sealed class NativeCinematicCropForm : Form
     {
+        protected override void OnLoad(EventArgs e) { MainForm.AttachOwnedTheme(this, Owner); base.OnLoad(e); }
         private readonly string ffmpeg,input;
         private readonly MediaProbeInfo media;
         private readonly PictureBox picture=new PictureBox();
         private readonly NativeSeekStrip timeline=new NativeSeekStrip();
-        private readonly TextBox time=new TextBox();
-        private readonly NumericUpDown crop=new NumericUpDown(),horizontal=new NumericUpDown();
-        private readonly ComboBox mode=new ComboBox();
-        private readonly Label status=new Label(),geometry=new Label();
+        private readonly TextBox time=new ThemeTextBox();
+        private readonly NumericUpDown crop=new ThemeNumericUpDown(),horizontal=new ThemeNumericUpDown();
+        private readonly ComboBox mode=new ThemeComboBox();
+        private readonly Label status=new ThemeLabel(),geometry=new ThemeLabel();
         private readonly System.Windows.Forms.Timer debounce=new System.Windows.Forms.Timer();
         private readonly object processSync=new object();
         private readonly string temporary=Path.Combine(Path.GetTempPath(),"FGS_Crop_"+Guid.NewGuid().ToString("N"));
@@ -407,17 +410,17 @@ namespace FilmGrainStudioPreview
             double duration;double.TryParse(info.Duration,NumberStyles.Float,CultureInfo.InvariantCulture,out duration);timeline.Duration=Math.Min(359999,Math.Max(0,duration-0.05));timeline.Dock=DockStyle.Fill;
             timeline.PositionChanged+=delegate {time.Text=NativeSeekStrip.FormatTime(timeline.Position);};timeline.SeekCommitted+=delegate{RequestFrame();};layout.Controls.Add(timeline,0,1);
             var controls=new FlowLayoutPanel {Dock=DockStyle.Fill,WrapContents=false};time.Text="00:00:00";time.Width=90;
-            var show=new Button {Text="预览 / Preview",AutoSize=true};show.Click+=delegate {double sec;if(!SharedEncodePreviewCore.TryParseStart(time.Text.Trim(),out sec)||sec>=timeline.Duration+0.05){status.Text="时间无效或超出视频时长 / Invalid time";return;}timeline.Position=sec;RequestFrame();};
+            var show=new ThemeButton {Text="预览 / Preview",AutoSize=true};show.Click+=delegate {double sec;if(!SharedEncodePreviewCore.TryParseStart(time.Text.Trim(),out sec)||sec>=timeline.Duration+0.05){status.Text="时间无效或超出视频时长 / Invalid time";return;}timeline.Position=sec;RequestFrame();};
             time.KeyDown+=delegate(object sender,KeyEventArgs e){if(e.KeyCode==Keys.Enter){show.PerformClick();e.SuppressKeyPress=true;}};
-            controls.Controls.Add(new Label {Text="时间 / Time",AutoSize=true,Padding=new Padding(0,7,0,0)});controls.Controls.Add(time);controls.Controls.Add(show);
+            controls.Controls.Add(new ThemeLabel {Text="时间 / Time",AutoSize=true,Padding=new Padding(0,7,0,0)});controls.Controls.Add(time);controls.Controls.Add(show);
             mode.DropDownStyle=ComboBoxStyle.DropDownList;mode.Width=225;mode.Items.AddRange(new object[]{"加黑边 / Letterbox","裁剪画面 / Crop"});mode.SelectedIndex=framing==1?1:0;mode.SelectedIndexChanged+=delegate{UpdateGeometry();};controls.Controls.Add(mode);layout.Controls.Add(controls,0,2);
-            var values=new FlowLayoutPanel {Dock=DockStyle.Fill,WrapContents=false};values.Controls.Add(new Label {Text="上下每边像素 / Per side",AutoSize=true,Padding=new Padding(0,7,0,0)});
+            var values=new FlowLayoutPanel {Dock=DockStyle.Fill,WrapContents=false};values.Controls.Add(new ThemeLabel {Text="上下每边像素 / Per side",AutoSize=true,Padding=new Padding(0,7,0,0)});
             crop.Minimum=0;crop.Maximum=Math.Max(0,(info.Height-2)/2);crop.Width=90;crop.Value=Math.Min(crop.Maximum,Math.Max(0,perSide));crop.ValueChanged+=delegate {noCrop=false;UpdateGeometry();};values.Controls.Add(crop);
-            values.Controls.Add(new Label {Text="左右每边 / Left-right",AutoSize=true,Padding=new Padding(4,7,0,0)});
+            values.Controls.Add(new ThemeLabel {Text="左右每边 / Left-right",AutoSize=true,Padding=new Padding(4,7,0,0)});
             horizontal.Maximum=Math.Max(0,(info.Width-2)/2);horizontal.Width=80;horizontal.Value=Math.Min(horizontal.Maximum,Math.Max(0,horizontalSide));horizontal.ValueChanged+=delegate{noCrop=false;UpdateGeometry();};values.Controls.Add(horizontal);
-            var automatic=new Button {Text="自动 2.39:1 / Auto",AutoSize=true};automatic.Click+=delegate{horizontal.Value=0;crop.Value=0;noCrop=false;UpdateGeometry();};automatic.MouseUp+=delegate(object sender,MouseEventArgs e){if(e.Button==MouseButtons.Right){horizontal.Value=0;crop.Value=0;noCrop=true;UpdateGeometry();}};automatic.AccessibleDescription="右键恢复原始画幅，不裁剪 / Right-click restores the full frame";values.Controls.Add(automatic);geometry.AutoSize=true;geometry.Padding=new Padding(6,7,0,0);layout.Controls.Add(values,0,3);
+            var automatic=new ThemeButton {Text="自动 2.39:1 / Auto",AutoSize=true};automatic.Click+=delegate{horizontal.Value=0;crop.Value=0;noCrop=false;UpdateGeometry();};automatic.MouseUp+=delegate(object sender,MouseEventArgs e){if(e.Button==MouseButtons.Right){horizontal.Value=0;crop.Value=0;noCrop=true;UpdateGeometry();}};automatic.AccessibleDescription="右键恢复原始画幅，不裁剪 / Right-click restores the full frame";values.Controls.Add(automatic);geometry.AutoSize=true;geometry.Padding=new Padding(6,7,0,0);layout.Controls.Add(values,0,3);
             status.AutoSize=true;status.Text="拖动四边对称调整；左右 > 0 时，上下 0 = 不裁剪。右键自动按钮恢复原始画幅。HDR 仅转换预览显示。";var details=new FlowLayoutPanel {Dock=DockStyle.Fill,FlowDirection=FlowDirection.TopDown,WrapContents=false};details.Controls.Add(geometry);details.Controls.Add(status);layout.Controls.Add(details,0,4);
-            var actions=new FlowLayoutPanel {Dock=DockStyle.Fill,FlowDirection=FlowDirection.RightToLeft};var cancel=new Button {Text="取消 / Cancel",AutoSize=true,DialogResult=DialogResult.Cancel};var apply=new Button {Text="应用 / Apply",AutoSize=true};
+            var actions=new FlowLayoutPanel {Dock=DockStyle.Fill,FlowDirection=FlowDirection.RightToLeft};var cancel=new ThemeButton {Text="取消 / Cancel",AutoSize=true,DialogResult=DialogResult.Cancel};var apply=new ThemeButton {Text="应用 / Apply",AutoSize=true};
             apply.Click+=delegate {DialogResult=DialogResult.OK;Close();};actions.Controls.Add(cancel);actions.Controls.Add(apply);layout.Controls.Add(actions,0,5);Controls.Add(layout);CancelButton=cancel;
             debounce.Interval=180;debounce.Tick+=delegate {debounce.Stop();StartFrame();};Shown+=delegate{UpdateGeometry();RequestFrame();};
             FormClosing+=delegate {closing=true;debounce.Stop();lock(processSync){try{if(active!=null&&!active.HasExited)active.Kill();}catch{}}};

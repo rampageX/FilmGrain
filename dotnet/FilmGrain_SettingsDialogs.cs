@@ -40,14 +40,15 @@ namespace FilmGrainStudioPreview
             {
                 dlg.Text=UiText("AV1 颗粒烘焙 · SDR", "AV1 grain bake · SDR");dlg.StartPosition=FormStartPosition.CenterParent;
                 dlg.FormBorderStyle=FormBorderStyle.FixedDialog;dlg.MaximizeBox=false;dlg.MinimizeBox=false;dlg.ClientSize=new Size(470,240);
-                var description=new Label{Text=UiText("将输入列表中的已有 AV1 转为 H.264 或 HEVC / AAC。\n合成源内已有颗粒，不再添加颗粒；不应用主界面的插帧、调色或字幕设置。HDR 本阶段不支持。", "Convert the input AV1 list to H.264 or HEVC / AAC.\nSynthesize existing grain only. Main-window transformations do not apply. HDR is deferred."),Location=new Point(16,14),Size=new Size(438,66)};
-                var encoder=new ComboBox{DropDownStyle=ComboBoxStyle.DropDownList,Location=new Point(126,88),Size=new Size(312,26)};
+                var description=new ThemeLabel{Text=UiText("将输入列表中的已有 AV1 转为 H.264 或 HEVC / AAC。\n合成源内已有颗粒，不再添加颗粒；不应用主界面的插帧、调色或字幕设置。HDR 本阶段不支持。", "Convert the input AV1 list to H.264 or HEVC / AAC.\nSynthesize existing grain only. Main-window transformations do not apply. HDR is deferred."),Location=new Point(16,14),Size=new Size(438,66)};
+                var encoder=new ThemeComboBox{DropDownStyle=ComboBoxStyle.DropDownList,Location=new Point(126,88),Size=new Size(312,26)};
                 encoder.Items.AddRange(new object[]{"x264 · VBR 1-Pass","H.264 NVENC · P7 / VBR","HEVC NVENC · Main10 / P7 / VBR"});encoder.SelectedIndex=config.Get("AV1_UPLOAD_ENCODER")=="NVENC"?1:0;
-                var auto=new CheckBox{Text=UiText("自动码率（沿用所选编码线推荐）", "Automatic bitrate (selected FGS encoder recommendation)"),Checked=true,Location=new Point(16,123),Size=new Size(300,25)};
-                var bitrate=new NumericUpDown{Minimum=100,Maximum=500000,Value=16000,Increment=1000,Location=new Point(326,123),Size=new Size(112,26),Enabled=false};auto.CheckedChanged+=delegate{bitrate.Enabled=!auto.Checked;};
-                var start=new Button{Text=UiText("开始烘焙", "Start baking"),Location=new Point(230,191),Size=new Size(106,30),DialogResult=DialogResult.OK};
-                var cancel=new Button{Text=lang.T("config.cancel"),Location=new Point(342,191),Size=new Size(96,30),DialogResult=DialogResult.Cancel};
-                dlg.Controls.AddRange(new Control[]{description,new Label{Text=UiText("视频编码器", "Video encoder"),Location=new Point(16,92),Size=new Size(105,23)},encoder,auto,bitrate,start,cancel});dlg.AcceptButton=start;dlg.CancelButton=cancel;
+                var auto=new ThemeCheckBox{Text=UiText("自动码率（沿用所选编码线推荐）", "Automatic bitrate (selected FGS encoder recommendation)"),Checked=true,Location=new Point(16,123),Size=new Size(300,25)};
+                var bitrate=new ThemeNumericUpDown{Minimum=100,Maximum=500000,Value=16000,Increment=1000,Location=new Point(326,123),Size=new Size(112,26),Enabled=false};auto.CheckedChanged+=delegate{bitrate.Enabled=!auto.Checked;};
+                var start=new ThemeButton{Text=UiText("开始烘焙", "Start baking"),Location=new Point(230,191),Size=new Size(106,30),DialogResult=DialogResult.OK};
+                var cancel=new ThemeButton{Text=lang.T("config.cancel"),Location=new Point(342,191),Size=new Size(96,30),DialogResult=DialogResult.Cancel};
+                dlg.Controls.AddRange(new Control[]{description,new ThemeLabel{Text=UiText("视频编码器", "Video encoder"),Location=new Point(16,92),Size=new Size(105,23)},encoder,auto,bitrate,start,cancel});dlg.AcceptButton=start;dlg.CancelButton=cancel;
+                AttachThemeWindow(dlg);
                 if(dlg.ShowDialog(this)!=DialogResult.OK)return;
                 var tasks=new List<BridgeTaskRequest>();var paths=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 try
@@ -87,20 +88,20 @@ namespace FilmGrainStudioPreview
                 dlg.FormBorderStyle = FormBorderStyle.FixedDialog;
                 dlg.MaximizeBox = false; dlg.MinimizeBox = false; dlg.ShowInTaskbar = false;
                 dlg.ClientSize = new Size(540, 245); dlg.Font = UiFont(9f, FontStyle.Regular);
-                Label modeLabel = new Label { Text = UiText("代理方式", "Proxy mode"), Left = 22, Top = 22, Width = 110, Height = 26, TextAlign = ContentAlignment.MiddleLeft };
-                ComboBox mode = new ComboBox { Left = 140, Top = 20, Width = 370, DropDownStyle = ComboBoxStyle.DropDownList };
+                Label modeLabel = new ThemeLabel { Text = UiText("代理方式", "Proxy mode"), Left = 22, Top = 22, Width = 110, Height = 26, TextAlign = ContentAlignment.MiddleLeft };
+                ComboBox mode = new ThemeComboBox { Left = 140, Top = 20, Width = 370, DropDownStyle = ComboBoxStyle.DropDownList };
                 mode.Items.Add(new ProxyModeItem("SYSTEM", UiText("系统代理 / 环境变量", "System proxy / environment")));
                 mode.Items.Add(new ProxyModeItem("CUSTOM", UiText("自定义 HTTP(S) 代理", "Custom HTTP(S) proxy")));
                 mode.Items.Add(new ProxyModeItem("DIRECT", UiText("直连", "Direct connection")));
                 string savedMode = config.Get("NETWORK_PROXY_MODE").ToUpperInvariant();
                 int selected = savedMode == "CUSTOM" ? 1 : (savedMode == "DIRECT" ? 2 : 0); mode.SelectedIndex = selected;
-                Label urlLabel = new Label { Text = UiText("代理地址", "Proxy URL"), Left = 22, Top = 66, Width = 110, Height = 26, TextAlign = ContentAlignment.MiddleLeft };
-                TextBox url = new TextBox { Left = 140, Top = 64, Width = 370, Text = config.Get("NETWORK_PROXY_URL") };
-                Label help = new Label { Left = 140, Top = 96, Width = 370, Height = 48, ForeColor = ColorMuted, Text = UiText("例如 http://127.0.0.1:7890。设置会用于 FGS 下载、安装向导及其子进程。", "Example: http://127.0.0.1:7890. Applies to FGS downloads, setup, and child processes.") };
-                Label status = new Label { Left = 140, Top = 144, Width = 370, Height = 24, ForeColor = ColorMuted, Text = "" };
-                Button test = new Button { Left = 140, Top = 179, Width = 112, Height = 30, Text = UiText("测试代理", "Test proxy") };
-                Button save = new Button { Left = 310, Top = 179, Width = 92, Height = 30, Text = UiText("保存", "Save"), DialogResult = DialogResult.None };
-                Button cancel = new Button { Left = 410, Top = 179, Width = 100, Height = 30, Text = UiText("取消", "Cancel"), DialogResult = DialogResult.Cancel };
+                Label urlLabel = new ThemeLabel { Text = UiText("代理地址", "Proxy URL"), Left = 22, Top = 66, Width = 110, Height = 26, TextAlign = ContentAlignment.MiddleLeft };
+                TextBox url = new ThemeTextBox { Left = 140, Top = 64, Width = 370, Text = config.Get("NETWORK_PROXY_URL") };
+                Label help = new ThemeLabel { Left = 140, Top = 96, Width = 370, Height = 48, ForeColor = ColorMuted, Text = UiText("例如 http://127.0.0.1:7890。设置会用于 FGS 下载、安装向导及其子进程。", "Example: http://127.0.0.1:7890. Applies to FGS downloads, setup, and child processes.") };
+                Label status = new ThemeLabel { Left = 140, Top = 144, Width = 370, Height = 24, ForeColor = ColorMuted, Text = "" };
+                Button test = new ThemeButton { Left = 140, Top = 179, Width = 112, Height = 30, Text = UiText("测试代理", "Test proxy") };
+                Button save = new ThemeButton { Left = 310, Top = 179, Width = 92, Height = 30, Text = UiText("保存", "Save"), DialogResult = DialogResult.None };
+                Button cancel = new ThemeButton { Left = 410, Top = 179, Width = 100, Height = 30, Text = UiText("取消", "Cancel"), DialogResult = DialogResult.Cancel };
                 dlg.Controls.Add(modeLabel); dlg.Controls.Add(mode); dlg.Controls.Add(urlLabel); dlg.Controls.Add(url); dlg.Controls.Add(help); dlg.Controls.Add(status); dlg.Controls.Add(test); dlg.Controls.Add(save); dlg.Controls.Add(cancel);
                 dlg.CancelButton = cancel;
                 EventHandler enabled = delegate { ProxyModeItem item = mode.SelectedItem as ProxyModeItem; url.Enabled = item != null && item.Value == NetworkProxyCore.CustomMode; test.Enabled = item != null; };
@@ -125,6 +126,7 @@ namespace FilmGrainStudioPreview
                     try { config.Save(new Dictionary<string, string> { { "NETWORK_PROXY_MODE", item.Value }, { "NETWORK_PROXY_URL", item.Value == NetworkProxyCore.CustomMode ? proxy : "" } }); NetworkProxyCore.Apply(item.Value, proxy); dlg.DialogResult = DialogResult.OK; dlg.Close(); }
                     catch (Exception ex) { MessageBox.Show(dlg, ex.Message, "Film Grain Studio", MessageBoxButtons.OK, MessageBoxIcon.Error); }
                 };
+                AttachThemeWindow(dlg);
                 dlg.ShowDialog(this);
             }
         }
@@ -138,7 +140,7 @@ namespace FilmGrainStudioPreview
 
         private Label ConfigLabel(string text)
         {
-            Label l = new Label();
+            Label l = new ThemeLabel();
             l.Text = text;
             l.Dock = DockStyle.Fill;
             l.TextAlign = ContentAlignment.MiddleLeft;
@@ -180,7 +182,7 @@ namespace FilmGrainStudioPreview
 
         private TextBox ConfigTextBox(string value)
         {
-            TextBox t = new TextBox();
+            TextBox t = new ThemeTextBox();
             t.Text = value;
             t.Dock = DockStyle.Fill;
             t.Margin = new Padding(4, 8, 4, 6);
@@ -189,7 +191,7 @@ namespace FilmGrainStudioPreview
 
         private Button ConfigButton(string text)
         {
-            Button b = new Button();
+            Button b = new ThemeButton();
             b.Text = text;
             b.Dock = DockStyle.Fill;
             b.Margin = new Padding(4, 5, 4, 5);
@@ -198,7 +200,7 @@ namespace FilmGrainStudioPreview
 
         private Button RefreshButton()
         {
-            Button b = new Button();
+            Button b = new ThemeButton();
             b.Text = "↻";
             b.Dock = DockStyle.Fill;
             b.Margin = new Padding(2, 5, 2, 5);
@@ -207,7 +209,7 @@ namespace FilmGrainStudioPreview
 
         private Label ConfigStatusLabel(string text)
         {
-            Label l = new Label();
+            Label l = new ThemeLabel();
             l.Dock = DockStyle.Fill;
             l.TextAlign = ContentAlignment.MiddleLeft;
             l.ForeColor = ColorMuted;
@@ -336,7 +338,7 @@ namespace FilmGrainStudioPreview
                 string savedFrucExe = config.Get("FRUC_FFMPEG_PATH");
                 string customFrucDir = "";
                 try { if (!string.IsNullOrWhiteSpace(savedFrucExe)) customFrucDir = Path.GetDirectoryName(savedFrucExe) ?? ""; } catch { }
-                CheckBox chkFrucSame = new CheckBox(); chkFrucSame.Text = UiText("与正式版使用相同 FFmpeg", "Use main FFmpeg");
+                CheckBox chkFrucSame = new ThemeCheckBox(); chkFrucSame.Text = UiText("与正式版使用相同 FFmpeg", "Use main FFmpeg");
                 chkFrucSame.Checked = config.FrucUsesMainFfmpeg(); chkFrucSame.Dock = DockStyle.Fill; chkFrucSame.AutoSize = true;
                 chkFrucSame.Margin = new Padding(4, 7, 3, 3);
                 TextBox txtFruc = ConfigTextBox(chkFrucSame.Checked ? config.Get("FFMPEG_DIR") : customFrucDir);
@@ -388,7 +390,7 @@ namespace FilmGrainStudioPreview
                 TableLayoutPanel tempPanel = new TableLayoutPanel();
                 tempPanel.Dock = DockStyle.Fill; tempPanel.ColumnCount = 2; tempPanel.Margin = Padding.Empty;
                 tempPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 190)); tempPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-                ComboBox cmbTemp = new ComboBox(); cmbTemp.DropDownStyle = ComboBoxStyle.DropDownList; cmbTemp.Dock = DockStyle.Fill; cmbTemp.Margin = new Padding(4, 8, 4, 6);
+                ComboBox cmbTemp = new ThemeComboBox(); cmbTemp.DropDownStyle = ComboBoxStyle.DropDownList; cmbTemp.Dock = DockStyle.Fill; cmbTemp.Margin = new Padding(4, 8, 4, 6);
                 cmbTemp.Items.Add(lang.T("config.temp_video")); cmbTemp.Items.Add(lang.T("config.temp_system")); cmbTemp.Items.Add(lang.T("config.temp_custom"));
                 cmbTemp.SelectedIndex = string.Equals(config.Get("TEMP_MODE"), "SYSTEM", StringComparison.OrdinalIgnoreCase) ? 1 : (string.Equals(config.Get("TEMP_MODE"), "CUSTOM", StringComparison.OrdinalIgnoreCase) ? 2 : 0);
                 TextBox txtTemp = ConfigTextBox(config.Get("TEMP_CUSTOM_DIR"));
@@ -399,7 +401,7 @@ namespace FilmGrainStudioPreview
                 TableLayoutPanel outputPanel = new TableLayoutPanel();
                 outputPanel.Dock = DockStyle.Fill; outputPanel.ColumnCount = 2; outputPanel.Margin = Padding.Empty;
                 outputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 190)); outputPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-                ComboBox cmbOutput = new ComboBox(); cmbOutput.DropDownStyle = ComboBoxStyle.DropDownList; cmbOutput.Dock = DockStyle.Fill; cmbOutput.Margin = new Padding(4, 8, 4, 6);
+                ComboBox cmbOutput = new ThemeComboBox(); cmbOutput.DropDownStyle = ComboBoxStyle.DropDownList; cmbOutput.Dock = DockStyle.Fill; cmbOutput.Margin = new Padding(4, 8, 4, 6);
                 cmbOutput.Items.Add(lang.T("config.output_video")); cmbOutput.Items.Add(lang.T("config.output_custom"));
                 cmbOutput.SelectedIndex = string.Equals(config.Get("OUTPUT_MODE"), "CUSTOM", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
                 TextBox txtOutput = ConfigTextBox(config.Get("OUTPUT_CUSTOM_DIR"));
@@ -407,21 +409,21 @@ namespace FilmGrainStudioPreview
                 Button btnOutput = ConfigButton(lang.T("config.browse"));
                 table.Controls.Add(ConfigLabel(lang.T("config.output_dir")), 0, 11); table.Controls.Add(outputPanel, 1, 11); table.Controls.Add(btnOutput, 2, 11);
 
-                NumericUpDown logEntryLimit = new NumericUpDown(); logEntryLimit.Minimum = 0; logEntryLimit.Maximum = 10000; logEntryLimit.Increment = 10; logEntryLimit.Dock = DockStyle.Left; logEntryLimit.Width = 120; logEntryLimit.Margin = new Padding(4, 8, 4, 6);
+                NumericUpDown logEntryLimit = new ThemeNumericUpDown(); logEntryLimit.Minimum = 0; logEntryLimit.Maximum = 10000; logEntryLimit.Increment = 10; logEntryLimit.Dock = DockStyle.Left; logEntryLimit.Width = 120; logEntryLimit.Margin = new Padding(4, 8, 4, 6);
                 logEntryLimit.Value = Math.Max(logEntryLimit.Minimum, Math.Min(logEntryLimit.Maximum, config.GetInt("LOG_ENTRY_LIMIT", 100)));
-                Label logLimitInfo = new Label(); logLimitInfo.Text = UiText("0 = 不限制", "0 = unlimited"); logLimitInfo.Dock = DockStyle.Fill; logLimitInfo.TextAlign = ContentAlignment.MiddleLeft; logLimitInfo.ForeColor = ColorMuted;
+                Label logLimitInfo = new ThemeLabel(); logLimitInfo.Text = UiText("0 = 不限制", "0 = unlimited"); logLimitInfo.Dock = DockStyle.Fill; logLimitInfo.TextAlign = ContentAlignment.MiddleLeft; logLimitInfo.ForeColor = ColorMuted;
                 table.Controls.Add(ConfigLabel(UiText("日志条目限制", "Log entry limit")), 0, 12); table.Controls.Add(logEntryLimit, 1, 12); table.Controls.Add(logLimitInfo, 2, 12); table.SetColumnSpan(logLimitInfo, 2);
 
-                Label note = new Label();
+                Label note = new ThemeLabel();
                 note.Dock = DockStyle.Fill; note.ForeColor = ColorMuted; note.TextAlign = ContentAlignment.TopLeft; note.Padding = new Padding(4, 8, 4, 0);
                 note.Text = LF("config.note", config.ConfigPath);
                 table.Controls.Add(note, 0, 13); table.SetColumnSpan(note, 4);
 
                 FlowLayoutPanel buttons = new FlowLayoutPanel();
                 buttons.Dock = DockStyle.Fill; buttons.FlowDirection = FlowDirection.RightToLeft; buttons.WrapContents = false;
-                Button save = new Button(); save.Text = lang.T("config.save"); save.Width = 82;
-                Button cancel = new Button(); cancel.Text = lang.T("config.cancel"); cancel.Width = 82; cancel.DialogResult = DialogResult.Cancel;
-                Button restore = new Button(); restore.Text = lang.T("config.defaults"); restore.Width = 104;
+                Button save = new ThemeButton(); save.Text = lang.T("config.save"); save.Width = 82;
+                Button cancel = new ThemeButton(); cancel.Text = lang.T("config.cancel"); cancel.Width = 82; cancel.DialogResult = DialogResult.Cancel;
+                Button restore = new ThemeButton(); restore.Text = lang.T("config.defaults"); restore.Width = 104;
                 buttons.Controls.Add(save); buttons.Controls.Add(cancel); buttons.Controls.Add(restore);
                 table.Controls.Add(buttons, 0, 14); table.SetColumnSpan(buttons, 4);
                 dlg.CancelButton = cancel;
@@ -626,6 +628,7 @@ namespace FilmGrainStudioPreview
                     catch (Exception ex) { MessageBox.Show(dlg, LF("config.save_failed", ex.Message), lang.T("config.path_title"), MessageBoxButtons.OK, MessageBoxIcon.Error); }
                 };
 
+                AttachThemeWindow(dlg);
                 DialogResult result = dlg.ShowDialog(this);
                 configTip.Dispose();
                 if (result == DialogResult.OK)
@@ -683,69 +686,69 @@ namespace FilmGrainStudioPreview
                 dlg.ClientSize = new Size(720, 460);
                 dlg.Font = UiFont(9f, FontStyle.Regular);
 
-                TabControl tabs = new TabControl(); tabs.Location = new Point(10, 10); tabs.Size = new Size(700, 382);
+                TabControl tabs = new ThemeTabControl(); tabs.Location = new Point(10, 10); tabs.Size = new Size(700, 382);
                 TabPage enc = new TabPage(lang.T("advanced.tab.encode"));
                 TabPage interp = new TabPage(lang.T("advanced.tab.interp"));
                 TabPage hdr = new TabPage("HDR");
                 tabs.TabPages.Add(enc); tabs.TabPages.Add(interp); tabs.TabPages.Add(hdr); dlg.Controls.Add(tabs);
                 tabs.SelectedIndex = Math.Max(0, Math.Min(tabs.TabCount - 1, initialTab));
 
-                CheckBox high10 = new CheckBox(); high10.Text = lang.T("advanced.high10"); high10.Checked = config.GetBool("H264_HIGH10") && (!hardwareCapsReady || hardwareCaps == null || (hardwareCaps.X264Available && hardwareCaps.X264High10Available)); high10.Enabled = !hardwareCapsReady || hardwareCaps == null || (hardwareCaps.X264Available && hardwareCaps.X264High10Available); high10.Location = new Point(28, 18); high10.Size = new Size(620, 26); enc.Controls.Add(high10);
-                Label rateLabel = new Label(); rateLabel.Text = lang.T("advanced.x264_rate"); rateLabel.Location = new Point(28, 58); rateLabel.Size = new Size(150, 24); enc.Controls.Add(rateLabel);
-                ComboBox rate = new ComboBox(); rate.DropDownStyle = ComboBoxStyle.DropDownList; rate.Location = new Point(190, 54); rate.Size = new Size(260, 26);
+                CheckBox high10 = new ThemeCheckBox(); high10.Text = lang.T("advanced.high10"); high10.Checked = config.GetBool("H264_HIGH10") && (!hardwareCapsReady || hardwareCaps == null || (hardwareCaps.X264Available && hardwareCaps.X264High10Available)); high10.Enabled = !hardwareCapsReady || hardwareCaps == null || (hardwareCaps.X264Available && hardwareCaps.X264High10Available); high10.Location = new Point(28, 18); high10.Size = new Size(620, 26); enc.Controls.Add(high10);
+                Label rateLabel = new ThemeLabel(); rateLabel.Text = lang.T("advanced.x264_rate"); rateLabel.Location = new Point(28, 58); rateLabel.Size = new Size(150, 24); enc.Controls.Add(rateLabel);
+                ComboBox rate = new ThemeComboBox(); rate.DropDownStyle = ComboBoxStyle.DropDownList; rate.Location = new Point(190, 54); rate.Size = new Size(260, 26);
                 rate.Items.Add(lang.T("advanced.vbr1")); rate.Items.Add(lang.T("advanced.vbr2")); rate.Items.Add(lang.T("advanced.vbr3"));
                 rate.SelectedIndex = string.Equals(config.Get("X264_RATE_MODE"), "3PASS", StringComparison.OrdinalIgnoreCase) ? 2 : (string.Equals(config.Get("X264_RATE_MODE"), "2PASS", StringComparison.OrdinalIgnoreCase) ? 1 : 0); enc.Controls.Add(rate);
-                Label presetLabel = new Label(); presetLabel.Text = "x264 Preset"; presetLabel.Location = new Point(28, 98); presetLabel.Size = new Size(150, 24); enc.Controls.Add(presetLabel);
-                ComboBox preset = new ComboBox(); preset.DropDownStyle = ComboBoxStyle.DropDownList; preset.Location = new Point(190, 94); preset.Size = new Size(260, 26);
+                Label presetLabel = new ThemeLabel(); presetLabel.Text = "x264 Preset"; presetLabel.Location = new Point(28, 98); presetLabel.Size = new Size(150, 24); enc.Controls.Add(presetLabel);
+                ComboBox preset = new ThemeComboBox(); preset.DropDownStyle = ComboBoxStyle.DropDownList; preset.Location = new Point(190, 94); preset.Size = new Size(260, 26);
                 preset.Items.Add(lang.T("advanced.preset_faster")); preset.Items.Add("Medium"); preset.Items.Add("Slow");
                 preset.SelectedIndex = string.Equals(config.Get("X264_PRESET"), "medium", StringComparison.OrdinalIgnoreCase) ? 1 : (string.Equals(config.Get("X264_PRESET"), "slow", StringComparison.OrdinalIgnoreCase) ? 2 : 0); enc.Controls.Add(preset);
-                Label aqLabel = new Label(); aqLabel.Text = lang.T("advanced.hevc_spatial_aq"); aqLabel.Location = new Point(28, 138); aqLabel.Size = new Size(150, 24); enc.Controls.Add(aqLabel);
-                ComboBox aq = new ComboBox(); aq.DropDownStyle = ComboBoxStyle.DropDownList; aq.Location = new Point(190, 134); aq.Size = new Size(260, 26);
+                Label aqLabel = new ThemeLabel(); aqLabel.Text = lang.T("advanced.hevc_spatial_aq"); aqLabel.Location = new Point(28, 138); aqLabel.Size = new Size(150, 24); enc.Controls.Add(aqLabel);
+                ComboBox aq = new ThemeComboBox(); aq.DropDownStyle = ComboBoxStyle.DropDownList; aq.Location = new Point(190, 134); aq.Size = new Size(260, 26);
                 aq.Items.Add(lang.T("advanced.hevc_spatial_off")); aq.Items.Add(lang.T("advanced.hevc_spatial_4")); aq.Items.Add(lang.T("advanced.hevc_spatial_8")); aq.Items.Add(lang.T("advanced.hevc_spatial_10")); aq.Items.Add(lang.T("advanced.hevc_spatial_12")); aq.Items.Add(lang.T("advanced.hevc_spatial_15"));
                 int aqValue = config.GetInt("NVENC_SPATIAL_AQ", 8); aq.SelectedIndex = aqValue == 0 ? 0 : (aqValue == 4 ? 1 : (aqValue == 10 ? 3 : (aqValue == 12 ? 4 : (aqValue == 15 ? 5 : 2)))); aq.Enabled = !hardwareCapsReady || hardwareCaps == null || hardwareCaps.Av1Available || hardwareCaps.HevcAvailable; enc.Controls.Add(aq);
-                CheckBox temporal = new CheckBox(); temporal.Text = lang.T("advanced.hevc_temporal_aq"); temporal.Checked = config.GetBool("NVENC_TEMPORAL_AQ"); temporal.Enabled = !hardwareCapsReady || hardwareCaps == null || hardwareCaps.Av1Available || hardwareCaps.HevcAvailable; temporal.Location = new Point(190, 170); temporal.Size = new Size(260, 26); enc.Controls.Add(temporal);
+                CheckBox temporal = new ThemeCheckBox(); temporal.Text = lang.T("advanced.hevc_temporal_aq"); temporal.Checked = config.GetBool("NVENC_TEMPORAL_AQ"); temporal.Enabled = !hardwareCapsReady || hardwareCaps == null || hardwareCaps.Av1Available || hardwareCaps.HevcAvailable; temporal.Location = new Point(190, 170); temporal.Size = new Size(260, 26); enc.Controls.Add(temporal);
                 var audioModes=new[]{"FGS","SMART","COPY","AAC"};
                 var audioRates=new[]{"SOURCE","128","160","192","256","320"};
                 var multipassValues=new[]{"FGS","DISABLED","QRES","FULLRES"};
-                var audioMode=new ComboBox{DropDownStyle=ComboBoxStyle.DropDownList,Location=new Point(190,204),Size=new Size(440,26)};
+                var audioMode=new ThemeComboBox{DropDownStyle=ComboBoxStyle.DropDownList,Location=new Point(190,204),Size=new Size(440,26)};
                 audioMode.Items.AddRange(new object[]{UiText("跟随容器（原有行为）","Follow container (existing behavior)"),UiText("智能保留：兼容音轨复制，否则 AAC","Smart: copy compatible tracks, otherwise AAC"),UiText("全部复制（不兼容则停止）","Copy all (stop if incompatible)"),UiText("全部转 AAC","Encode all to AAC")});
                 audioMode.SelectedIndex=Math.Max(0,Array.IndexOf(audioModes,config.Get("AUDIO_MODE").ToUpperInvariant()));
-                var audioRate=new ComboBox{DropDownStyle=ComboBoxStyle.DropDownList,Location=new Point(190,242),Size=new Size(260,26)};
+                var audioRate=new ThemeComboBox{DropDownStyle=ComboBoxStyle.DropDownList,Location=new Point(190,242),Size=new Size(260,26)};
                 audioRate.Items.AddRange(new object[]{UiText("接近源音轨（估算/回退）","Near source (estimate/fallback)"),"128 kbps","160 kbps","192 kbps","256 kbps","320 kbps"});
                 int rateIndex=Array.IndexOf(audioRates,config.Get("AUDIO_BITRATE").ToUpperInvariant());audioRate.SelectedIndex=rateIndex<0?4:rateIndex;
                 audioMode.SelectedIndexChanged+=delegate{audioRate.Enabled=audioMode.SelectedIndex!=2;};audioRate.Enabled=audioMode.SelectedIndex!=2;
-                var av1Multipass=new ComboBox{DropDownStyle=ComboBoxStyle.DropDownList,Location=new Point(145,280),Size=new Size(180,26)};
-                var hevcMultipass=new ComboBox{DropDownStyle=ComboBoxStyle.DropDownList,Location=new Point(450,280),Size=new Size(180,26)};
+                var av1Multipass=new ThemeComboBox{DropDownStyle=ComboBoxStyle.DropDownList,Location=new Point(145,280),Size=new Size(180,26)};
+                var hevcMultipass=new ThemeComboBox{DropDownStyle=ComboBoxStyle.DropDownList,Location=new Point(450,280),Size=new Size(180,26)};
                 object[] mpLabels={UiText("FGS 推荐","FGS recommended"),UiText("关闭","Disabled"),UiText("两遍 · 四分之一分辨率","2-pass: Quarter res"),UiText("两遍 · 完整分辨率","2-pass: Full res")};
                 av1Multipass.Items.AddRange(mpLabels);hevcMultipass.Items.AddRange(mpLabels);
                 av1Multipass.SelectedIndex=Math.Max(0,Array.IndexOf(multipassValues,config.Get("AV1_MULTIPASS").ToUpperInvariant()));hevcMultipass.SelectedIndex=Math.Max(0,Array.IndexOf(multipassValues,config.Get("HEVC_MULTIPASS").ToUpperInvariant()));
-                enc.Controls.AddRange(new Control[]{new Label{Text=UiText("音频处理","Audio policy"),Location=new Point(28,208),Size=new Size(155,24)},audioMode,new Label{Text=UiText("AAC 音频码率","AAC bitrate"),Location=new Point(28,246),Size=new Size(155,24)},audioRate,new Label{Text="AV1 Multipass",Location=new Point(28,284),Size=new Size(115,24)},av1Multipass,new Label{Text="HEVC Multipass",Location=new Point(335,284),Size=new Size(115,24)},hevcMultipass});
+                enc.Controls.AddRange(new Control[]{new ThemeLabel{Text=UiText("音频处理","Audio policy"),Location=new Point(28,208),Size=new Size(155,24)},audioMode,new ThemeLabel{Text=UiText("AAC 音频码率","AAC bitrate"),Location=new Point(28,246),Size=new Size(155,24)},audioRate,new ThemeLabel{Text="AV1 Multipass",Location=new Point(28,284),Size=new Size(115,24)},av1Multipass,new ThemeLabel{Text="HEVC Multipass",Location=new Point(335,284),Size=new Size(115,24)},hevcMultipass});
                 var encodingTip=new ToolTip();dlg.Disposed+=delegate{encodingTip.Dispose();};
                 encodingTip.SetToolTip(audioMode,UiText("与 MP4/MKV 独立。智能模式下，MP4 复制 AAC/MP3/AC3/EAC3，其它转 AAC；MKV 保留。上传/烘焙仍仅第一音轨，且需要时转换为双声道。","Independent of MP4/MKV. Smart MP4 copies AAC/MP3/AC3/EAC3; other codecs become AAC. Smart MKV copies. Upload/bake retains its first-track/stereo scope."));
                 encodingTip.SetToolTip(audioRate,UiText("仅对转 AAC 的音轨生效，复制不升码率。接近源：先用音轨码率，缺失时最多读取128个音频包估算；仍未知按声道回退（单声道64、双声道128、多声道384k）。不代表跨编码器同等音质。","Only encoded AAC tracks use this rate. Near-source uses per-track metadata or up to128 audio packets, then channel fallback (mono64/stereo128/multichannel384k). Equal bitrate is not equal quality."));
                 string mpTip=UiText("FGS 推荐保留当前参数组合。手动值只覆盖该编码线主输出的 NVENC multipass；不支持则停止，不静默降档。不是整片跑两次。上传/独立烘焙继续使用既有推荐组合。","FGS preserves existing combinations. Overrides apply only to this main NVENC output; unsupported choices stop. This is per-frame analysis, not two full-file runs. Upload/standalone bake retain existing recommendations.");encodingTip.SetToolTip(av1Multipass,mpTip);encodingTip.SetToolTip(hevcMultipass,mpTip);
-                Label encInfo = new Label {Location=new Point(28,318),Size=new Size(630,32),ForeColor=ColorMuted,Text=UiText("默认保持原有组合；复制音轨不使用 AAC 码率设置。","Defaults preserve existing combinations; copied tracks ignore AAC bitrate.")};enc.Controls.Add(encInfo);
+                Label encInfo = new ThemeLabel {Location=new Point(28,318),Size=new Size(630,32),ForeColor=ColorMuted,Text=UiText("默认保持原有组合；复制音轨不使用 AAC 码率设置。","Defaults preserve existing combinations; copied tracks ignore AAC bitrate.")};enc.Controls.Add(encInfo);
 
 
-                Label algoLabel = new Label(); algoLabel.Text = "SmoothFps Algo"; algoLabel.Location = new Point(18, 18); algoLabel.Size = new Size(150, 24); interp.Controls.Add(algoLabel);
-                ComboBox algo = new ComboBox(); algo.DropDownStyle = ComboBoxStyle.DropDownList; algo.Location = new Point(180, 14); algo.Size = new Size(150, 26);
+                Label algoLabel = new ThemeLabel(); algoLabel.Text = "SmoothFps Algo"; algoLabel.Location = new Point(18, 18); algoLabel.Size = new Size(150, 24); interp.Controls.Add(algoLabel);
+                ComboBox algo = new ThemeComboBox(); algo.DropDownStyle = ComboBoxStyle.DropDownList; algo.Location = new Point(180, 14); algo.Size = new Size(150, 26);
                 foreach (string item in new string[] { "1", "2", "11", "13", "21", "22", "23" }) algo.Items.Add(item);
                 int ai = algo.Items.IndexOf(config.Get("SVP_ALGO")); algo.SelectedIndex = ai >= 0 ? ai : 3; interp.Controls.Add(algo);
-                Label analyseLabel = new Label(); analyseLabel.Text = "Analyse Profile"; analyseLabel.Location = new Point(18, 54); analyseLabel.Size = new Size(150, 24); interp.Controls.Add(analyseLabel);
-                ComboBox analyse = new ComboBox(); analyse.DropDownStyle = ComboBoxStyle.DropDownList; analyse.Location = new Point(180, 50); analyse.Size = new Size(150, 26); analyse.DropDownWidth = 360;
+                Label analyseLabel = new ThemeLabel(); analyseLabel.Text = "Analyse Profile"; analyseLabel.Location = new Point(18, 54); analyseLabel.Size = new Size(150, 24); interp.Controls.Add(analyseLabel);
+                ComboBox analyse = new ThemeComboBox(); analyse.DropDownStyle = ComboBoxStyle.DropDownList; analyse.Location = new Point(180, 50); analyse.Size = new Size(150, 26); analyse.DropDownWidth = 360;
                 analyse.Items.Add(lang.T("advanced.analyse_recommended")); analyse.Items.Add(lang.T("advanced.analyse_baseline")); analyse.SelectedIndex = string.Equals(config.Get("SVP_ANALYSE"), "BASE", StringComparison.OrdinalIgnoreCase) ? 1 : 0; interp.Controls.Add(analyse);
-                Label maskLabel = new Label(); maskLabel.Text = "Artifact Mask Area"; maskLabel.Location = new Point(18, 90); maskLabel.Size = new Size(150, 24); interp.Controls.Add(maskLabel);
-                NumericUpDown mask = new NumericUpDown(); mask.Location = new Point(180, 86); mask.Size = new Size(120, 26); mask.Minimum = 0; mask.Maximum = 100; mask.Increment = 5; mask.Value = Math.Max(mask.Minimum, Math.Min(mask.Maximum, config.GetInt("SVP_MASK_AREA", 100))); interp.Controls.Add(mask);
-                Label speedLabel = new Label { Text = "OpenSVPFlow Speed", Location = new Point(18, 126), Size = new Size(155, 24) }; interp.Controls.Add(speedLabel);
-                ComboBox svpSpeed = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(180, 122), Size = new Size(150, 26) };
+                Label maskLabel = new ThemeLabel(); maskLabel.Text = "Artifact Mask Area"; maskLabel.Location = new Point(18, 90); maskLabel.Size = new Size(150, 24); interp.Controls.Add(maskLabel);
+                NumericUpDown mask = new ThemeNumericUpDown(); mask.Location = new Point(180, 86); mask.Size = new Size(120, 26); mask.Minimum = 0; mask.Maximum = 100; mask.Increment = 5; mask.Value = Math.Max(mask.Minimum, Math.Min(mask.Maximum, config.GetInt("SVP_MASK_AREA", 100))); interp.Controls.Add(mask);
+                Label speedLabel = new ThemeLabel { Text = "OpenSVPFlow Speed", Location = new Point(18, 126), Size = new Size(155, 24) }; interp.Controls.Add(speedLabel);
+                ComboBox svpSpeed = new ThemeComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(180, 122), Size = new Size(150, 26) };
                 svpSpeed.Items.AddRange(new object[] { "FGS", "medium", "fast", "faster", "fastest" });
                 svpSpeed.SelectedItem = config.Get("SVP_SPEED"); if (svpSpeed.SelectedIndex < 0) svpSpeed.SelectedIndex = 0; interp.Controls.Add(svpSpeed);
-                Label tuningLabel = new Label { Text = "OpenSVPFlow Tuning", Location = new Point(18, 162), Size = new Size(155, 24) }; interp.Controls.Add(tuningLabel);
-                ComboBox svpTuning = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(180, 158), Size = new Size(150, 26) };
+                Label tuningLabel = new ThemeLabel { Text = "OpenSVPFlow Tuning", Location = new Point(18, 162), Size = new Size(155, 24) }; interp.Controls.Add(tuningLabel);
+                ComboBox svpTuning = new ThemeComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(180, 158), Size = new Size(150, 26) };
                 svpTuning.Items.AddRange(new object[] { "FGS", "weak", "film", "smooth", "animation" });
                 svpTuning.SelectedItem = config.Get("SVP_TUNING"); if (svpTuning.SelectedIndex < 0) svpTuning.SelectedIndex = 0; interp.Controls.Add(svpTuning);
-                Label blockLabel = new Label { Text = "OpenSVPFlow Block Size", Location = new Point(18, 198), Size = new Size(160, 24) }; interp.Controls.Add(blockLabel);
-                ComboBox svpBlock = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(180, 194), Size = new Size(150, 26) };
+                Label blockLabel = new ThemeLabel { Text = "OpenSVPFlow Block Size", Location = new Point(18, 198), Size = new Size(160, 24) }; interp.Controls.Add(blockLabel);
+                ComboBox svpBlock = new ThemeComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(180, 194), Size = new Size(150, 26) };
                 svpBlock.Items.AddRange(new object[] { "auto", "8", "16", "32" });
                 svpBlock.SelectedItem = config.Get("SVP_BLOCK_SIZE"); if (svpBlock.SelectedIndex < 0) svpBlock.SelectedIndex = 0; interp.Controls.Add(svpBlock);
                 EventHandler updateSvpProfile = delegate {
@@ -754,52 +757,52 @@ namespace FilmGrainStudioPreview
                 };
                 svpSpeed.SelectedIndexChanged += updateSvpProfile; svpTuning.SelectedIndexChanged += updateSvpProfile; svpBlock.SelectedIndexChanged += updateSvpProfile;
                 updateSvpProfile(null, EventArgs.Empty);
-                Label frucPerfLabel = new Label(); frucPerfLabel.Text = UiText("FRUC Vulkan 性能档位", "FRUC Vulkan perf"); frucPerfLabel.Location = new Point(18, 238); frucPerfLabel.Size = new Size(150, 24); interp.Controls.Add(frucPerfLabel);
-                ComboBox frucPerf = new ComboBox(); frucPerf.DropDownStyle = ComboBoxStyle.DropDownList; frucPerf.Location = new Point(180, 234); frucPerf.Size = new Size(150, 26);
+                Label frucPerfLabel = new ThemeLabel(); frucPerfLabel.Text = UiText("FRUC Vulkan 性能档位", "FRUC Vulkan perf"); frucPerfLabel.Location = new Point(18, 238); frucPerfLabel.Size = new Size(150, 24); interp.Controls.Add(frucPerfLabel);
+                ComboBox frucPerf = new ThemeComboBox(); frucPerf.DropDownStyle = ComboBoxStyle.DropDownList; frucPerf.Location = new Point(180, 234); frucPerf.Size = new Size(150, 26);
                 frucPerf.Items.Add("slow"); frucPerf.Items.Add("medium"); frucPerf.Items.Add("fast"); string savedPerf = config.Get("FRUC_PERF").ToLowerInvariant(); frucPerf.SelectedIndex = savedPerf == "slow" ? 0 : (savedPerf == "fast" ? 2 : 1); interp.Controls.Add(frucPerf);
-                Label frucGridLabel = new Label(); frucGridLabel.Text = UiText("FRUC Vulkan 光流网格", "FRUC Vulkan grid"); frucGridLabel.Location = new Point(18, 274); frucGridLabel.Size = new Size(150, 24); interp.Controls.Add(frucGridLabel);
-                ComboBox frucGrid = new ComboBox(); frucGrid.DropDownStyle = ComboBoxStyle.DropDownList; frucGrid.Location = new Point(180, 270); frucGrid.Size = new Size(150, 26);
+                Label frucGridLabel = new ThemeLabel(); frucGridLabel.Text = UiText("FRUC Vulkan 光流网格", "FRUC Vulkan grid"); frucGridLabel.Location = new Point(18, 274); frucGridLabel.Size = new Size(150, 24); interp.Controls.Add(frucGridLabel);
+                ComboBox frucGrid = new ThemeComboBox(); frucGrid.DropDownStyle = ComboBoxStyle.DropDownList; frucGrid.Location = new Point(180, 270); frucGrid.Size = new Size(150, 26);
                 frucGrid.Items.Add("auto"); frucGrid.Items.Add("1"); frucGrid.Items.Add("2"); frucGrid.Items.Add("4"); frucGrid.Items.Add("8"); int gridIndex = frucGrid.Items.IndexOf(config.Get("FRUC_GRID").ToLowerInvariant()); frucGrid.SelectedIndex = gridIndex >= 0 ? gridIndex : 0; interp.Controls.Add(frucGrid);
-                Button updateSvp = new Button { Text = UiText("更新 OpenSVPFlow 插件", "Update OpenSVPFlow plugins"), Location = new Point(22, 406), Size = new Size(235, 30) };
+                Button updateSvp = new ThemeButton { Text = UiText("更新 OpenSVPFlow 插件", "Update OpenSVPFlow plugins"), Location = new Point(22, 406), Size = new Size(235, 30) };
                 updateSvp.Click += delegate { StartNativeSvpUpdate(dlg); }; dlg.Controls.Add(updateSvp);
 
                 Func<string,decimal,decimal,int,NumericUpDown> extraNumber = delegate(string key,decimal fallback,decimal maximum,int y) {
-                    NumericUpDown field = new NumericUpDown { Location=new Point(560,y),Size=new Size(110,26),Minimum=0,Maximum=maximum,DecimalPlaces=2,Increment=0.1m };
+                    NumericUpDown field = new ThemeNumericUpDown { Location=new Point(560,y),Size=new Size(110,26),Minimum=0,Maximum=maximum,DecimalPlaces=2,Increment=0.1m };
                     decimal value; if(!decimal.TryParse(config.Get(key),NumberStyles.Float,CultureInfo.InvariantCulture,out value))value=fallback;
                     field.Value=Math.Max(0,Math.Min(maximum,value));interp.Controls.Add(field);return field;
                 };
-                Action<string,int> extraLabel = delegate(string text,int y) { interp.Controls.Add(new Label { Text=text,Location=new Point(360,y+4),Size=new Size(195,24) }); };
+                Action<string,int> extraLabel = delegate(string text,int y) { interp.Controls.Add(new ThemeLabel { Text=text,Location=new Point(360,y+4),Size=new Size(195,24) }); };
                 extraLabel(UiText("重复帧阈值（0 = 关闭）","Dedup threshold (0 = off)"),18);
                 NumericUpDown dedup=extraNumber("SVP_DEDUP",0,10,18);
-                CheckBox still = new CheckBox { Text=UiText("保护静止文字 / Logo","Protect still text / logos"),Checked=config.GetBool("SVP_STILL"),Location=new Point(360,58),Size=new Size(310,26) };interp.Controls.Add(still);
+                CheckBox still = new ThemeCheckBox { Text=UiText("保护静止文字 / Logo","Protect still text / logos"),Checked=config.GetBool("SVP_STILL"),Location=new Point(360,58),Size=new Size(310,26) };interp.Controls.Add(still);
                 extraLabel("Still limit",90);NumericUpDown stillLimit=extraNumber("SVP_STILL_LIMIT",4.5m,100,90);
                 extraLabel("Still edge",122);NumericUpDown stillEdge=extraNumber("SVP_STILL_EDGE",5,100,122);
                 extraLabel("Still tolerance",154);NumericUpDown stillTolerance=extraNumber("SVP_STILL_TOLERANCE",30,100,154);
-                CheckBox peel = new CheckBox { Text=UiText("剥离 HUD 后重合成（Peel）","Peel HUD before warp, then restore"),Checked=config.GetBool("SVP_PEEL"),Location=new Point(360,194),Size=new Size(310,26) };interp.Controls.Add(peel);
+                CheckBox peel = new ThemeCheckBox { Text=UiText("剥离 HUD 后重合成（Peel）","Peel HUD before warp, then restore"),Checked=config.GetBool("SVP_PEEL"),Location=new Point(360,194),Size=new Size(310,26) };interp.Controls.Add(peel);
                 extraLabel("Peel limit",226);NumericUpDown peelLimit=extraNumber("SVP_PEEL_LIMIT",6,100,226);
                 EventHandler refreshExtra = delegate { stillLimit.Enabled=stillEdge.Enabled=stillTolerance.Enabled=still.Checked;peelLimit.Enabled=peel.Checked; };
                 still.CheckedChanged+=refreshExtra;peel.CheckedChanged+=refreshExtra;refreshExtra(null,EventArgs.Empty);
-                Label extraInfo = new Label { Text=UiText("默认全部关闭；dedup 建议从 0.5 开始。\nStill / Peel 仅 GPU，需支持这些选项的插件。\nHDR 直通、隔行旁路与 FRUC 不使用这些选项。", "All off by default; start dedup at 0.5.\nStill / Peel: GPU and compatible plugins required.\nNot used with HDR Preserve, interlaced bypass or FRUC."),Location=new Point(360,266),Size=new Size(310,80),ForeColor=ColorMuted };interp.Controls.Add(extraInfo);
+                Label extraInfo = new ThemeLabel { Text=UiText("默认全部关闭；dedup 建议从 0.5 开始。\nStill / Peel 仅 GPU，需支持这些选项的插件。\nHDR 直通、隔行旁路与 FRUC 不使用这些选项。", "All off by default; start dedup at 0.5.\nStill / Peel: GPU and compatible plugins required.\nNot used with HDR Preserve, interlaced bypass or FRUC."),Location=new Point(360,266),Size=new Size(310,80),ForeColor=ColorMuted };interp.Controls.Add(extraInfo);
                 interpTips.SetToolTip(dedup,UiText("仅处理孤立重复帧；亮度采样平均差低于阈值才算重复，不是VFR或音画同步修复。", "Handles isolated repeats using sampled mean luma difference; not a VFR or audio sync repair."));
                 interpTips.SetToolTip(still,UiText("上游 GPU 静止遮罩，帮助减少固定文字和Logo拖影。", "Upstream GPU still mask for stationary text and logos."));
                 interpTips.SetToolTip(peel,UiText("上游 GPU HUD 剥离/重合成；先单独测试，再测试与Still的组合。", "Upstream GPU HUD peeling; test separately before combining with Still."));
 
-                Label hdrLabel = new Label(); hdrLabel.Text = lang.T("advanced.hdr_policy"); hdrLabel.Location = new Point(28, 34); hdrLabel.Size = new Size(150, 24); hdr.Controls.Add(hdrLabel);
-                ComboBox hdrPolicy = new ComboBox(); hdrPolicy.DropDownStyle = ComboBoxStyle.DropDownList; hdrPolicy.Location = new Point(190, 30); hdrPolicy.Size = new Size(330, 26);
+                Label hdrLabel = new ThemeLabel(); hdrLabel.Text = lang.T("advanced.hdr_policy"); hdrLabel.Location = new Point(28, 34); hdrLabel.Size = new Size(150, 24); hdr.Controls.Add(hdrLabel);
+                ComboBox hdrPolicy = new ThemeComboBox(); hdrPolicy.DropDownStyle = ComboBoxStyle.DropDownList; hdrPolicy.Location = new Point(190, 30); hdrPolicy.Size = new Size(330, 26);
                 hdrPolicy.Items.Add(lang.T("advanced.hdr_auto")); hdrPolicy.Items.Add(lang.T("advanced.hdr_preserve")); hdrPolicy.Items.Add(lang.T("advanced.hdr_force_sdr")); hdrPolicy.SelectedIndex = string.Equals(config.Get("HDR_POLICY"), "PRESERVE", StringComparison.OrdinalIgnoreCase) ? 1 : (string.Equals(config.Get("HDR_POLICY"), "SDR", StringComparison.OrdinalIgnoreCase) ? 2 : 0); hdr.Controls.Add(hdrPolicy);
-                Label toneLabel = new Label(); toneLabel.Text = "Tone Mapping"; toneLabel.Location = new Point(28, 82); toneLabel.Size = new Size(150, 24); hdr.Controls.Add(toneLabel);
-                ComboBox tone = new ComboBox(); tone.DropDownStyle = ComboBoxStyle.DropDownList; tone.Location = new Point(190, 78); tone.Size = new Size(220, 26);
+                Label toneLabel = new ThemeLabel(); toneLabel.Text = "Tone Mapping"; toneLabel.Location = new Point(28, 82); toneLabel.Size = new Size(150, 24); hdr.Controls.Add(toneLabel);
+                ComboBox tone = new ThemeComboBox(); tone.DropDownStyle = ComboBoxStyle.DropDownList; tone.Location = new Point(190, 78); tone.Size = new Size(220, 26);
                 tone.Items.Add(lang.T("advanced.hable")); tone.Items.Add("Mobius"); tone.Items.Add("Reinhard"); tone.Items.Add("Gamma"); tone.Items.Add("Linear"); tone.Items.Add("Clip");
                 string ta = config.Get("TONE_MAP_ALGO").ToLowerInvariant(); tone.SelectedIndex = ta == "mobius" ? 1 : (ta == "reinhard" ? 2 : (ta == "gamma" ? 3 : (ta == "linear" ? 4 : (ta == "clip" ? 5 : 0)))); hdr.Controls.Add(tone);
-                Label hdrInfo = new Label(); hdrInfo.Location = new Point(28, 132); hdrInfo.Size = new Size(620, 150); hdrInfo.ForeColor = ColorMuted; hdrInfo.Text = lang.T("advanced.hdr_info"); hdr.Controls.Add(hdrInfo);
+                Label hdrInfo = new ThemeLabel(); hdrInfo.Location = new Point(28, 132); hdrInfo.Size = new Size(620, 150); hdrInfo.ForeColor = ColorMuted; hdrInfo.Text = lang.T("advanced.hdr_info"); hdr.Controls.Add(hdrInfo);
                 EventHandler updateHdr = delegate { bool enabled = hdrPolicy.SelectedIndex != 1; tone.Enabled = enabled; toneLabel.Enabled = enabled; };
                 hdrPolicy.SelectedIndexChanged += updateHdr; updateHdr(null, EventArgs.Empty);
 
-                Button ok = new Button(); ok.Text = lang.T("advanced.ok"); ok.Location = new Point(514, 406); ok.Size = new Size(88, 30); dlg.Controls.Add(ok);
-                Button cancel = new Button(); cancel.Text = lang.T("advanced.cancel"); cancel.Location = new Point(610, 406); cancel.Size = new Size(88, 30); cancel.DialogResult = DialogResult.Cancel; dlg.Controls.Add(cancel);
+                Button ok = new ThemeButton(); ok.Text = lang.T("advanced.ok"); ok.Location = new Point(514, 406); ok.Size = new Size(88, 30); dlg.Controls.Add(ok);
+                Button cancel = new ThemeButton(); cancel.Text = lang.T("advanced.cancel"); cancel.Location = new Point(610, 406); cancel.Size = new Size(88, 30); cancel.DialogResult = DialogResult.Cancel; dlg.Controls.Add(cancel);
                 dlg.CancelButton = cancel;
 
-                Button pageDefaults = new Button { Text = lang.T("config.defaults"), Location = new Point(394, 406), Size = new Size(112, 30) }; dlg.Controls.Add(pageDefaults);
+                Button pageDefaults = new ThemeButton { Text = lang.T("config.defaults"), Location = new Point(394, 406), Size = new Size(112, 30) }; dlg.Controls.Add(pageDefaults);
                 EventHandler updateAdvancedActions = delegate { updateSvp.Visible = tabs.SelectedTab == interp; };
                 tabs.SelectedIndexChanged += updateAdvancedActions; updateAdvancedActions(null, EventArgs.Empty);
                 pageDefaults.Click += delegate {
@@ -864,6 +867,7 @@ namespace FilmGrainStudioPreview
                 };
 
 
+                AttachThemeWindow(dlg);
                 if (dlg.ShowDialog(this) == DialogResult.OK)
                 {
                     config.Load();
