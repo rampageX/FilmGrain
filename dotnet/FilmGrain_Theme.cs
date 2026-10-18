@@ -776,10 +776,89 @@ namespace FilmGrainStudioPreview
             }
         }
     }
+    internal sealed class ThemeListView : ListView, IThemeSurface
+    {
+        private bool dark;
+        private HeaderTailWindow header;
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        private struct NativeRect { internal int Left,Top,Right,Bottom; }
+        [System.Runtime.InteropServices.DllImport("user32.dll",EntryPoint="SendMessageW")]
+        private static extern IntPtr SendMessage(IntPtr window,int message,IntPtr wParam,IntPtr lParam);
+        [System.Runtime.InteropServices.DllImport("user32.dll",EntryPoint="SendMessageW")]
+        private static extern IntPtr SendRect(IntPtr window,int message,IntPtr wParam,ref NativeRect rect);
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool GetClientRect(IntPtr window,out NativeRect rect);
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool InvalidateRect(IntPtr window,IntPtr rect,bool erase);
+        public bool DarkTheme
+        {
+            get { return dark; }
+            set { if(dark==value)return;dark=value;AttachHeader();if(header!=null)InvalidateRect(header.Handle,IntPtr.Zero,true); }
+        }
+        private void AttachHeader()
+        {
+            if(!IsHandleCreated || IsDisposed || Disposing)return;
+            IntPtr handle=SendMessage(Handle,0x101F,IntPtr.Zero,IntPtr.Zero); // LVM_GETHEADER
+            if(header!=null && header.Handle==handle)return;
+            if(header!=null){header.ReleaseHandle();header=null;}
+            if(handle!=IntPtr.Zero){header=new HeaderTailWindow(this);header.AssignHandle(handle);}
+        }
+        protected override void OnHandleCreated(EventArgs e) { base.OnHandleCreated(e);AttachHeader(); }
+        protected override void OnHandleDestroyed(EventArgs e)
+        { if(header!=null){header.ReleaseHandle();header=null;}base.OnHandleDestroyed(e); }
+        protected override void WndProc(ref Message m)
+        {
+            base.WndProc(ref m);
+            if(m.Msg==0x0005 || m.Msg==0x007D)AttachHeader(); // size / style changes
+        }
+        private sealed class HeaderTailWindow : NativeWindow
+        {
+            private readonly ThemeListView owner;
+            internal HeaderTailWindow(ThemeListView list){owner=list;}
+            protected override void WndProc(ref Message m)
+            {
+                int message=m.Msg;
+                base.WndProc(ref m);
+                if(!owner.dark || owner.IsDisposed || owner.Disposing || Handle==IntPtr.Zero ||
+                    (message!=0x000F && message!=0x0014))return;
+                NativeRect client;
+                if(!GetClientRect(Handle,out client))return;
+                int right=client.Left;
+                int count=SendMessage(Handle,0x1200,IntPtr.Zero,IntPtr.Zero).ToInt32(); // HDM_GETITEMCOUNT
+                if(count<0)return;
+                for(int i=0;i<count;i++) {
+                    NativeRect column=new NativeRect();
+                    if(SendRect(Handle,0x1207,new IntPtr(i),ref column)==IntPtr.Zero)return;
+                    right=Math.Max(right,column.Right);
+                }
+                right=Math.Max(client.Left,Math.Min(right,client.Right));
+                if(right>=client.Right || client.Bottom<=client.Top)return;
+                using(Graphics graphics=Graphics.FromHwnd(Handle))
+                using(Brush brush=new SolidBrush(UiTheme.Surface))
+                    graphics.FillRectangle(brush,right,client.Top,client.Right-right,client.Bottom-client.Top);
+            }
+        }
+    }
     internal class ThemeComboBox : ComboBox, IThemeSurface
     {
         private IntPtr disabledBrush;
         private bool pointerOver;
+        private bool repairQueued;
+        private void QueueResizeRepair()
+        {
+            if(repairQueued || !DarkTheme || DropDownStyle!=ComboBoxStyle.DropDown ||
+                IsDisposed || Disposing || !IsHandleCreated)return;
+            repairQueued=true;
+            try {
+                BeginInvoke((MethodInvoker)delegate {
+                    repairQueued=false;
+                    if(IsDisposed || Disposing || !IsHandleCreated || !DarkTheme || !Visible)return;
+                    Invalidate();Update();
+                });
+            } catch(InvalidOperationException) { repairQueued=false; }
+        }
+        protected override void OnHandleDestroyed(EventArgs e) { repairQueued=false;base.OnHandleDestroyed(e); }
+
         protected override void OnMouseEnter(EventArgs e) { pointerOver = true; base.OnMouseEnter(e); if (DarkTheme) Invalidate(); }
         protected override void OnMouseLeave(EventArgs e) { pointerOver = false; base.OnMouseLeave(e); if (DarkTheme) Invalidate(); }
         protected override void OnGotFocus(EventArgs e) { base.OnGotFocus(e); if (DarkTheme) Invalidate(); }
@@ -825,9 +904,13 @@ namespace FilmGrainStudioPreview
                     m.Result = disabledBrush; return;
                 }
             }
+            int message=m.Msg;
             base.WndProc(ref m);
-            // Normal paint only: preserve native popup, keyboard, IME and accessibility behavior.
-            if (!DarkTheme || m.Msg != 0x000F || DropDownStyle == ComboBoxStyle.Simple) return;
+            if(message==0x0047 || message==0x0005)QueueResizeRepair();
+            // Native frame/background painting can overwrite the editable arrow during resize.
+            // Restore only the same established overlay; preserve child edit and native popup.
+            if (!DarkTheme || (message!=0x000F && message!=0x0085 && message!=0x0014) ||
+                DropDownStyle == ComboBoxStyle.Simple || IsDisposed || Disposing || !IsHandleCreated) return;
             using (Graphics g = Graphics.FromHwnd(Handle)) {
                 int width = SystemInformation.VerticalScrollBarWidth;
                 Rectangle arrow = new Rectangle(Math.Max(1,ClientSize.Width-width-1),1,width,Math.Max(0,ClientSize.Height-2));

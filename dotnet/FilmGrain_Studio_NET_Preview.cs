@@ -106,8 +106,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.06";
-        internal const string FileReleaseVersion = "5.0.6.0";
+        internal const string ReleaseVersion = "5.0.07";
+        internal const string FileReleaseVersion = "5.0.7.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -616,7 +616,7 @@ namespace FilmGrainStudioPreview
             bake.Click += delegate { ShowAv1BakeDialog(); }; buttons.Controls.Add(bake);
             layout.Controls.Add(buttons, 0, 0);
 
-            listFiles = new ListView();
+            listFiles = new ThemeListView();
             listFiles.Dock = DockStyle.Fill;
             listFiles.View = View.Details;
             listFiles.FullRowSelect = true;
