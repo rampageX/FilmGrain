@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -106,8 +106,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.07";
-        internal const string FileReleaseVersion = "5.0.7.0";
+        internal const string ReleaseVersion = "5.0.08";
+        internal const string FileReleaseVersion = "5.0.8.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -341,6 +341,66 @@ namespace FilmGrainStudioPreview
         private double colorGamma = 1.0;
         private bool colorBlackWhite;
 
+        // One atomic config value: x,y,width,height,Normal|Maximized.
+        private FormWindowState rememberedWindowState = FormWindowState.Normal;
+        private bool windowMemoryReady;
+        private bool SuppressWindowMemory {
+            get { return setupTestMode || Environment.GetEnvironmentVariable("FGS_AUTOMATION") == "1"
+                || Environment.GetEnvironmentVariable("FGS_NO_WINDOW_STATE") == "1"; }
+        }
+        internal static Rectangle FitWindowBounds(Rectangle saved, Rectangle[] areas, Size minimum)
+        {
+            if (areas == null || areas.Length == 0) throw new ArgumentException("No working areas");
+            Rectangle target = areas[0]; long best = -1;
+            foreach (Rectangle area in areas) {
+                Rectangle overlap = Rectangle.Intersect(saved, area);
+                long score = (long)Math.Max(0, overlap.Width) * Math.Max(0, overlap.Height);
+                if (score > best) { best = score; target = area; }
+            }
+            int width = Math.Max(minimum.Width, Math.Min(saved.Width, target.Width));
+            int height = Math.Max(minimum.Height, Math.Min(saved.Height, target.Height));
+            return new Rectangle(Math.Max(target.Left, Math.Min(saved.X, target.Right - width)),
+                Math.Max(target.Top, Math.Min(saved.Y, target.Bottom - height)), width, height);
+        }
+        private void InitializeWindowMemory()
+        {
+            if (SuppressWindowMemory) return;
+            Load += delegate {
+                try {
+                    string[] parts = config.Get("MAIN_WINDOW").Split(',');
+                    int x,y,w,h;
+                    if (parts.Length == 5 && int.TryParse(parts[0], out x) && int.TryParse(parts[1], out y)
+                        && int.TryParse(parts[2], out w) && int.TryParse(parts[3], out h)
+                        && Math.Abs((long)x) <= 100000 && Math.Abs((long)y) <= 100000
+                        && w >= MinimumSize.Width && h >= MinimumSize.Height && w <= 32767 && h <= 32767
+                        && (parts[4] == "Normal" || parts[4] == "Maximized")) {
+                        var workingAreas = new List<Rectangle>();
+                        foreach (Screen display in Screen.AllScreens) workingAreas.Add(display.WorkingArea);
+                        Rectangle bounds = FitWindowBounds(new Rectangle(x,y,w,h),
+                            workingAreas.ToArray(), MinimumSize);
+                        StartPosition = FormStartPosition.Manual; Bounds = bounds;
+                        rememberedWindowState = parts[4] == "Maximized" ? FormWindowState.Maximized : FormWindowState.Normal;
+                        WindowState = rememberedWindowState;
+                    }
+                } catch (Exception ex) { System.Diagnostics.Trace.WriteLine("Window restore: " + ex.Message); }
+                windowMemoryReady = true;
+            };
+            Resize += delegate {
+                if (windowMemoryReady && WindowState != FormWindowState.Minimized) rememberedWindowState = WindowState;
+            };
+            FormClosed += delegate {
+                if (!windowMemoryReady || SuppressWindowMemory) return;
+                try {
+                    Rectangle b = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
+                    if (b.Width < MinimumSize.Width || b.Height < MinimumSize.Height) return;
+                    config.SaveValue("MAIN_WINDOW", string.Join(",", new string[] {
+                        b.X.ToString(CultureInfo.InvariantCulture), b.Y.ToString(CultureInfo.InvariantCulture),
+                        b.Width.ToString(CultureInfo.InvariantCulture), b.Height.ToString(CultureInfo.InvariantCulture),
+                        rememberedWindowState == FormWindowState.Maximized ? "Maximized" : "Normal" }));
+                } catch (Exception ex) { System.Diagnostics.Trace.WriteLine("Window save: " + ex.Message); }
+            };
+        }
+
         public MainForm(bool setupTest)
         {
             appRoot = FindAppRoot(AppDomain.CurrentDomain.BaseDirectory);
@@ -380,6 +440,7 @@ namespace FilmGrainStudioPreview
             UpdateStatusCount();
             UpdateMediaDrivenUi(null);
             InitializeTheme();
+            InitializeWindowMemory();
             BeginHardwareDetection();
             Shown += delegate { SetupPhase1.ShowIfNeeded(this, appRoot, config, setupTest); };
             FormClosed += delegate

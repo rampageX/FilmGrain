@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Drawing;
@@ -52,12 +52,49 @@ namespace FilmGrainStudioPreview
     {
         protected override void OnLoad(EventArgs e)
         {
+            RestoreGallerySize();
             MainForm.AttachOwnedTheme(this, Owner, cards);
             base.OnLoad(e);
             // Complete the synchronous initial gallery load before the first visible frame.
             // Loading in Shown blocks pending child paints and exposes native white surfaces.
             Reload();
         }
+        bool IgnoreGallerySize { get { return Environment.GetEnvironmentVariable("FGS_AUTOMATION")=="1"
+            || Environment.GetEnvironmentVariable("FGS_NO_WINDOW_STATE")=="1"; } }
+        void RestoreGallerySize()
+        {
+            if(IgnoreGallerySize)return;
+            try {
+                string[] value=new FgsConfig(appRoot,null).Get("LUT_GALLERY_SIZE").Split(',');
+                int w,h;
+                if(value.Length!=2 || !int.TryParse(value[0],out w) || !int.TryParse(value[1],out h)
+                    || w<MinimumSize.Width || h<MinimumSize.Height || w>32767 || h>32767)return;
+                Rectangle area=Owner==null?Screen.FromControl(this).WorkingArea:Screen.FromControl(Owner).WorkingArea;
+                Size=new Size(Math.Max(MinimumSize.Width,Math.Min(w,area.Width)),
+                    Math.Max(MinimumSize.Height,Math.Min(h,area.Height)));
+            }catch(Exception ex){System.Diagnostics.Trace.WriteLine("Gallery size restore: "+ex.Message);}
+        }
+        protected override void OnFormClosed(FormClosedEventArgs e)
+        {
+            if(!IgnoreGallerySize)try {
+                Size size=WindowState==FormWindowState.Normal?Size:RestoreBounds.Size;
+                if(size.Width>=MinimumSize.Width && size.Height>=MinimumSize.Height)
+                    new FgsConfig(appRoot,null).SaveValue("LUT_GALLERY_SIZE",size.Width+","+size.Height);
+            }catch(Exception ex){System.Diagnostics.Trace.WriteLine("Gallery size save: "+ex.Message);}
+            base.OnFormClosed(e);
+        }
+        sealed class CardSlot
+        {
+            internal LutGalleryEntry Entry;
+            internal ThemeSelectionPanel Card;
+            internal PictureBox Picture;
+            internal Label Name;
+            internal Button Favorite;
+            internal ToolTip Tip;
+            internal string ImagePath;
+            internal DateTime ImageStamp;
+        }
+        readonly List<CardSlot> cardSlots=new List<CardSlot>();
         readonly string appRoot,ffmpeg,root,previews;
         List<LutGalleryEntry> all=new List<LutGalleryEntry>(),filtered=new List<LutGalleryEntry>();
         Dictionary<string,NativeLutClassification> classes=new Dictionary<string,NativeLutClassification>();
@@ -107,7 +144,8 @@ namespace FilmGrainStudioPreview
         {
             string current=folders.SelectedItem as string;updating=true;
             try {
-                all=NativeLibraryTools.GalleryEntries(root,previews);classes=NativeLutSmartFilter.Classify(all);
+                all=NativeLibraryTools.GalleryEntries(root,previews);
+                classes=NativeLutSmartFilter.Classify(all);
                 try {NativeLutSmartFilter.Report(previews,all,classes);}catch(Exception ex){status.Text="报告保存失败："+ex.Message;}
                 var cfg=new FgsConfig(appRoot,null);smartEnabled=new[]{"true","1","yes","on"}.Contains(cfg.Get("SMART_FILTER_ENABLED").ToLowerInvariant());UpdateSmart();
                 var dirs=new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -139,29 +177,60 @@ namespace FilmGrainStudioPreview
         }
         void ClearCards()
         {
+            cardSlots.Clear();
             var old=cards.Controls.Cast<Control>().ToArray();cards.Controls.Clear();
             foreach(var c in old){foreach(var pic in c.Controls.OfType<PictureBox>()) {var image=pic.Image;pic.Image=null;if(image!=null)image.Dispose();}c.Dispose();}
         }
         void RenderPage()
         {
-            cards.SuspendLayout();ClearCards();int total=Math.Max(1,(filtered.Count+PageSize-1)/PageSize);page=Math.Max(0,Math.Min(page,total-1));updating=true;
-            pages.Items.Clear();for(int n=1;n<=total;n++)pages.Items.Add(n+" / "+total);pages.SelectedIndex=page;updating=false;
+            cards.AutoScrollPosition=Point.Empty;
+            cards.SuspendLayout();
+            int total=Math.Max(1,(filtered.Count+PageSize-1)/PageSize);page=Math.Max(0,Math.Min(page,total-1));updating=true;
+            pages.BeginUpdate();
+            try {pages.Items.Clear();for(int n=1;n<=total;n++)pages.Items.Add(n+" / "+total);pages.SelectedIndex=page;}
+            finally {pages.EndUpdate();updating=false;}
+            int index=0;
             foreach(var e in filtered.Skip(page*PageSize).Take(PageSize)) {
+                if(index==cardSlots.Count) {
+                var slot=new CardSlot();
                 var card=new ThemeSelectionPanel{Width=254,Height=190,Margin=new Padding(5),BorderStyle=BorderStyle.FixedSingle};
                 var pic=new PictureBox{Width=240,Height=135,Left=6,Top=4,SizeMode=PictureBoxSizeMode.Zoom};
-                try {pic.Image=LoadThumbnail(e.PreviewPath);}catch { }
-                var name=new ThemeLabel{Text=e.Name,Left=6,Top=144,Width=204,Height=36,AutoEllipsis=true};
-                var fav=new ThemeButton{Text=favorites.Contains(NativeLutRecords.Key(e.LutPath))?"★":"☆",Left=215,Top=143,Width=31,Height=30};
-                var tip=new ToolTip();tip.SetToolTip(name,e.Relative);card.Disposed+=delegate{tip.Dispose();};
-                Action choose=delegate{selected=e;status.Text=e.Relative;foreach(Control c in cards.Controls)c.BackColor=c==card?Color.LightSteelBlue:SystemColors.Control;};
+
+                var name=new ThemeLabel{Text="",Left=6,Top=144,Width=204,Height=36,AutoEllipsis=true};
+                var fav=new ThemeButton{Text="",Left=215,Top=143,Width=31,Height=30};
+                var tip=new ToolTip();card.Disposed+=delegate{tip.Dispose();};
+                Action choose=delegate{selected=slot.Entry;status.Text=slot.Entry.Relative;foreach(Control c in cards.Controls)c.BackColor=c==card?Color.LightSteelBlue:SystemColors.Control;};
                 pic.Click+=delegate{choose();};name.Click+=delegate{choose();};card.Click+=delegate{choose();};
-                pic.DoubleClick+=delegate{Commit(e);};name.DoubleClick+=delegate{Commit(e);};card.DoubleClick+=delegate{Commit(e);};
-                fav.Click+=delegate{try {NativeLutRecords.ToggleFavorite(previews,e.LutPath);Filter();}catch(Exception ex){MessageBox.Show(this,"收藏保存失败，原记录保留："+ex.Message);}};
-                var menu=new ContextMenuStrip();menu.Items.Add("打开 LUT 所在文件夹",null,delegate{Open(Path.GetDirectoryName(e.LutPath));});menu.Items.Add("打开完整尺寸预览图",null,delegate{Open(e.PreviewPath);});
+                pic.DoubleClick+=delegate{Commit(slot.Entry);};name.DoubleClick+=delegate{Commit(slot.Entry);};card.DoubleClick+=delegate{Commit(slot.Entry);};
+                fav.Click+=delegate{try {NativeLutRecords.ToggleFavorite(previews,slot.Entry.LutPath);Filter();}catch(Exception ex){MessageBox.Show(this,"收藏保存失败，原记录保留："+ex.Message);}};
+                var menu=new ContextMenuStrip();menu.Items.Add("打开 LUT 所在文件夹",null,delegate{Open(Path.GetDirectoryName(slot.Entry.LutPath));});menu.Items.Add("打开完整尺寸预览图",null,delegate{Open(slot.Entry.PreviewPath);});
                 card.ContextMenuStrip=menu;pic.ContextMenuStrip=menu;name.ContextMenuStrip=menu;card.Disposed+=delegate{menu.Dispose();};
-                card.Controls.Add(pic);card.Controls.Add(name);card.Controls.Add(fav);cards.Controls.Add(card);
+                card.SuspendLayout();
+                card.Controls.AddRange(new Control[]{pic,name,fav});
+                card.ResumeLayout(false);
+                slot.Card=card;slot.Picture=pic;slot.Name=name;slot.Favorite=fav;slot.Tip=tip;
+                cardSlots.Add(slot);cards.Controls.Add(card);
+                }
+                CardSlot bound=cardSlots[index++];
+                bound.Entry=e;
+                bound.Card.BackColor=SystemColors.Control;
+                bound.Name.Text=e.Name;bound.Tip.SetToolTip(bound.Name,e.Relative);
+                bound.Favorite.Text=favorites.Contains(NativeLutRecords.Key(e.LutPath))?"★":"☆";
+                // Same entry may be selected again after filtering; keep its owned bitmap.
+                DateTime imageStamp=File.GetLastWriteTimeUtc(e.PreviewPath);
+                if(!string.Equals(bound.ImagePath,e.PreviewPath,StringComparison.OrdinalIgnoreCase) || bound.ImageStamp!=imageStamp) {
+                    Image oldImage=bound.Picture.Image;bound.Picture.Image=null;bound.ImagePath=null;
+                    if(oldImage!=null)oldImage.Dispose();
+                    try {bound.Picture.Image=LoadThumbnail(e.PreviewPath);bound.ImagePath=e.PreviewPath;bound.ImageStamp=imageStamp;}catch{}
+                }
+                bound.Card.Visible=true;
             }
-            cards.ResumeLayout();status.Text="匹配 "+filtered.Count+" / 共 "+all.Count+"；双击缩略图使用 LUT"+(smartEnabled?"；隐藏纯功能 LUT，保留 Combined":"");
+            for(int n=index;n<cardSlots.Count;n++) {
+                CardSlot hidden=cardSlots[n];hidden.Entry=null;hidden.Card.Visible=false;
+                Image image=hidden.Picture.Image;hidden.Picture.Image=null;hidden.ImagePath=null;
+                if(image!=null)image.Dispose();
+            }
+            cards.ResumeLayout(); status.Text="匹配 "+filtered.Count+" / 共 "+all.Count+"；双击缩略图使用 LUT"+(smartEnabled?"；隐藏纯功能 LUT，保留 Combined":"");
         }
         Bitmap LoadThumbnail(string path)
         {
@@ -180,7 +249,7 @@ namespace FilmGrainStudioPreview
                     try{thumb.Save(temp,System.Drawing.Imaging.ImageFormat.Jpeg);NativeLibraryTools.Publish(temp,cache);}finally{NativeLibraryTools.DeleteTemp(temp);}
                 }
             }
-            using(var stream=new MemoryStream(File.ReadAllBytes(cache)))using(var image=Image.FromStream(stream))return new Bitmap(image);
+            using(var stream=new MemoryStream(File.ReadAllBytes(cache)))using(var image=Image.FromStream(stream)){ var bitmap=new Bitmap(image); return bitmap; }
         }
         void Open(string path){try{System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path){UseShellExecute=true});}catch(Exception ex){MessageBox.Show(this,ex.Message);}}
         void Commit(LutGalleryEntry entry)
@@ -209,8 +278,13 @@ namespace FilmGrainStudioPreview
                     }finally{NativeLibraryTools.DeleteTemp(temp);}source=current;
                 }
                 return NativeLibraryTools.BuildPreviews(root,previews,source,ffmpeg,newReference,!newReference,token,log,NativeLibraryTools.RunProcess);
-            });Reload();
+            });ClearCards();Reload();
         }
-        protected override void Dispose(bool disposing){if(disposing)ClearCards();base.Dispose(disposing);}
+        protected override void Dispose(bool disposing){
+            if(disposing) {
+                ClearCards();
+            }
+            base.Dispose(disposing);
+        }
     }
 }
