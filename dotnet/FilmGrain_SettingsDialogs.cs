@@ -308,6 +308,7 @@ namespace FilmGrainStudioPreview
         private void ShowPathConfigurationDialog()
         {
             config.Load();
+            string hardwareBefore = HardwareCapabilityCore.RequestKey(CreateHardwareRequest());
             using (Form dlg = new Form())
             {
                 dlg.Text = lang.T("config.title");
@@ -644,7 +645,7 @@ namespace FilmGrainStudioPreview
                     UpdateLutUi();
                     RefreshGrainFileCaches();
                     UpdateGrainForCodec();
-                    BeginHardwareDetection();
+                    RefreshChangedHardware(hardwareBefore);
                     if (log != null) log.AppendText("[Config] Path configuration saved: " + config.ConfigPath + Environment.NewLine);
                     MessageBox.Show(this, lang.T("config.saved"), lang.T("config.path_title"), MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
@@ -662,8 +663,10 @@ namespace FilmGrainStudioPreview
                     delegate(string exe, IList<string> args, string cwd, IDictionary<string,string> env, CancellationToken ct, Action<string> write) { return NativeLibraryTools.RunProcessEnvironment(exe,args,cwd,env,120000,ct,write); });
                 return core.Install("OpenSVPFlowUpdate");
             });
-            if (result.Success > 0 && !result.Cancelled && result.Failed == 0)
-                MessageBox.Show(owner, "插件更新并完成自检。请重启 FGS 后重新检测硬件能力。", "更新完成");
+            if (result.Success > 0 && !result.Cancelled && result.Failed == 0) {
+                BeginHardwareDetection();
+                MessageBox.Show(owner, "插件更新并完成自检，相关硬件能力已安排刷新。", "更新完成");
+            }
         }
 
         private void ShowAdvancedSettingsDialog()
@@ -674,6 +677,7 @@ namespace FilmGrainStudioPreview
         private void ShowAdvancedSettingsDialog(int initialTab)
         {
             config.Load();
+            string hardwareBefore = HardwareCapabilityCore.RequestKey(CreateHardwareRequest());
             using (Form dlg = new Form())
             using (ToolTip interpTips = new ToolTip())
             {
@@ -871,7 +875,7 @@ namespace FilmGrainStudioPreview
                 if (dlg.ShowDialog(this) == DialogResult.OK)
                 {
                     config.Load();
-                    BeginHardwareDetection();
+                    RefreshChangedHardware(hardwareBefore);
                     UpdateSpeedChoices();
                     UpdateHdrRouteStatus(GetSelectedMediaInfo());
                     if (log != null) log.AppendText("[Config] Advanced settings saved." + Environment.NewLine);

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Windows.Forms;
@@ -841,6 +841,54 @@ namespace FilmGrainStudioPreview
     }
     internal class ThemeComboBox : ComboBox, IThemeSurface
     {
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        private struct ComboRect { internal int Left, Top, Right, Bottom; }
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        private struct ComboInfo {
+            internal int Size; internal ComboRect Item, Button; internal int State;
+            internal IntPtr Combo, Edit, List;
+        }
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool GetComboBoxInfo(IntPtr hwnd, ref ComboInfo info);
+        [System.Runtime.InteropServices.DllImport("user32.dll", CharSet=System.Runtime.InteropServices.CharSet.Auto)]
+        private static extern IntPtr SendMessage(IntPtr hwnd, int message, IntPtr wparam, IntPtr lparam);
+        private InactiveEditWindow editWindow;
+        private bool clearingInactiveSelection;
+        private void ClearInactiveSelection()
+        {
+            if (clearingInactiveSelection || DropDownStyle != ComboBoxStyle.DropDown ||
+                ContainsFocus || DroppedDown || !IsHandleCreated || IsDisposed || Disposing) return;
+            clearingInactiveSelection = true;
+            try {
+                if (editWindow != null && editWindow.Handle != IntPtr.Zero) {
+                    long range=SendMessage(editWindow.Handle,0x00B0,IntPtr.Zero,IntPtr.Zero).ToInt64(); // EM_GETSEL
+                    if((range & 0xffff) != ((range >> 16) & 0xffff))
+                        SendMessage(editWindow.Handle, 0x00B1, IntPtr.Zero, IntPtr.Zero); // EM_SETSEL
+                }
+                else if (SelectionLength != 0) SelectionLength = 0;
+            }
+            finally { clearingInactiveSelection = false; }
+        }
+        private sealed class InactiveEditWindow : NativeWindow {
+            private readonly ThemeComboBox owner;
+            internal InactiveEditWindow(ThemeComboBox owner, IntPtr edit) { this.owner=owner; AssignHandle(edit); }
+            protected override void WndProc(ref Message m) {
+                int message=m.Msg;
+                // The inner EDIT receives EM_SETSEL directly, bypassing ComboBox.WndProc.
+                // Collapse before paint and after programmatic native selection updates.
+                if(message==0x000F) owner.ClearInactiveSelection();
+                base.WndProc(ref m);
+                if(message==0x00B1 || message==0x000C || message==0x0008) owner.ClearInactiveSelection();
+            }
+        }
+        protected override void OnHandleCreated(EventArgs e) {
+            base.OnHandleCreated(e);
+            if(DropDownStyle==ComboBoxStyle.DropDown) {
+                ComboInfo info=new ComboInfo();info.Size=System.Runtime.InteropServices.Marshal.SizeOf(typeof(ComboInfo));
+                if(GetComboBoxInfo(Handle,ref info) && info.Edit!=IntPtr.Zero)editWindow=new InactiveEditWindow(this,info.Edit);
+            }
+            ClearInactiveSelection();
+        }
         private IntPtr disabledBrush;
         private bool pointerOver;
         private bool repairQueued;
@@ -857,12 +905,16 @@ namespace FilmGrainStudioPreview
                 });
             } catch(InvalidOperationException) { repairQueued=false; }
         }
-        protected override void OnHandleDestroyed(EventArgs e) { repairQueued=false;base.OnHandleDestroyed(e); }
+        protected override void OnHandleDestroyed(EventArgs e) {
+            repairQueued=false;
+            if(editWindow!=null) {editWindow.ReleaseHandle();editWindow=null;}
+            base.OnHandleDestroyed(e);
+        }
 
         protected override void OnMouseEnter(EventArgs e) { pointerOver = true; base.OnMouseEnter(e); if (DarkTheme) Invalidate(); }
         protected override void OnMouseLeave(EventArgs e) { pointerOver = false; base.OnMouseLeave(e); if (DarkTheme) Invalidate(); }
         protected override void OnGotFocus(EventArgs e) { base.OnGotFocus(e); if (DarkTheme) Invalidate(); }
-        protected override void OnLostFocus(EventArgs e) { base.OnLostFocus(e); if (DarkTheme) Invalidate(); }
+        protected override void OnLostFocus(EventArgs e) { base.OnLostFocus(e); ClearInactiveSelection(); if (DarkTheme) Invalidate(); }
         protected override void OnDropDownClosed(EventArgs e) { base.OnDropDownClosed(e); if (DarkTheme) Invalidate(); }
         [System.Runtime.InteropServices.DllImport("gdi32.dll")]
         private static extern IntPtr CreateSolidBrush(int color);
@@ -906,6 +958,9 @@ namespace FilmGrainStudioPreview
             }
             int message=m.Msg;
             base.WndProc(ref m);
+            // CB_SETEDITSEL / CB_SETCURSEL / WM_SETTEXT may leave a native edit
+            // selection after programmatic value updates even without focus.
+            if (message == 0x0142 || message == 0x014E || message == 0x000C) ClearInactiveSelection();
             if(message==0x0047 || message==0x0005)QueueResizeRepair();
             // Native frame/background painting can overwrite the editable arrow during resize.
             // Restore only the same established overlay; preserve child edit and native popup.

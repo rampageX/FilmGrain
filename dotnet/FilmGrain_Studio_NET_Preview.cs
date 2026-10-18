@@ -106,8 +106,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.08";
-        internal const string FileReleaseVersion = "5.0.8.0";
+        internal const string ReleaseVersion = "5.0.09";
+        internal const string FileReleaseVersion = "5.0.9.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -268,6 +268,8 @@ namespace FilmGrainStudioPreview
         private readonly Dictionary<string, ToolStripStatusLabel> statusCapabilities = new Dictionary<string, ToolStripStatusLabel>();
         private bool updatingFrucUi;
         private bool hardwareRefreshQueued;
+        private string hardwareActiveKey, hardwareAppliedKey;
+        private bool hardwareForceQueued;
         private int previousSvpSelection;
         private BridgeTaskCoordinator bridgeTaskCoordinator;
         private HardwareCapabilityCore hardwareCapabilityCore;
@@ -401,7 +403,9 @@ namespace FilmGrainStudioPreview
             };
         }
 
-        public MainForm(bool setupTest)
+        public MainForm(bool setupTest) : this(setupTest, null) {}
+
+        internal MainForm(bool setupTest, HardwareCapabilityCore injectedHardware)
         {
             appRoot = FindAppRoot(AppDomain.CurrentDomain.BaseDirectory);
             setupTestMode = setupTest;
@@ -426,7 +430,7 @@ namespace FilmGrainStudioPreview
             bridgeTaskCoordinator.LogLine += OnBridgeExecutionLogLine;
             bridgeTaskCoordinator.ProgressChanged += OnBridgeExecutionProgressChanged;
             bridgeTaskCoordinator.Completed += OnBridgeExecutionCompleted;
-            hardwareCapabilityCore = new HardwareCapabilityCore();
+            hardwareCapabilityCore = injectedHardware ?? new HardwareCapabilityCore();
             hardwareCapabilityCore.Completed += OnHardwareCapabilityCompleted;
             mediaProbeCache.ProbePath = delegate { return Path.Combine(config.Get("FFMPEG_DIR"), "ffprobe.exe"); };
             mediaProbeCore = new MediaProbeCore();
@@ -832,7 +836,7 @@ namespace FilmGrainStudioPreview
             {
                 if (e.Index < 0) return;
                 e.DrawBackground();
-                bool disabled = e.Index == 2 && (hardwareDetectionInProgress || hardwareCaps == null || !hardwareCaps.FrucReady || !hardwareCaps.FrucAvailable);
+                bool disabled = e.Index == 2 && ((hardwareDetectionInProgress && !hardwareCapsReady) || hardwareCaps == null || !hardwareCaps.FrucReady || !hardwareCaps.FrucAvailable);
                 TextRenderer.DrawText(e.Graphics, Convert.ToString(cmbInterpolationMode.Items[e.Index]), e.Font,
                     e.Bounds, disabled ? SystemColors.GrayText : e.ForeColor, TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
                 e.DrawFocusRectangle();
@@ -845,7 +849,7 @@ namespace FilmGrainStudioPreview
             cmbInterpolationMode.SelectedIndexChanged += delegate {
                 if (updatingFrucUi) return;
                 if (cmbInterpolationMode.SelectedIndex == 2 &&
-                    (hardwareDetectionInProgress || hardwareCaps == null || !hardwareCaps.FrucReady || !hardwareCaps.FrucAvailable))
+                    ((hardwareDetectionInProgress && !hardwareCapsReady) || hardwareCaps == null || !hardwareCaps.FrucReady || !hardwareCaps.FrucAvailable))
                 {
                     MessageBox.Show(this, FrucUiReason(), Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
                     cmbInterpolationMode.SelectedIndex = previousSvpSelection;
@@ -1569,7 +1573,7 @@ namespace FilmGrainStudioPreview
                 item.ForeColor = ColorMuted; item.Margin = new Padding(3, 0, 3, 0);
                 statusCapabilities[name] = item; strip.Items.Add(item);
             }
-            statusCapabilities["FRUC"].Click += delegate { BeginHardwareDetection(); };
+            statusCapabilities["FRUC"].Click += delegate { BeginHardwareDetection(true); };
             BuildThemeMenu(strip);
             strip.Items.Add(version); return strip;
         }
@@ -2251,31 +2255,52 @@ namespace FilmGrainStudioPreview
             return string.Equals(lang.Code, "zh-CN", StringComparison.OrdinalIgnoreCase) ? zh : en;
         }
 
-        private void BeginHardwareDetection()
+        private HardwareCapabilityRequest CreateHardwareRequest()
         {
-            if (hardwareCapabilityCore == null) return;
-            if (hardwareCapabilityCore.IsRunning || (bridgeTaskCoordinator != null && bridgeTaskCoordinator.IsActive))
-            { hardwareRefreshQueued = true; return; }
-            hardwareRefreshQueued = false;
             string ffmpeg = Path.Combine(config.Get("FFMPEG_DIR"), "ffmpeg.exe");
             HardwareCapabilityRequest request = new HardwareCapabilityRequest();
             request.AppRoot = appRoot;
             request.FfmpegPath = ffmpeg;
             request.Grav1synthPath = config.Get("GRAV1SYNTH");
             request.NvencQueryPath = Application.ExecutablePath;
-            request.ForceDetection = hardwareCaps != null && hardwareCaps.Ready;
+            request.ForceDetection = false;
             request.FrucFfmpegPath = config.FrucUsesMainFfmpeg() ? ffmpeg : config.Get("FRUC_FFMPEG_PATH");
             request.FrucPerf = config.Get("FRUC_PERF").ToLowerInvariant();
             request.FrucGrid = config.Get("FRUC_GRID").ToLowerInvariant();
 
+            return request;
+        }
+
+        private void RefreshChangedHardware(string before)
+        {
+            if (before != HardwareCapabilityCore.RequestKey(CreateHardwareRequest())) BeginHardwareDetection();
+        }
+
+        private void BeginHardwareDetection(bool force = false)
+        {
+            if (hardwareCapabilityCore == null) return;
+            HardwareCapabilityRequest request = CreateHardwareRequest();
+            request.ForceDetection = force || hardwareForceQueued;
+            string key = HardwareCapabilityCore.RequestKey(request);
+            if (hardwareCapabilityCore.IsRunning) {
+                // Identical requests join the active pass, including repeated refresh clicks.
+                hardwareRefreshQueued = key != hardwareActiveKey;
+                return;
+            }
+            if (bridgeTaskCoordinator != null && bridgeTaskCoordinator.IsActive) {
+                hardwareRefreshQueued = true; hardwareForceQueued |= force; return;
+            }
+            hardwareRefreshQueued = false; hardwareForceQueued = false;
+            if (!request.ForceDetection && key == hardwareAppliedKey && hardwareCaps != null && hardwareCaps.Ready && hardwareCaps.FrucReady) return;
+            hardwareActiveKey = key;
             hardwareDetectionInProgress = true;
             // Keep previous codec choices while refreshing; task start remains blocked until detection finishes.
             hardwareCapsReady = hardwareCaps != null && hardwareCaps.Ready;
             UpdateFrucAvailabilityUi();
-            SetCapabilityStatusPending();
+            if (!hardwareCapsReady) SetCapabilityStatusPending();
             UpdateSfeUi();
             if (statusHardware != null) statusHardware.Text = lang.T("hardware.detecting");
-            if (btnStart != null && (bridgeTaskCoordinator == null || !bridgeTaskCoordinator.IsActive)) btnStart.Enabled = false;
+            if (btnStart != null && (bridgeTaskCoordinator == null || !bridgeTaskCoordinator.IsActive)) btnStart.Enabled = hardwareCapsReady;
             try
             {
                 hardwareCapabilityCore.Start(request);
@@ -2296,9 +2321,11 @@ namespace FilmGrainStudioPreview
             {
                 BeginInvoke((MethodInvoker)delegate
                 {
+                    if (e == null || hardwareCapabilityCore == null || e.Generation != hardwareCapabilityCore.Generation) return;
                     hardwareDetectionInProgress = false;
                     if (hardwareRefreshQueued) { BeginHardwareDetection(); return; }
                     HardwareCapabilitySnapshot caps = e != null ? e.Snapshot : null;
+                    if (caps != null && caps.Ready) hardwareAppliedKey = hardwareActiveKey;
                     if (caps != null && caps.Ready)
                     {
                         hardwareCaps = caps;
@@ -2404,7 +2431,7 @@ namespace FilmGrainStudioPreview
 
         private string FrucUiSummary()
         {
-            if (hardwareDetectionInProgress || hardwareCaps == null || !hardwareCaps.FrucReady)
+            if ((hardwareDetectionInProgress && !hardwareCapsReady) || hardwareCaps == null || !hardwareCaps.FrucReady)
                 return UiText("FRUC Vulkan 正在检测，请稍后重试。", "FRUC Vulkan detection is pending.");
             string kind = hardwareCaps.FrucFailureKind;
             string summary = kind == "FFMPEG" ? UiText("FFmpeg 缺少 FRUC 滤镜或路径不可用", "FFmpeg filter/path unavailable") :
@@ -2417,13 +2444,13 @@ namespace FilmGrainStudioPreview
 
         private string FrucUiReason()
         {
-            if (hardwareDetectionInProgress || hardwareCaps == null || !hardwareCaps.FrucReady) return FrucUiSummary();
+            if ((hardwareDetectionInProgress && !hardwareCapsReady) || hardwareCaps == null || !hardwareCaps.FrucReady) return FrucUiSummary();
             return FrucUiSummary() + Environment.NewLine + hardwareCaps.FrucReason + Environment.NewLine + hardwareCaps.FrucFfmpegPath;
         }
 
         private string FrucToolTipText()
         {
-            if (hardwareDetectionInProgress || hardwareCaps == null || !hardwareCaps.FrucReady) return FrucUiSummary();
+            if ((hardwareDetectionInProgress && !hardwareCapsReady) || hardwareCaps == null || !hardwareCaps.FrucReady) return FrucUiSummary();
             if (hardwareCaps.FrucAvailable)
                 return UiText("FRUC Vulkan 小样本预检通过。实际输入和组合仍需验证。", "FRUC Vulkan small-sample probe passed. Actual inputs/combinations still require testing.");
             return FrucUiSummary() + Environment.NewLine + UiText("详细原因请查看任务日志。", "See the task log for details.");
@@ -2433,7 +2460,7 @@ namespace FilmGrainStudioPreview
         {
             if (cmbInterpolationMode == null || cmbInterpolationMode.Items.Count < 3) return;
             string label = "FRUC Vulkan";
-            if (hardwareDetectionInProgress || hardwareCaps == null || !hardwareCaps.FrucReady)
+            if ((hardwareDetectionInProgress && !hardwareCapsReady) || hardwareCaps == null || !hardwareCaps.FrucReady)
                 label += UiText(" · 检测中", " · pending");
             else if (!hardwareCaps.FrucAvailable)
                 label += hardwareCaps.FrucFailureKind == "FFMPEG" ? UiText(" · 不可用：FFmpeg", " · unavailable: FFmpeg") :
@@ -2577,7 +2604,7 @@ namespace FilmGrainStudioPreview
                 MessageBox.Show(this, lang.T("info.add_video"), Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
-            if (hardwareDetectionInProgress)
+            if (hardwareDetectionInProgress && !hardwareCapsReady)
             {
                 MessageBox.Show(this, lang.T("hardware.detecting"), Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
@@ -2786,7 +2813,7 @@ namespace FilmGrainStudioPreview
                     if (IsDisposed || Disposing) return;
 
                     bool idle = e == null || e.State == BridgeTaskState.Idle;
-                    if (btnStart != null) btnStart.Enabled = idle && !hardwareDetectionInProgress;
+                    if (btnStart != null) btnStart.Enabled = idle && (!hardwareDetectionInProgress || hardwareCapsReady);
                     if (encodePreviewPanel != null) encodePreviewPanel.Enabled = idle;
                     if (btnCancelTask != null) btnCancelTask.Enabled = e != null && e.State == BridgeTaskState.Running;
 

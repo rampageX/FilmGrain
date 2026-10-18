@@ -25,6 +25,7 @@ namespace FilmGrainStudioPreview
 
     internal sealed class HardwareCapabilitySnapshot
     {
+        internal HardwareCapabilitySnapshot Clone() { return (HardwareCapabilitySnapshot)MemberwiseClone(); }
         public bool FrucReady { get; set; }
         public bool FrucAvailable { get; set; }
         public string FrucFailureKind { get; set; }
@@ -72,6 +73,7 @@ namespace FilmGrainStudioPreview
     internal sealed class HardwareCapabilityCompletedEventArgs : EventArgs
     {
         public HardwareCapabilitySnapshot Snapshot { get; private set; }
+        internal long Generation { get; set; }
 
         public HardwareCapabilityCompletedEventArgs(HardwareCapabilitySnapshot snapshot)
         {
@@ -87,6 +89,47 @@ namespace FilmGrainStudioPreview
         private bool disposed;
         private volatile bool cancelRequested;
 
+        private HardwareCapabilitySnapshot nativeCached;
+        private HardwareCapabilitySnapshot frucCached;
+        private string nativeKey, frucKey;
+        internal int NativeRuns, FrucRuns, ChildProcesses;
+        internal long Generation;
+        internal Func<HardwareCapabilityRequest, HardwareCapabilitySnapshot> NativeTest;
+        internal Action<HardwareCapabilityRequest, HardwareCapabilitySnapshot> FrucTest;
+        internal static string ToolStamp(string path)
+        {
+            try { var f = new FileInfo(Path.GetFullPath(path)); return f.FullName.ToUpperInvariant() + ":" + (f.Exists ? f.Length + ":" + f.LastWriteTimeUtc.Ticks : "missing"); }
+            catch { return path ?? ""; }
+        }
+        internal static string ToolBundleStamp(string path)
+        {
+            var b = new StringBuilder(ToolStamp(path));
+            try {
+                string dir = Path.GetDirectoryName(Path.GetFullPath(path));
+                if (Directory.Exists(dir)) {
+                    string[] dlls = Directory.GetFiles(dir, "*.dll"); Array.Sort(dlls, StringComparer.OrdinalIgnoreCase);
+                    foreach (string dll in dlls) b.Append('|').Append(ToolStamp(dll));
+                }
+            } catch { }
+            return b.ToString();
+        }
+        internal static string NativeKey(HardwareCapabilityRequest r)
+        {
+            var b = new StringBuilder(ToolBundleStamp(r.FfmpegPath)).Append('|').Append(ToolStamp(r.Grav1synthPath)).Append('|').Append(ToolStamp(r.NvencQueryPath));
+            foreach (string p in new string[] {".venv/Scripts/vspipe.exe", "Plugins/svpflow1_vs.dll", "Plugins/svpflow2_vs.dll", "Check_OpenSVPFlow.vpy", ".venv/pyvenv.cfg", "_UserConfig/vapoursynth/vapoursynth.toml"})
+                b.Append('|').Append(ToolStamp(Path.Combine(r.AppRoot, "_OpenSVPFlow", p)));
+            return b.ToString();
+        }
+        internal static string FrucKey(HardwareCapabilityRequest r)
+        { return ToolBundleStamp(r.FrucFfmpegPath) + "|" + r.FrucPerf + "|" + r.FrucGrid; }
+        internal static string RequestKey(HardwareCapabilityRequest r) { return NativeKey(r) + "|FRUC|" + FrucKey(r); }
+        private static HardwareCapabilitySnapshot Copy(HardwareCapabilitySnapshot s)
+        { return s.Clone(); }
+        private static void CopyFruc(HardwareCapabilitySnapshot a, HardwareCapabilitySnapshot b)
+        {
+            b.FrucReady=a.FrucReady; b.FrucAvailable=a.FrucAvailable; b.FrucFailureKind=a.FrucFailureKind;
+            b.FrucReason=a.FrucReason; b.FrucFfmpegPath=a.FrucFfmpegPath; b.FrucPerf=a.FrucPerf; b.FrucGrid=a.FrucGrid;
+        }
         public event EventHandler<HardwareCapabilityCompletedEventArgs> Completed;
 
         public bool IsRunning
@@ -111,7 +154,8 @@ namespace FilmGrainStudioPreview
                 if (disposed) throw new ObjectDisposedException("HardwareCapabilityCore");
                 if (activeProcess != null || (workerThread != null && workerThread.IsAlive)) return;
                 cancelRequested = false;
-                workerThread = new Thread(new ThreadStart(delegate { RunWorker(request); }));
+                long generation = ++Generation;
+                workerThread = new Thread(new ThreadStart(delegate { RunWorker(request, generation); }));
                 workerThread.IsBackground = true;
                 workerThread.Name = "FGS Hardware Capability Detection";
                 workerThread.Start();
@@ -134,16 +178,36 @@ namespace FilmGrainStudioPreview
             catch { }
         }
 
-        private void RunWorker(HardwareCapabilityRequest request)
+        private void RunWorker(HardwareCapabilityRequest request, long generation)
         {
+            var timing = Stopwatch.StartNew();
+            int childrenBefore = ChildProcesses, nativeBefore = NativeRuns, frucBefore = FrucRuns;
             HardwareCapabilitySnapshot snapshot = new HardwareCapabilitySnapshot { Av1SplitEncodeMaxEngines = 1 };
             try
             {
-                try { snapshot = NativeHardwareProbe.Detect(request, CaptureProbe); }
+                try {
+                    string key = NativeKey(request);
+                    if (request.ForceDetection) nativeCached = null;
+                    if (!request.ForceDetection && nativeCached != null && nativeKey == key) snapshot = Copy(nativeCached);
+                    else {
+                        NativeRuns++;
+                        snapshot = NativeTest != null ? NativeTest(request) : NativeHardwareProbe.Detect(request, CaptureProbe);
+                        if (snapshot.Ready && !cancelRequested && key == NativeKey(request)) { nativeCached=Copy(snapshot); nativeKey=key; }
+                    }
+                }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception ex) { snapshot.Ready=false; snapshot.Error=ex.Message; }
                 if (cancelRequested) throw new OperationCanceledException();
-                if (!cancelRequested) FrucCapabilityDetection.Detect(request, snapshot, CaptureRawProbe);
+                if (!cancelRequested) {
+                    string key = FrucKey(request);
+                    if (request.ForceDetection) frucCached = null;
+                    if (!request.ForceDetection && frucCached != null && frucKey == key) CopyFruc(frucCached, snapshot);
+                    else {
+                        FrucRuns++;
+                        if (FrucTest != null) FrucTest(request, snapshot); else FrucCapabilityDetection.Detect(request, snapshot, CaptureRawProbe);
+                        if (snapshot.FrucReady && snapshot.FrucAvailable && !cancelRequested && key == FrucKey(request)) { frucCached=Copy(snapshot); frucKey=key; }
+                    }
+                }
             }
             catch (OperationCanceledException) { snapshot.Ready = false; snapshot.Error = "Hardware capability detection was cancelled."; }
             catch (Exception ex) { snapshot.Ready = false; snapshot.Error = ex.Message; }
@@ -151,7 +215,8 @@ namespace FilmGrainStudioPreview
             {
                 lock (sync) { activeProcess = null; workerThread = null; }
                 if (cancelRequested) { snapshot.Ready=false; snapshot.Error="Hardware capability detection was cancelled."; }
-                if (!disposed) RaiseCompleted(snapshot);
+                snapshot.Diagnostics += "\r\n[Hardware counters] native=" + (NativeRuns-nativeBefore) + " fruc=" + (FrucRuns-frucBefore) + " children=" + (ChildProcesses-childrenBefore) + " elapsed_ms=" + timing.ElapsedMilliseconds;
+                if (!disposed) RaiseCompleted(snapshot, generation);
             }
         }
 
@@ -182,7 +247,7 @@ namespace FilmGrainStudioPreview
                 process.OutputDataReceived += capture; process.ErrorDataReceived += capture;
                 try
                 {
-                    lock(sync) { if (cancelRequested || disposed) throw new OperationCanceledException(); process.Start(); activeProcess=process; }
+                    lock(sync) { if (cancelRequested || disposed) throw new OperationCanceledException(); process.Start(); Interlocked.Increment(ref ChildProcesses); activeProcess=process; }
                     process.BeginOutputReadLine(); process.BeginErrorReadLine();
                     var clock = Stopwatch.StartNew();
                     while (!process.WaitForExit(100))
@@ -346,10 +411,10 @@ namespace FilmGrainStudioPreview
             catch { }
         }
 
-        private void RaiseCompleted(HardwareCapabilitySnapshot snapshot)
+        private void RaiseCompleted(HardwareCapabilitySnapshot snapshot, long generation)
         {
             EventHandler<HardwareCapabilityCompletedEventArgs> handler = Completed;
-            if (handler != null) handler(this, new HardwareCapabilityCompletedEventArgs(snapshot));
+            if (handler != null) handler(this, new HardwareCapabilityCompletedEventArgs(snapshot) { Generation = generation });
         }
 
         public void Dispose()
@@ -772,7 +837,7 @@ namespace FilmGrainStudioPreview
                 if(line.StartsWith("ffmpeg version ",StringComparison.OrdinalIgnoreCase)){version=line;break;}
             if(version.Length==0)throw new InvalidOperationException("FFmpeg version probe returned no version line.");
             var gpu=Gpu();var grav=Grav();string svp=Path.Combine(request.AppRoot,"_OpenSVPFlow");
-            var signature=new StringBuilder("schema=9|Native.NET.H8R4WN|gpu=0|cuda=0|vulkan=0|").Append(Tag(request.FfmpegPath)).Append('|').Append(version)
+            var signature=new StringBuilder("schema=9|Native.NET.H8R4WN|gpu=0|cuda=0|vulkan=0|").Append(HardwareCapabilityCore.ToolBundleStamp(request.FfmpegPath)).Append('|').Append(version)
                 .Append('|').Append(gpu["identity"]).Append('|').Append(Tag(request.Grav1synthPath)).Append('|').Append(grav["version"]).Append('|').Append(Tag(request.NvencQueryPath));
             foreach(string rel in new string[]{".venv/Scripts/vspipe.exe","Plugins/svpflow1_vs.dll","Plugins/svpflow2_vs.dll","Check_OpenSVPFlow.vpy",".venv/pyvenv.cfg","_UserConfig/vapoursynth/vapoursynth.toml"})signature.Append('|').Append(Tag(Path.Combine(svp,rel)));
             string hash=Hash(signature.ToString()),cache=Path.Combine(request.AppRoot,"Utils","_HardwareCaps_NET.json");

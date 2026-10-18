@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Globalization;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -135,6 +135,9 @@ namespace FilmGrainStudioPreview
                 if (!File.Exists(ffmpeg)) { reason = "[dependency missing] FRUC FFmpeg executable: " + ffmpeg; return false; }
                 runner = Run;
             }
+            string key = Path.GetFullPath(ffmpeg) + "|" + (File.Exists(ffmpeg) ? new FileInfo(ffmpeg).Length.ToString(System.Globalization.CultureInfo.InvariantCulture) : "missing") + "|" + File.GetLastWriteTimeUtc(ffmpeg).Ticks + "|" + perf + "|" + grid;
+            CapabilityReport cached;
+            lock (runtimeCache) { if (runtimeCache.TryGetValue(key, out cached)) { report = cached; return true; } }
             string output;
             if (!runner(ffmpeg, "-hide_banner -h filter=fruc_vulkan", 5000, out output, out reason))
             { reason = "[program/runtime error] FRUC help probe failed: " + reason; return false; }
@@ -148,8 +151,7 @@ namespace FilmGrainStudioPreview
             if (!System.Text.RegularExpressions.Regex.IsMatch(output,
                 @"(?m)^\s*" + perf + @"\s+-?\d+\s+"))
             { reason = "[unsupported combination] Selected fruc_vulkan build does not advertise perf=" + perf; return false; }
-            string key = Path.GetFullPath(ffmpeg) + "|" + File.GetLastWriteTimeUtc(ffmpeg).Ticks + "|" + perf + "|" + grid;
-            lock (runtimeCache) { if (runtimeCache.TryGetValue(key, out report)) return true; }
+
             report = new CapabilityReport { HelpOutput = output };
             string versionReason;
             if (runner(ffmpeg, "-hide_banner -version", 5000, out output, out versionReason))
