@@ -2,6 +2,17 @@
 
 > **Film Grain Studio v5.0.06 · Stable · .NET Native-only。** AV1、HEVC、x264使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
+---
+
+<table>
+  <tr>
+    <td width="50%" align="center"><a href="images/Film_Grain_Studio.jpg"><img src="images/Film_Grain_Studio.jpg" width="100%" alt="Original"></a></td>
+    <td width="50%" align="center"><a href="images/Film_Grain_Studio_Dark.jpg"><img src="images/Film_Grain_Studio_Dark.jpg" width="100%" alt="Dark Mode"></a></td>
+  </tr>
+</table>
+
+---
+
 基于 **FFmpeg、NVIDIA NVENC、libx264 与 grav1synth** 的 Windows 视频处理工具。当前入口为 .NET 图形界面，支持向 EXE 传入或拖入视频文件。
 
 Film Grain Studio 的目标不是只提供一种“加颗粒”方法，而是把几种不同思路的 Film Grain 处理方式统一到同一套工作流中：可以使用 AV1 Film Grain metadata，也可以把真实扫描 Grain Plate、数字颗粒或 GPU Film Grain 直接烘焙进像素；同时保留 HDR、LUT、反交错、插帧、字幕、Cinematic Style、自动码率和多文件处理。
@@ -82,8 +93,6 @@ AV1、HEVC、x264 与可视化窗口共用画幅几何核心。自动画幅沿�
 </table>
 
 ---
-
-![](images/Film_Grain_Studio.jpg)
 
 ## 快速开始
 
@@ -399,6 +408,8 @@ Cache 校验采用实际 10-bit sample-exact 思路：从与 NVENC 相同的 P01
 
 - [TDCAT Free DCI 4K Film Grain Plates](https://tdcat.squarespace.com/downloads/filmgrain)
 - [Cinema Tools 4K DCI 35mm Film Grain](https://www.cinematools.co/film-grain)
+- [DylanJohn Film Grain](https://drive.google.com/file/d/1cog6ROibJaNNcp4krO6BeQm8_kBTy7Pc/view)
+- [KestFilms Media - FILM GRAIN PACK](https://kestfilms.com/film-grain-pack)
 
 推荐目录结构：
 
