@@ -93,6 +93,14 @@ namespace FilmGrainStudioPreview
         }
         private static readonly Dictionary<string, CapabilityReport> runtimeCache = new Dictionary<string, CapabilityReport>();
 
+        // Seed only after the caller has validated persisted environment and tool signatures.
+        internal static void RestoreVerifiedPreflight(string ffmpeg,string perf,string grid,string version,string evidence)
+        {
+            if(string.IsNullOrWhiteSpace(ffmpeg) || !File.Exists(ffmpeg))return;
+            string key=Path.GetFullPath(ffmpeg)+"|"+new FileInfo(ffmpeg).Length.ToString(System.Globalization.CultureInfo.InvariantCulture)+"|"+File.GetLastWriteTimeUtc(ffmpeg).Ticks+"|"+perf+"|"+grid;
+            lock(runtimeCache)runtimeCache[key]=new CapabilityReport {Version=version??"",Evidence=evidence??"Persisted verified FRUC preflight"};
+        }
+
         internal static void InvalidatePreflightCache()
         { lock (runtimeCache) { runtimeCache.Clear(); } }
 

@@ -8,7 +8,7 @@ namespace FilmGrainStudioPreview
 {
     internal static class SetupPhase1
     {
-        private const string Version = "2";
+        internal const string Version = "2";
         private static bool Exists(string path) { try { return File.Exists(path); } catch { return false; } }
         private static bool Ffmpeg(FgsConfig c) { return Exists(Path.Combine(c.Get("FFMPEG_DIR"), "ffmpeg.exe")) && Exists(Path.Combine(c.Get("FFMPEG_DIR"), "ffprobe.exe")); }
         private static bool Grav(FgsConfig c) { return Exists(c.Get("GRAV1SYNTH")); }
@@ -26,6 +26,11 @@ namespace FilmGrainStudioPreview
         public static void ShowIfNeeded(Form owner, string root, FgsConfig c, bool test)
         {
             Show(owner, root, c, test, false);
+        }
+        // Caller has checked a captured configuration in the background and validated it on the UI thread.
+        internal static void ShowAfterStartupCheck(Form owner, string root, FgsConfig c, bool test)
+        {
+            Show(owner, root, c, test, true);
         }
         public static void ShowForInterpolation(Form owner, string root, FgsConfig c, bool test)
         {

@@ -7,7 +7,8 @@ namespace FilmGrainStudioPreview
     // Phase 3.7.3: file catalog rules used by the existing grain UI.
     internal static class GrainFileCatalogCore
     {
-        internal static List<string> ScanAv1Tables(string tableRoot)
+        internal static List<string> ScanAv1Tables(string tableRoot) { return ScanAv1Tables(tableRoot, false); }
+        internal static List<string> ScanAv1Tables(string tableRoot, bool throwOnError)
         {
             List<string> found = new List<string>();
             try
@@ -26,12 +27,13 @@ namespace FilmGrainStudioPreview
                     }
                 }
             }
-            catch { }
+            catch { if (throwOnError) throw; }
 
             return found;
         }
 
-        internal static List<string> ScanGrainPlates(string grainRoot)
+        internal static List<string> ScanGrainPlates(string grainRoot) { return ScanGrainPlates(grainRoot, false); }
+        internal static List<string> ScanGrainPlates(string grainRoot, bool throwOnError)
         {
             List<string> found = new List<string>();
             try
@@ -43,7 +45,7 @@ namespace FilmGrainStudioPreview
                     found.AddRange(files);
                 }
             }
-            catch { }
+            catch { if (throwOnError) throw; }
 
             return found;
         }

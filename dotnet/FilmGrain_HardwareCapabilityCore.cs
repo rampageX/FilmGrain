@@ -7,6 +7,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Web.Script.Serialization;
+using Microsoft.Win32;
 
 namespace FilmGrainStudioPreview
 {
@@ -33,6 +34,8 @@ namespace FilmGrainStudioPreview
         public string FrucFfmpegPath { get; set; }
         public string FrucPerf { get; set; }
         public string FrucGrid { get; set; }
+        public string FrucVersion { get; set; }
+        public string FrucEvidence { get; set; }
         public string Diagnostics { get; set; }
         public bool Ready { get; set; }
         public string Error { get; set; }
@@ -91,9 +94,14 @@ namespace FilmGrainStudioPreview
 
         private HardwareCapabilitySnapshot nativeCached;
         private HardwareCapabilitySnapshot frucCached;
-        private string nativeKey, frucKey;
+        private string nativeKey, frucKey, cachedEnvironment;
+        internal int DiskCacheReads, DiskCacheWrites, DiskCacheHits;
+        internal string PersistentCacheStatus="not-loaded";
+        internal string LastLookupNativeKey, LastLookupFrucKey, LastLookupRequestKey;
         internal int NativeRuns, FrucRuns, ChildProcesses;
         internal long Generation;
+        internal bool IsolatedPersistentCacheTest;
+        internal Func<string> EnvironmentStampTest;
         internal Func<HardwareCapabilityRequest, HardwareCapabilitySnapshot> NativeTest;
         internal Action<HardwareCapabilityRequest, HardwareCapabilitySnapshot> FrucTest;
         internal static string ToolStamp(string path)
@@ -129,6 +137,133 @@ namespace FilmGrainStudioPreview
         {
             b.FrucReady=a.FrucReady; b.FrucAvailable=a.FrucAvailable; b.FrucFailureKind=a.FrucFailureKind;
             b.FrucReason=a.FrucReason; b.FrucFfmpegPath=a.FrucFfmpegPath; b.FrucPerf=a.FrucPerf; b.FrucGrid=a.FrucGrid;
+            b.FrucVersion=a.FrucVersion; b.FrucEvidence=a.FrucEvidence;
+        }
+
+        private bool PersistentEnabled { get { return IsolatedPersistentCacheTest || (NativeTest == null && FrucTest == null); } }
+        internal sealed class StartupCacheRecord {
+            public int Schema { get; set; }
+            public string Environment { get; set; }
+            public string NativeSignature { get; set; }
+            public string FrucSignature { get; set; }
+            public HardwareCapabilitySnapshot Native { get; set; }
+            public HardwareCapabilitySnapshot Fruc { get; set; }
+        }
+        internal static bool CanCacheFruc(HardwareCapabilitySnapshot caps) {
+            if(caps==null || !caps.FrucReady)return false;
+            if(caps.FrucAvailable)return true;
+            if(caps.FrucFailureKind=="FFMPEG" || caps.FrucFailureKind=="UNSUPPORTED")return true;
+            if(caps.FrucFailureKind!="DEVICE")return false;
+            string reason=(caps.FrucReason??"").ToLowerInvariant();
+            // Persist explicit device limitations, not arbitrary Vulkan creation failures.
+            return reason.Contains("vk_nv_optical_flow") || reason.Contains("does not support") || reason.Contains("not supported by the device")
+                || reason.Contains("no optical flow queues") || reason.Contains("no compute queues") || reason.Contains("vector format unavailable") || reason.Contains("r8 input format unavailable");
+        }
+        private static bool ValidStoredNative(HardwareCapabilitySnapshot caps) {
+            return caps!=null && caps.Ready && string.IsNullOrEmpty(caps.Error) && !string.IsNullOrWhiteSpace(caps.GpuName)
+                && !string.IsNullOrWhiteSpace(caps.FfmpegVersion) && caps.Av1SplitEncodeMaxEngines>=1 && caps.Av1SplitEncodeMaxEngines<=32;
+        }
+        private static bool ValidStoredFruc(HardwareCapabilitySnapshot caps,HardwareCapabilityRequest request) {
+            return CanCacheFruc(caps) && string.Equals(caps.FrucFfmpegPath,request.FrucFfmpegPath,StringComparison.OrdinalIgnoreCase)
+                && caps.FrucPerf==request.FrucPerf && caps.FrucGrid==request.FrucGrid && (!caps.FrucAvailable || !string.IsNullOrWhiteSpace(caps.FrucEvidence));
+        }
+        private static string StartupCachePath(HardwareCapabilityRequest request) { return Path.Combine(request.AppRoot,"Utils","_HardwareCaps_Startup.json"); }
+        private string ReadEnvironmentStamp() {
+            try {
+                if(EnvironmentStampTest!=null)return EnvironmentStampTest();
+                if(Environment.OSVersion.Platform!=PlatformID.Win32NT)return null;
+                var text=new StringBuilder("FGS.StartupCaps.1|").Append(Environment.OSVersion.VersionString);
+                int devices=0,drivers=0;
+                using(RegistryKey map=Registry.LocalMachine.OpenSubKey(@"HARDWARE\DEVICEMAP\VIDEO")) {
+                    if(map==null)return null;
+                    string[] names=map.GetValueNames();Array.Sort(names,StringComparer.OrdinalIgnoreCase);
+                    foreach(string name in names) {
+                        if(!name.StartsWith(@"\Device\Video",StringComparison.OrdinalIgnoreCase))continue;
+                        string path=Convert.ToString(map.GetValue(name),CultureInfo.InvariantCulture);
+                        if(!path.StartsWith(@"\Registry\Machine\",StringComparison.OrdinalIgnoreCase))continue;
+                        text.Append('|').Append(name).Append('=').Append(path);devices++;
+                        using(RegistryKey device=Registry.LocalMachine.OpenSubKey(path.Substring(@"\Registry\Machine\".Length))) {
+                            if(device==null)return null;
+                            foreach(string key in new string[]{"DriverDesc","MatchingDeviceId","DriverVersion","InfPath","InstalledDisplayDrivers","HardwareInformation.AdapterString"})
+                                text.Append('|').Append(key).Append('=').Append(RegistryValue(device.GetValue(key)));
+                        }
+                    }
+                }
+                using(RegistryKey display=Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}")) {
+                    if(display==null)return null;
+                    string[] names=display.GetSubKeyNames();Array.Sort(names,StringComparer.OrdinalIgnoreCase);
+                    foreach(string name in names) {
+                        int number;if(!int.TryParse(name,out number))continue;
+                        using(RegistryKey driver=display.OpenSubKey(name)) {
+                            if(driver==null)continue;
+                            string version=Convert.ToString(driver.GetValue("DriverVersion"),CultureInfo.InvariantCulture);
+                            string device=Convert.ToString(driver.GetValue("MatchingDeviceId"),CultureInfo.InvariantCulture);
+                            if(string.IsNullOrWhiteSpace(version)||string.IsNullOrWhiteSpace(device))continue;
+                            drivers++;text.Append('|').Append(name).Append('|').Append(device).Append('|').Append(version);
+                            foreach(string key in new string[]{"DriverDate","DriverDesc","InfPath","InfSection","ProviderName"})text.Append('|').Append(RegistryValue(driver.GetValue(key)));
+                        }
+                    }
+                }
+                if(devices==0 || drivers==0)return null;
+                foreach(string file in new string[]{"nvEncodeAPI64.dll","nvEncodeAPI.dll","nvcuda.dll","vulkan-1.dll"})text.Append('|').Append(ToolStamp(Path.Combine(Environment.SystemDirectory,file)));
+                return text.ToString();
+            } catch(Exception ex) { Trace.WriteLine("Hardware cache identity unavailable: "+ex.Message);return null; }
+        }
+        private static string RegistryValue(object value) {
+            var bytes=value as byte[];if(bytes!=null)return Convert.ToBase64String(bytes);
+            var strings=value as string[];if(strings!=null)return string.Join(";",strings);
+            return Convert.ToString(value,CultureInfo.InvariantCulture)??"";
+        }
+        internal bool TryRestorePersistent(HardwareCapabilityRequest request,out HardwareCapabilitySnapshot snapshot) {
+            snapshot=null;
+            if(!PersistentEnabled || request==null || request.ForceDetection)return false;
+            try {
+                string environment=ReadEnvironmentStamp();if(string.IsNullOrWhiteSpace(environment)){PersistentCacheStatus="identity-unavailable";return false;}
+                string path=StartupCachePath(request);var info=new FileInfo(path);
+                if(!info.Exists || info.Length>1048576){PersistentCacheStatus=info.Exists?"oversized":"missing";return false;}
+                var serializer=new JavaScriptSerializer();serializer.MaxJsonLength=1048576;
+                DiskCacheReads++;
+                StartupCacheRecord saved=serializer.Deserialize<StartupCacheRecord>(File.ReadAllText(path,Encoding.UTF8));
+                if(saved==null || saved.Schema!=1 || saved.Environment!=environment){PersistentCacheStatus="schema-or-environment-mismatch";return false;}
+                cachedEnvironment=environment;
+                string nk=NativeKey(request),fk=FrucKey(request);
+                LastLookupNativeKey=nk;LastLookupFrucKey=fk;LastLookupRequestKey=nk+"|FRUC|"+fk;
+                bool native=ValidStoredNative(saved.Native) && saved.NativeSignature==nk && File.Exists(request.FfmpegPath);
+                bool fruc=ValidStoredFruc(saved.Fruc,request) && saved.FrucSignature==fk;
+                if(native) {nativeCached=Copy(saved.Native);nativeKey=nk;snapshot=Copy(nativeCached);snapshot.CacheState="Cached";snapshot.FrucReady=false;}
+                if(fruc) {frucCached=Copy(saved.Fruc);frucKey=fk;if(snapshot==null)snapshot=new HardwareCapabilitySnapshot();CopyFruc(frucCached,snapshot);}
+                if(fruc && snapshot.FrucAvailable)SharedFrucCore.RestoreVerifiedPreflight(request.FrucFfmpegPath,request.FrucPerf,request.FrucGrid,snapshot.FrucVersion,snapshot.FrucEvidence);
+                if(snapshot!=null)snapshot.Diagnostics="Startup disk cache restored; no hardware probe subprocesses.";
+                PersistentCacheStatus=native && fruc?"full-hit":native?"partial-native":fruc?"partial-fruc":"tool-signature-miss";
+                if(native && fruc)DiskCacheHits++;
+                return native && fruc;
+            } catch(Exception ex) { PersistentCacheStatus="invalid-cache: "+ex.Message;Trace.WriteLine("Hardware startup cache ignored: "+ex.Message);snapshot=null;return false; }
+        }
+        private void SavePersistent(HardwareCapabilityRequest request,string environment) {
+            if(!PersistentEnabled || string.IsNullOrWhiteSpace(environment))return;
+            string temp=null;
+            try {
+                if(environment!=ReadEnvironmentStamp())return;
+                string nk=NativeKey(request),fk=FrucKey(request);
+                var saved=new StartupCacheRecord {Schema=1,Environment=environment,NativeSignature=nk,FrucSignature=fk};
+                if(ValidStoredNative(nativeCached) && nativeKey==nk) {saved.Native=Copy(nativeCached);saved.Native.Diagnostics=null;}
+                if(ValidStoredFruc(frucCached,request) && frucKey==fk) {saved.Fruc=Copy(frucCached);saved.Fruc.Diagnostics=null;}
+                string path=StartupCachePath(request);Directory.CreateDirectory(Path.GetDirectoryName(path));temp=path+"."+Guid.NewGuid().ToString("N")+".tmp";
+                var serializer=new JavaScriptSerializer();serializer.MaxJsonLength=1048576;
+                File.WriteAllText(temp,serializer.Serialize(saved),new UTF8Encoding(false));
+                if(cancelRequested || disposed)return;
+                if(File.Exists(path))File.Replace(temp,path,null);else File.Move(temp,path);temp=null;DiskCacheWrites++;PersistentCacheStatus=saved.Native!=null && saved.Fruc!=null?"saved-complete":"saved-partial";
+            } catch(Exception ex) {PersistentCacheStatus="write-failed: "+ex.Message;Trace.WriteLine("Hardware startup cache not saved: "+ex.Message);}
+            finally {if(temp!=null)try{File.Delete(temp);}catch{}}
+        }
+        internal static bool SameNativeCapabilities(HardwareCapabilitySnapshot a,HardwareCapabilitySnapshot b) {
+            if(a==null || b==null)return false;
+            return NativeUiSignature(a)==NativeUiSignature(b);
+        }
+        private static string NativeUiSignature(HardwareCapabilitySnapshot value) {
+            var copy=value.Clone();copy.CacheState=null;copy.Diagnostics=null;copy.Error=null;
+            copy.FrucReady=false;copy.FrucAvailable=false;copy.FrucFailureKind=null;copy.FrucReason=null;copy.FrucFfmpegPath=null;copy.FrucPerf=null;copy.FrucGrid=null;copy.FrucVersion=null;copy.FrucEvidence=null;
+            return new JavaScriptSerializer().Serialize(copy);
         }
         public event EventHandler<HardwareCapabilityCompletedEventArgs> Completed;
 
@@ -182,6 +317,13 @@ namespace FilmGrainStudioPreview
         {
             var timing = Stopwatch.StartNew();
             int childrenBefore = ChildProcesses, nativeBefore = NativeRuns, frucBefore = FrucRuns;
+            string environment = PersistentEnabled ? ReadEnvironmentStamp() : null;
+            if(PersistentEnabled && !string.IsNullOrWhiteSpace(environment)) {
+                if(cachedEnvironment!=null && cachedEnvironment!=environment) {nativeCached=null;frucCached=null;}
+                cachedEnvironment=environment;
+                HardwareCapabilitySnapshot disk;
+                if(!request.ForceDetection)TryRestorePersistent(request,out disk);
+            }
             HardwareCapabilitySnapshot snapshot = new HardwareCapabilitySnapshot { Av1SplitEncodeMaxEngines = 1 };
             try
             {
@@ -205,7 +347,7 @@ namespace FilmGrainStudioPreview
                     else {
                         FrucRuns++;
                         if (FrucTest != null) FrucTest(request, snapshot); else FrucCapabilityDetection.Detect(request, snapshot, CaptureRawProbe);
-                        if (snapshot.FrucReady && snapshot.FrucAvailable && !cancelRequested && key == FrucKey(request)) { frucCached=Copy(snapshot); frucKey=key; }
+                        if (CanCacheFruc(snapshot) && !cancelRequested && key == FrucKey(request)) { frucCached=Copy(snapshot); frucKey=key; }
                     }
                 }
             }
@@ -213,8 +355,9 @@ namespace FilmGrainStudioPreview
             catch (Exception ex) { snapshot.Ready = false; snapshot.Error = ex.Message; }
             finally
             {
-                lock (sync) { activeProcess = null; workerThread = null; }
                 if (cancelRequested) { snapshot.Ready=false; snapshot.Error="Hardware capability detection was cancelled."; }
+                if (!cancelRequested && !disposed) SavePersistent(request, environment);
+                lock (sync) { activeProcess = null; workerThread = null; }
                 snapshot.Diagnostics += "\r\n[Hardware counters] native=" + (NativeRuns-nativeBefore) + " fruc=" + (FrucRuns-frucBefore) + " children=" + (ChildProcesses-childrenBefore) + " elapsed_ms=" + timing.ElapsedMilliseconds;
                 if (!disposed) RaiseCompleted(snapshot, generation);
             }
@@ -452,6 +595,7 @@ namespace FilmGrainStudioPreview
                 SharedFrucCore.CapabilityReport report;
                 snapshot.FrucAvailable = SharedFrucCore.TryInspect(snapshot.FrucFfmpegPath, snapshot.FrucPerf, snapshot.FrucGrid, out report, out reason, runner);
                 snapshot.FrucFailureKind = snapshot.FrucAvailable ? "" : Classify(reason);
+                if(snapshot.FrucAvailable) { snapshot.FrucVersion=report.Version; snapshot.FrucEvidence=report.Evidence; }
                 snapshot.FrucReason = snapshot.FrucAvailable ? report.Summary(snapshot.FrucPerf, snapshot.FrucGrid) : reason;
             }
             catch (OperationCanceledException) { throw; }

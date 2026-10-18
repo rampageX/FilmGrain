@@ -41,3 +41,7 @@
 /Test_Bake_S1/Samples/*.webm
 /Test_Bake_S1/Samples/*.ivf
 /Test_Bake_S2/Results_*/
+
+/Utils/_HardwareCaps_Startup.json
+/Utils/_HardwareCaps_Startup.json.*.tmp
+/Tests_*/

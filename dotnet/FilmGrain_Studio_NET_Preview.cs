@@ -106,8 +106,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.09";
-        internal const string FileReleaseVersion = "5.0.9.0";
+        internal const string ReleaseVersion = "5.0.10";
+        internal const string FileReleaseVersion = "5.0.10.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -116,6 +116,7 @@ namespace FilmGrainStudioPreview
             { NativeStartupCore.WriteProtocolLine(new JavaScriptSerializer().Serialize(NativeHardwareProbe.WmiGpuIdentity())); return; }
             if (args.Length == 1 && args[0] == "--hardware-nvenc-engines")
             { NativeStartupCore.WriteProtocolLine("FGS_NVENC_ENGINES=" + FilmGrainNvencCaps.GetAv1EncoderEngineCount(0)); return; }
+            StartupTiming.Mark("entry", DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture));
             NativeStartupOptions startup = NativeStartupCore.Parse(args, Environment.CurrentDirectory);
             if (startup.CheckOnly)
             {
@@ -147,7 +148,7 @@ namespace FilmGrainStudioPreview
             try
             {
                 MainForm form = new MainForm(startup.SetupTest);
-                form.Shown += delegate { form.LoadStartupInputs(startup); };
+                form.startupInputs = startup;
                 Application.Run(form);
             }
             catch (AppRootNotFoundException ex)
@@ -262,7 +263,6 @@ namespace FilmGrainStudioPreview
         private Panel encodePreviewPanel;
         private Button btnCancelTask;
         private ProgressBar progressRun;
-        private ComboBox cmbGpu;
         private ToolStripStatusLabel statusHardware;
         private ToolStripStatusLabel statusFfmpeg;
         private readonly Dictionary<string, ToolStripStatusLabel> statusCapabilities = new Dictionary<string, ToolStripStatusLabel>();
@@ -276,6 +276,7 @@ namespace FilmGrainStudioPreview
         private HardwareCapabilitySnapshot hardwareCaps;
         private bool hardwareCapsReady;
         private bool hardwareDetectionInProgress;
+        private string hardwareNativeAppliedKey, hardwareActiveNativeKey, hardwareFrucAppliedKey, hardwareActiveFrucKey;
         private bool changingCodecForHardware;
         private bool noReencodeUiActive;
         private bool activeRunNativeBackend;
@@ -407,6 +408,7 @@ namespace FilmGrainStudioPreview
 
         internal MainForm(bool setupTest, HardwareCapabilityCore injectedHardware)
         {
+            StartupTiming.Mark("constructor.begin");
             appRoot = FindAppRoot(AppDomain.CurrentDomain.BaseDirectory);
             setupTestMode = setupTest;
             string testConfig = setupTest ? Path.Combine(Path.GetTempPath(), "FGS_Setup_Test_" + Process.GetCurrentProcess().Id.ToString(CultureInfo.InvariantCulture) + ".ini") : null;
@@ -422,7 +424,9 @@ namespace FilmGrainStudioPreview
             colorSaturation = config.GetDouble("COLOR_SATURATION", 1.0);
             colorGamma = config.GetDouble("COLOR_GAMMA", 1.0);
             colorBlackWhite = config.GetBool("COLOR_BLACK_WHITE");
+            StartupTiming.Mark("config.language.proxy.end");
             BuildUi();
+            StartupTiming.Mark("controls.end");
             if (setupTest) Text = "[设置测试模式] " + Text;
             UpdateSpeedChoices();
             bridgeTaskCoordinator = new BridgeTaskCoordinator();
@@ -437,16 +441,50 @@ namespace FilmGrainStudioPreview
             mediaProbeCore.Completed += OnMediaProbeCompleted;
             av1GrainInspectCore = new Av1GrainInspectCore();
             av1GrainInspectCore.Completed += OnAv1GrainInspectCompleted;
-            RefreshLutLists();
+            SetLutListPlaceholder(false);
             UpdateLutUi();
             UpdateColorCorrectionUi();
             UpdateCinematicCropLabels();
             UpdateStatusCount();
             UpdateMediaDrivenUi(null);
+            // Restore final capability-dependent UI before theme/first paint. No detector process here.
+            bool fullStartupCache = false;
+            HardwareCapabilitySnapshot startupCaps = null;
+            HardwareCapabilityRequest startupRequest = null;
+            try {
+                if(injectedHardware == null && !setupTestMode) {
+                    startupRequest = CreateHardwareRequest();
+                    fullStartupCache = hardwareCapabilityCore.TryRestorePersistent(startupRequest,out startupCaps);
+                }
+            } catch(Exception ex) { Trace.WriteLine("Startup capability cache: " + ex.Message); }
+            if(startupCaps != null && startupCaps.Ready) {
+                hardwareCaps = startupCaps; hardwareCapsReady = true;
+                hardwareDetectionInProgress = !fullStartupCache;
+                hardwareNativeAppliedKey = hardwareCapabilityCore.LastLookupNativeKey;
+                hardwareActiveNativeKey = hardwareNativeAppliedKey;
+                hardwareFrucAppliedKey = startupCaps.FrucReady ? hardwareCapabilityCore.LastLookupFrucKey : null;
+                hardwareActiveFrucKey = hardwareCapabilityCore.LastLookupFrucKey;
+                hardwareAppliedKey = hardwareCapabilityCore.LastLookupRequestKey;
+                hardwareActiveKey = hardwareAppliedKey;
+                ApplyHardwareCapabilities();
+                AppendLog("[Hardware] " + startupCaps.GpuName + " · AV1=" + (startupCaps.Av1Available ? "1" : "0") + " · HEVC=" + (startupCaps.HevcAvailable ? "1" : "0") + " · x264=" + (startupCaps.X264Available ? "1" : "0") + Environment.NewLine);
+                btnStart.Enabled = true;
+                StartupTiming.Mark("hardware.cache.restore", "full=" + fullStartupCache + " native=0 fruc=0 children=0");
+            }
+            StartupTiming.Mark("initial.ui.end");
             InitializeTheme();
+            StartupTiming.Mark("theme.end");
             InitializeWindowMemory();
-            BeginHardwareDetection();
-            Shown += delegate { SetupPhase1.ShowIfNeeded(this, appRoot, config, setupTest); };
+            if(!hardwareCapsReady) {
+                hardwareDetectionInProgress = true;
+                btnStart.Enabled = false;
+                SetCapabilityStatusPending();
+                statusHardware.Text = UiText("正在初始化资源…", "Initializing resources...");
+            }
+            FormClosed += delegate { startupClosing = true; Application.Idle -= OnStartupIdle; };
+            StartupTiming.Attach(this);
+            Application.Idle += OnStartupIdle;
+            StartupTiming.Mark("constructor.end");
             FormClosed += delegate
             {
                 if (mediaProbeCore != null)
@@ -794,13 +832,15 @@ namespace FilmGrainStudioPreview
             box.Margin = new Padding(6, 0, 6, 0);
 
             TableLayoutPanel t = new TableLayoutPanel();
+            t.SuspendLayout();
+            try {
             t.Dock = DockStyle.Fill;
             t.Padding = new Padding(5, 7, 5, 5);
             t.ColumnCount = 2;
-            t.RowCount = 17;
+            t.RowCount = 16;
             t.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 112));
             t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            for (int i = 0; i < 16; i++) t.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
+            for (int i = 0; i < 15; i++) t.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
             t.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             box.Controls.Add(t);
 
@@ -879,7 +919,6 @@ namespace FilmGrainStudioPreview
             cmbDeint = Combo(new string[] { lang.T("deint.auto"), lang.T("deint.off") }, 0);
             cmbDeintMethod = Combo(new string[] { lang.T("deint.vulkan"), lang.T("deint.cuda"), lang.T("deint.w3fdif") }, 0);
             cmbDeint.SelectedIndexChanged += delegate { UpdateMediaDrivenUi(GetSelectedMediaInfo()); UpdateBitrateDisplays(); };
-            cmbGpu = Combo(new string[] { lang.T("gpu.auto_retry") }, 0); cmbGpu.Enabled = false;
             chkCinematic = Check(lang.T("cinematic.enable"), true);
             cmbFrameMode = Combo(new string[] { lang.T("cinematic.letterbox"), lang.T("cinematic.crop") }, 0);
 
@@ -918,20 +957,19 @@ namespace FilmGrainStudioPreview
             AddLabeledRow(t, 6, lang.T("encode.interpolation"), WithAdvancedShortcut(interp, 1, lang.T("advanced.tab.interp"), out interpShortcut));
             AddLabeledRow(t, 7, lang.T("encode.deinterlace"), cmbDeint);
             AddLabeledRow(t, 8, lang.T("encode.deinterlace_method"), cmbDeintMethod);
-            AddLabeledRow(t, 9, lang.T("encode.gpu"), cmbGpu);
             Button cinematicShortcut;
             Control cinematicRow = WithAdvancedShortcut(chkCinematic, -1, UiText("可视化裁剪", "Visual crop"), out cinematicShortcut);
             cinematicShortcut.Enabled = chkCinematic.Checked;
             chkCinematic.CheckedChanged += delegate { cinematicShortcut.Enabled = chkCinematic.Checked; };
-            t.Controls.Add(cinematicRow, 0, 10); t.SetColumnSpan(cinematicRow, 2);
-            AddLabeledRow(t, 11, lang.T("encode.framing"), cmbFrameMode);
-            t.Controls.Add(upload, 0, 12); t.SetColumnSpan(upload, 2);
+            t.Controls.Add(cinematicRow, 0, 9); t.SetColumnSpan(cinematicRow, 2);
+            AddLabeledRow(t, 10, lang.T("encode.framing"), cmbFrameMode);
+            t.Controls.Add(upload, 0, 11); t.SetColumnSpan(upload, 2);
             lblUploadX264Settings = new ThemeLabel(); lblUploadX264Settings.Dock = DockStyle.Fill;
             lblUploadX264Settings.ForeColor = ColorMuted; lblUploadX264Settings.TextAlign = ContentAlignment.MiddleLeft;
             lblUploadX264Settings.Padding = new Padding(3, 0, 0, 0);
-            t.Controls.Add(lblUploadX264Settings, 0, 13); t.SetColumnSpan(lblUploadX264Settings, 2);
-            t.Controls.Add(btnSubtitle, 0, 14); t.SetColumnSpan(btnSubtitle, 2);
-            t.Controls.Add(lblFrameHelp, 0, 15); t.SetColumnSpan(lblFrameHelp, 2);
+            t.Controls.Add(lblUploadX264Settings, 0, 12); t.SetColumnSpan(lblUploadX264Settings, 2);
+            t.Controls.Add(btnSubtitle, 0, 13); t.SetColumnSpan(btnSubtitle, 2);
+            t.Controls.Add(lblFrameHelp, 0, 14); t.SetColumnSpan(lblFrameHelp, 2);
 
             cmbCodec.SelectedIndexChanged += delegate
             {
@@ -998,6 +1036,8 @@ namespace FilmGrainStudioPreview
             };
             LoadBitrateStateForCodec();
             UpdateBitrateDisplays();
+            }
+            finally { t.ResumeLayout(true); }
             return box;
         }
 
@@ -1032,6 +1072,7 @@ namespace FilmGrainStudioPreview
             {
                 if (updatingGrainEnableUi) return;
                 ordinaryGrainEnabled = chkGrainEnabled.Checked;
+                EnsureCurrentGrainCatalog(false);
                 try { config.SaveValue("GRAIN_ENABLED", ordinaryGrainEnabled ? "true" : "false"); }
                 catch (Exception ex) { MessageBox.Show(this, ex.Message, UiText("保存设置失败", "Could not save settings")); }
                 UpdateGrainEnableUi();
@@ -1060,38 +1101,192 @@ namespace FilmGrainStudioPreview
                 if (updatingGrainUi) return;
                 if (cmbCodec != null && cmbCodec.SelectedIndex == 0) av1GrainModeIndex = Math.Max(0, cmbGrainMode.SelectedIndex);
                 else pixelGrainModeIndex = Math.Max(0, cmbGrainMode.SelectedIndex);
+                EnsureCurrentGrainCatalog(false);
                 BuildGrainContent();
                 UpdateSfeUi();
                 UpdateHdrRouteStatus(GetSelectedMediaInfo());
             };
-            RefreshGrainFileCaches();
             UpdateGrainForCodec();
             return grpGrain;
         }
 
-        private void RefreshGrainFileCaches()
+        internal NativeStartupOptions startupInputs;
+        private volatile bool startupClosing;
+        private bool startupIdleStarted, startupCatalogReady;
+        private readonly DemandCatalog<List<string>> tableCatalog = new DemandCatalog<List<string>>();
+        private readonly DemandCatalog<List<string>> plateCatalog = new DemandCatalog<List<string>>();
+        private readonly DemandCatalog<LutRecordPair> lutCatalog = new DemandCatalog<LutRecordPair>();
+        private bool catalogRunning;
+        private sealed class LutRecordPair {
+            internal List<LutChoice> Recent, Favorite;
+        }
+
+        private void OnStartupIdle(object sender, EventArgs e)
         {
-            string oldTable = selectedAv1GrainTable;
-            string oldPlate = selectedGrainPlatePath;
-            av1GrainTableFiles.Clear();
-            grainPlateFiles.Clear();
+            if (startupClosing || startupIdleStarted || !Visible || StartupTiming.PaintPending(this)) return;
+            startupIdleStarted = true;
+            Application.Idle -= OnStartupIdle;
+            StartupTiming.Mark("deferred.begin");
+            CheckStartupDependencies();
+        }
 
-            av1GrainTableFiles.AddRange(GrainFileCatalogCore.ScanAv1Tables(Path.Combine(appRoot, "_AV1_Grain_Tables")));
-            grainPlateFiles.AddRange(GrainFileCatalogCore.ScanGrainPlates(config.Get("GRAIN_ROOT")));
+        private void CheckStartupDependencies()
+        {
+            if (startupClosing || IsDisposed) return;
+            string version = config.Get("SETUP_VERSION"), ffmpeg = config.Get("FFMPEG_DIR"), grav = config.Get("GRAV1SYNTH");
+            StartupTiming.Mark("dependencies.begin");
+            ThreadPool.QueueUserWorkItem(delegate {
+                bool needed = true;
+                try {
+                    needed = setupTestMode || version != SetupPhase1.Version || !File.Exists(Path.Combine(ffmpeg, "ffmpeg.exe"))
+                        || !File.Exists(Path.Combine(ffmpeg, "ffprobe.exe")) || !File.Exists(grav);
+                } catch { needed = true; }
+                StartupTiming.Mark("dependencies.end", "wizard=" + needed);
+                if (startupClosing) return;
+                try { BeginInvoke((MethodInvoker)delegate {
+                    if (startupClosing || IsDisposed) return;
+                    if (version != config.Get("SETUP_VERSION") || ffmpeg != config.Get("FFMPEG_DIR") || grav != config.Get("GRAV1SYNTH")) {
+                        CheckStartupDependencies(); return;
+                    }
+                    foreach (Form open in Application.OpenForms) {
+                        if (open != this && open.Visible && open.Modal) {
+                            open.FormClosed += delegate { if (!startupClosing) CheckStartupDependencies(); };
+                            return;
+                        }
+                    }
+                    // Only the dialog itself is UI work. Its startup file checks ran on the worker.
+                    if (needed) SetupPhase1.ShowAfterStartupCheck(this, appRoot, config, setupTestMode);
+                    if (startupClosing || IsDisposed) return;
+                    if (startupInputs != null) LoadStartupInputs(startupInputs);
+                    startupCatalogReady = true;
+                    // This flag now means startup dependency checks, not optional catalog readiness.
+                    BeginHardwareDetection();
+                    EnsureCurrentGrainCatalog(false);
+                    UpdateGrainEnableUi();
+                    StartupTiming.Mark("startup.background.scheduled");
+                }); } catch (InvalidOperationException) { }
+            });
+        }
 
-            if (!string.IsNullOrEmpty(oldTable) && av1GrainTableFiles.Exists(delegate(string p) { return string.Equals(p, oldTable, StringComparison.OrdinalIgnoreCase); }))
-                selectedAv1GrainTable = oldTable;
-            else if (av1GrainTableFiles.Count > 0)
-                selectedAv1GrainTable = av1GrainTableFiles[0];
-            else
-                selectedAv1GrainTable = "";
+        private int RequiredGrainCatalog()
+        {
+            if (!IsGrainEnabled() || cmbCodec == null || cmbGrainMode == null) return 0;
+            bool av1 = cmbCodec.SelectedIndex == 0 || cmbCodec.SelectedIndex == 3;
+            return av1 && cmbGrainMode.SelectedIndex == 2 ? 1 : (!av1 && cmbGrainMode.SelectedIndex == 1 ? 2 : 0);
+        }
 
-            if (!string.IsNullOrEmpty(oldPlate) && grainPlateFiles.Exists(delegate(string p) { return string.Equals(p, oldPlate, StringComparison.OrdinalIgnoreCase); }))
-                selectedGrainPlatePath = oldPlate;
-            else if (grainPlateFiles.Count > 0)
-                selectedGrainPlatePath = grainPlateFiles[0];
-            else
-                selectedGrainPlatePath = "";
+        private bool RequiredGrainCatalogReady()
+        {
+            int kind = RequiredGrainCatalog();
+            return kind == 0 || (kind == 1 ? tableCatalog.Ready : plateCatalog.Ready && string.Equals(plateCatalog.Key, config.Get("GRAIN_ROOT"), StringComparison.OrdinalIgnoreCase));
+        }
+
+        private void EnsureCurrentGrainCatalog(bool force)
+        {
+            if (!startupCatalogReady || startupClosing) return;
+            int kind = RequiredGrainCatalog();
+            if (kind == 1) tableCatalog.Request(Path.Combine(appRoot, "_AV1_Grain_Tables"), force);
+            else if (kind == 2) plateCatalog.Request(config.Get("GRAIN_ROOT"), force);
+            ScheduleCatalogWork();
+        }
+
+        private void RefreshGrainFileCaches() { EnsureCurrentGrainCatalog(true); }
+
+        private void InvalidateChangedCatalogPaths()
+        {
+            if (plateCatalog.SetKey(config.Get("GRAIN_ROOT"))) grainPlateFiles.Clear();
+            if (lutCatalog.SetKey(LutRoot)) SetLutListPlaceholder(false);
+            // Inactive resources stay invalid but are not scanned.
+            EnsureCurrentGrainCatalog(false);
+        }
+
+        private void EnsureLutRecords(bool force)
+        {
+            if (startupClosing) return;
+            lutCatalog.Request(LutRoot, force);
+            if (!lutCatalog.Ready) SetLutListPlaceholder(true);
+            ScheduleCatalogWork();
+        }
+
+        private void ScheduleCatalogWork()
+        {
+            if (catalogRunning || startupClosing || !startupCatalogReady || !IsHandleCreated) return;
+            string key; int version;
+            if (tableCatalog.TryStart(out key, out version)) {
+                RunCatalogJob<List<string>>(tableCatalog, key, version, "tables",
+                    delegate { StartupTiming.Mark("catalog.tables.scan"); return GrainFileCatalogCore.ScanAv1Tables(key, true); },
+                    delegate(List<string> value) {
+                        bool changed = !SameCatalog(av1GrainTableFiles, value);
+                        av1GrainTableFiles.Clear(); av1GrainTableFiles.AddRange(value);
+                        if (!value.Exists(delegate(string path) { return string.Equals(path, selectedAv1GrainTable, StringComparison.OrdinalIgnoreCase); }))
+                            selectedAv1GrainTable = value.Count > 0 ? value[0] : "";
+                        return changed;
+                    });
+            } else if (plateCatalog.TryStart(out key, out version)) {
+                RunCatalogJob<List<string>>(plateCatalog, key, version, "plates",
+                    delegate { StartupTiming.Mark("catalog.plates.scan"); return GrainFileCatalogCore.ScanGrainPlates(key, true); },
+                    delegate(List<string> value) {
+                        bool changed = !SameCatalog(grainPlateFiles, value);
+                        grainPlateFiles.Clear(); grainPlateFiles.AddRange(value);
+                        if (!value.Exists(delegate(string path) { return string.Equals(path, selectedGrainPlatePath, StringComparison.OrdinalIgnoreCase); }))
+                            selectedGrainPlatePath = value.Count > 0 ? value[0] : "";
+                        return changed;
+                    });
+            } else if (lutCatalog.TryStart(out key, out version)) {
+                RunCatalogJob<LutRecordPair>(lutCatalog, key, version, "lut.records",
+                    delegate {
+                        StartupTiming.Mark("catalog.lut.record.read", "recent");
+                        var recent = LutCatalogCore.ReadLutRecordList(Path.Combine(key, "_LUT_PREVIEWS", "_LUT_GALLERY_RECENT.json"), key);
+                        StartupTiming.Mark("catalog.lut.record.read", "favorite");
+                        var favorite = LutCatalogCore.ReadLutRecordList(Path.Combine(key, "_LUT_PREVIEWS", "_LUT_GALLERY_FAVORITES.json"), key);
+                        return new LutRecordPair { Recent = recent, Favorite = favorite };
+                    },
+                    delegate(LutRecordPair value) { ApplyLutRecords(value); return true; });
+            }
+        }
+
+        private void RunCatalogJob<T>(DemandCatalog<T> cache, string key, int version, string kind,
+            Func<T> load, Func<T, bool> apply)
+        {
+            catalogRunning = true;
+            StartupTiming.Mark("catalog.scan.begin", "kind=" + kind + " run=" + cache.Runs);
+            ThreadPool.QueueUserWorkItem(delegate {
+                T value = default(T); Exception error = null;
+                try { value = load(); } catch (Exception ex) { error = ex; }
+                StartupTiming.Mark("catalog.scan.end", "kind=" + kind + " success=" + (error == null));
+                if (startupClosing) return;
+                try { BeginInvoke((MethodInvoker)delegate {
+                    if (startupClosing || IsDisposed || Disposing) return;
+                    catalogRunning = false;
+                    // Configuration may have changed while a settings dialog was open.
+                    if (kind == "plates") cache.SetKey(config.Get("GRAIN_ROOT"));
+                    else if (kind == "lut.records") cache.SetKey(LutRoot);
+                    bool wasReady = cache.Ready;
+                    bool accepted = cache.Complete(key, version, value, error);
+                    if (accepted) {
+                        bool changed = error == null && apply(value);
+                        if (error != null && log != null) AppendLog("[Catalog " + kind + "] " + error.Message + Environment.NewLine);
+                        int required = RequiredGrainCatalog();
+                        if ((!wasReady || changed || error != null) && ((kind == "tables" && required == 1) || (kind == "plates" && required == 2))) {
+                            grainContent.SuspendLayout();
+                            try { BuildGrainContent(); }
+                            finally { grainContent.ResumeLayout(true); }
+                        }
+                        if (kind == "lut.records" && error != null) SetLutListPlaceholder(false);
+                        UpdateGrainEnableUi();
+                        StartupTiming.Mark("catalog.applied", "kind=" + kind + " success=" + (error == null));
+                    } else StartupTiming.Mark("catalog.stale.skipped", "kind=" + kind);
+                    ScheduleCatalogWork();
+                }); } catch (InvalidOperationException) { }
+            });
+        }
+
+        private static bool SameCatalog(List<string> a, List<string> b)
+        {
+            if (a.Count != b.Count) return false;
+            for (int i = 0; i < a.Count; ++i)
+                if (!string.Equals(a[i], b[i], StringComparison.OrdinalIgnoreCase)) return false;
+            return true;
         }
 
         private MediaProbeInfo GetAv1GrainSourceContext()
@@ -1160,7 +1355,7 @@ namespace FilmGrainStudioPreview
                 MediaProbeInfo source = GetAv1GrainSourceContext();
                 string preferredTier = Av1GrainTableSelectionCore.GetAv1GrainTierFromDimensions(source != null ? source.Width : 0, source != null ? source.Height : 0);
                 displayedAv1GrainTableFiles.Clear();
-                displayedAv1GrainTableFiles.AddRange(GetFilteredAv1GrainTables(source));
+                if (tableCatalog.Ready) displayedAv1GrainTableFiles.AddRange(GetFilteredAv1GrainTables(source));
 
                 TableLayoutPanel tablePanel = new TableLayoutPanel();
                 tablePanel.Dock = DockStyle.Fill; tablePanel.Margin = Padding.Empty; tablePanel.ColumnCount = 3; tablePanel.RowCount = 1;
@@ -1169,6 +1364,7 @@ namespace FilmGrainStudioPreview
                 tablePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 30));
 
                 cmbGrainTable = new ThemeComboBox(); cmbGrainTable.DropDownStyle = ComboBoxStyle.DropDownList; cmbGrainTable.Dock = DockStyle.Fill; cmbGrainTable.Margin = new Padding(4, 5, 3, 5); cmbGrainTable.DropDownWidth = 560;
+                cmbGrainTable.DropDown += delegate { EnsureCurrentGrainCatalog(false); };
                 int selectedIndex = -1;
                 for (int i = 0; i < displayedAv1GrainTableFiles.Count; i++)
                 {
@@ -1185,9 +1381,9 @@ namespace FilmGrainStudioPreview
                         emptyText = UiText(preferredTier + " 未发现可用颗粒表", "No usable " + preferredTier + " grain tables found");
                     else
                         emptyText = UiText("未发现 .tbl/.txt 颗粒表", "No .tbl/.txt grain tables found");
-                    cmbGrainTable.Items.Add(emptyText);
-                    cmbGrainTable.SelectedIndex = 0; cmbGrainTable.Enabled = false;
-                    selectedAv1GrainTable = "";
+                    cmbGrainTable.Items.Add(!tableCatalog.Ready ? CatalogPendingText(tableCatalog.Error, tableCatalog.Running || tableCatalog.Requested) : emptyText);
+                    cmbGrainTable.SelectedIndex = 0; cmbGrainTable.Enabled = !tableCatalog.Ready;
+                    if (tableCatalog.Ready) selectedAv1GrainTable = "";
                 }
                 else
                 {
@@ -1201,7 +1397,7 @@ namespace FilmGrainStudioPreview
                 }
 
                 Button refreshTable = new ThemeButton(); refreshTable.Text = "↻"; refreshTable.Dock = DockStyle.Fill; refreshTable.Margin = new Padding(0, 4, 0, 4);
-                refreshTable.Click += delegate { RefreshGrainFileCaches(); BuildGrainContent(); };
+                refreshTable.Click += delegate { bool ready = tableCatalog.Ready; RefreshGrainFileCaches(); if (!ready) BuildGrainContent(); };
                 chkShowAllAv1Tables = new ThemeCheckBox(); chkShowAllAv1Tables.Text = ""; chkShowAllAv1Tables.Checked = showAllAv1GrainTables; chkShowAllAv1Tables.Dock = DockStyle.Fill; chkShowAllAv1Tables.Margin = new Padding(6, 4, 0, 4);
                 string tableTip = string.IsNullOrEmpty(preferredTier)
                     ? UiText("默认按当前视频分辨率筛选；勾选后显示全部颗粒表。", "By default tables are filtered to the current video resolution; check to show all tables.")
@@ -1222,9 +1418,10 @@ namespace FilmGrainStudioPreview
             else if (!av1 && mode == 1)
             {
                 cmbGrainPlate = new ThemeComboBox(); cmbGrainPlate.DropDownStyle = ComboBoxStyle.DropDownList; cmbGrainPlate.Dock = DockStyle.Fill; cmbGrainPlate.Margin = new Padding(4, 5, 6, 5); cmbGrainPlate.DropDownWidth = 520;
+                cmbGrainPlate.DropDown += delegate { EnsureCurrentGrainCatalog(false); };
                 string grainRoot = config.Get("GRAIN_ROOT");
                 int selectedIndex = -1;
-                for (int i = 0; i < grainPlateFiles.Count; i++)
+                for (int i = 0; plateCatalog.Ready && i < grainPlateFiles.Count; i++)
                 {
                     string path = grainPlateFiles[i];
                     cmbGrainPlate.Items.Add(GrainFileCatalogCore.RelativeDisplayPath(grainRoot, path));
@@ -1232,8 +1429,8 @@ namespace FilmGrainStudioPreview
                 }
                 if (cmbGrainPlate.Items.Count == 0)
                 {
-                    cmbGrainPlate.Items.Add(UiText("颗粒目录中未发现 .mov", "No .mov grain plates found"));
-                    cmbGrainPlate.SelectedIndex = 0; cmbGrainPlate.Enabled = false;
+                    cmbGrainPlate.Items.Add(!plateCatalog.Ready ? CatalogPendingText(plateCatalog.Error, plateCatalog.Running || plateCatalog.Requested) : UiText("颗粒目录中未发现 .mov", "No .mov grain plates found"));
+                    cmbGrainPlate.SelectedIndex = 0; cmbGrainPlate.Enabled = !plateCatalog.Ready;
                 }
                 else
                 {
@@ -1245,7 +1442,13 @@ namespace FilmGrainStudioPreview
                             selectedGrainPlatePath = grainPlateFiles[cmbGrainPlate.SelectedIndex];
                     };
                 }
-                AddLabeledRow(t, 0, UiText("颗粒文件", "Grain Plate"), cmbGrainPlate);
+                var platePanel = new TableLayoutPanel { Dock = DockStyle.Fill, Margin = Padding.Empty, ColumnCount = 2, RowCount = 1 };
+                platePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+                platePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 42));
+                var refreshPlate = new ThemeButton { Text = "↻", Dock = DockStyle.Fill, Margin = new Padding(0, 4, 3, 4) };
+                refreshPlate.Click += delegate { bool ready = plateCatalog.Ready; EnsureCurrentGrainCatalog(true); if (!ready) BuildGrainContent(); };
+                platePanel.Controls.Add(cmbGrainPlate, 0, 0); platePanel.Controls.Add(refreshPlate, 1, 0);
+                AddLabeledRow(t, 0, UiText("颗粒文件", "Grain Plate"), platePanel);
                 BuildUnifiedGrainSlider(t, 1, "PLATE");
             }
             else if ((av1 && mode == 3) || (!av1 && mode == 0))
@@ -1398,6 +1601,7 @@ namespace FilmGrainStudioPreview
                 }
             }
             finally { updatingGrainUi = false; }
+            if (!changingCodecForHardware) EnsureCurrentGrainCatalog(false);
             BuildGrainContent();
             UpdateGrainEnableUi();
         }
@@ -1443,13 +1647,20 @@ namespace FilmGrainStudioPreview
 
             Label recentLabel = MidLabel(lang.T("lut.recent"));
             cmbRecentLut = new ThemeComboBox(); cmbRecentLut.DropDownStyle = ComboBoxStyle.DropDownList; cmbRecentLut.Dock = DockStyle.Fill; cmbRecentLut.Margin = new Padding(4, 5, 6, 5); cmbRecentLut.DropDownWidth = 440; cmbRecentLut.MaxDropDownItems = 25;
+            cmbRecentLut.DropDown += delegate { EnsureLutRecords(false); };
             cmbRecentLut.SelectedIndexChanged += delegate { SelectLutFromCombo(cmbRecentLut, "Recent"); };
             t.Controls.Add(recentLabel, 0, 1); t.Controls.Add(cmbRecentLut, 1, 1); t.SetColumnSpan(cmbRecentLut, 3);
 
             Label favoriteLabel = MidLabel(lang.T("lut.favorite"));
             cmbFavoriteLut = new ThemeComboBox(); cmbFavoriteLut.DropDownStyle = ComboBoxStyle.DropDownList; cmbFavoriteLut.Dock = DockStyle.Fill; cmbFavoriteLut.Margin = new Padding(4, 5, 6, 5); cmbFavoriteLut.DropDownWidth = 440; cmbFavoriteLut.MaxDropDownItems = 25;
+            cmbFavoriteLut.DropDown += delegate { EnsureLutRecords(false); };
             cmbFavoriteLut.SelectedIndexChanged += delegate { SelectLutFromCombo(cmbFavoriteLut, "Favorite"); };
             t.Controls.Add(favoriteLabel, 0, 2); t.Controls.Add(cmbFavoriteLut, 1, 2); t.SetColumnSpan(cmbFavoriteLut, 3);
+            var recordsMenu = new ContextMenuStrip();
+            var refreshRecords = new ToolStripMenuItem(UiText("刷新最近／收藏列表", "Refresh recent/favorite lists"));
+            refreshRecords.Click += delegate { EnsureLutRecords(true); };
+            recordsMenu.Items.Add(refreshRecords);
+            cmbRecentLut.ContextMenuStrip = recordsMenu; cmbFavoriteLut.ContextMenuStrip = recordsMenu;
 
             TableLayoutPanel preview = new TableLayoutPanel(); preview.Dock = DockStyle.Fill; preview.Margin = new Padding(4, 3, 4, 2); preview.ColumnCount = 1; preview.RowCount = 2;
             preview.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); preview.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
@@ -1657,6 +1868,7 @@ namespace FilmGrainStudioPreview
 
         internal void LoadStartupInputs(NativeStartupOptions startup)
         {
+            StartupTiming.Mark("startup.inputs", "count=" + startup.Inputs.Count);
             foreach (string notice in startup.Notices) AppendLog("[Startup] " + notice + Environment.NewLine);
             if (startup.Inputs.Count > 0)
             {
@@ -2279,9 +2491,13 @@ namespace FilmGrainStudioPreview
         private void BeginHardwareDetection(bool force = false)
         {
             if (hardwareCapabilityCore == null) return;
+            if (!startupCatalogReady) { hardwareForceQueued |= force; return; }
+            StartupTiming.Mark("hardware.request.begin");
             HardwareCapabilityRequest request = CreateHardwareRequest();
             request.ForceDetection = force || hardwareForceQueued;
-            string key = HardwareCapabilityCore.RequestKey(request);
+            string requestedNativeKey = HardwareCapabilityCore.NativeKey(request);
+            string requestedFrucKey = HardwareCapabilityCore.FrucKey(request);
+            string key = requestedNativeKey + "|FRUC|" + requestedFrucKey;
             if (hardwareCapabilityCore.IsRunning) {
                 // Identical requests join the active pass, including repeated refresh clicks.
                 hardwareRefreshQueued = key != hardwareActiveKey;
@@ -2291,24 +2507,31 @@ namespace FilmGrainStudioPreview
                 hardwareRefreshQueued = true; hardwareForceQueued |= force; return;
             }
             hardwareRefreshQueued = false; hardwareForceQueued = false;
-            if (!request.ForceDetection && key == hardwareAppliedKey && hardwareCaps != null && hardwareCaps.Ready && hardwareCaps.FrucReady) return;
+            if (!request.ForceDetection && key == hardwareAppliedKey && hardwareCaps != null && hardwareCaps.Ready && HardwareCapabilityCore.CanCacheFruc(hardwareCaps)) return;
             hardwareActiveKey = key;
+            hardwareActiveNativeKey = requestedNativeKey;
+            hardwareActiveFrucKey = requestedFrucKey;
             hardwareDetectionInProgress = true;
             // Keep previous codec choices while refreshing; task start remains blocked until detection finishes.
-            hardwareCapsReady = hardwareCaps != null && hardwareCaps.Ready;
+            hardwareCapsReady = hardwareCaps != null && hardwareCaps.Ready && hardwareNativeAppliedKey == hardwareActiveNativeKey;
+            if(hardwareCaps!=null && (hardwareFrucAppliedKey!=requestedFrucKey || !HardwareCapabilityCore.CanCacheFruc(hardwareCaps))) {
+                hardwareCaps=hardwareCaps.Clone();hardwareCaps.FrucReady=false;hardwareCaps.FrucAvailable=false;
+                if(statusCapabilities.ContainsKey("FRUC")) {statusCapabilities["FRUC"].Text="FRUC ?";statusCapabilities["FRUC"].ForeColor=ColorMuted;}
+            }
             UpdateFrucAvailabilityUi();
             if (!hardwareCapsReady) SetCapabilityStatusPending();
             UpdateSfeUi();
-            if (statusHardware != null) statusHardware.Text = lang.T("hardware.detecting");
+            if (statusHardware != null && !hardwareCapsReady) statusHardware.Text = lang.T("hardware.detecting");
             if (btnStart != null && (bridgeTaskCoordinator == null || !bridgeTaskCoordinator.IsActive)) btnStart.Enabled = hardwareCapsReady;
             try
             {
+                StartupTiming.Mark("hardware.request");
                 hardwareCapabilityCore.Start(request);
             }
             catch (Exception ex)
             {
                 hardwareDetectionInProgress = false;
-                if (btnStart != null && (bridgeTaskCoordinator == null || !bridgeTaskCoordinator.IsActive)) btnStart.Enabled = true;
+                if (btnStart != null && (bridgeTaskCoordinator == null || !bridgeTaskCoordinator.IsActive)) btnStart.Enabled = hardwareCapsReady;
                 if (statusHardware != null) statusHardware.Text = "FFmpeg " + lang.T("hardware.not_detected") + " · " + lang.T("hardware.pending");
                 if (log != null) AppendLog("[Hardware] detection start failed: " + ex.Message + Environment.NewLine);
             }
@@ -2328,12 +2551,15 @@ namespace FilmGrainStudioPreview
                     if (caps != null && caps.Ready) hardwareAppliedKey = hardwareActiveKey;
                     if (caps != null && caps.Ready)
                     {
+                        bool nativeChanged = !hardwareCapsReady || !HardwareCapabilityCore.SameNativeCapabilities(hardwareCaps,caps);
                         hardwareCaps = caps;
                         hardwareCapsReady = true;
-                        ApplyHardwareCapabilities();
+                        hardwareNativeAppliedKey = hardwareActiveNativeKey;
+                        hardwareFrucAppliedKey = caps.FrucReady ? hardwareActiveFrucKey : null;
+                        if(nativeChanged) ApplyHardwareCapabilities();
                         if (log != null)
                             AppendDiagnosticLog("[Hardware .NET] " + caps.Diagnostics + Environment.NewLine);
-                        if (log != null)
+                        if (log != null && nativeChanged)
                             AppendLog("[Hardware] " + caps.GpuName + " · AV1=" + (caps.Av1Available ? "1" : "0") + " · HEVC=" + (caps.HevcAvailable ? "1" : "0") + " · x264=" + (caps.X264Available ? "1" : "0") + Environment.NewLine);
                     }
                     else
@@ -2347,7 +2573,8 @@ namespace FilmGrainStudioPreview
                     UpdateFrucAvailabilityUi();
                     UpdateFrucStatus();
                     if (caps != null) AppendDiagnosticLog("[Hardware FRUC] available=" + caps.FrucAvailable + " kind=" + caps.FrucFailureKind + " path=" + caps.FrucFfmpegPath + " reason=" + caps.FrucReason + Environment.NewLine);
-                    if (btnStart != null && (bridgeTaskCoordinator == null || !bridgeTaskCoordinator.IsActive)) btnStart.Enabled = true;
+                    if (btnStart != null && (bridgeTaskCoordinator == null || !bridgeTaskCoordinator.IsActive)) btnStart.Enabled = hardwareCapsReady;
+                    StartupTiming.Mark("hardware.applied", "ready=" + hardwareCapsReady + " native=" + hardwareCapabilityCore.NativeRuns + " fruc=" + hardwareCapabilityCore.FrucRuns + " children=" + hardwareCapabilityCore.ChildProcesses);
                     ScrollLogToEnd();
                 });
             }
@@ -2363,7 +2590,7 @@ namespace FilmGrainStudioPreview
 
             if (statusHardware != null)
             {
-                statusHardware.Text = SafeHardwareText(hardwareCaps.GpuName).Replace("NVIDIA GeForce ", "").Replace("NVIDIA ", "");
+                statusHardware.Text = SafeHardwareText(hardwareCaps.GpuName);
                 string details = "GPU " + SafeHardwareText(hardwareCaps.GpuName) + " · Driver " + SafeHardwareText(hardwareCaps.DriverVersion) +
                     " · FFmpeg " + SafeHardwareText(hardwareCaps.FfmpegVersion) + " · " + SafeHardwareText(cacheText);
                 statusHardware.ToolTipText = details;
@@ -2379,12 +2606,6 @@ namespace FilmGrainStudioPreview
             SetCapabilityStatus("SVP", hardwareCaps.OpenSvpGpuAvailable);
             UpdateFrucAvailabilityUi(); UpdateFrucStatus();
 
-            if (cmbGpu != null)
-            {
-                cmbGpu.Items.Clear();
-                cmbGpu.Items.Add(SafeHardwareText(hardwareCaps.GpuName) + lang.T("gpu.auto_detected"));
-                cmbGpu.SelectedIndex = 0;
-            }
 
             if (cmbCodec != null && cmbCodec.Items.Count >= 3)
             {
@@ -2492,12 +2713,6 @@ namespace FilmGrainStudioPreview
                 if (string.IsNullOrWhiteSpace(ffmpegVersion)) ffmpegVersion = lang.T("hardware.not_detected");
                 statusHardware.Text = "FFmpeg " + ffmpegVersion + " · " + lang.T("hardware.pending");
             }
-            if (cmbGpu != null)
-            {
-                cmbGpu.Items.Clear();
-                cmbGpu.Items.Add(lang.T("gpu.auto_retry"));
-                cmbGpu.SelectedIndex = 0;
-            }
             if (cmbCodec != null && cmbCodec.Items.Count >= 3)
             {
                 cmbCodec.Items[0] = lang.T("codec.av1_default");
@@ -2604,9 +2819,14 @@ namespace FilmGrainStudioPreview
                 MessageBox.Show(this, lang.T("info.add_video"), Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
-            if (hardwareDetectionInProgress && !hardwareCapsReady)
+            if (!startupCatalogReady || (hardwareDetectionInProgress && !hardwareCapsReady))
             {
                 MessageBox.Show(this, lang.T("hardware.detecting"), Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            if (!RequiredGrainCatalogReady()) {
+                EnsureCurrentGrainCatalog(false);
+                MessageBox.Show(this, UiText("颗粒列表正在加载；完成后请重试。", "Loading the grain catalog; retry when ready."));
                 return;
             }
             if (!ValidateHardwareForSelectedCodec()) return;
@@ -3356,39 +3576,67 @@ namespace FilmGrainStudioPreview
             catch { return fallback; }
         }
 
-        private List<LutChoice> ReadLutRecordList(string jsonPath)
-        {
-            try { return LutCatalogCore.ReadLutRecordList(jsonPath, LutRoot); }
-            catch (Exception ex)
-            {
-                if (log != null) AppendLog("[LUT] Failed to read " + jsonPath + ": " + ex.Message + Environment.NewLine);
-                return new List<LutChoice>();
-            }
-        }
-
         private string GetLutDisplayName(string path)
         {
             return LutCatalogCore.GetLutDisplayName(path, LutRoot, lang.T("lut.none"));
         }
 
-        private void RefreshLutLists()
+        private string CatalogPendingText(string error, bool pending = true)
+        {
+            if (!string.IsNullOrEmpty(error)) return UiText("加载失败，请刷新重试", "Load failed; refresh to retry");
+            return pending ? UiText("正在加载…", "Loading...") : UiText("展开或刷新时加载", "Open or refresh to load");
+        }
+
+        private void SetLutListPlaceholder(bool loading)
         {
             if (cmbRecentLut == null || cmbFavoriteLut == null) return;
+            string text = loading ? CatalogPendingText(null) : (!string.IsNullOrEmpty(lutCatalog.Error)
+                ? UiText("加载失败，展开可重试", "Load failed; open to retry") : UiText("展开时加载", "Open to load"));
             loadingLutLists = true;
-            try
-            {
-                string previewRoot = LutPreviewRoot;
-                PopulateLutCombo(cmbRecentLut, ReadLutRecordList(Path.Combine(previewRoot, "_LUT_GALLERY_RECENT.json")), lang.T("lut.recent_select"), lang.T("lut.recent_empty"), "Recent");
-                PopulateLutCombo(cmbFavoriteLut, ReadLutRecordList(Path.Combine(previewRoot, "_LUT_GALLERY_FAVORITES.json")), lang.T("lut.favorite_select"), lang.T("lut.favorite_empty"), "Favorite");
+            try {
+                foreach (ComboBox combo in new ComboBox[] { cmbRecentLut, cmbFavoriteLut }) {
+                    LutChoice existing = combo.Items.Count == 1 ? combo.Items[0] as LutChoice : null;
+                    if (existing != null && existing.Display == text && existing.PathValue.Length == 0) continue;
+                    combo.BeginUpdate();
+                    try { combo.Items.Clear(); combo.Items.Add(new LutChoice(text, "")); combo.SelectedIndex = 0; combo.Enabled = true; }
+                    finally { combo.EndUpdate(); }
+                }
+            } finally { loadingLutLists = false; }
+        }
+
+        private void ApplyLutRecords(LutRecordPair value)
+        {
+            loadingLutLists = true;
+            try {
+                PopulateLutCombo(cmbRecentLut, value.Recent, lang.T("lut.recent_select"), lang.T("lut.recent_empty"), "Recent");
+                PopulateLutCombo(cmbFavoriteLut, value.Favorite, lang.T("lut.favorite_select"), lang.T("lut.favorite_empty"), "Favorite");
+            } finally { loadingLutLists = false; }
+        }
+
+        private void RefreshLutLists()
+        {
+            // Called after gallery/color operations: invalidate; next actual use reads once.
+            lutCatalog.Invalidate();
+            SetLutListPlaceholder(false);
+        }
+
+        private bool LutComboMatches(ComboBox combo, List<LutChoice> entries, string selectText, string emptyText)
+        {
+            if (combo.Items.Count != Math.Max(1, entries.Count + (entries.Count > 0 ? 1 : 0))) return false;
+            LutChoice first = combo.Items[0] as LutChoice;
+            if (first == null || first.PathValue.Length != 0 || first.Display != (entries.Count == 0 ? emptyText : selectText)) return false;
+            int selected = 0;
+            for (int i = 0; i < entries.Count; ++i) {
+                LutChoice old = combo.Items[i + 1] as LutChoice;
+                if (old == null || old.Display != entries[i].Display || old.PathValue != entries[i].PathValue) return false;
+                if (string.Equals(selectedLutPath, entries[i].PathValue, StringComparison.OrdinalIgnoreCase)) selected = i + 1;
             }
-            finally
-            {
-                loadingLutLists = false;
-            }
+            return combo.SelectedIndex == selected && combo.Enabled;
         }
 
         private void PopulateLutCombo(ComboBox combo, List<LutChoice> entries, string selectText, string emptyText, string source)
         {
+            if (LutComboMatches(combo, entries, selectText, emptyText)) return;
             combo.BeginUpdate();
             try
             {
@@ -3397,7 +3645,7 @@ namespace FilmGrainStudioPreview
                 {
                     combo.Items.Add(new LutChoice(emptyText, ""));
                     combo.SelectedIndex = 0;
-                    combo.Enabled = false;
+                    combo.Enabled = true;
                     return;
                 }
 
@@ -3434,7 +3682,7 @@ namespace FilmGrainStudioPreview
             colorCorrectionEnabled = false;
             try { config.SaveValue("COLOR_CORRECTION_ENABLED", "false"); }
             catch (Exception ex) { if (log != null) AppendLog("[Color] Failed to save disabled state: " + ex.Message + Environment.NewLine); }
-            RefreshLutLists();
+            if (lutCatalog.Ready) ApplyLutRecords(lutCatalog.Value);
             UpdateLutUi();
             UpdateColorCorrectionUi();
         }
@@ -3536,6 +3784,11 @@ namespace FilmGrainStudioPreview
 
         private void OpenGrainPreview()
         {
+            if (!RequiredGrainCatalogReady()) {
+                EnsureCurrentGrainCatalog(false);
+                MessageBox.Show(this, UiText("颗粒列表正在加载；完成后请重试。", "Loading the grain catalog; retry when ready."));
+                return;
+            }
             if (bridgeTaskCoordinator != null && bridgeTaskCoordinator.IsActive)
             { MessageBox.Show(this, UiText("请等待当前任务结束后再生成颗粒预览。", "Wait for the current task to finish before rendering a grain preview.")); return; }
             string input = GetPreviewVideoPath();
@@ -3689,6 +3942,91 @@ namespace FilmGrainStudioPreview
             if (log != null) AppendLog("[Preview] " + message + Environment.NewLine);
             if (lblRunStage != null) lblRunStage.Text = ".NET Preview · no encoding";
             MessageBox.Show(this, message, "Film Grain Studio .NET", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+    }
+
+    // Optional diagnostics; no disk I/O on the UI thread until the window closes.
+    internal static class StartupTiming
+    {
+        private static readonly Stopwatch Clock = Stopwatch.StartNew();
+        private static readonly object Sync = new object();
+        private static readonly List<string> Rows = new List<string>();
+        private static readonly string Output = Environment.GetEnvironmentVariable("FGS_STARTUP_TRACE");
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool GetUpdateRect(IntPtr window, IntPtr rect, bool erase);
+        internal static void Mark(string name) { Mark(name, ""); }
+        internal static void Mark(string name, string detail)
+        {
+            if (string.IsNullOrEmpty(Output)) return;
+            lock (Sync) Rows.Add(Clock.Elapsed.TotalMilliseconds.ToString("F3", CultureInfo.InvariantCulture) + "," + name + "," + detail.Replace(',', ';').Replace('\r',' ').Replace('\n',' '));
+        }
+        internal static bool PaintPending(Control control)
+        {
+            if (!control.Visible) return false;
+            if (control.IsHandleCreated && GetUpdateRect(control.Handle, IntPtr.Zero, false)) return true;
+            foreach (Control child in control.Controls) if (PaintPending(child)) return true;
+            return false;
+        }
+        internal static void Attach(Form form)
+        {
+            if (string.IsNullOrEmpty(Output)) return;
+            bool complete = false;
+            EventHandler idle = null;
+            idle = delegate {
+                if (complete || form.IsDisposed || !form.Visible || PaintPending(form)) return;
+                complete = true; Mark("paint.queue.clear"); Application.Idle -= idle;
+            };
+            form.Load += delegate { Mark("load"); };
+            form.Shown += delegate { Mark("shown"); };
+            form.Paint += delegate { Mark("form.paint"); };
+            Application.Idle += idle;
+            form.FormClosed += delegate {
+                Application.Idle -= idle; Mark("closed");
+                try { lock (Sync) { var lines = new List<string>(); lines.Add("ms,event,detail"); lines.AddRange(Rows); File.WriteAllLines(Output, lines.ToArray(), new System.Text.UTF8Encoding(true)); } }
+                catch (Exception ex) { Trace.WriteLine(ex.Message); }
+            };
+        }
+    }
+    // State is owned by the UI thread. Workers receive captured key/version and data only.
+    internal sealed class DemandCatalog<T>
+    {
+        internal string Key, Error;
+        internal T Value;
+        internal bool Ready, Running, Requested;
+        internal int Version, Runs, CacheHits, Joins;
+        private int runningVersion;
+        internal bool SetKey(string key)
+        {
+            key = key ?? "";
+            if (string.Equals(Key, key, StringComparison.OrdinalIgnoreCase)) return false;
+            Key = key; Invalidate(); return true;
+        }
+        internal void Invalidate()
+        {
+            ++Version; Ready = false; Requested = false; Value = default(T); Error = null;
+        }
+        internal void Request(string key, bool force)
+        {
+            SetKey(key);
+            if (force) { ++Version; Error = null; Requested = true; return; }
+            if (Ready) { ++CacheHits; StartupTiming.Mark("catalog.cache.hit"); return; }
+            if (Running && runningVersion == Version) { ++Joins; return; }
+            Requested = true;
+        }
+        internal bool TryStart(out string key, out int version)
+        {
+            key = Key; version = Version;
+            if (!Requested || Running) return false;
+            Requested = false; Running = true; runningVersion = Version; ++Runs; return true;
+        }
+        internal bool Complete(string key, int version, T value, Exception error)
+        {
+            Running = false;
+            if (version != Version || !string.Equals(Key, key, StringComparison.OrdinalIgnoreCase)) return false;
+            Requested = false; Error = error == null ? null : error.Message;
+            Ready = error == null;
+            if (Ready) Value = value;
+            return true;
         }
     }
 }

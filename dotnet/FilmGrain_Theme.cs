@@ -310,7 +310,10 @@ namespace FilmGrainStudioPreview
         private ToolStripButton themeButton;
         private bool selectedDarkTheme;
         private string selectedThemeMode = "SYSTEM";
-        private bool themeClosing, systemThemeSubscribed;
+        private bool themeClosing, systemThemeSubscribed, themeApplied;
+        private string themeMenuAppliedMode;
+        private int systemThemeCallbackPending;
+        internal int themeApplyCount, systemThemeEventCount, systemThemeCallbackCount, systemThemeNoopCount;
         private ContextMenuStrip themeModes;
         private readonly Dictionary<Form, UiTheme> themedWindows = new Dictionary<Form, UiTheme>();
         internal static string NormalizeThemeMode(string value)
@@ -355,25 +358,48 @@ namespace FilmGrainStudioPreview
             window.Disposed -= ThemeWindowDisposed;
             themedWindows.Remove(window); engine.Dispose();
         }
-        private void ApplySelectedTheme()
+        private void ApplySelectedTheme() { ApplySelectedTheme(false); }
+        private void ApplySelectedTheme(bool force)
         {
             if (themeClosing || IsDisposed || Disposing) return;
             bool dark = selectedThemeMode == "DARK" || (selectedThemeMode == "SYSTEM" && ReadSystemDarkTheme());
+            if (themeApplied && dark == selectedDarkTheme && !force) {
+                ++systemThemeNoopCount;
+                StartupTiming.Mark("theme.same.skipped", "mode=" + selectedThemeMode + " dark=" + dark);
+                if (themeMenuAppliedMode != selectedThemeMode) {
+                    UpdateThemeMenu(dark); themeMenuAppliedMode = selectedThemeMode;
+                }
+                return;
+            }
+            ++themeApplyCount;
+            StartupTiming.Mark("theme.apply.begin", "mode=" + selectedThemeMode + " dark=" + dark + " force=" + force);
             uiTheme.Apply(this, dark);
             foreach (var pair in new List<KeyValuePair<Form, UiTheme>>(themedWindows))
                 if (!pair.Key.IsDisposed && !pair.Key.Disposing) pair.Value.Apply(pair.Key, dark);
-            UpdateThemeMenu(dark);
+            UpdateThemeMenu(dark); themeMenuAppliedMode = selectedThemeMode;
             if (themeModes != null) uiTheme.Apply(themeModes, dark);
+            themeApplied = true;
+            StartupTiming.Mark("theme.apply.end", "count=" + themeApplyCount);
         }
         private void SystemThemeChanged(object sender, Microsoft.Win32.UserPreferenceChangedEventArgs e)
         {
-            // Always marshal: SystemEvents may run on a worker thread. Mode is checked on UI thread.
+            // SystemEvents can arrive in bursts on a worker. Resolve mode on the UI thread.
+            System.Threading.Interlocked.Increment(ref systemThemeEventCount);
+            StartupTiming.Mark("theme.system.event", e == null ? "unknown" : e.Category.ToString());
+            if (System.Threading.Interlocked.CompareExchange(ref systemThemeCallbackPending, 1, 0) != 0) return;
             try {
-                if (themeClosing || IsDisposed || Disposing || !IsHandleCreated) return;
+                if (themeClosing || IsDisposed || Disposing || !IsHandleCreated) {
+                    System.Threading.Interlocked.Exchange(ref systemThemeCallbackPending, 0); return;
+                }
                 BeginInvoke((MethodInvoker)delegate {
-                    if (!themeClosing && !IsDisposed && selectedThemeMode == "SYSTEM") ApplySelectedTheme();
+                    System.Threading.Interlocked.Exchange(ref systemThemeCallbackPending, 0);
+                    ++systemThemeCallbackCount;
+                    StartupTiming.Mark("theme.system.callback", "mode=" + selectedThemeMode);
+                    if (!themeClosing && !IsDisposed && !Disposing && selectedThemeMode == "SYSTEM") ApplySelectedTheme();
                 });
-            } catch (InvalidOperationException) { }
+            } catch (InvalidOperationException) {
+                System.Threading.Interlocked.Exchange(ref systemThemeCallbackPending, 0);
+            }
         }
         private void ReleaseThemeResources(object sender, EventArgs e)
         {
@@ -446,7 +472,7 @@ namespace FilmGrainStudioPreview
             } catch { systemThemeSubscribed = false; }
             // Re-read after subscription to close the startup read/subscribe gap.
             ApplySelectedTheme();
-            HandleCreated += delegate { if (!themeClosing && uiTheme != null) ApplySelectedTheme(); };
+            HandleCreated += delegate { if (!themeClosing && uiTheme != null) ApplySelectedTheme(true); };
             Disposed += ReleaseThemeResources;
         }
         private void UpdateThemeMenu(bool dark)
@@ -739,14 +765,38 @@ namespace FilmGrainStudioPreview
             ThemeDrawing.DrawText(e.Graphics,Text,Font,Rectangle.Inflate(ClientRectangle,-3,-2),UiTheme.Muted,ThemeDrawing.TextFlags(TextAlign,AutoEllipsis));
         }
     }
-    // Use the framework checkbox renderer; do not mix custom painting with its adapter.
+    // Keep framework interaction/text rendering; replace only the dark checkbox glyph.
     internal sealed class ThemeCheckBox : CheckBox, IThemeSurface
     {
         private bool dark;
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
-            if (!dark || Enabled || CheckAlign != ContentAlignment.MiddleLeft) return;
+            if (!dark || Appearance != Appearance.Normal || CheckAlign != ContentAlignment.MiddleLeft || RightToLeft == RightToLeft.Yes) return;
+            // The flat adapter uses a pale disabled fill. Keep both states dark and
+            // draw the mark explicitly so Checked and Indeterminate remain legible.
+            int box = Math.Max(9, (int)Math.Round(13.0 * e.Graphics.DpiX / 96.0));
+            Rectangle bounds = new Rectangle(Padding.Left, Padding.Top + Math.Max(0, (Height-Padding.Vertical-box)/2), box, box);
+            using (Brush fill = new SolidBrush(UiTheme.Input)) e.Graphics.FillRectangle(fill,bounds);
+            using (Pen border = new Pen(Enabled ? Color.FromArgb(160,165,172) : Color.FromArgb(105,110,118)))
+                e.Graphics.DrawRectangle(border,bounds.X,bounds.Y,bounds.Width-1,bounds.Height-1);
+            if (CheckState != CheckState.Unchecked) {
+                Color mark = Enabled ? Color.White : Color.FromArgb(205,210,216);
+                float unit = box / 13f;
+                if (CheckState == CheckState.Indeterminate) {
+                    using (Brush fill = new SolidBrush(mark))
+                        e.Graphics.FillRectangle(fill,bounds.X+3*unit,bounds.Y+5*unit,7*unit,3*unit);
+                } else {
+                    using (Pen pen = new Pen(mark,Math.Max(2f,2f*unit))) {
+                        pen.LineJoin = System.Drawing.Drawing2D.LineJoin.Round;
+                        e.Graphics.DrawLines(pen,new PointF[] {
+                            new PointF(bounds.X+3*unit,bounds.Y+6*unit),
+                            new PointF(bounds.X+5.5f*unit,bounds.Y+9*unit),
+                            new PointF(bounds.X+10*unit,bounds.Y+3.5f*unit) });
+                    }
+                }
+            }
+            if (Enabled) return;
             int glyph = CheckBoxRenderer.GetGlyphSize(e.Graphics,System.Windows.Forms.VisualStyles.CheckBoxState.UncheckedDisabled).Width;
             Rectangle r = new Rectangle(Padding.Left+glyph+4,Padding.Top,Math.Max(0,Width-Padding.Horizontal-glyph-4),Math.Max(0,Height-Padding.Vertical));
             using (Brush brush = new SolidBrush(BackColor)) e.Graphics.FillRectangle(brush,r);
@@ -769,7 +819,7 @@ namespace FilmGrainStudioPreview
                 dark = value;
                 FlatStyle = dark ? FlatStyle.Flat : originalStyle;
                 FlatAppearance.BorderColor = dark ? UiTheme.Border : originalBorder;
-                FlatAppearance.CheckedBackColor = dark ? UiTheme.Accent : originalChecked;
+                FlatAppearance.CheckedBackColor = dark ? UiTheme.Input : originalChecked;
                 FlatAppearance.MouseOverBackColor = dark ? UiTheme.Input : originalHover;
                 FlatAppearance.MouseDownBackColor = dark ? UiTheme.Input : originalDown;
                 Invalidate();

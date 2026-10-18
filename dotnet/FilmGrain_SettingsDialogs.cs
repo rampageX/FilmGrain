@@ -641,9 +641,8 @@ namespace FilmGrainStudioPreview
                         selectedLutSource = "None";
                         chkLut.Checked = false;
                     }
-                    RefreshLutLists();
+                    InvalidateChangedCatalogPaths();
                     UpdateLutUi();
-                    RefreshGrainFileCaches();
                     UpdateGrainForCodec();
                     RefreshChangedHardware(hardwareBefore);
                     if (log != null) log.AppendText("[Config] Path configuration saved: " + config.ConfigPath + Environment.NewLine);
