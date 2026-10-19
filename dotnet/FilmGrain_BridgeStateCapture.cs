@@ -47,7 +47,7 @@ namespace FilmGrainStudioPreview
                 return null;
             }
 
-            if (chkLut != null && chkLut.Checked)
+            if (IsLutEffectEnabled())
             {
                 if (string.IsNullOrWhiteSpace(selectedLutPath)) { error = lang.T("info.lut_not_selected"); return null; }
                 if (!File.Exists(selectedLutPath)) { error = LF("error.selected_lut_missing", selectedLutPath); return null; }
@@ -75,8 +75,7 @@ namespace FilmGrainStudioPreview
 
             string[] deintMethods = new string[] { "BWDIF_VULKAN", "BWDIF_CUDA", "W3FDIF" };
             int deintIndex = cmbDeintMethod == null ? 1 : Math.Max(0, Math.Min(2, cmbDeintMethod.SelectedIndex));
-            int[] lutStrengths = new int[] { 25, 50, 75, 100 };
-            int lutStrength = trackLutStrength == null ? 75 : lutStrengths[Math.Max(0, Math.Min(3, trackLutStrength.Value))];
+            int lutStrength = GetLutStrength();
 
             BridgeEnvironmentSnapshot snapshot = new BridgeEnvironmentSnapshot();
             snapshot.NoReencode = false;
@@ -167,7 +166,7 @@ namespace FilmGrainStudioPreview
             snapshot.ColorSaturation = colorSaturation;
             snapshot.ColorGamma = colorGamma;
             snapshot.ColorBlackWhite = colorBlackWhite;
-            snapshot.LutEnabled = chkLut != null && chkLut.Checked;
+            snapshot.LutEnabled = IsLutEffectEnabled();
             snapshot.LutPath = selectedLutPath;
             snapshot.LutStrength = lutStrength;
 
@@ -183,7 +182,7 @@ namespace FilmGrainStudioPreview
             snapshot.FgsimQuality = IsHevcFgsim() ? fgsimRcChoice : "VBR";
             snapshot.GrainRoot = config.Get("GRAIN_ROOT");
             snapshot.GrainPlatePath = selectedGrainPlatePath;
-            snapshot.ScannedGrainStrengthIndex = scannedGrainStrengthIndex;
+            snapshot.ScannedGrainStrengthPercent = scannedGrainStrengthPercent;
             return snapshot;
         }
 
@@ -247,7 +246,7 @@ namespace FilmGrainStudioPreview
             snapshot.HevcMultipass = config.Get("HEVC_MULTIPASS");
 
             snapshot.Av1GrainStrength = Av1GrainStrengthPercent;
-            snapshot.PixelGrainStrength = PixelGrainStrengthPercent;
+            snapshot.PixelGrainStrength = 100;
             snapshot.TempMode = config.Get("TEMP_MODE");
             snapshot.TempCustomDir = config.Get("TEMP_CUSTOM_DIR");
             snapshot.OutputMode = config.Get("OUTPUT_MODE");

@@ -155,7 +155,7 @@ namespace FilmGrainStudioPreview
 
         private static int NormalizeStrength(int value)
         {
-            if (value == 25 || value == 50 || value == 75 || value == 100) return value;
+            if (value == 0 || value == 25 || value == 50 || value == 75 || value == 100) return value;
             return 75;
         }
 
@@ -422,8 +422,8 @@ namespace FilmGrainStudioPreview
 
             lutStrengthTrack = new ThemeTrackBar();
             lutStrengthTrack.Minimum = 0;
-            lutStrengthTrack.Maximum = 3;
-            lutStrengthTrack.Value = lutStrength == 25 ? 0 : (lutStrength == 50 ? 1 : (lutStrength == 100 ? 3 : 2));
+            lutStrengthTrack.Maximum = 4;
+            lutStrengthTrack.Value = lutStrength/25;
             lutStrengthTrack.TickStyle = TickStyle.BottomRight;
             lutStrengthTrack.Location = new Point(96, strengthY);
             lutStrengthTrack.Size = new Size(previewWidth - 164, 40);
@@ -576,8 +576,7 @@ namespace FilmGrainStudioPreview
 
         private void UpdateLutUi()
         {
-            int[] values = new int[] { 25, 50, 75, 100 };
-            lutStrength = values[Math.Max(0, Math.Min(3, lutStrengthTrack.Value))];
+            lutStrength = Math.Max(0,Math.Min(4,lutStrengthTrack.Value))*25;
             lutStrengthLabel.Text = lutStrength.ToString(CultureInfo.InvariantCulture) + "%";
             bool available = !string.IsNullOrEmpty(activeCompatLutPath) && File.Exists(activeCompatLutPath);
             checkLut.Enabled = available;
@@ -786,7 +785,7 @@ namespace FilmGrainStudioPreview
             state.Saturation = (double)adjustments["Saturation"].Number.Value;
             state.Gamma = (double)adjustments["Gamma"].Number.Value;
             state.BlackWhite = checkBlackWhite.Checked;
-            state.UseLut = checkLut.Checked && !string.IsNullOrEmpty(activeCompatLutPath);
+            state.UseLut = checkLut.Checked && lutStrength>0 && !string.IsNullOrEmpty(activeCompatLutPath);
             state.CompatLutPath = activeCompatLutPath;
             state.LutStrength = lutStrength;
             return state;
@@ -795,6 +794,7 @@ namespace FilmGrainStudioPreview
         private Bitmap RenderPreview(RenderState state)
         {
             string output = Path.Combine(tempRoot, "preview_" + state.Serial.ToString(CultureInfo.InvariantCulture) + ".jpg");
+            string preparedStrengthLut="";
             try { if (File.Exists(output)) File.Delete(output); } catch { }
 
             List<string> prefix = new List<string>();
@@ -808,12 +808,18 @@ namespace FilmGrainStudioPreview
             string filter = string.Join(",", prefix.ToArray());
             if (!state.Original && state.UseLut && !string.IsNullOrEmpty(state.CompatLutPath))
             {
-                string escaped = EscapeFilterPath(state.CompatLutPath);
-                if (state.LutStrength >= 100)
+                string lutForPreview=state.CompatLutPath;
+                string resolvedOpacity="1.00";
+                if(state.LutStrength<100) {
+                    lutForPreview=Path.Combine(tempRoot,"lut_strength_"+state.Serial.ToString(CultureInfo.InvariantCulture)+".cube");
+                    resolvedOpacity=LutStrengthCore.CreateFile(state.CompatLutPath,lutForPreview,state.LutStrength);preparedStrengthLut=lutForPreview;
+                }
+                string escaped = EscapeFilterPath(lutForPreview);
+                if (resolvedOpacity=="1.00")
                     filter += ",format=gbrp16le,lut3d=file='" + escaped + "':interp=tetrahedral";
                 else
                 {
-                    string opacity = ((double)state.LutStrength / 100.0).ToString("0.00", CultureInfo.InvariantCulture);
+                    string opacity = resolvedOpacity;
                     filter += ",format=gbrp16le,split=2[lutorig][lutsrc];[lutsrc]lut3d=file='" + escaped + "':interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=" + opacity;
                 }
             }
@@ -850,6 +856,7 @@ namespace FilmGrainStudioPreview
                 }
             }
 
+            try{if(preparedStrengthLut.Length>0)File.Delete(preparedStrengthLut);}catch{}
             sourceIdentity.RequireCurrent();
             if (rc != 0 || !File.Exists(output))
             {

@@ -25,7 +25,9 @@ namespace FilmGrainStudioPreview
         private volatile bool closing;
         private readonly PictureBox[] panes = { new PictureBox(), new PictureBox(), new PictureBox(), new PictureBox() };
         private readonly List<string>[] variants = { new List<string>(), new List<string>(), new List<string>(), new List<string>() };
-        private readonly int[] strengths = {25,50,75,100};
+        private readonly int[] strengths = {20,40,70,100};
+        private string pixelKind="";
+        private bool CanApply(int index){return pixelKind!="NATIVE" || strengths[index]%10==0;}
         private readonly Button[] choose = {new ThemeButton(),new ThemeButton(),new ThemeButton(),new ThemeButton()};
         private readonly Label status = new ThemeLabel();
         private readonly TrackBar frame = new ThemeTrackBar();
@@ -58,7 +60,7 @@ namespace FilmGrainStudioPreview
                 var panel=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=1,RowCount=2};
                 panel.RowStyles.Add(new RowStyle(SizeType.Absolute,30));panel.RowStyles.Add(new RowStyle(SizeType.Percent,100));
                 choose[i].Text=strengths[i]+T("% · 点击应用","% · Apply");choose[i].Dock=DockStyle.Fill;choose[i].Enabled=false;
-                choose[i].Click+=delegate {SelectedStrength=strengths[index]; DialogResult=DialogResult.OK; Close();};
+                choose[i].Click+=delegate {if(!CanApply(index))return;SelectedStrength=strengths[index]; DialogResult=DialogResult.OK; Close();};
                 panes[i].Dock=DockStyle.Fill;panes[i].SizeMode=PictureBoxSizeMode.Zoom;panes[i].BackColor=Color.Black;
                 panel.Controls.Add(choose[i],0,0);panel.Controls.Add(panes[i],0,1);layout.Controls.Add(panel,i%2,i/2);
             }
@@ -94,6 +96,12 @@ namespace FilmGrainStudioPreview
             : this(ffmpegPath,"",input,new List<string>(),media,languageCode)
         {
             appRoot=root;pixelState=new Dictionary<string,string>(state,StringComparer.OrdinalIgnoreCase);capabilities=caps;
+            pixelKind=pixelState["FG_GRAIN_ENGINE"];
+            for(int i=0;i<4;i++) {
+                strengths[i]=pixelKind=="FGSIM"?i+1:(i+1)*25;
+                string label=pixelKind=="FGSIM"?GrainControlCore.FgsimPresets[i]+" / "+GrainControlCore.FgsimStrengths[i]:pixelKind=="PROCEDURAL"?(strengths[i]/100.0).ToString("0.00",CultureInfo.InvariantCulture):strengths[i]+"%";
+                choose[i].Text=label+(CanApply(i)?T(" · 点击应用"," · Apply"):T(" · 仅对比"," · Compare only"));
+            }
             Text=T("像素颗粒四档对比","Pixel grain comparison");
         }
 
@@ -133,7 +141,7 @@ namespace FilmGrainStudioPreview
             foreach(var button in choose)button.Enabled=false;
             ReleaseImages();cleanFrames.Clear();foreach(var list in variants)list.Clear();
             renderLocation=(automatic?T("已随机选点：","Random position: "):T("请求起始：","Requested start: "))+requestedTime;
-            status.Text=renderLocation+T("；正在生成 25%、50%、75%、100% 四档预览…","; rendering 25%, 50%, 75% and 100% previews...");
+            status.Text=renderLocation+T("；正在生成四档预览…","; rendering four strengths...");
             bool skipOpening=skipBlack.Checked;
             var worker=new Thread(new ThreadStart(delegate {
                 string error="";int firstFrame=0;double actualStart=0;
@@ -202,7 +210,7 @@ namespace FilmGrainStudioPreview
                             for(int i=0;i<4;i++){variants[i].AddRange(Directory.GetFiles(temporary,"variant"+i+"_*.png"));variants[i].Sort(StringComparer.Ordinal);if(variants[i].Count!=cleanFrames.Count)throw new InvalidDataException(T("四档预览的帧数不一致。","Preview frame counts do not match."));}
                             if(cleanFrames.Count==0)throw new InvalidDataException(T("未生成预览画面。","No preview frames were generated."));
                             frame.Maximum=cleanFrames.Count-1;frame.Value=0;ShowFrame();
-                            play.Enabled=frame.Enabled=showClean.Enabled=true;foreach(var button in choose)button.Enabled=true;
+                            play.Enabled=frame.Enabled=showClean.Enabled=true;for(int i=0;i<4;i++)choose[i].Enabled=CanApply(i);
                             status.Text=(automatic?T("随机选点：","Random position: "):T("请求起始：","Requested start: "))+requestedTime+T("；实际关键帧起始：","; actual keyframe start: ")+TimeSpan.FromSeconds(actualStart).ToString()+T("。同帧同种子，点击档位应用。\r\n仅比较颗粒；HDR 转换仅用于显示，不包含 LUT、调色或插帧。1:1 居中可检查颗粒细节。",". Same frames and seed; click a strength to apply.\r\nGrain only; HDR conversion is for display. LUTs, color correction and interpolation are excluded. Use 1:1 centered to inspect detail.");
                         }catch(Exception ex){ReleaseImages();status.Text=T("预览失败：","Preview failed: ")+ex.Message;}
                     }));}catch{running=false;Cleanup();}
@@ -221,49 +229,53 @@ namespace FilmGrainStudioPreview
             string normalized=Path.Combine(temporary,"normalized.mkv");
             Run(ffmpeg,new List<string>{"-hide_banner","-v","error","-y","-i",sample,"-map","0:v:0","-c:v","copy",normalized});
             var media=SharedEncodePreviewCore.Probe(normalized,probe,delegate {return closing;});
-            var state=new Dictionary<string,string>(pixelState,StringComparer.OrdinalIgnoreCase);
-            state["FG_PIXEL_GRAIN_STRENGTH"]="100";state["FG_COLOR_ENABLED"]="0";state["FG_LUT_PATH"]="";
-            state["FG_SUBTITLE"]="0";state["FG_CINEMATIC_FRAME"]="0";state["FG_SVP_INTERPOLATE"]="0";
-            state["FG_FPS_MODE"]="SOURCE";state["FG_UPLOAD"]="0";state["FG_X264_PASS_MODE"]="VBR1";
-            state["FG_ENCODE_PREVIEW"]="0";state["FG_SFE_ENGINES"]="0";
-            state["FG_OUTPUT_MODE"]="CUSTOM";state["FG_OUTPUT_CUSTOM_DIR"]=temporary;
-            state["FG_TEMP_MODE"]="CUSTOM";state["FG_TEMP_CUSTOM_DIR"]=temporary;
-            // Compare only grain; retain the chosen HDR policy and the established field handling.
-            BridgePreparedExecution prepared;string reason;
-            if(!NativeExecutionPreparationCore.TryPrepare(appRoot,normalized,media,state,capabilities,false,out prepared,out reason))throw new InvalidDataException(reason);
-            var request=prepared.ExecutionRequest;
-            try
-            {
-                if(request.PixelGrainFullFilter==null||request.PixelGrainCleanFilter==null)throw new InvalidDataException(T("当前处理路径未提供像素颗粒对比滤镜。","The selected route did not supply a pixel grain comparison graph."));
-                if(request.DirectStages!=null)foreach(var stage in request.DirectStages)
-                {
-                    if(stage.OriginalArguments!=null && stage.OriginalArguments.Contains("-filter_complex"))
-                    {request.PixelGrainEncodeArguments=stage.OriginalArguments;break;}
-                    if(closing)throw new OperationCanceledException();
-                    if(stage.PrepareWithCancellation!=null)stage.PrepareWithCancellation(delegate {return closing;});
-                    if(stage.BeforeRunPreparation!=null)stage.BeforeRunPreparation();
-                    if(stage.ShouldRun!=null&&!stage.ShouldRun())continue;
-                    if(stage.OriginalArguments==null)throw new InvalidDataException(T("缺少预览预处理参数。","Preview preprocessing arguments are unavailable."));
-                    Run(stage.ToolPath,new List<string>(stage.OriginalArguments),stage.WorkingDirectory);
-                }
-                if(request.PixelGrainEncodeArguments==null)throw new InvalidDataException(T("缺少预览编码参数。","Native preview encode arguments are missing."));
-                string pair=Path.Combine(temporary,"pixel_pair.mkv");
-                var args=PixelGrainStrengthCore.PreviewArguments(request.PixelGrainEncodeArguments,request.PixelGrainFullFilter,request.PixelGrainCleanFilter,pair);
-                PixelGrainStrengthCore.StampPreviewColor(args,request.PixelGrainHdr,media);
-                Run(ffmpeg,args,request.WorkingDirectory);
-                var pairInfo=SharedEncodePreviewCore.Probe(pair,probe,delegate {return closing;});
-                int first=0;
-                if(skipOpening)
-                {
-                    string scan=Path.Combine(temporary,"pixel_scan.gray");
-                    Run(ffmpeg,new List<string>{"-v","error","-y","-i",pair,"-map","0:v:0","-vf","scale=64:36,format=gray","-frames:v","32","-threads","1","-f","rawvideo",scan});
-                    first=FindPreviewStartFrame(File.ReadAllBytes(scan));if(first<0)first=0;
-                }
-                Run(ffmpeg,PixelGrainStrengthCore.FrameArguments(pair,0,PreviewFilter(pairInfo,first),Path.Combine(temporary,"clean%02d.png")));
-                for(int i=0;i<4;i++){ReportProgress(T("正在生成颗粒强度 ","Rendering grain strength ")+strengths[i]+"%…");Run(ffmpeg,PixelGrainStrengthCore.FrameArguments(pair,strengths[i],PreviewFilter(pairInfo,first),Path.Combine(temporary,"variant"+i+"_%02d.png")));}
-
+            int first=0;
+            for(int level=0;level<4;level++) {
+                if(closing)throw new OperationCanceledException();
+                ReportProgress(T("正在生成颗粒预览 ","Rendering grain preview ")+(level+1)+"/4…");
+                var state=new Dictionary<string,string>(pixelState,StringComparer.OrdinalIgnoreCase);
+                state["FG_PIXEL_GRAIN_STRENGTH"]="100";
+                if(pixelKind=="FGSIM")state["FG_FGSIM_PRESET"]=GrainControlCore.FgsimPresets[level];
+                else if(pixelKind=="NATIVE")state["FG_GRAIN_PLATE_STRENGTH"]=strengths[level].ToString(CultureInfo.InvariantCulture);
+                else state["FG_PROC_STRENGTH"]=strengths[level].ToString(CultureInfo.InvariantCulture);
+                state["FG_COLOR_ENABLED"]="0";state["FG_LUT_PATH"]="";
+                state["FG_SUBTITLE"]="0";state["FG_CINEMATIC_FRAME"]="0";state["FG_SVP_INTERPOLATE"]="0";
+                state["FG_FPS_MODE"]="SOURCE";state["FG_UPLOAD"]="0";state["FG_X264_PASS_MODE"]="VBR1";
+                state["FG_ENCODE_PREVIEW"]="0";state["FG_SFE_ENGINES"]="0";
+                state["FG_OUTPUT_MODE"]="CUSTOM";state["FG_OUTPUT_CUSTOM_DIR"]=temporary;
+                state["FG_TEMP_MODE"]="CUSTOM";state["FG_TEMP_CUSTOM_DIR"]=temporary;
+                BridgePreparedExecution prepared;string reason;
+                if(!NativeExecutionPreparationCore.TryPrepare(appRoot,normalized,media,state,capabilities,false,out prepared,out reason))throw new InvalidDataException(reason);
+                var request=prepared.ExecutionRequest;
+                try {
+                    if(request.PixelGrainFullFilter==null||request.PixelGrainCleanFilter==null)throw new InvalidDataException(T("当前路径没有颗粒预览滤镜。","The route has no grain preview filters."));
+                    if(request.DirectStages!=null)foreach(var stage in request.DirectStages) {
+                        if(stage.OriginalArguments!=null && stage.OriginalArguments.Contains("-filter_complex")) {request.PixelGrainEncodeArguments=stage.OriginalArguments;break;}
+                        if(closing)throw new OperationCanceledException();
+                        if(stage.PrepareWithCancellation!=null)stage.PrepareWithCancellation(delegate {return closing;});
+                        if(stage.BeforeRunPreparation!=null)stage.BeforeRunPreparation();
+                        if(stage.ShouldRun!=null&&!stage.ShouldRun())continue;
+                        if(stage.OriginalArguments==null)throw new InvalidDataException("Preview preprocessing arguments missing");
+                        Run(stage.ToolPath,new List<string>(stage.OriginalArguments),stage.WorkingDirectory);
+                    }
+                    if(request.PixelGrainEncodeArguments==null)throw new InvalidDataException("Preview encoding arguments missing");
+                    string pair=Path.Combine(temporary,"pixel_pair_"+level+".mkv");
+                    var args=PixelGrainStrengthCore.PreviewArguments(request.PixelGrainEncodeArguments,request.PixelGrainFullFilter.Replace("noise=c0s=100:","noise=all_seed=123457:c0s=100:"),request.PixelGrainCleanFilter,pair);
+                    PixelGrainStrengthCore.StampPreviewColor(args,request.PixelGrainHdr,media);Run(ffmpeg,args,request.WorkingDirectory);
+                    var pairInfo=SharedEncodePreviewCore.Probe(pair,probe,delegate {return closing;});
+                    if(level==0) {
+                        if(skipOpening) {
+                            string scan=Path.Combine(temporary,"pixel_scan.gray");
+                            Run(ffmpeg,new List<string>{"-v","error","-y","-i",pair,"-map","0:v:0","-vf","scale=64:36,format=gray","-frames:v","32","-threads","1","-f","rawvideo",scan});
+                            first=FindPreviewStartFrame(File.ReadAllBytes(scan));if(first<0)first=0;
+                        }
+                        Run(ffmpeg,PixelGrainStrengthCore.FrameArguments(pair,0,PreviewFilter(pairInfo,first),Path.Combine(temporary,"clean%02d.png")));
+                    }
+                    // Render the actual algorithm/preset result, never a relative-strength blend.
+                    Run(ffmpeg,PixelGrainStrengthCore.FrameArguments(pair,100,PreviewFilter(pairInfo,first),Path.Combine(temporary,"variant"+level+"_%02d.png")));
+                    try {File.Delete(pair);}catch(IOException){}
+                }finally {BridgeExecutionCore.CleanupTemporaryFiles(request);}
             }
-            finally {BridgeExecutionCore.CleanupTemporaryFiles(request);}
         }
 
         private void RenderFrames(string input, string filmgrain, string prefix, int firstFrame)
@@ -529,5 +541,179 @@ namespace FilmGrainStudioPreview
             }));worker.IsBackground=true;worker.Start();
         }
         private void Cleanup(){try{if(Directory.Exists(temporary))Directory.Delete(temporary,true);}catch{}}
+    }
+    internal sealed class LutThumbnailRenderer : IDisposable
+    {
+        private readonly PictureBox picture;
+        private readonly Action<string> log;
+        private readonly System.Windows.Forms.Timer delay=new System.Windows.Forms.Timer();
+        private readonly Dictionary<string,byte[]> cache=new Dictionary<string,byte[]>();
+        private readonly Queue<string> order=new Queue<string>();
+        private System.Threading.CancellationTokenSource active;
+        private string key="",tool,lut,reference;private int strength,serial;private bool disposed;
+        internal LutThumbnailRenderer(PictureBox target,Action<string> logger){picture=target;log=logger;delay.Interval=160;delay.Tick+=delegate {delay.Stop();Start();};picture.Disposed+=delegate {Dispose();};}
+        internal static string Stamp(string path){var f=new FileInfo(path);return f.FullName+"|"+f.Length+"|"+f.LastWriteTimeUtc.Ticks;}
+        private void Cancel(){try{if(active!=null)active.Cancel();}catch(ObjectDisposedException){}}
+        internal void Queue(string executable,string cube,string image,int percent)
+        {
+            if(disposed)return;
+            if(string.IsNullOrEmpty(cube)){serial++;key="";delay.Stop();Cancel();Replace(null);return;}
+            string next;
+            try{next=Stamp(cube)+"|"+Stamp(image)+"|"+Stamp(executable)+"|"+percent;}catch(Exception ex){serial++;key="";delay.Stop();Cancel();Replace(null);if(log!=null)log("[LUT thumbnail] "+ex.Message+Environment.NewLine);return;}
+            if(next==key)return;
+            serial++;key=next;tool=executable;lut=cube;reference=image;strength=percent;delay.Stop();Cancel();
+            byte[] bytes;if(cache.TryGetValue(key,out bytes)){Load(bytes);return;}delay.Start();
+        }
+        private void Replace(Image image){var old=picture.Image;picture.Image=image;if(old!=null)old.Dispose();}
+        private void Load(byte[] bytes){using(var stream=new MemoryStream(bytes))using(var image=Image.FromStream(stream))Replace(new Bitmap(image));}
+        private void Start()
+        {
+            if(disposed||picture.IsDisposed)return;
+            int id=serial;string requestKey=key,exe=tool,source=lut,input=reference;int amount=strength;
+            var cancel=new System.Threading.CancellationTokenSource();active=cancel;
+            var worker=new Thread(new ThreadStart(delegate {
+                string dir=Path.Combine(Path.GetTempPath(),"FilmGrain_Studio","LutThumb_"+Guid.NewGuid().ToString("N"));byte[] bytes=null;string error="";
+                try {
+                    Directory.CreateDirectory(dir);string cube=Path.Combine(dir,"strength.cube"),output=Path.Combine(dir,"preview.png");
+                    string opacity="1.00";if(amount>0)opacity=LutStrengthCore.CreateFile(source,cube,amount);else cube="";cancel.Token.ThrowIfCancellationRequested();
+                    var lines=new StringBuilder();int rc=NativeLibraryTools.RunProcess(exe,NativeLutStrengthPreviewForm.FrameArguments(input,cube,opacity,output,240),dir,cancel.Token,delegate(string line){lock(lines)lines.AppendLine(line);});
+                    if(rc!=0)throw new InvalidOperationException(lines.ToString());bytes=File.ReadAllBytes(output);
+                }catch(OperationCanceledException){}catch(Exception ex){error=ex.Message;}
+                finally {
+                    try{if(Directory.Exists(dir))Directory.Delete(dir,true);}catch{}
+                    try{picture.BeginInvoke(new Action(delegate {
+                        if(object.ReferenceEquals(active,cancel))active=null;cancel.Dispose();
+                        if(disposed||picture.IsDisposed||id!=serial)return;
+                        if(bytes!=null){cache[requestKey]=bytes;order.Enqueue(requestKey);while(order.Count>12)cache.Remove(order.Dequeue());Load(bytes);}
+                        else {key="";Replace(null);if(error.Length>0&&log!=null)log("[LUT thumbnail] "+error+Environment.NewLine);}
+                    }));}catch{cancel.Dispose();}
+                }
+            }));worker.IsBackground=true;worker.Start();
+        }
+        public void Dispose(){if(disposed)return;disposed=true;serial++;delay.Stop();delay.Dispose();Cancel();Replace(null);cache.Clear();order.Clear();}
+    }
+
+    internal sealed class NativeLutStrengthPreviewForm : Form
+    {
+        private readonly int[] levels={25,50,75,100};
+        private readonly PictureBox[] pictures={new PictureBox(),new PictureBox(),new PictureBox(),new PictureBox()};
+        private readonly Button[] apply={new ThemeButton(),new ThemeButton(),new ThemeButton(),new ThemeButton()};
+        private readonly List<Bitmap> rendered=new List<Bitmap>();
+        private Bitmap original;
+        private readonly CheckBox showOriginal=new ThemeCheckBox(),actualSize=new ThemeCheckBox();
+        private readonly Label status=new ThemeLabel();
+        private readonly NativeSeekStrip timeline=new NativeSeekStrip();
+        private readonly TextBox time=new ThemeTextBox();
+        private readonly Button render=new ThemeButton();
+        private System.Threading.CancellationTokenSource active;
+        private readonly string ffmpeg,lut,video;
+        private readonly MediaProbeInfo media;
+        private readonly string temporary=Path.Combine(Path.GetTempPath(),"FilmGrain_Studio","LutCompare_"+Guid.NewGuid().ToString("N"));
+        private readonly bool zh;
+        private bool running,closing;private int generation;private double desiredPosition;
+        internal int SelectedStrength {get;private set;}
+        internal byte[] SelectedReference {get;private set;}
+        private string T(string a,string b){return zh?a:b;}
+        internal NativeLutStrengthPreviewForm(string tool,string selectedLut,string source,string language,MediaProbeInfo info=null)
+        {
+            ffmpeg=tool;lut=selectedLut;video=source;media=info;zh=language=="zh-CN";
+            Text=T("LUT 四档对照","LUT strength comparison");Size=new Size(1180,860);MinimumSize=new Size(900,680);StartPosition=FormStartPosition.CenterParent;
+            var layout=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=2,RowCount=5,Padding=new Padding(8)};
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,50));layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,50));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent,50));layout.RowStyles.Add(new RowStyle(SizeType.Percent,50));layout.RowStyles.Add(new RowStyle(SizeType.Absolute,36));layout.RowStyles.Add(new RowStyle(SizeType.Absolute,40));layout.RowStyles.Add(new RowStyle(SizeType.Absolute,46));
+            for(int i=0;i<4;i++) {
+                int index=i;var card=new TableLayoutPanel {Dock=DockStyle.Fill,RowCount=2,ColumnCount=1};
+                card.RowStyles.Add(new RowStyle(SizeType.Absolute,30));card.RowStyles.Add(new RowStyle(SizeType.Percent,100));
+                apply[i].Dock=DockStyle.Fill;apply[i].Enabled=false;apply[i].Text=levels[i]+T("% · 点击应用","% · Apply");
+                apply[i].Click+=delegate {
+                    if(running||original==null)return;
+                    using(var stream=new MemoryStream()){original.Save(stream,System.Drawing.Imaging.ImageFormat.Png);SelectedReference=stream.ToArray();}
+                    SelectedStrength=levels[index];DialogResult=DialogResult.OK;Close();
+                };
+                pictures[i].Dock=DockStyle.Fill;pictures[i].BackColor=Color.Black;pictures[i].SizeMode=PictureBoxSizeMode.Zoom;
+                card.Controls.Add(apply[i],0,0);card.Controls.Add(pictures[i],0,1);layout.Controls.Add(card,i%2,i/2);
+            }
+            double duration;if(media!=null&&double.TryParse(media.Duration,NumberStyles.Float,CultureInfo.InvariantCulture,out duration))timeline.Duration=Math.Max(0,duration);
+            timeline.Dock=DockStyle.Fill;timeline.PositionChanged+=delegate {time.Text=NativeSeekStrip.FormatTime(timeline.Position);};timeline.SeekCommitted+=delegate {RequestRender();};layout.Controls.Add(timeline,0,2);layout.SetColumnSpan(timeline,2);
+            var options=new FlowLayoutPanel {Dock=DockStyle.Fill};time.Width=85;time.Text="00:00:00";
+            render.Text=T("生成四档","Render four strengths");render.AutoSize=true;render.Click+=delegate {RequestRender();};time.KeyDown+=delegate(object sender,KeyEventArgs e){if(e.KeyCode==Keys.Enter){e.SuppressKeyPress=true;RequestRender();}};
+            options.Controls.Add(new ThemeLabel {Text=T("时刻","Time"),AutoSize=true,Padding=new Padding(0,6,0,0)});options.Controls.Add(time);options.Controls.Add(render);
+            showOriginal.Text=T("查看原图","Show original");showOriginal.AutoSize=true;actualSize.Text=T("1:1 居中","1:1 centered");actualSize.AutoSize=true;actualSize.Checked=false;
+            showOriginal.CheckedChanged+=delegate {ShowImages();};actualSize.CheckedChanged+=delegate {ShowImages();};options.Controls.Add(showOriginal);options.Controls.Add(actualSize);
+            var close=new ThemeButton {Text=T("关闭","Close"),AutoSize=true};close.Click+=delegate {Close();};options.Controls.Add(close);
+            layout.Controls.Add(options,0,3);layout.SetColumnSpan(options,2);status.Dock=DockStyle.Fill;status.Text=T("窗口显示后将随机选点生成四档 LUT 对照。","A random video frame will be selected for four LUT strengths.");layout.Controls.Add(status,0,4);layout.SetColumnSpan(status,2);Controls.Add(layout);
+            Shown+=delegate {time.Text=NativeSeekStrip.FormatTime(NativeGrainPreviewForm.ChooseInitialSeconds(timeline.Duration,new Random().NextDouble()));RequestRender();};
+            FormClosing+=delegate {closing=true;CancelActive();};FormClosed+=delegate {ReleaseImages();if(!running)Cleanup(temporary);};
+        }
+        private void CancelActive(){try{if(active!=null)active.Cancel();}catch(ObjectDisposedException){}}
+        private static Bitmap LoadCopy(string path){using(var image=Image.FromFile(path))return new Bitmap(image);}
+        private void ReleaseImages(){foreach(var p in pictures)p.Image=null;foreach(var b in rendered)b.Dispose();rendered.Clear();if(original!=null){original.Dispose();original=null;}}
+        private void ShowImages(){if(closing||rendered.Count!=4)return;for(int i=0;i<4;i++){pictures[i].SizeMode=actualSize.Checked?PictureBoxSizeMode.CenterImage:PictureBoxSizeMode.Zoom;pictures[i].Image=showOriginal.Checked?original:rendered[i];}}
+        internal static List<string> FrameArguments(string reference,string cube,string opacity,string output,int maxWidth=1920)
+        {
+            string filter="scale=w='min("+maxWidth.ToString(CultureInfo.InvariantCulture)+",iw)':h=-1,format=gbrp16le";
+            if(!string.IsNullOrEmpty(cube)) {
+                string name=cube.Replace("\\","/").Replace(":","\\:").Replace("'","'"+new string('\\',3)+"'");
+                if(opacity=="1.00")filter+=",lut3d=file='"+name+"':interp=tetrahedral";
+                else filter+=",split=2[lutorig][lutsrc];[lutsrc]lut3d=file='"+name+"':interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity="+opacity;
+            }
+            return new List<string>{"-hide_banner","-v","error","-y","-i",reference,"-vf",filter,"-frames:v","1","-threads","1","-pix_fmt","rgb24",output};
+        }
+        internal static List<string> SnapshotArguments(string video,MediaProbeInfo media,double seconds,string output)
+        {
+            string filter="scale=w='min(1920,iw)':h=-1";
+            if(media!=null) {
+                string display=NativeGrainPreviewForm.PreviewFilter(media);
+                if(media.IsInterlaced)display=SharedHdrPreprocessCore.ResolveDeinterlaceParity("bwdif=mode=send_frame:parity=auto:deint=all,",media)+display;
+                filter=display+","+filter;
+            }
+            return new List<string>{"-hide_banner","-v","error","-y","-ss",seconds.ToString("0.######",CultureInfo.InvariantCulture),"-i",video,"-map","0:v:0","-an","-sn","-dn","-vf",filter,"-frames:v","1","-threads","1","-pix_fmt","rgb24",output};
+        }
+        private void RequestRender()
+        {
+            if(closing)return;
+            double position;
+            if(!SharedEncodePreviewCore.TryParseStart(time.Text.Trim(),out position)||(timeline.Duration>0&&position>=timeline.Duration)) {status.Text=T("时刻无效或超出视频时长。","Invalid time or beyond video duration.");return;}
+            desiredPosition=position;timeline.Position=position;generation++;foreach(var button in apply)button.Enabled=false;
+            status.Text=T("正在生成时刻 ","Rendering time ")+NativeSeekStrip.FormatTime(position)+T(" 的四档对照…","...");
+            if(running){CancelActive();return;}StartRender();
+        }
+        private void StartRender()
+        {
+            running=true;int id=generation;double position=desiredPosition;
+            var cancel=new System.Threading.CancellationTokenSource();active=cancel;
+            string dir=Path.Combine(temporary,Guid.NewGuid().ToString("N"));
+            var worker=new Thread(new ThreadStart(delegate {
+                string error="";
+                try {
+                    if(media!=null&&media.Identity!=null)media.Identity.RequireCurrent();Directory.CreateDirectory(dir);
+                    Action<List<string>> run=delegate(List<string> args) {var log=new StringBuilder();int rc=NativeLibraryTools.RunProcess(ffmpeg,args,dir,cancel.Token,delegate(string line){lock(log)log.AppendLine(line);});if(rc!=0)throw new InvalidOperationException(log.ToString());};
+                    string frame=Path.Combine(dir,"original.png");run(SnapshotArguments(video,media,position,frame));
+                    for(int i=0;i<4;i++) {
+                        cancel.Token.ThrowIfCancellationRequested();string cube=Path.Combine(dir,"strength"+levels[i]+".cube");
+                        string opacity=LutStrengthCore.CreateFile(lut,cube,levels[i]);run(FrameArguments(frame,cube,opacity,Path.Combine(dir,"preview"+i+".png")));
+                    }
+                    if(media!=null&&media.Identity!=null)media.Identity.RequireCurrent();
+                }catch(OperationCanceledException){}catch(Exception ex){error=ex.Message;}
+                finally {
+                    if(closing){Cleanup(dir);Cleanup(temporary);cancel.Dispose();}
+                    else try {BeginInvoke(new Action(delegate {
+                        running=false;if(object.ReferenceEquals(active,cancel))active=null;cancel.Dispose();
+                        try {
+                            if(closing)return;
+                            if(id!=generation){StartRender();return;}
+                            if(error.Length>0){status.Text=T("预览失败：","Preview failed: ")+error;return;}
+                            Bitmap nextOriginal=null;var next=new List<Bitmap>();
+                            try {
+                                nextOriginal=LoadCopy(Path.Combine(dir,"original.png"));for(int i=0;i<4;i++)next.Add(LoadCopy(Path.Combine(dir,"preview"+i+".png")));
+                                ReleaseImages();original=nextOriginal;nextOriginal=null;rendered.AddRange(next);next.Clear();ShowImages();foreach(var b in apply)b.Enabled=true;
+                                status.Text=T("视频取帧时刻：","Video frame time: ")+NativeSeekStrip.FormatTime(position)+T("；同一基础帧，仅比较 LUT。HDR 输入先转为 SDR 供预览。","; one shared frame, LUT only. HDR input is converted to SDR for preview.");
+                            }finally {if(nextOriginal!=null)nextOriginal.Dispose();foreach(var b in next)b.Dispose();}
+                        }catch(Exception ex){status.Text=ex.Message;}finally {Cleanup(dir);if(closing)Cleanup(temporary);}
+                    }));}catch{Cleanup(dir);cancel.Dispose();}
+                }
+            }));worker.IsBackground=true;worker.Start();
+        }
+        private static void Cleanup(string path){try{if(Directory.Exists(path))Directory.Delete(path,true);}catch{}}
     }
 }

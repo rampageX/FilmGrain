@@ -255,9 +255,9 @@ namespace FilmGrainStudioPreview
 
                 string fgsimPreset = Get(state, "FG_FGSIM_PRESET").ToUpperInvariant();
 
-                if (fgsimPreset != "LIGHT" && fgsimPreset != "MEDIUM" && fgsimPreset != "HEAVY") { reason = "unsupported FGSIM preset"; return false; }
+                if (!GrainControlCore.IsFgsimPreset(fgsimPreset)) { reason = "unsupported FGSIM preset"; return false; }
 
-                fgsimTag = fgsimPreset == "LIGHT" ? "L" : fgsimPreset == "HEAVY" ? "H" : "M";
+                fgsimTag = GrainControlCore.FgsimTag(fgsimPreset);
 
                 fgsimHook = Path.Combine(appRoot, "Utils", "_FilmGrainSimplified", "Generated", "FilmGrainSimplified_" + fgsimPreset + ".hook");
 
@@ -362,9 +362,9 @@ namespace FilmGrainStudioPreview
                 int strengthSel;
 
                 if (!int.TryParse(Get(state, "FG_HEVC_STRENGTH_SEL"), NumberStyles.Integer, CultureInfo.InvariantCulture, out strengthSel)) strengthSel = 3;
-                plateStrengthPercent = strengthSel == 1 ? 65 : strengthSel == 2 ? 75 : strengthSel == 4 ? 100 : 85;
+                plateStrengthPercent = GrainControlCore.PlatePercent(state);
 
-                grainOpacity = strengthSel == 1 ? "0.65" : strengthSel == 2 ? "0.75" : strengthSel == 4 ? "1.00" : "0.85";
+                grainOpacity = (GrainControlCore.PlatePercent(state)/100.0).ToString("0.00",CultureInfo.InvariantCulture);
 
                 grainTag = ResolvePlateTag(plate, Get(state, "FG_HEVC_GRAIN_TAG"));
 
@@ -562,10 +562,12 @@ namespace FilmGrainStudioPreview
 
 
 
+                filter=LutStrengthCore.OptimizeGraph(filter);
                 string pixelFull = grainEnabled ? filter : null;
                 string pixelClean = grainEnabled ? SharedGrainCore.BuildWithoutGrain(deinterlaceFilter + fpsFilter + colorFilter,
                     EscapeFilterPath(lutCompatName), lutOpacity, frame.Filter + subtitleFilter + (hdrPreserve ? BuildHdrFrameFilter(info) : "") + ",format=p010le") : null;
                 if (grainEnabled && (plateMode || (fgsimMode && hdrPreserve))) pixelClean=pixelClean.Replace("[0:v:0]","[0:v:0]setpts=PTS-STARTPTS,");
+                pixelClean=LutStrengthCore.OptimizeGraph(pixelClean);
                 if (grainEnabled) filter = PixelGrainStrengthCore.Wrap(filter,pixelClean,pixelPercent);
 
                 if (fruc)
@@ -1791,6 +1793,8 @@ namespace FilmGrainStudioPreview
                 compatPath = Path.Combine(tempDir, compatName);
 
                 File.WriteAllLines(compatPath, output.ToArray(), Encoding.ASCII);
+                int lutPercent=NormalizeLutStrength(Get(state,"FG_LUT_STRENGTH"));
+                opacity=LutStrengthCore.BakeFile(compatPath,lutPercent)?"1.00":(lutPercent/100.0).ToString("0.00",CultureInfo.InvariantCulture);
 
             }
 
@@ -1820,9 +1824,7 @@ namespace FilmGrainStudioPreview
 
             }
 
-            int strength = NormalizeLutStrength(Get(state, "FG_LUT_STRENGTH"));
-
-            opacity = (strength / 100.0).ToString("0.00", CultureInfo.InvariantCulture);
+            // Opacity was resolved when preparing the LUT; baked tables use full strength.
 
             return true;
 

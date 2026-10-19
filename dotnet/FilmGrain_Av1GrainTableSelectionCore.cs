@@ -205,17 +205,35 @@ namespace FilmGrainStudioPreview
         { for (int i=0;i<stages.Count;i++) { stages[i].StageCurrent=i+1; stages[i].StageTotal=stages.Count; } }
     }
 
+    internal static class GrainControlCore
+    {
+        internal static int SnapTen(int value) { return Math.Max(10,Math.Min(100,((value+5)/10)*10)); }
+        internal static readonly string[] FgsimPresets={"LIGHT","NORMAL","MEDIUM","HEAVY"};
+        internal static readonly string[] FgsimStrengths={"0.10","0.15","0.20","0.30"};
+        internal static bool IsFgsimPreset(string preset){return Array.IndexOf(FgsimPresets,preset)>=0;}
+        internal static string FgsimStrength(string preset){int i=Array.IndexOf(FgsimPresets,preset);if(i<0)throw new ArgumentException("Unsupported FGSIM preset");return FgsimStrengths[i];}
+        internal static string FgsimTag(string preset){return preset=="LIGHT"?"L":preset=="NORMAL"?"N":preset=="HEAVY"?"H":"M";}
+        internal static int PlatePercent(IDictionary<string,string> state)
+        {
+            string value;int percent;
+            if(state.TryGetValue("FG_GRAIN_PLATE_STRENGTH",out value)) {
+                if(!int.TryParse(value,NumberStyles.Integer,CultureInfo.InvariantCulture,out percent)||percent<10||percent>100)throw new ArgumentException("Grain Plate strength must be 10..100");
+                return percent;
+            }
+            // Legacy direct requests retain their original four-level meaning.
+            int selected=3;if(state.TryGetValue("FG_HEVC_STRENGTH_SEL",out value))int.TryParse(value,out selected);
+            return selected==1?65:selected==2?75:selected==4?100:85;
+        }
+    }
+
     // Strength is the pixel delta between the existing selected model and its clean route.
     // At 100% the validated graph is returned without adding branches or conversions.
     internal static class PixelGrainStrengthCore
     {
         internal static int Read(IDictionary<string,string> state)
         {
-            string value;int percent;
-            if(state==null||!state.TryGetValue("FG_PIXEL_GRAIN_STRENGTH",out value)||string.IsNullOrEmpty(value))return 100;
-            if(!int.TryParse(value,NumberStyles.Integer,CultureInfo.InvariantCulture,out percent)||percent<1||percent>100)
-                throw new ArgumentException("Pixel grain strength must be 1..100 percent.");
-            return percent;
+            // Retired relative pixel strength: old saved values must never add a blend branch.
+            return 100;
         }
         // Parse link labels only outside quoted/escaped filter values. Brackets in filenames are not links.
         private static string Rename(string graph,string prefix,string input,string output)

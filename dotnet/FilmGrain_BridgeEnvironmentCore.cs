@@ -94,6 +94,7 @@ namespace FilmGrainStudioPreview
         public string GrainRoot = "";
         public string GrainPlatePath = "";
         public int ScannedGrainStrengthIndex;
+        public int ScannedGrainStrengthPercent=80;
 
         public SubtitleState Subtitle = new SubtitleState();
         public string SourceGrainAction = "";
@@ -117,7 +118,7 @@ namespace FilmGrainStudioPreview
             SortedDictionary<string, string> state = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             state["FG_STUDIO_MODE"] = "1";
             state["FG_AV1_GRAIN_STRENGTH"] = snapshot.Av1GrainStrength.ToString(CultureInfo.InvariantCulture);
-            state["FG_PIXEL_GRAIN_STRENGTH"] = snapshot.PixelGrainStrength.ToString(CultureInfo.InvariantCulture);
+            state["FG_PIXEL_GRAIN_STRENGTH"] = "100";
             state["FG_GRAIN_ENABLED"] = snapshot.NoReencode || snapshot.GrainEnabled ? "1" : "0";
             state["FG_TOOL_NO_PAUSE"] = "1";
             state["FG_TEMP_MODE"] = snapshot.TempMode;
@@ -193,13 +194,13 @@ namespace FilmGrainStudioPreview
             state["FG_COLOR_SATURATION"] = snapshot.ColorSaturation.ToString("0.00", CultureInfo.InvariantCulture);
             state["FG_COLOR_GAMMA"] = snapshot.ColorGamma.ToString("0.00", CultureInfo.InvariantCulture);
             state["FG_COLOR_BLACK_WHITE"] = snapshot.ColorBlackWhite ? "1" : "0";
-            if (snapshot.LutEnabled)
+            if (snapshot.LutEnabled && snapshot.LutStrength>0)
             {
                 state["FG_LUT_PATH"] = snapshot.LutPath;
                 state["FG_LUT_STRENGTH"] = snapshot.LutStrength.ToString(CultureInfo.InvariantCulture);
             }
 
-            string[] fgsimPresets = new string[] { "LIGHT", "MEDIUM", "HEAVY" };
+            string[] fgsimPresets = GrainControlCore.FgsimPresets;
             if (av1)
             {
                 if (grainMode == 3)
@@ -210,7 +211,7 @@ namespace FilmGrainStudioPreview
                 else if (grainMode == 4)
                 {
                     state["FG_GRAIN_ENGINE"] = "FGSIM";
-                    state["FG_FGSIM_PRESET"] = fgsimPresets[Math.Max(0, Math.Min(2, snapshot.FgsimPresetIndex))];
+                    state["FG_FGSIM_PRESET"] = fgsimPresets[Math.Max(0, Math.Min(3, snapshot.FgsimPresetIndex))];
                 }
                 else
                 {
@@ -234,7 +235,7 @@ namespace FilmGrainStudioPreview
                 else if (grainMode == 2)
                 {
                     state["FG_GRAIN_ENGINE"] = "FGSIM";
-                    state["FG_FGSIM_PRESET"] = fgsimPresets[Math.Max(0, Math.Min(2, snapshot.FgsimPresetIndex))];
+                    state["FG_FGSIM_PRESET"] = fgsimPresets[Math.Max(0, Math.Min(3, snapshot.FgsimPresetIndex))];
                     state["FG_FGSIM_QUALITY"] = snapshot.FgsimQuality;
                 }
                 else
@@ -244,6 +245,7 @@ namespace FilmGrainStudioPreview
                     state["FG_HEVC_GRAIN_PATH"] = snapshot.GrainPlatePath;
                     state["FG_HEVC_GRAIN_TAG"] = MakeGrainTag(snapshot.GrainPlatePath);
                     state["FG_HEVC_STRENGTH_SEL"] = (snapshot.ScannedGrainStrengthIndex + 1).ToString(CultureInfo.InvariantCulture);
+                    state["FG_GRAIN_PLATE_STRENGTH"] = snapshot.ScannedGrainStrengthPercent.ToString(CultureInfo.InvariantCulture);
                 }
             }
             if (!state.ContainsKey("FG_FGSIM_QUALITY")) state["FG_FGSIM_QUALITY"] = "VBR";
@@ -256,7 +258,7 @@ namespace FilmGrainStudioPreview
             SortedDictionary<string, string> state = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             state["FG_STUDIO_MODE"] = "1";
             state["FG_AV1_GRAIN_STRENGTH"] = snapshot.Av1GrainStrength.ToString(CultureInfo.InvariantCulture);
-            state["FG_PIXEL_GRAIN_STRENGTH"] = snapshot.PixelGrainStrength.ToString(CultureInfo.InvariantCulture);
+            state["FG_PIXEL_GRAIN_STRENGTH"] = "100";
             state["FG_GRAIN_ENABLED"] = snapshot.NoReencode || snapshot.GrainEnabled ? "1" : "0";
             state["FG_TOOL_NO_PAUSE"] = "1";
             state["FG_TEMP_MODE"] = snapshot.TempMode;
@@ -309,9 +311,9 @@ namespace FilmGrainStudioPreview
         internal static string BuildWithoutGrain(string before, string lutEscaped, string opacity, string after)
         {
             if(string.IsNullOrEmpty(lutEscaped))return "[0:v:0]" + before + "format=p010le" + after + "[vout]";
-            return "[0:v:0]" + before + "format=gbrp16le,setpts=PTS-STARTPTS,split=2[lutorig][lutsrc];[lutsrc]lut3d=file='" +
+            return LutStrengthCore.OptimizeGraph("[0:v:0]" + before + "format=gbrp16le,setpts=PTS-STARTPTS,split=2[lutorig][lutsrc];[lutsrc]lut3d=file='" +
                 lutEscaped + "':interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=" +
-                opacity + ",format=p010le" + after + "[vout]";
+                opacity + ",format=p010le" + after + "[vout]");
         }
         internal static bool ValidateHdr(MediaProbeInfo info, IDictionary<string,string> state, out string reason)
         {

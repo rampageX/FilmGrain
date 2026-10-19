@@ -106,8 +106,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.13";
-        internal const string FileReleaseVersion = "5.0.13.0";
+        internal const string ReleaseVersion = "5.0.14";
+        internal const string FileReleaseVersion = "5.0.14.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -282,9 +282,8 @@ namespace FilmGrainStudioPreview
         private bool activeRunNativeBackend;
         private string activeRunCodecName = "";
         private TrackBar trackFilmGrainStrength;
-        private ThemeIntegerCombo av1StrengthControl, pixelStrengthControl;
-        private int PixelGrainStrengthPercent { get { int v; return int.TryParse(config.Get("PIXEL_GRAIN_STRENGTH"),out v) ? Math.Max(1,Math.Min(100,v)) : 100; } }
-        private int Av1GrainStrengthPercent { get { int v; return int.TryParse(config.Get("AV1_GRAIN_STRENGTH"), out v) ? Math.Max(1,Math.Min(100,v)) : 100; } }
+        private TrackBar av1StrengthControl;
+        private int Av1GrainStrengthPercent { get { int v; return int.TryParse(config.Get("AV1_GRAIN_STRENGTH"),out v)?GrainControlCore.SnapTen(v):100; } }
         private Label lblFilmGrainValue;
         private ComboBox cmbGrainFormat;
         private ComboBox cmbGrainStock;
@@ -306,15 +305,20 @@ namespace FilmGrainStudioPreview
         private string selectedAv1GrainTable = "";
         private bool showAllAv1GrainTables;
         private int proceduralStrength = 55;
-        private int fgsimPresetIndex = 1;
+        private int fgsimPresetIndex = 2;
         private string selectedGrainPlatePath = "";
-        private int scannedGrainStrengthIndex = 2;
+        private int scannedGrainStrengthPercent = 80;
         private CheckBox chkLut;
         private ComboBox cmbRecentLut;
         private ComboBox cmbFavoriteLut;
         private TrackBar trackLutStrength;
+        private LutThumbnailRenderer lutThumbnail;
+        private readonly LutSessionReference lutSessionReference=new LutSessionReference();
         private Label lblLutStrength;
-        private Label lblLutStrengthTitle;
+        private Label lblLutCompoundHint;
+        private RowStyle lutCompoundHintRow;
+        private string lutTypeSignature="";
+        private bool selectedLutIsCompound;
         private Label lblSelectedLut;
         private PictureBox picLutPreview;
         private Button btnLutGallery;
@@ -1322,6 +1326,7 @@ namespace FilmGrainStudioPreview
             if (grainContent == null || cmbGrainMode == null || cmbCodec == null) return;
             grainContent.Controls.Clear();
             cmbGrainFormat = null; cmbGrainStock = null; numGrainIso = null; chkGrainChroma = null; cmbGrainTable = null; chkShowAllAv1Tables = null; cmbGrainPlate = null;
+            av1StrengthControl=null;
             trackFilmGrainStrength = null; lblFilmGrainValue = null; btnFgsimTextureUpdate = null; lblFgsimTextureStatus = null;
 
             TableLayoutPanel t = new TableLayoutPanel();
@@ -1479,27 +1484,21 @@ namespace FilmGrainStudioPreview
             }
             if (av1 && mode <= 2)
             {
-                av1StrengthControl = new ThemeIntegerCombo(1,100,Av1GrainStrengthPercent,new int[]{10,20,30,40,50,60,70,80,90,100},true) { Dock=DockStyle.Fill, Margin=new Padding(4,5,6,5) };
-                av1StrengthControl.ValueChanged += delegate { try { config.SaveValue("AV1_GRAIN_STRENGTH", ((int)av1StrengthControl.Value).ToString(CultureInfo.InvariantCulture)); } catch(Exception ex) { MessageBox.Show(this,ex.Message); } };
-                AddLabeledRow(t, 2, UiText("颗粒强度 %", "Grain strength %"), av1StrengthControl);
-                lutToolTip.SetToolTip(av1StrengthControl, UiText("相对当前预设/ISO/颗粒表的强度；100% 保持原效果。预览可比较四档并应用。", "Relative to the selected model; 100% preserves the original. Compare four strengths in Preview."));
-            }
-            if (!(av1 && mode <= 2))
-            {
-                // Keep four rows. The texture status shares the existing texture-update row.
-                if (lblFgsimTextureStatus != null && btnFgsimTextureUpdate != null)
-                {
-                    t.Controls.Remove(lblFgsimTextureStatus);t.Controls.Remove(btnFgsimTextureUpdate);
-                    var textureRow=new FlowLayoutPanel {Dock=DockStyle.Fill,WrapContents=false,Margin=Padding.Empty};
-                    btnFgsimTextureUpdate.Dock=DockStyle.None;btnFgsimTextureUpdate.AutoSize=true;
-                    lblFgsimTextureStatus.Dock=DockStyle.None;lblFgsimTextureStatus.AutoSize=true;
-                    textureRow.Controls.Add(btnFgsimTextureUpdate);textureRow.Controls.Add(lblFgsimTextureStatus);
-                    t.Controls.Add(textureRow,0,2);t.SetColumnSpan(textureRow,2);
-                }
-                pixelStrengthControl=new ThemeIntegerCombo(1,100,PixelGrainStrengthPercent,new int[]{10,20,30,40,50,60,70,80,90,100},true) {Dock=DockStyle.Fill,Margin=new Padding(4,5,6,5)};
-                pixelStrengthControl.ValueChanged+=delegate {try {config.SaveValue("PIXEL_GRAIN_STRENGTH",((int)pixelStrengthControl.Value).ToString(CultureInfo.InvariantCulture));}catch(Exception ex){MessageBox.Show(this,ex.Message);}};
-                AddLabeledRow(t,3,UiText("相对强度 %","Relative strength %"),pixelStrengthControl);
-                lutToolTip.SetToolTip(pixelStrengthControl,UiText("相对上方已选颗粒风格；100% 保持原效果。三条编码线共用此像素颗粒比例。", "Relative to the selected grain profile; 100% preserves the existing effect. Shared across pixel-grain routes."));
+                av1StrengthControl=new ThemeTrackBar {Minimum=1,Maximum=10,Value=Av1GrainStrengthPercent/10,TickFrequency=1,SmallChange=1,LargeChange=1,AutoSize=false,Height=30,Dock=DockStyle.Fill,Margin=new Padding(0,2,6,2)};
+                var strengthRow=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=2,RowCount=1,Margin=Padding.Empty};
+                strengthRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));strengthRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,62));
+                var strengthValue=new ThemeLabel {Dock=DockStyle.Fill,TextAlign=ContentAlignment.MiddleLeft};
+                strengthRow.Controls.Add(av1StrengthControl,0,0);strengthRow.Controls.Add(strengthValue,1,0);
+                AddLabeledRow(t,2,UiText("颗粒强度 %","Grain strength %"),strengthRow);
+                var performanceNote=MutedLabel("");performanceNote.AutoEllipsis=true;
+                t.Controls.Add(performanceNote,0,3);t.SetColumnSpan(performanceNote,2);
+                Action updateStrength=delegate {
+                    int percent=av1StrengthControl.Value*10;strengthValue.Text=percent+"%";
+                    performanceNote.Text=percent==100?"":UiText("选择非100%强度可能会导致性能损失。","Selecting a strength below 100% may reduce performance.");
+                };
+                av1StrengthControl.ValueChanged+=delegate {updateStrength();try{config.SaveValue("AV1_GRAIN_STRENGTH",(av1StrengthControl.Value*10).ToString(CultureInfo.InvariantCulture));}catch(Exception ex){MessageBox.Show(this,ex.Message);}};
+                updateStrength();
+                lutToolTip.SetToolTip(av1StrengthControl,UiText("相对当前预设/ISO/颗粒表的强度；100%保持原效果。","Relative to the selected preset/ISO/table; 100% preserves the original."));
             }
             grainContent.Controls.Add(t);
             UpdateGrainEnableUi();
@@ -1549,8 +1548,9 @@ namespace FilmGrainStudioPreview
         {
             trackFilmGrainStrength = new ThemeTrackBar(); trackFilmGrainStrength.AutoSize = false; trackFilmGrainStrength.Height = 30; trackFilmGrainStrength.Dock = DockStyle.Fill; trackFilmGrainStrength.Margin = new Padding(0, 2, 6, 2); trackFilmGrainStrength.TickStyle = TickStyle.BottomRight;
             if (kind == "DIGITAL") { trackFilmGrainStrength.Minimum = 10; trackFilmGrainStrength.Maximum = 100; trackFilmGrainStrength.Value = Math.Max(10, Math.Min(100, proceduralStrength)); trackFilmGrainStrength.TickFrequency = 10; }
-            else if (kind == "FGSIM") { trackFilmGrainStrength.Minimum = 0; trackFilmGrainStrength.Maximum = 2; trackFilmGrainStrength.Value = Math.Max(0, Math.Min(2, fgsimPresetIndex)); trackFilmGrainStrength.TickFrequency = 1; }
-            else { trackFilmGrainStrength.Minimum = 0; trackFilmGrainStrength.Maximum = 3; trackFilmGrainStrength.Value = Math.Max(0, Math.Min(3, scannedGrainStrengthIndex)); trackFilmGrainStrength.TickFrequency = 1; }
+            else if (kind == "FGSIM") { trackFilmGrainStrength.Minimum = 0; trackFilmGrainStrength.Maximum = 3; trackFilmGrainStrength.Value = Math.Max(0, Math.Min(3, fgsimPresetIndex)); trackFilmGrainStrength.TickFrequency = 1; }
+            else { trackFilmGrainStrength.Minimum = 1; trackFilmGrainStrength.Maximum = 10; trackFilmGrainStrength.Value = GrainControlCore.SnapTen(scannedGrainStrengthPercent)/10; trackFilmGrainStrength.TickFrequency = 1; }
+            trackFilmGrainStrength.SmallChange=1;trackFilmGrainStrength.LargeChange=1;
             lblFilmGrainValue = new ThemeLabel(); lblFilmGrainValue.AutoSize = false; lblFilmGrainValue.Dock = DockStyle.Fill; lblFilmGrainValue.Margin = new Padding(4, 0, 0, 2); lblFilmGrainValue.TextAlign = ContentAlignment.MiddleLeft;
             TableLayoutPanel slider = new TableLayoutPanel(); slider.Dock = DockStyle.Fill; slider.Margin = Padding.Empty; slider.ColumnCount = 2; slider.RowCount = 1; slider.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); slider.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 112)); slider.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             slider.Controls.Add(trackFilmGrainStrength, 0, 0); slider.Controls.Add(lblFilmGrainValue, 1, 0);
@@ -1559,7 +1559,7 @@ namespace FilmGrainStudioPreview
             {
                 if (kind == "DIGITAL") proceduralStrength = trackFilmGrainStrength.Value;
                 else if (kind == "FGSIM") fgsimPresetIndex = trackFilmGrainStrength.Value;
-                else scannedGrainStrengthIndex = trackFilmGrainStrength.Value;
+                else scannedGrainStrengthPercent = trackFilmGrainStrength.Value*10;
                 UpdateGrainStrengthLabel(kind);
             };
             UpdateGrainStrengthLabel(kind);
@@ -1571,13 +1571,12 @@ namespace FilmGrainStudioPreview
             if (kind == "DIGITAL") lblFilmGrainValue.Text = (trackFilmGrainStrength.Value / 100.0).ToString("0.00", CultureInfo.InvariantCulture);
             else if (kind == "FGSIM")
             {
-                string[] names = new string[] { "Light / 0.10", "Medium / 0.20", "Heavy / 0.30" };
-                lblFilmGrainValue.Text = names[Math.Max(0, Math.Min(2, trackFilmGrainStrength.Value))];
+                string[] names = new string[] { "Light / 0.10", "Normal / 0.15", "Medium / 0.20", "Heavy / 0.30" };
+                lblFilmGrainValue.Text = names[Math.Max(0, Math.Min(3, trackFilmGrainStrength.Value))];
             }
             else
             {
-                string[] names = new string[] { "Light · 65%", "Natural · 75%", "Strong · 85%", "Full · 100%" };
-                lblFilmGrainValue.Text = names[Math.Max(0, Math.Min(3, trackFilmGrainStrength.Value))];
+                lblFilmGrainValue.Text=(trackFilmGrainStrength.Value*10).ToString(CultureInfo.InvariantCulture)+"%";
             }
         }
 
@@ -1617,7 +1616,7 @@ namespace FilmGrainStudioPreview
             box.Margin = new Padding(0, 5, 0, 0);
 
             TableLayoutPanel t = new TableLayoutPanel();
-            t.Dock = DockStyle.Fill; t.Padding = new Padding(6, 5, 6, 5); t.ColumnCount = 4; t.RowCount = 5;
+            t.Dock = DockStyle.Fill; t.Padding = new Padding(6, 5, 6, 5); t.ColumnCount = 4; t.RowCount = 6;
             t.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 108));
             t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             t.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 106));
@@ -1627,6 +1626,7 @@ namespace FilmGrainStudioPreview
             t.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
             t.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             t.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
+            lutCompoundHintRow=new RowStyle(SizeType.Absolute,0);t.RowStyles.Add(lutCompoundHintRow);
             box.Controls.Add(t);
 
             chkLut = Check(lang.T("lut.enable"), false);
@@ -1667,20 +1667,33 @@ namespace FilmGrainStudioPreview
             TableLayoutPanel preview = new TableLayoutPanel(); preview.Dock = DockStyle.Fill; preview.Margin = new Padding(4, 3, 4, 2); preview.ColumnCount = 1; preview.RowCount = 2;
             preview.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); preview.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
             picLutPreview = new PictureBox(); picLutPreview.Size = new Size(240, 135); picLutPreview.Anchor = AnchorStyles.None; picLutPreview.Margin = Padding.Empty; picLutPreview.BackColor = Color.Black; picLutPreview.BorderStyle = BorderStyle.None; picLutPreview.SizeMode = PictureBoxSizeMode.Zoom;
-            lblSelectedLut = new ThemeLabel(); lblSelectedLut.Text = lang.T("lut.none"); lblSelectedLut.Dock = DockStyle.Fill; lblSelectedLut.AutoEllipsis = true; lblSelectedLut.TextAlign = ContentAlignment.MiddleLeft; lblSelectedLut.ForeColor = ColorMuted; lblSelectedLut.Padding = new Padding(4, 0, 4, 0);
+            picLutPreview.Paint+=delegate(object sender,PaintEventArgs e){using(var border=new Pen(Color.FromArgb(125,125,125),1))e.Graphics.DrawRectangle(border,0,0,picLutPreview.Width-1,picLutPreview.Height-1);};
+            lutThumbnail=new LutThumbnailRenderer(picLutPreview,AppendLog);
+            FormClosed+=delegate {lutThumbnail.Dispose();lutSessionReference.Dispose();};
+            picLutPreview.Cursor=Cursors.Hand;picLutPreview.Click+=delegate {OpenLutStrengthPreview();};
+            lblSelectedLut = new ThemeLabel(); lblSelectedLut.Text = lang.T("lut.none"); lblSelectedLut.Dock = DockStyle.Fill; lblSelectedLut.AutoEllipsis = true; lblSelectedLut.TextAlign = ContentAlignment.MiddleCenter; lblSelectedLut.ForeColor = ColorMuted; lblSelectedLut.Padding = new Padding(4, 0, 4, 0);
             preview.Controls.Add(picLutPreview, 0, 0); preview.Controls.Add(lblSelectedLut, 0, 1);
             t.Controls.Add(preview, 0, 3); t.SetColumnSpan(preview, 4);
 
-            lblLutStrengthTitle = MidLabel(lang.T("lut.strength"));
-            trackLutStrength = new ThemeTrackBar(); trackLutStrength.Minimum = 0; trackLutStrength.Maximum = 3; trackLutStrength.Value = 2; trackLutStrength.TickStyle = TickStyle.BottomRight; trackLutStrength.Dock = DockStyle.Fill; trackLutStrength.Margin = Padding.Empty; trackLutStrength.Enabled = false;
+            trackLutStrength = new ThemeTrackBar(); trackLutStrength.Minimum = 0; trackLutStrength.Maximum = 4; trackLutStrength.Value = 3; trackLutStrength.TickStyle = TickStyle.BottomRight; trackLutStrength.Dock = DockStyle.Fill; trackLutStrength.Margin = Padding.Empty; trackLutStrength.Enabled = false;
             lblLutStrength = new ThemeLabel(); lblLutStrength.Text = "75%"; lblLutStrength.Dock = DockStyle.Fill; lblLutStrength.TextAlign = ContentAlignment.MiddleLeft; lblLutStrength.Enabled = false;
             chkLut.CheckedChanged += delegate { UpdateLutUi(); UpdateHdrRouteStatus(GetSelectedMediaInfo()); };
             trackLutStrength.ValueChanged += delegate
             {
-                int[] values = new int[] { 25, 50, 75, 100 };
-                lblLutStrength.Text = values[trackLutStrength.Value].ToString(CultureInfo.InvariantCulture) + "%";
+                lblLutStrength.Text = GetLutStrength().ToString(CultureInfo.InvariantCulture) + "%";
+                SetLutPreview(selectedLutPath);
+                UpdateHdrRouteStatus(GetSelectedMediaInfo());
             };
-            t.Controls.Add(lblLutStrengthTitle, 0, 4); t.Controls.Add(trackLutStrength, 1, 4); t.SetColumnSpan(trackLutStrength, 2); t.Controls.Add(lblLutStrength, 3, 4);
+            var strengthGroup=new TableLayoutPanel {Size=new Size(290,40),Anchor=AnchorStyles.None,Margin=Padding.Empty,ColumnCount=2,RowCount=1};
+            strengthGroup.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));strengthGroup.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,50));
+            strengthGroup.RowStyles.Add(new RowStyle(SizeType.Percent,100));
+            strengthGroup.Controls.Add(trackLutStrength,0,0);strengthGroup.Controls.Add(lblLutStrength,1,0);
+            t.Controls.Add(strengthGroup,0,4);t.SetColumnSpan(strengthGroup,4);
+
+            lblLutCompoundHint=new ThemeLabel {Dock=DockStyle.Fill,AutoEllipsis=true,ForeColor=ColorMuted,Padding=new Padding(4,0,4,0),Visible=false};
+            lblLutCompoundHint.Text=UiText("1D＋3D 组合 LUT\r\n非100%强度仍采用原混合流程，可能影响性能。","Combined 1D + 3D LUT\r\nBelow 100%, the original blend remains and may affect performance.");
+            lutToolTip.SetToolTip(lblLutCompoundHint,lblLutCompoundHint.Text);
+            t.Controls.Add(lblLutCompoundHint,0,5);t.SetColumnSpan(lblLutCompoundHint,4);
             return box;
         }
 
@@ -2833,8 +2846,6 @@ namespace FilmGrainStudioPreview
             }
             if (!ValidateHardwareForSelectedCodec()) return;
 
-            if (av1StrengthControl != null && !av1StrengthControl.IsDisposed && av1StrengthControl.Enabled && !av1StrengthControl.ValidateInput()) return;
-            if (pixelStrengthControl != null && !pixelStrengthControl.IsDisposed && pixelStrengthControl.Enabled && !pixelStrengthControl.ValidateInput()) return;
             if (chkEncodePreview.Checked && !numPreviewDuration.ValidateInput()) return;
             string error;
             SortedDictionary<string, string> state = BuildBridgeEnvironment(out error);
@@ -3341,7 +3352,7 @@ namespace FilmGrainStudioPreview
                     (av1 && cmbGrainMode != null && cmbGrainMode.SelectedIndex == 4));
                 bool upload = chkUpload != null && chkUpload.Checked && !noReencode;
                 bool color = colorCorrectionEnabled;
-                bool lut = chkLut != null && chkLut.Checked && !string.IsNullOrWhiteSpace(selectedLutPath);
+                bool lut = IsLutEffectEnabled() && !string.IsNullOrWhiteSpace(selectedLutPath);
                 bool interpolate = chkInterpolation != null && chkInterpolation.Checked && !noReencode;
                 bool fruc = interpolate && cmbInterpolationMode != null && cmbInterpolationMode.SelectedIndex == 2;
                 string policy = config.Get("HDR_POLICY").ToUpperInvariant();
@@ -3711,7 +3722,7 @@ namespace FilmGrainStudioPreview
 
             if (hasLut)
             {
-                lblSelectedLut.Text = GetLutDisplayName(selectedLutPath);
+                lblSelectedLut.Text = LutStrengthCore.Caption(GetLutDisplayName(selectedLutPath));
                 lblSelectedLut.ForeColor = SystemColors.ControlText;
                 lutToolTip.SetToolTip(lblSelectedLut, selectedLutPath);
                 SetLutPreview(selectedLutPath);
@@ -3724,37 +3735,60 @@ namespace FilmGrainStudioPreview
                 SetLutPreview("");
             }
 
+            UpdateLutCompoundHint(hasLut);
             bool enabled = chkLut.Checked;
             trackLutStrength.Enabled = enabled;
             lblLutStrength.Enabled = enabled;
-            if (lblLutStrengthTitle != null) lblLutStrengthTitle.Enabled = enabled;
             UpdateHdrRouteStatus(GetSelectedMediaInfo());
         }
 
+        private void UpdateLutCompoundHint(bool hasLut)
+        {
+            if(lblLutCompoundHint==null||lutCompoundHintRow==null)return;
+            if(!hasLut){lutTypeSignature="";selectedLutIsCompound=false;}
+            else try {
+                var file=new FileInfo(selectedLutPath);
+                string signature=file.FullName+"|"+file.Length+"|"+file.LastWriteTimeUtc.Ticks;
+                if(signature!=lutTypeSignature) {
+                    selectedLutIsCompound=LutStrengthCore.IsCompoundFile(selectedLutPath);
+                    lutTypeSignature=signature;
+                }
+            }catch {lutTypeSignature="";selectedLutIsCompound=false;}
+            lblLutCompoundHint.Visible=hasLut&&selectedLutIsCompound;
+            float height=hasLut&&selectedLutIsCompound?40:0;
+            if(lutCompoundHintRow.Height!=height)lutCompoundHintRow.Height=height;
+        }
+
+        private void OpenLutStrengthPreview()
+        {
+            if(string.IsNullOrEmpty(selectedLutPath)||!File.Exists(selectedLutPath)){MessageBox.Show(this,UiText("请先选择 LUT。","Select a LUT first."));return;}
+            if(bridgeTaskCoordinator!=null&&bridgeTaskCoordinator.IsActive){MessageBox.Show(this,UiText("请等待当前任务结束。","Wait for the active task to finish."));return;}
+            string video=GetPreviewVideoPath();MediaProbeInfo media=null;
+            if(!string.IsNullOrEmpty(video))mediaProbeCache.TryGetValue(video,out media);
+            if(string.IsNullOrEmpty(video)||media==null){MessageBox.Show(this,UiText("请选择一个已完成探测的视频。","Select one fully probed video."));return;}
+            using(var window=new NativeLutStrengthPreviewForm(Path.Combine(config.Get("FFMPEG_DIR"),"ffmpeg.exe"),selectedLutPath,video,lang.Code,media)) {
+                AttachOwnedTheme(window,this,log);window.ShowDialog(this);
+                if(window.SelectedStrength>0){
+                    try{lutSessionReference.Set(window.SelectedReference);}
+                    catch(Exception ex){MessageBox.Show(this,UiText("无法保存临时参考图：","Could not save the temporary reference: ")+ex.Message);return;}
+                    trackLutStrength.Value=window.SelectedStrength/25;chkLut.Checked=true;UpdateLutUi();
+                }
+            }
+        }
+
+        private int GetLutStrength(){return trackLutStrength==null?75:Math.Max(0,Math.Min(4,trackLutStrength.Value))*25;}
+        private bool IsLutEffectEnabled(){return chkLut!=null&&chkLut.Checked&&GetLutStrength()>0;}
+
         private void SetLutPreview(string lutPath)
         {
-            Image old = picLutPreview.Image;
-            picLutPreview.Image = null;
-            if (old != null) old.Dispose();
-
-            lutToolTip.SetToolTip(picLutPreview, "");
-            if (string.IsNullOrEmpty(lutPath)) return;
-            string preview = LutCatalogCore.GetLutPreviewPath(lutPath, LutRoot, LutPreviewRoot);
-            if (string.IsNullOrEmpty(preview) || !File.Exists(preview)) return;
-            try
-            {
-                byte[] bytes = File.ReadAllBytes(preview);
-                using (MemoryStream ms = new MemoryStream(bytes))
-                using (Image source = Image.FromStream(ms))
-                {
-                    picLutPreview.Image = new Bitmap(source);
-                }
-                lutToolTip.SetToolTip(picLutPreview, preview);
-            }
-            catch (Exception ex)
-            {
-                if (log != null) AppendLog("[LUT Preview] " + ex.Message + Environment.NewLine);
-            }
+            if(lutThumbnail==null||picLutPreview==null)return;
+            if(string.IsNullOrEmpty(lutPath)){lutThumbnail.Queue("","","",100);lutToolTip.SetToolTip(picLutPreview,"");return;}
+            string tools=Path.Combine(appRoot,"_LUT_Tools"),reference=Path.Combine(tools,"LUT_Reference_Current.jpg");
+            if(!File.Exists(reference))reference=Path.Combine(tools,"LUT_Reference_Default.jpg");
+            if(!string.IsNullOrEmpty(lutSessionReference.PathValue))reference=lutSessionReference.PathValue;
+            int percent=GetLutStrength();
+            lutThumbnail.Queue(Path.Combine(config.Get("FFMPEG_DIR"),"ffmpeg.exe"),lutPath,reference,percent);
+            lutToolTip.SetToolTip(picLutPreview,UiText("点击从实际视频生成 LUT 四档对照","Click to compare four LUT strengths on a video frame")+"\n"+percent+"% · "+lutPath);
         }
 
         private void OpenLutGallery()
@@ -3814,7 +3848,11 @@ namespace FilmGrainStudioPreview
                 string error;var pixelState=BuildBridgeEnvironment(out error);
                 if(pixelState==null){MessageBox.Show(this,error);return;}
                 using(var window=new NativeGrainPreviewForm(Path.Combine(config.Get("FFMPEG_DIR"),"ffmpeg.exe"),appRoot,input,pixelState,hardwareCaps,info,lang.Code))
-                {window.ShowDialog(this);if(window.SelectedStrength>0 && pixelStrengthControl!=null)pixelStrengthControl.Value=window.SelectedStrength;}
+                {window.ShowDialog(this);if(window.SelectedStrength>0 && trackFilmGrainStrength!=null) {
+                    if(pixelState["FG_GRAIN_ENGINE"]=="FGSIM")trackFilmGrainStrength.Value=window.SelectedStrength-1;
+                    else if(pixelState["FG_GRAIN_ENGINE"]=="NATIVE")trackFilmGrainStrength.Value=window.SelectedStrength/10;
+                    else trackFilmGrainStrength.Value=window.SelectedStrength;
+                }}
                 return;
             }
             if (info.VideoCodec != "av1") {MessageBox.Show(this,UiText("AV1 元数据颗粒预览需要 AV1 输入；其它编码的源可使用下方预览编码。","AV1 metadata preview requires AV1 input; use preview encoding for other source codecs."));return;}
@@ -3832,7 +3870,7 @@ namespace FilmGrainStudioPreview
             using (var window = new NativeGrainPreviewForm(Path.Combine(config.Get("FFMPEG_DIR"), "ffmpeg.exe"), config.Get("GRAV1SYNTH"), input, args, info, lang.Code))
             {
                 window.ShowDialog(this);
-                if (window.SelectedStrength > 0 && av1StrengthControl != null) av1StrengthControl.Value = window.SelectedStrength;
+                if (window.SelectedStrength > 0 && av1StrengthControl != null) av1StrengthControl.Value = window.SelectedStrength/10;
             }
         }
 
@@ -3881,8 +3919,7 @@ namespace FilmGrainStudioPreview
                 return;
             }
 
-            int[] strengths = new int[] { 25, 50, 75, 100 };
-            int lutStrength = strengths[Math.Max(0, Math.Min(3, trackLutStrength.Value))];
+            int lutStrength = GetLutStrength();
             btnColorCorrection.Enabled = false;
             if (log != null) AppendLog("[Preview] Opening native .NET color correction..." + Environment.NewLine);
 
@@ -3919,7 +3956,7 @@ namespace FilmGrainStudioPreview
                         colorBlackWhite = result.BlackWhite;
                         selectedLutPath = result.LutPath ?? "";
                         selectedLutSource = string.IsNullOrEmpty(selectedLutPath) ? "None" : (result.LutSource ?? "Gallery");
-                        trackLutStrength.Value = result.LutStrength == 25 ? 0 : (result.LutStrength == 50 ? 1 : (result.LutStrength == 100 ? 3 : 2));
+                        trackLutStrength.Value = Math.Max(0,Math.Min(4,result.LutStrength/25));
                         chkLut.Checked = result.UseLut && !string.IsNullOrEmpty(selectedLutPath);
 
                         Dictionary<string, string> updates = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);

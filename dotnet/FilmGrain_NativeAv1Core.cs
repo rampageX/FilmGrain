@@ -113,8 +113,8 @@ namespace FilmGrainStudioPreview
             else if (fgsimGrain)
             {
                 string selectedFgsimPreset = Get(state, "FG_FGSIM_PRESET").ToUpperInvariant();
-                if (selectedFgsimPreset != "LIGHT" && selectedFgsimPreset != "MEDIUM" && selectedFgsimPreset != "HEAVY") { reason = "unsupported FGSIM preset"; return false; }
-                grainTag = "FGSIM_" + (selectedFgsimPreset == "LIGHT" ? "L" : selectedFgsimPreset == "HEAVY" ? "H" : "M");
+                if (!GrainControlCore.IsFgsimPreset(selectedFgsimPreset)) { reason = "unsupported FGSIM preset"; return false; }
+                grainTag = "FGSIM_" + (GrainControlCore.FgsimTag(selectedFgsimPreset));
                 grainLabel = "FGSIM " + selectedFgsimPreset;
             }
 
@@ -446,6 +446,7 @@ namespace FilmGrainStudioPreview
             {
                 baseFilters = "[0:v:0]" + deinterlaceFilter + colorFilter + "format=" + baseFormat + frame.Filter + subtitleFilter + postSubtitle;
             }
+            baseFilters=LutStrengthCore.OptimizeGraph(baseFilters);
             baseFilters += "[baseout]";
             if (!proceduralGrain && !fgsimGrain) return baseFilters.Replace("[baseout]", "[vout]");
             return baseFilters;
@@ -643,6 +644,8 @@ namespace FilmGrainStudioPreview
                 compatName = "__FGS_LUT_" + Guid.NewGuid().ToString("N") + ".cube";
                 compatPath = Path.Combine(tempDir, compatName);
                 File.WriteAllLines(compatPath, output.ToArray(), Encoding.ASCII);
+                int lutPercent=NormalizeLutStrength(Get(state,"FG_LUT_STRENGTH"));
+                opacity=LutStrengthCore.BakeFile(compatPath,lutPercent)?"1.00":(lutPercent/100.0).ToString("0.00",CultureInfo.InvariantCulture);
             }
             catch (Exception ex)
             {
@@ -657,8 +660,7 @@ namespace FilmGrainStudioPreview
                 reason = "FFmpeg cannot initialize selected LUT" + (string.IsNullOrWhiteSpace(validationError) ? "" : ": " + validationError);
                 return false;
             }
-            int strength = NormalizeLutStrength(Get(state, "FG_LUT_STRENGTH"));
-            opacity = (strength / 100.0).ToString("0.00", CultureInfo.InvariantCulture);
+            // Opacity was resolved when preparing the LUT; baked tables use full strength.
             return true;
         }
 

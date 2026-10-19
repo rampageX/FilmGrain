@@ -52,7 +52,7 @@ namespace FilmGrainStudioPreview
         internal static bool TryPrepareHook(string appRoot, string preset, out string hook, out string reason)
         {
             hook = ""; reason = "";
-            if (preset != "LIGHT" && preset != "MEDIUM" && preset != "HEAVY")
+            if (!GrainControlCore.IsFgsimPreset(preset))
             { reason = "FGSIM 预设无效。"; return false; }
             lock (SyncRoot)
             {
@@ -79,7 +79,7 @@ namespace FilmGrainStudioPreview
                     string hex = BitConverter.ToString(noise).Replace("-", "").ToLowerInvariant();
                     StringBuilder lines = new StringBuilder(hex.Length + hex.Length / 256 + 1);
                     for (int i = 0; i < hex.Length; i += 256) lines.Append(hex, i, Math.Min(256, hex.Length - i)).Append('\n');
-                    string strength = preset == "LIGHT" ? "0.10" : preset == "HEAVY" ? "0.30" : "0.20";
+                    string strength = GrainControlCore.FgsimStrength(preset);
                     string body = source.Replace("@@TILE_SIZE@@", "2").Replace("@@STRENGTH@@", strength)
                         .Replace("@@HL_START@@", "0.55").Replace("@@HL_END@@", "0.85").Replace("@@HL_REDUCE@@", "0.50")
                         .Replace("@@NOISE_HEX@@", lines.ToString());
@@ -126,7 +126,7 @@ namespace FilmGrainStudioPreview
                     ReplaceFile(rawStage, raw);
                     string source = "ONLINE_UPDATED " + DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ") + " " + TextureUrl + "\r\n";
                     File.WriteAllText(Path.Combine(generated, "NOISE_SOURCE.txt"), source, new UTF8Encoding(false));
-                    foreach (string preset in new string[] { "LIGHT", "MEDIUM", "HEAVY" })
+                    foreach (string preset in GrainControlCore.FgsimPresets)
                     {
                         string hook = Path.Combine(generated, "FilmGrainSimplified_" + preset + ".hook");
                         try { if (File.Exists(hook)) File.Delete(hook); } catch { }

@@ -8,6 +8,105 @@ using System.Web.Script.Serialization;
 
 namespace FilmGrainStudioPreview
 {
+    // Main-window lifetime only; never changes the gallery reference or configuration.
+    internal sealed class LutSessionReference : IDisposable
+    {
+        private readonly string directory=Path.Combine(Path.GetTempPath(),"FilmGrain_Studio","LutReference_"+Guid.NewGuid().ToString("N"));
+        internal string PathValue {get;private set;}
+        internal void Set(byte[] png)
+        {
+            if(png==null||png.Length==0)throw new ArgumentException("Missing LUT reference frame.");
+            Directory.CreateDirectory(directory);
+            string next=Path.Combine(directory,Guid.NewGuid().ToString("N")+".png");
+            File.WriteAllBytes(next,png);PathValue=next;
+        }
+        public void Dispose(){PathValue=null;try{if(Directory.Exists(directory))Directory.Delete(directory,true);}catch{}}
+    }
+
+    internal static class LutStrengthCore
+    {
+        internal static string Caption(string relative)
+        {
+            string text=(relative??"").Replace('\\','-').Replace('/','-');
+            string extension=Path.GetExtension(text);return extension.Length>0?text.Substring(0,text.Length-extension.Length):text;
+        }
+        internal static bool IsCompoundFile(string path)
+        {
+            bool one=false,three=false;
+            foreach(string line in File.ReadLines(path)) {
+                string[] parts=line.Split('#')[0].Trim().Split((char[])null,StringSplitOptions.RemoveEmptyEntries);
+                if(parts.Length==0)continue;
+                if(parts[0].Equals("LUT_1D_SIZE",StringComparison.OrdinalIgnoreCase))one=true;
+                if(parts[0].Equals("LUT_3D_SIZE",StringComparison.OrdinalIgnoreCase))three=true;
+                if(one&&three)return true;
+            }
+            return false;
+        }
+        internal static string Normalize(string text)
+        {
+            var lines=new List<string>();
+            foreach(string line in text.Replace("\r\n","\n").Split('\n')) {
+                string[] p=line.Trim().Split((char[])null,StringSplitOptions.RemoveEmptyEntries);
+                if(p.Length==3 && p[0].Equals("LUT_3D_INPUT_RANGE",StringComparison.OrdinalIgnoreCase)) {
+                    lines.Add("DOMAIN_MIN "+p[1]+" "+p[1]+" "+p[1]);lines.Add("DOMAIN_MAX "+p[2]+" "+p[2]+" "+p[2]);
+                }else lines.Add(line);
+            }
+            return string.Join("\n",lines.ToArray());
+        }
+        internal static string Bake(string text,int percent,out bool baked)
+        {
+            if(percent<1||percent>100)throw new ArgumentOutOfRangeException("percent");
+            baked=true;if(percent==100)return text;
+            string[] lines=text.Replace("\r\n","\n").Split('\n');int size=0;
+            double[] min={0,0,0},max={1,1,1};
+            foreach(string line in lines) {
+                string raw=line.Split('#')[0].Trim();string[] p=raw.Split((char[])null,StringSplitOptions.RemoveEmptyEntries);
+                if(p.Length==0)continue;
+                if(p[0].Equals("LUT_1D_SIZE",StringComparison.OrdinalIgnoreCase)) {baked=false;return text;}
+                if(p[0].Equals("LUT_3D_SIZE",StringComparison.OrdinalIgnoreCase)) {if(p.Length!=2||!int.TryParse(p[1],out size)||size<2||size>256)throw new InvalidDataException("Invalid CUBE size");}
+                if(p[0].Equals("DOMAIN_MIN",StringComparison.OrdinalIgnoreCase)||p[0].Equals("DOMAIN_MAX",StringComparison.OrdinalIgnoreCase)) {
+                    if(p.Length!=4)throw new InvalidDataException("Invalid CUBE domain");
+                    var target=p[0].Equals("DOMAIN_MIN",StringComparison.OrdinalIgnoreCase)?min:max;
+                    for(int c=0;c<3;c++)target[c]=Number(p[c+1]);
+                }
+            }
+            if(size==0)throw new InvalidDataException("Missing LUT_3D_SIZE");
+            for(int c=0;c<3;c++)if(max[c]<=min[c])throw new InvalidDataException("Invalid CUBE domain range");
+            int index=0;double amount=percent/100.0;
+            for(int i=0;i<lines.Length;i++) {
+                string raw=lines[i].Split('#')[0].Trim();string[] p=raw.Split((char[])null,StringSplitOptions.RemoveEmptyEntries);double first;
+                if(p.Length!=3||!double.TryParse(p[0],NumberStyles.Float,CultureInfo.InvariantCulture,out first))continue;
+                if(index>=size*size*size)throw new InvalidDataException("Too many CUBE rows");
+                int[] cell={index%size,(index/size)%size,index/(size*size)};var row=new string[3];
+                for(int c=0;c<3;c++) {
+                    double identity=min[c]+(max[c]-min[c])*cell[c]/(size-1.0);
+                    row[c]=(identity*(1-amount)+Number(p[c])*amount).ToString("G17",CultureInfo.InvariantCulture);
+                }
+                lines[i]=string.Join(" ",row);index++;
+            }
+            if(index!=size*size*size)throw new InvalidDataException("Incomplete CUBE rows");
+            return string.Join("\n",lines);
+        }
+        private static double Number(string text) {double v;if(!double.TryParse(text,NumberStyles.Float,CultureInfo.InvariantCulture,out v)||double.IsNaN(v)||double.IsInfinity(v))throw new InvalidDataException("Invalid CUBE value");return v;}
+        internal static bool BakeFile(string path,int percent)
+        {
+            bool baked;string output=Bake(File.ReadAllText(path),percent,out baked);
+            if(baked&&percent!=100)File.WriteAllText(path,output,new UTF8Encoding(false));return baked;
+        }
+        internal static string CreateFile(string source,string target,int percent)
+        {
+            bool baked;string output=Bake(Normalize(File.ReadAllText(source)),percent,out baked);File.WriteAllText(target,output,new UTF8Encoding(false));
+            return baked?"1.00":(percent/100.0).ToString("0.00",CultureInfo.InvariantCulture);
+        }
+        internal static string OptimizeGraph(string graph)
+        {
+            if(string.IsNullOrEmpty(graph))return graph;
+            return System.Text.RegularExpressions.Regex.Replace(graph,
+                @"split=2\[lutorig\]\[lutsrc\];\[lutsrc\](?<lut>lut3d=.*?)\[lutgraded\];\[lutgraded\]\[lutorig\]blend=all_mode=normal:all_opacity=1(?:\.0+)?(?=,|\[|;|$)",
+                delegate(System.Text.RegularExpressions.Match m){return m.Groups["lut"].Value;});
+        }
+    }
+
     // Phase 3.7.4: existing LUT record and preview path rules without WinForms.
     internal static class LutCatalogCore
     {

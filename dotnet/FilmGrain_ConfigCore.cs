@@ -23,7 +23,7 @@ namespace FilmGrainStudioPreview
         private static readonly KeyValuePair<string, string[]>[] Sections = new KeyValuePair<string, string[]>[]
         {
             new KeyValuePair<string, string[]>("Paths", new string[] { "FFMPEG_DIR", "FRUC_FFMPEG_SAME_AS_MAIN", "FRUC_FFMPEG_PATH", "GRAV1SYNTH", "GRAIN_ROOT", "LUT_ROOT", "TEMP_MODE", "TEMP_CUSTOM_DIR", "OUTPUT_MODE", "OUTPUT_CUSTOM_DIR" }),
-            new KeyValuePair<string, string[]>("General", new string[] { "LANGUAGE", "UI_THEME", "MAIN_WINDOW", "SETUP_VERSION", "NETWORK_PROXY_MODE", "NETWORK_PROXY_URL", "LOG_ENTRY_LIMIT", "GRAIN_ENABLED", "AV1_GRAIN_STRENGTH", "PIXEL_GRAIN_STRENGTH", "AV1_COPY_FAST", "AV1_COPY_FULL_VERIFY" }),
+            new KeyValuePair<string, string[]>("General", new string[] { "LANGUAGE", "UI_THEME", "MAIN_WINDOW", "SETUP_VERSION", "NETWORK_PROXY_MODE", "NETWORK_PROXY_URL", "LOG_ENTRY_LIMIT", "GRAIN_ENABLED", "AV1_GRAIN_STRENGTH", "AV1_COPY_FAST", "AV1_COPY_FULL_VERIFY" }),
             new KeyValuePair<string, string[]>("LUTGallery", new string[] { "SMART_FILTER_ENABLED", "LUT_GALLERY_SIZE", "LUT_GALLERY_FIXED" }),
             new KeyValuePair<string, string[]>("Advanced.Encoding", new string[] { "H264_HIGH10", "X264_RATE_MODE", "X264_PRESET", "AV1_UPLOAD_ENCODER", "NVENC_SPATIAL_AQ", "NVENC_TEMPORAL_AQ", "AUDIO_MODE", "AUDIO_BITRATE", "AV1_MULTIPASS", "HEVC_MULTIPASS" }),
             new KeyValuePair<string, string[]>("Advanced.Interpolation", new string[] { "SVP_ALGO", "SVP_ANALYSE", "SVP_MASK_AREA", "SVP_SPEED", "SVP_TUNING", "SVP_BLOCK_SIZE", "SVP_DEDUP", "SVP_STILL", "SVP_STILL_LIMIT", "SVP_STILL_EDGE", "SVP_STILL_TOLERANCE", "SVP_PEEL", "SVP_PEEL_LIMIT", "FRUC_PERF", "FRUC_GRID", "INTERPOLATION_TARGET_FPS" }),
@@ -51,7 +51,6 @@ namespace FilmGrainStudioPreview
             defaults["LUT_GALLERY_FIXED"] = "false";
             defaults["GRAIN_ENABLED"] = "true";
             defaults["AV1_GRAIN_STRENGTH"] = "100";
-            defaults["PIXEL_GRAIN_STRENGTH"] = "100";
             defaults["AV1_COPY_FAST"] = "true";
             defaults["AV1_COPY_FULL_VERIFY"] = "false";
             defaults["GRAIN_ROOT"] = @"D:\Film_Grain";
