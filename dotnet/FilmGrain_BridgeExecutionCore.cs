@@ -80,6 +80,7 @@ namespace FilmGrainStudioPreview
     {
         internal MediaProbeIdentity SourceIdentity;
         internal string SourceConfigRoot;
+        internal TimeSpan PreparationElapsed;
         internal void ValidateSource()
         {
             if(SourceIdentity==null)return;
@@ -113,6 +114,7 @@ namespace FilmGrainStudioPreview
     {
         public int ExitCode { get; private set; }
         public bool Cancelled { get; private set; }
+        public TimeSpan TotalElapsed { get; internal set; }
         public Exception Exception { get; private set; }
 
         public BridgeExecutionResult(int exitCode, bool cancelled, Exception exception)
@@ -284,6 +286,8 @@ namespace FilmGrainStudioPreview
 
         private void RunWorker(BridgeExecutionRequest request)
         {
+            var totalTimer=Stopwatch.StartNew();
+            TimeSpan preparationElapsed=request.PreparationElapsed;
             int exitCode = -1;
             Exception failure = null;
             DateTime runStartedUtc = DateTime.UtcNow;
@@ -408,7 +412,8 @@ namespace FilmGrainStudioPreview
                     activeRequest = null;
                     workerThread = null;
                 }
-                RaiseCompleted(new BridgeExecutionResult(exitCode, cancelRequested, failure));
+                totalTimer.Stop();
+                RaiseCompleted(new BridgeExecutionResult(exitCode, cancelRequested, failure) { TotalElapsed=preparationElapsed+totalTimer.Elapsed });
             }
         }
 

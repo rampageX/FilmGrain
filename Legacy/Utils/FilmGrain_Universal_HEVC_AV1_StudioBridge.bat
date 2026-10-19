@@ -756,7 +756,7 @@ rem Deinterlace selector
 rem ============================================================
 :SELECT_DEINTERLACE
 set "DEINT_MODE=AUTO"
-set "DEINT_METHOD=BWDIF_VULKAN"
+set "DEINT_METHOD=BWDIF_CUDA"
 
 if "%FG_STUDIO_MODE%"=="1" (
     if /i "%FG_DEINTERLACE%"=="OFF"  set "DEINT_MODE=OFF"
@@ -770,16 +770,17 @@ if "%FG_STUDIO_MODE%"=="1" (
 echo.
 echo Deinterlace:
 echo.
-echo   [1] Auto - BWDIF Vulkan   ^(default^)
-echo   [2] Auto - BWDIF CUDA     ^(backup^)
+echo   [1] Auto - BWDIF Vulkan
+echo   [2] Auto - BWDIF CUDA     ^(default^)
 echo   [3] Auto - W3FDIF Complex ^(quality comparison^)
 echo   [4] Off
 echo.
 echo       Auto only activates for input reported as interlaced by FFprobe.
 echo       Field-rate output: 29.97i -^> 59.94p / 25i -^> 50p.
 echo.
-set "DEINT_SEL=1"
-set /p "DEINT_SEL=Select [1-4, default 1]: "
+set "DEINT_SEL=2"
+set /p "DEINT_SEL=Select [1-4, default 2]: "
+if "%DEINT_SEL%"=="1" set "DEINT_METHOD=BWDIF_VULKAN"
 if "%DEINT_SEL%"=="2" set "DEINT_METHOD=BWDIF_CUDA"
 if "%DEINT_SEL%"=="3" set "DEINT_METHOD=W3FDIF"
 if "%DEINT_SEL%"=="4" set "DEINT_MODE=OFF"
@@ -1738,7 +1739,7 @@ set "STOCK_SEL=1"
 if "%FG_STUDIO_MODE%"=="1" (
     if defined FG_AV1_STOCK set "STOCK_SEL=%FG_AV1_STOCK%"
 ) else (
-    set /p "STOCK_SEL=Select [1-4, default 1]: "
+    set /p "STOCK_SEL=Select [1-4, default 2]: "
 )
 
 if "%STOCK_SEL%"=="1" (
@@ -2414,7 +2415,7 @@ echo   [3] Embedded text subtitle track
 echo   [4] External subtitle file
 echo.
 set "SUB_SEL=1"
-set /p "SUB_SEL=Select [1-4, default 1]: "
+set /p "SUB_SEL=Select [1-4, default 2]: "
 if "%SUB_SEL%"=="1" exit /b 0
 if "%SUB_SEL%"=="2" set "FG_SUB_MODE=AUTO"
 if "%SUB_SEL%"=="3" set "FG_SUB_MODE=EMBEDDED"

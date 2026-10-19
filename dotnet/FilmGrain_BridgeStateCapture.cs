@@ -74,7 +74,7 @@ namespace FilmGrainStudioPreview
             }
 
             string[] deintMethods = new string[] { "BWDIF_VULKAN", "BWDIF_CUDA", "W3FDIF" };
-            int deintIndex = cmbDeintMethod == null ? 0 : Math.Max(0, Math.Min(2, cmbDeintMethod.SelectedIndex));
+            int deintIndex = cmbDeintMethod == null ? 1 : Math.Max(0, Math.Min(2, cmbDeintMethod.SelectedIndex));
             int[] lutStrengths = new int[] { 25, 50, 75, 100 };
             int lutStrength = trackLutStrength == null ? 75 : lutStrengths[Math.Max(0, Math.Min(3, trackLutStrength.Value))];
 

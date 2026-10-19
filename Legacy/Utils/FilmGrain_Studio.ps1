@@ -1339,7 +1339,7 @@ $interpolationPanel.Padding = New-Object System.Windows.Forms.Padding -ArgumentL
 [void]$interpolationPanel.Controls.Add($cmbInterpolationMode)
 
 $cmbDeint = New-ComboBox @((L 'deint.auto'), (L 'deint.off')) 0
-$cmbDeintMethod = New-ComboBox @((L 'deint.vulkan'), (L 'deint.cuda'), (L 'deint.w3fdif')) 0
+$cmbDeintMethod = New-ComboBox @((L 'deint.vulkan'), (L 'deint.cuda'), (L 'deint.w3fdif')) 1
 
 $gpuDisplay = L 'gpu.auto_retry'
 if ($script:HardwareCapsReady) { $gpuDisplay = [string]$script:HardwareCaps.gpu.name + (L 'gpu.auto_detected') }

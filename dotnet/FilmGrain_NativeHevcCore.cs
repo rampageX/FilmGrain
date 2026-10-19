@@ -156,8 +156,8 @@ namespace FilmGrainStudioPreview
 
             { reason = "unsupported HEVC deinterlace method"; return false; }
 
-            // HEVC FGSIM and Grain Plate already initialize one shared Vulkan filter device
-            // in BuildHevcArgs / BuildPlateUploadArgs. BWDIF Vulkan can use that same device.
+            // Vulkan deinterlace with FGSIM / Grain Plate uses a separate workfile stage below.
+            // CUDA avoids that stage unless HDR-to-SDR preprocessing already requires one.
 
             if (info.Width <= 0 || info.Height <= 0) { reason = "invalid dimensions"; return false; }
 

@@ -91,6 +91,59 @@ namespace FilmGrainStudioPreview
                     "; " + Version + "; probe=128x128 NV12 30->60 fps (not an input/encoder compatibility guarantee)";
             }
         }
+        // FGS auto is speed-oriented. Never pass upstream auto (finest grid) to the filter.
+        internal static string SupportedGrids(string evidence)
+        {
+            var match=System.Text.RegularExpressions.Regex.Match(evidence??"",@"grid_supported=([1248,]+)");
+            return match.Success?match.Groups[1].Value:"";
+        }
+        internal static string LargestGrid(string evidence)
+        {
+            string supported=SupportedGrids(evidence);
+            foreach(string value in new[]{"8","4","2","1"})
+                if(Array.IndexOf(supported.Split(','),value)>=0)return value;
+            return "";
+        }
+        private static readonly Dictionary<string,string> gridCache=new Dictionary<string,string>();
+        private static string DeviceGridKey(string ffmpeg,string perf)
+        {
+            return Path.GetFullPath(ffmpeg)+"|"+(File.Exists(ffmpeg)?new FileInfo(ffmpeg).Length:0)+"|"+File.GetLastWriteTimeUtc(ffmpeg).Ticks+"|"+perf;
+        }
+        private static bool DiscoverGrids(string ffmpeg,string perf,ProbeRunner runner,out string supported,out string reason)
+        {
+            string key=DeviceGridKey(ffmpeg,perf);supported="";reason="";
+            lock(gridCache)if(gridCache.TryGetValue(key,out supported))return true;
+            var values=new List<string>();
+            foreach(string grid in new[]{"8","4","2","1"})
+            {
+                string output,error;
+                bool ok=runner(ffmpeg,GridProbeArguments(perf,grid),15000,out output,out error);
+                if(ok)values.Add(grid);
+                else {
+                    var mask=System.Text.RegularExpressions.Regex.Match((output??"")+" "+error,@"supported mask 0x([0-9a-fA-F]+)");
+                    if(mask.Success) {
+                        uint bits=uint.Parse(mask.Groups[1].Value,NumberStyles.HexNumber,CultureInfo.InvariantCulture);
+                        values.Clear();foreach(int size in new[]{1,2,4,8})if((bits&(uint)size)!=0)values.Add(size.ToString(CultureInfo.InvariantCulture));
+                        break;
+                    }
+                    // Only an explicit unsupported-grid response allows continuing discovery.
+                    string detail=(output??"")+" "+error;
+                    if(detail.IndexOf("requested optical flow grid",StringComparison.OrdinalIgnoreCase)<0) {
+                        reason="[program/runtime error] FRUC grid discovery failed: "+detail;return false;
+                    }
+                }
+            }
+            values.Sort();supported=string.Join(",",values.ToArray());
+            if(values.Count==0){reason="[unsupported device] No supported FRUC grid";return false;}
+            lock(gridCache)gridCache[key]=supported;return true;
+        }
+        private static string GridProbeArguments(string perf,string grid)
+        {
+            return "-hide_banner -v verbose -nostdin -init_hw_device vulkan=vk:0 -filter_hw_device vk "+
+                "-f lavfi -i testsrc2=size=128x128:rate=30:duration=0.2 "+
+                "-vf format=nv12,hwupload,fruc_vulkan=fps=60:perf="+perf+":grid="+grid+
+                ",hwdownload,format=nv12 -frames:v 4 -f null -";
+        }
         private static readonly Dictionary<string, CapabilityReport> runtimeCache = new Dictionary<string, CapabilityReport>();
 
         // Seed only after the caller has validated persisted environment and tool signatures.
@@ -98,11 +151,13 @@ namespace FilmGrainStudioPreview
         {
             if(string.IsNullOrWhiteSpace(ffmpeg) || !File.Exists(ffmpeg))return;
             string key=Path.GetFullPath(ffmpeg)+"|"+new FileInfo(ffmpeg).Length.ToString(System.Globalization.CultureInfo.InvariantCulture)+"|"+File.GetLastWriteTimeUtc(ffmpeg).Ticks+"|"+perf+"|"+grid;
+            if(SupportedGrids(evidence).Length==0)return;
+            lock(gridCache)gridCache[DeviceGridKey(ffmpeg,perf)]=SupportedGrids(evidence);
             lock(runtimeCache)runtimeCache[key]=new CapabilityReport {Version=version??"",Evidence=evidence??"Persisted verified FRUC preflight"};
         }
 
         internal static void InvalidatePreflightCache()
-        { lock (runtimeCache) { runtimeCache.Clear(); } }
+        { lock (runtimeCache) { runtimeCache.Clear(); } lock(gridCache)gridCache.Clear(); }
 
         internal delegate bool ProbeRunner(string tool, string args, int timeout, out string output, out string reason);
         internal static bool TryPreflight(string ffmpeg, string perf, string grid, out string reason, ProbeRunner runner = null)
@@ -165,10 +220,15 @@ namespace FilmGrainStudioPreview
             if (runner(ffmpeg, "-hide_banner -version", 5000, out output, out versionReason))
                 foreach (string line in output.Split(new char[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
                     if (line.StartsWith("ffmpeg version", StringComparison.OrdinalIgnoreCase)) { report.Version = line.Trim(); break; }
-            string args = "-hide_banner -v verbose -nostdin -init_hw_device vulkan=vk:0 -filter_hw_device vk " +
-                "-f lavfi -i testsrc2=size=128x128:rate=30:duration=0.2 " +
-                "-vf format=nv12,hwupload,fruc_vulkan=fps=60:perf=" + perf + ":grid=" + grid +
-                ",hwdownload,format=nv12 -frames:v 4 -f null -";
+            string supported;
+            if(!DiscoverGrids(ffmpeg,perf,runner,out supported,out reason))return false;
+            report.Evidence="grid_supported="+supported;
+            string resolved=grid=="auto"?LargestGrid(report.Evidence):grid;
+            report.Evidence+="; resolved_grid="+resolved+"; auto_policy=largest";
+            if(Array.IndexOf(supported.Split(','),resolved)<0) {
+                reason="[unsupported combination] FRUC grid="+grid+"; supported grids="+supported;return false;
+            }
+            string args=GridProbeArguments(perf,resolved);
             bool ok = runner(ffmpeg, args, 15000, out output, out reason);
             report.RuntimeOutput = output;
             StringBuilder evidence = new StringBuilder();
@@ -180,7 +240,7 @@ namespace FilmGrainStudioPreview
                     line.IndexOf("Device name:", StringComparison.OrdinalIgnoreCase) >= 0)
                 { if (evidence.Length > 0) evidence.Append(" | "); evidence.Append(line); }
             }
-            if (evidence.Length > 0) report.Evidence = evidence.ToString();
+            if (evidence.Length > 0) report.Evidence += " | " + evidence.ToString();
             if (!ok)
             {
                 string detail = string.IsNullOrEmpty(reason) ? output.Trim() : reason;
@@ -228,6 +288,18 @@ namespace FilmGrainStudioPreview
             List<string> args = new List<string>(stage.FrucArguments);
             int inputIndex = args.IndexOf("-i");
             if (inputIndex < 0 || inputIndex + 1 >= args.Count) throw new InvalidOperationException("FRUC source is missing.");
+            string gridNotice="";
+            int gridFilter=args.IndexOf("-filter_complex");
+            if(gridFilter>=0 && args[gridFilter+1].Contains(":grid=auto")) {
+                var perfMatch=System.Text.RegularExpressions.Regex.Match(args[gridFilter+1],@":perf=(slow|medium|fast)");
+                if(!perfMatch.Success)throw new InvalidOperationException("FRUC performance setting missing");
+                CapabilityReport report;string error;
+                if(!TryInspect(stage.ToolPath,perfMatch.Groups[1].Value,"auto",out report,out error))throw new InvalidOperationException(error);
+                string resolved=LargestGrid(report.Evidence);
+                if(resolved.Length==0)throw new InvalidOperationException("FRUC supported grids unavailable");
+                args[gridFilter+1]=args[gridFilter+1].Replace(":grid=auto",":grid="+resolved);
+                gridNotice="[FRUC grid] requested=auto policy=largest supported="+SupportedGrids(report.Evidence)+" resolved="+resolved+"\n";
+            }
             string source = args[inputIndex + 1];
             FrucTimeline timeline = ProbeTimeline(stage.FrucProbePath, source);
             double videoOrigin = timeline.VideoOrigin, commonOrigin = timeline.CommonOrigin;
@@ -251,7 +323,7 @@ namespace FilmGrainStudioPreview
             StringBuilder command = new StringBuilder();
             foreach (string arg in args) { if (command.Length > 0) command.Append(' '); command.Append(Quote(arg)); }
             stage.DirectArguments = command.ToString();
-            return "[FRUC timeline] video_origin=" + videoOrigin.ToString("0.#########", CultureInfo.InvariantCulture) +
+            return gridNotice+"[FRUC timeline] video_origin=" + videoOrigin.ToString("0.#########", CultureInfo.InvariantCulture) +
                 " common_origin=" + commonOrigin.ToString("0.#########", CultureInfo.InvariantCulture) +
                 " video_delay=" + videoDelay.ToString("0.#########", CultureInfo.InvariantCulture) + " input=" + source;
         }

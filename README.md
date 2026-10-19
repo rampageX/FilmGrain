@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.0.12 · Stable · .NET Native-only。** AV1、HEVC、x264使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.13 · Stable · .NET Native-only。** AV1、HEVC、x264使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
 
@@ -27,7 +27,7 @@ Film Grain Studio 的目标不是只提供一种“加颗粒”方法，而是�
 
 默认配置为 **AV1 Main10 + MP4 + AAC 256k**。
 
-主界面提供整机 CPU、GPU、物理内存及专用显存监控。GPU 优先显示当前监控显卡的 Windows 最忙引擎占用；悬停可查看设备名称和统计来源，`GPU*` 表示已回退 NVIDIA NVML 口径，与任务管理器可能存在差异。
+主界面提供整机 CPU、GPU、物理内存及专用显存监控。CPU 优先使用任务管理器对应的 Processor Utility 口径，不可用时回退时间占用口径。GPU 优先显示当前监控显卡的 Windows 最忙引擎占用；悬停可查看设备名称和统计来源，`GPU*` 表示已回退 NVIDIA NVML 口径，与任务管理器可能存在差异。
 
 颗粒四档预览打开后自动随机选点生成画面，也可通过时间轴或精确时间重新选择片段；按当前界面语言显示，并可点击档位应用颗粒强度。
 
@@ -579,14 +579,16 @@ AV1 / HEVC / H.264 共用电影画幅：默认自动约 **2.39:1**，也可通�
 
 ---
 
+每项任务结束日志显示总耗时，包含准备、I/O、处理、验证及清理；队列各项独立计时，不计排队等待。
+
 ## 自动反交错与 Field-rate
 
 GUI 默认启用自动反交错，并根据 FFprobe 的 `field_order` 判断输入是否为隔行素材。MP4/MOV 中明确的 `fiel` 声明用于补齐 FFprobe 漏报；GUI、原生任务与自动测试共用探测和判断。
 
 | 模式 | 定位 | Field-rate |
 |---|---|---|
-| BWDIF Vulkan | 默认 | `send_field` |
-| BWDIF CUDA | 备选 | `send_field` |
+| BWDIF Vulkan | 可选 | `send_field` |
+| BWDIF CUDA | 默认 | `send_field` |
 | W3FDIF Complex | 高质量对照 | `mode=field` |
 | 关闭 | 不进行反交错 | — |
 
@@ -640,7 +642,7 @@ HEVC/x264 已覆盖路线使用 VSPipe Y4M → FFmpeg 管道，AV1 使用共享 
 | 设置 | 可选值 | 生效方式 |
 |---|---|---|
 | Speed | FGS / medium / fast / faster / fastest | 调整 pel、自动块尺寸、重叠及 refine；FGS 保持已有成本设置 |
-| Tuning | FGS / weak / film / smooth / animation | weak 改为较短 coarse 搜索并在正常场景模式启用切镜混合；animation 使用 type=2、distance=-6、无 refine；film/smooth 当前同义 |
+| Tuning | FGS / weak（低伪影优先）/ film / smooth / animation | weak 改为较短 coarse 搜索并在正常场景模式启用切镜混合；animation 使用 type=2、distance=-6、无 refine；film/smooth 当前同义 |
 | Block Size | auto / 8 / 16 / 32 | auto 随 Speed/Tuning 选择；指定值只覆盖块尺寸 |
 
 三项默认 `FGS / FGS / auto` 保持既有 Super、Analyse、SmoothFps 参数；旧 INI 未含新键时使用这些默认值。Algo、Mask Area、主界面场景模式与目标帧率仍独立生效。BASE 仅支持新项默认值，选择其他预设时界面明确切换并禁用 Analyse Profile 为 ENCODEGUI；手动配置非法组合则停止准备并报实际原因。
@@ -672,9 +674,9 @@ AV1、HEVC、x264 的已覆盖逐行 SDR 路线接入共享 FRUC 预处理。时
 
 #### 能力诊断
 
-共享预检核对实际构建的 fps/perf/grid 选项及性能常量，保留设备 0 的小样本运行证据与错误；成功不等于实际输入或编码组合通过。任务日志保留 FFmpeg 版本、请求参数及实际返回的设备/网格，未报告的信息不推测。插帧选择与 FRUC 硬件状态 tooltip 共用简短摘要，不显示完整诊断日志或路径；失败时提示查看任务日志。参数默认仍 medium/auto，现有滤镜和时间轴策略保持。
+共享预检核对实际构建的 fps/perf/grid 选项及性能常量，保留设备 0 的小样本运行证据与错误；成功不等于实际输入或编码组合通过。任务日志保留 FFmpeg 版本、请求参数及实际返回的设备/网格，未报告的信息不推测。插帧选择与 FRUC 硬件状态 tooltip 共用简短摘要，不显示完整诊断日志或路径；失败时提示查看任务日志。参数默认仍 medium/auto；auto 由 FGS 解析为最大可用网格，时间轴策略保持。
 
-当前上游 auto 选择设备支持的最细网格，通常是 1，不能理解成速度优先；较粗网格用更少向量和内存，但损失细节。没有增加上游未暴露的 hint 或 sc_threshold，也没有假定 Vulkan 可直接交给 NVENC。
+FGS 的 auto 采用速度优先策略：检测当前设备支持集合后，选择最大可用网格，并以明确数值传给 FFmpeg。例如支持 1/2/4 时选择 4；FFmpeg 原生 auto 的“最细网格”语义不再直接使用。高级界面显示 AUTO 的解析值并隐藏已知不支持项；旧配置的不支持值会标注并要求改选。任务日志显示支持集合和实际选值。较粗网格减少向量与内存开销，画质影响因素材而异，可手选更细网格。没有增加上游未暴露的 hint 或 sc_threshold，也没有假定 Vulkan 可直接交给 NVENC。
 ---
 
 ## 色彩纠正与 LUT 实时预览

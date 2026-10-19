@@ -765,16 +765,26 @@ namespace FilmGrainStudioPreview
                 frucPerf.Items.Add("slow"); frucPerf.Items.Add("medium"); frucPerf.Items.Add("fast"); string savedPerf = config.Get("FRUC_PERF").ToLowerInvariant(); frucPerf.SelectedIndex = savedPerf == "slow" ? 0 : (savedPerf == "fast" ? 2 : 1); interp.Controls.Add(frucPerf);
                 Label frucGridLabel = new ThemeLabel(); frucGridLabel.Text = UiText("FRUC Vulkan 光流网格", "FRUC Vulkan grid"); frucGridLabel.Location = new Point(18, 274); frucGridLabel.Size = new Size(150, 24); interp.Controls.Add(frucGridLabel);
                 ComboBox frucGrid = new ThemeComboBox(); frucGrid.DropDownStyle = ComboBoxStyle.DropDownList; frucGrid.Location = new Point(180, 270); frucGrid.Size = new Size(150, 26);
-                frucGrid.Items.Add("auto"); frucGrid.Items.Add("1"); frucGrid.Items.Add("2"); frucGrid.Items.Add("4"); frucGrid.Items.Add("8"); int gridIndex = frucGrid.Items.IndexOf(config.Get("FRUC_GRID").ToLowerInvariant()); frucGrid.SelectedIndex = gridIndex >= 0 ? gridIndex : 0; interp.Controls.Add(frucGrid);
+                string supportedFrucGrids=SharedFrucCore.SupportedGrids(hardwareCaps==null?"":hardwareCaps.FrucEvidence);
+                frucGrid.Items.Add("auto");
+                foreach(string size in new[]{"1","2","4","8"})
+                    if(supportedFrucGrids.Length==0 || Array.IndexOf(supportedFrucGrids.Split(','),size)>=0 || config.Get("FRUC_GRID")==size)frucGrid.Items.Add(size);
+                 int gridIndex = frucGrid.Items.IndexOf(config.Get("FRUC_GRID").ToLowerInvariant()); frucGrid.SelectedIndex = gridIndex >= 0 ? gridIndex : 0; interp.Controls.Add(frucGrid);
                 // Localize only the displayed text. SelectedItem remains the original
                 // upstream token, so config/GUI/CLI parameters never receive translations.
                 var interpolationNames = new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase) {
-                    {"auto","自动"},{"slow","慢速"},{"medium","中等"},{"fast","快速"},
+                    {"weak","低伪影优先"},{"auto","自动"},{"slow","慢速"},{"medium","中等"},{"fast","快速"},
                     {"faster","更快"},{"fastest","最快"},{"film","电影"},{"smooth","流畅"},{"animation","动画"}
                 };
                 foreach(ComboBox choice in new ComboBox[]{svpSpeed,svpTuning,svpBlock,frucPerf,frucGrid}) {
                     choice.Format+=delegate(object sender,ListControlConvertEventArgs e) {
                         string translated;
+                        if(object.ReferenceEquals(sender,frucGrid)) {
+                            string token=Convert.ToString(e.ListItem,CultureInfo.InvariantCulture);
+                            if(token=="auto")e.Value=UiText("自动：最大可用", "Auto: largest supported")+(supportedFrucGrids.Length==0?"":" ("+SharedFrucCore.LargestGrid("grid_supported="+supportedFrucGrids)+")");
+                            else if(supportedFrucGrids.Length>0 && Array.IndexOf(supportedFrucGrids.Split(','),token)<0)e.Value=token+UiText("（不支持）"," (unsupported)");
+                            return;
+                        }
                         if(string.Equals(lang.Code,"zh-CN",StringComparison.OrdinalIgnoreCase) && interpolationNames.TryGetValue(Convert.ToString(e.ListItem,CultureInfo.InvariantCulture),out translated))e.Value=translated;
                     };
                     choice.FormattingEnabled=true;
@@ -835,10 +845,10 @@ namespace FilmGrainStudioPreview
                 setInterpTip(analyse, analyseLabel, UiText("EncodeGUI 为推荐分析配置。BASE 仅支持 Speed=FGS、Tuning=FGS、Block Size=auto；选择新预设时使用 EncodeGUI。", "EncodeGUI is the recommended analysis profile. BASE requires Speed=FGS, Tuning=FGS and Block Size=auto; new presets use EncodeGUI."));
                 setInterpTip(mask, maskLabel, UiText("伪影遮罩面积，范围 0–100，默认 100。控制 SmoothFps 的 mask.area。", "Artifact mask area: 0–100, default 100. Sets SmoothFps mask.area."));
                 setInterpTip(svpSpeed, speedLabel, UiText("FGS 默认保留现有搜索成本；中等、快速、更快、最快调整精度、块重叠与细化。实际速度和画质取决于样本。", "FGS preserves existing search cost. medium/fast/faster/fastest adjust precision, block overlap and refinement; speed and quality depend on the clip."));
-                setInterpTip(svpTuning, tuningLabel, UiText("FGS 保留现有调校；weak 调整运动搜索并在正常场景模式启用切镜混合；动画使用动画搜索配置；电影与流畅当前同义。", "FGS preserves existing tuning. weak changes motion search and enables scene blending in normal scene mode; animation uses animation search; film/smooth are aliases."));
+                setInterpTip(svpTuning, tuningLabel, UiText("FGS 保留现有调校；低伪影优先（weak）采用更保守的插帧调校，偏向减少运动补偿伪影；部分场景可能增加融合感或降低流畅度，实际效果取决于素材。动画使用动画搜索配置；电影与流畅当前同义。", "FGS preserves existing tuning. weak changes motion search and enables scene blending in normal scene mode; animation uses animation search; film/smooth are aliases."));
                 setInterpTip(svpBlock, blockLabel, UiText("自动随速度档位和调校预设选块；8/16/32 指定分析块尺寸。三个新选项默认 FGS/FGS/auto 保持现有参数。", "auto chooses block size from Speed/Tuning; 8/16/32 select it explicitly. FGS/FGS/auto preserves existing parameters."));
                 setInterpTip(frucPerf, frucPerfLabel, UiText("性能档位控制光流估计：慢速优先质量，中等平衡，快速优先速度。FGS 默认中等；上游默认可能不同。效果与耗时须用同一视频比较。", "perf trades motion-estimation quality for speed: slow / medium / fast. FGS defaults to medium; upstream defaults can differ. Compare using the same video."));
-                setInterpTip(frucGrid, frucGridLabel, UiText("grid 是光流网格尺寸（像素）。当前上游 auto 选设备支持的最细网格，通常为 1；不是速度优先。较粗网格减少向量和内存，但损失细节。仅设备支持的尺寸可用；以实际构建日志为准。", "grid is the optical-flow grid size in pixels. Current upstream auto chooses the finest supported grid, usually 1, rather than fastest. Coarser grids use fewer vectors and less memory but lose detail. Support and selection depend on the actual build/device."));
+                setInterpTip(frucGrid, frucGridLabel, UiText("FGS 自动选择最大可用网格（速度优先），不是 FFmpeg 原生 auto 的最细网格。支持项：", "FGS Auto selects the largest supported grid (speed priority), unlike FFmpeg's finest-grid auto. Supported: ")+(supportedFrucGrids.Length==0?UiText("待硬件检测；执行前验证", "pending detection; checked before execution"):supportedFrucGrids));
 
                 ok.Click += delegate
                 {
@@ -870,6 +880,10 @@ namespace FilmGrainStudioPreview
                     updates["SVP_PEEL_LIMIT"] = peelLimit.Value.ToString(CultureInfo.InvariantCulture);
 
                     updates["FRUC_PERF"] = Convert.ToString(frucPerf.SelectedItem, CultureInfo.InvariantCulture);
+                    string selectedGrid=Convert.ToString(frucGrid.SelectedItem,CultureInfo.InvariantCulture);
+                    if(supportedFrucGrids.Length>0 && selectedGrid!="auto" && Array.IndexOf(supportedFrucGrids.Split(','),selectedGrid)<0) {
+                        MessageBox.Show(dlg,UiText("所选 FRUC 网格不受支持，请选择自动或支持项：", "Unsupported FRUC grid. Choose Auto or a supported size: ")+supportedFrucGrids);return;
+                    }
                     updates["FRUC_GRID"] = Convert.ToString(frucGrid.SelectedItem, CultureInfo.InvariantCulture);
                     updates["HDR_POLICY"] = hdrPolicy.SelectedIndex == 1 ? "PRESERVE" : (hdrPolicy.SelectedIndex == 2 ? "SDR" : "AUTO");
                     string[] toneValues = new string[] { "hable", "mobius", "reinhard", "gamma", "linear", "clip" }; updates["TONE_MAP_ALGO"] = toneValues[Math.Max(0, Math.Min(toneValues.Length - 1, tone.SelectedIndex))];

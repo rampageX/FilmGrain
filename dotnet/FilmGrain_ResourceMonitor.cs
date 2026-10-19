@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
@@ -108,6 +108,7 @@ namespace FilmGrainStudioPreview {
         DateTime retryAfter=DateTime.MinValue;
         IntPtr device, module, cpuQuery, cpuCounter;
         bool cpuQueryTried, cpuQueryPrimed;
+        DateTime cpuRetryAfter=DateTime.MinValue;
         ulong previousIdle, previousKernel, previousUser;
         internal volatile string ReleaseStatus="pending";
         [StructLayout(LayoutKind.Sequential)] struct Times { internal uint Low,High; internal ulong Value {get{return ((ulong)High<<32)|Low;}} }
@@ -136,15 +137,18 @@ namespace FilmGrainStudioPreview {
         [DllImport("pdh.dll")] static extern uint PdhGetFormattedCounterValue(IntPtr counter,uint format,out uint type,out CounterValue value);
         [DllImport("pdh.dll")] static extern uint PdhCloseQuery(IntPtr query);
         double GroupCpu() {
+            if(cpuQueryTried && cpuCounter==IntPtr.Zero && DateTime.UtcNow>=cpuRetryAfter)cpuQueryTried=false;
             if(!cpuQueryTried){
-                cpuQueryTried=true;
+                cpuQueryTried=true;cpuRetryAfter=DateTime.UtcNow.AddSeconds(30);
                 if(PdhOpenQueryW(null,UIntPtr.Zero,out cpuQuery)!=0)return -1;
-                if(PdhAddEnglishCounterW(cpuQuery,@"\Processor Information(_Total)\% Processor Time",UIntPtr.Zero,out cpuCounter)!=0)return -1;
+                if(PdhAddEnglishCounterW(cpuQuery,@"\Processor Information(_Total)\% Processor Utility",UIntPtr.Zero,out cpuCounter)!=0){
+                    PdhCloseQuery(cpuQuery);cpuQuery=IntPtr.Zero;cpuCounter=IntPtr.Zero;return -1;
+                }
             }
             if(cpuCounter==IntPtr.Zero||PdhCollectQueryData(cpuQuery)!=0)return -1;
             if(!cpuQueryPrimed){cpuQueryPrimed=true;return -1;}
             uint type;CounterValue value;
-            if(PdhGetFormattedCounterValue(cpuCounter,0x200,out type,out value)!=0 || value.Status>1)return -1;
+            if(PdhGetFormattedCounterValue(cpuCounter,0x200,out type,out value)!=0 || value.Status>1 || double.IsNaN(value.Value) || double.IsInfinity(value.Value))return -1;
             return Math.Max(0,Math.Min(100,value.Value));
         }
         string gpuName="Unavailable",bus="",initError="";
@@ -176,16 +180,19 @@ namespace FilmGrainStudioPreview {
                 if(stopped)return;
                 var watch=Stopwatch.StartNew();var s=new ResourceSample();
                 try {
+                    // Utility matches modern Task Manager; do not divide _Total by core count.
+                    s.Cpu=GroupCpu();
+                    // Keep the time-based fallback warm so a failed utility sample can recover immediately.
                     Times idle,kernel,user;
-                    if(GetActiveProcessorCount(0xffff)>64){s.Cpu=GroupCpu();if(s.Cpu<0)s.Error="PDH all-group CPU unavailable/priming; ";}
-                    else if(GetSystemTimes(out idle,out kernel,out user)) {
+                    if(GetActiveProcessorCount(0xffff)<=64 && GetSystemTimes(out idle,out kernel,out user)) {
                         ulong k=kernel.Value,u=user.Value,i=idle.Value;
-                        if(previousKernel>0 && k>=previousKernel && u>=previousUser && i>=previousIdle) {
+                        if(s.Cpu<0 && previousKernel>0 && k>=previousKernel && u>=previousUser && i>=previousIdle) {
                             ulong total=(k-previousKernel)+(u-previousUser), inactive=i-previousIdle;
                             if(total>0 && inactive<=total)s.Cpu=100.0*(total-inactive)/total;
                         }
                         previousIdle=i;previousKernel=k;previousUser=u;
-                    } else s.Error="GetSystemTimes unavailable; ";
+                    }
+                    if(s.Cpu<0)s.Error+="CPU counter unavailable/priming; ";
                 }catch(Exception ex){s.Error+="CPU: "+ex.Message+"; ";}
                 try {
                     Memory m=new Memory();m.Length=(uint)Marshal.SizeOf(typeof(Memory));
@@ -247,14 +254,14 @@ namespace FilmGrainStudioPreview {
                 var latest=Interlocked.Exchange(ref sampler.Latest,null);if(latest==null)return;
                 sample=latest;bool zh=memoryLabel=="内存";
                 string help=zh?
-                    "CPU：全部逻辑处理器的总占用；内存：系统物理内存已用 / 总量。\n"+
+                    "CPU：系统总占用（优先使用任务管理器 Utility 口径）；内存：系统物理内存已用 / 总量。\n"+
                     "监控 GPU："+latest.GpuName+"；CUDA 设备 0；PCI "+latest.Bus+"；LUID "+latest.Luid+"\n"+
                     "GPU 来源："+latest.GpuSource+"；最忙引擎："+latest.BusiestEngine+"\n"+
                     "Windows 口径：同一物理引擎各进程占用合计，取最忙引擎；不相加不同引擎。\n"+
                     "GPU* 表示 NVML 回退，与 nvidia-smi 接近，不等于 Windows 最忙引擎。\n"+
                     "显存：NVML 专用显存，不含共享内存；WDDM 保留量可能造成差异。\n"+
                     "Vulkan / 自动编码设备可能不同；这里明确监控 CUDA 设备 0。\n约每秒采样；最小化约 5 秒；不可用显示 —。":
-                    "CPU: all logical processors; RAM: physical used / total.\nGPU: "+latest.GpuName+" | CUDA 0 | PCI "+latest.Bus+" | LUID "+latest.Luid+
+                    "CPU: system total (Task Manager Utility preferred); RAM: physical used / total.\nGPU: "+latest.GpuName+" | CUDA 0 | PCI "+latest.Bus+" | LUID "+latest.Luid+
                     "\nSource: "+latest.GpuSource+" | Busiest: "+latest.BusiestEngine+
                     "\nWindows: sum processes per physical engine, then take busiest engine. GPU* = NVML fallback (nvidia-smi metric)."+
                     "\nVRAM: dedicated NVML memory, no shared memory. Vulkan/automatic encoder device may differ. ~1s sampling, minimized ~5s.";

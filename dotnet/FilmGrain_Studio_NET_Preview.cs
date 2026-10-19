@@ -106,8 +106,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.12";
-        internal const string FileReleaseVersion = "5.0.12.0";
+        internal const string ReleaseVersion = "5.0.13";
+        internal const string FileReleaseVersion = "5.0.13.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -917,7 +917,7 @@ namespace FilmGrainStudioPreview
             interp.Controls.Add(chkInterpolation, 0, 0); interp.Controls.Add(cmbInterpolationMode, 1, 0); interp.Controls.Add(cmbInterpolationFps, 2, 0);
 
             cmbDeint = Combo(new string[] { lang.T("deint.auto"), lang.T("deint.off") }, 0);
-            cmbDeintMethod = Combo(new string[] { lang.T("deint.vulkan"), lang.T("deint.cuda"), lang.T("deint.w3fdif") }, 0);
+            cmbDeintMethod = Combo(new string[] { lang.T("deint.vulkan"), lang.T("deint.cuda"), lang.T("deint.w3fdif") }, 1);
             cmbDeint.SelectedIndexChanged += delegate { UpdateMediaDrivenUi(GetSelectedMediaInfo()); UpdateBitrateDisplays(); };
             chkCinematic = Check(lang.T("cinematic.enable"), true);
             cmbFrameMode = Combo(new string[] { lang.T("cinematic.letterbox"), lang.T("cinematic.crop") }, 0);
@@ -3251,11 +3251,20 @@ namespace FilmGrainStudioPreview
             log.ScrollToCaret();
         }
 
+        private static string FormatTaskElapsed(TimeSpan elapsed)
+        {
+            long hours=elapsed.Ticks/TimeSpan.TicksPerHour;
+            return hours.ToString("00",CultureInfo.InvariantCulture)+":"+
+                elapsed.Minutes.ToString("00",CultureInfo.InvariantCulture)+":"+
+                elapsed.Seconds.ToString("00",CultureInfo.InvariantCulture)+"."+
+                elapsed.Milliseconds.ToString("000",CultureInfo.InvariantCulture);
+        }
+
         private void OnBridgeExecutionCompleted(object sender, BridgeExecutionCompletedEventArgs e)
         {
             string completion = (e.Result.Exception == null ? "" : "[runner] exception=" + e.Result.Exception.ToString() + Environment.NewLine) +
                 "[runner] exit_code=" + e.Result.ExitCode.ToString(CultureInfo.InvariantCulture) + " cancelled=" + (e.Result.Cancelled ? "1" : "0") + Environment.NewLine +
-                "[Task] finished=" + DateTime.Now.ToString("o", CultureInfo.InvariantCulture) + Environment.NewLine +
+                "[Task] " + UiText("总耗时：", "Total elapsed: ") + FormatTaskElapsed(e.Result.TotalElapsed) + Environment.NewLine +
                 "============================================================" + Environment.NewLine;
             FullLogFileCore completedLog = taskLog;
             if (completedLog != null) completedLog.Write(completion);

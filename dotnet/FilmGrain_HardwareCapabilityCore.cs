@@ -129,7 +129,7 @@ namespace FilmGrainStudioPreview
             return b.ToString();
         }
         internal static string FrucKey(HardwareCapabilityRequest r)
-        { return ToolBundleStamp(r.FrucFfmpegPath) + "|" + r.FrucPerf + "|" + r.FrucGrid; }
+        { return ToolBundleStamp(r.FrucFfmpegPath) + "|" + r.FrucPerf + "|" + r.FrucGrid + "|grid-policy-largest-v1"; }
         internal static string RequestKey(HardwareCapabilityRequest r) { return NativeKey(r) + "|FRUC|" + FrucKey(r); }
         private static HardwareCapabilitySnapshot Copy(HardwareCapabilitySnapshot s)
         { return s.Clone(); }
@@ -595,7 +595,7 @@ namespace FilmGrainStudioPreview
                 SharedFrucCore.CapabilityReport report;
                 snapshot.FrucAvailable = SharedFrucCore.TryInspect(snapshot.FrucFfmpegPath, snapshot.FrucPerf, snapshot.FrucGrid, out report, out reason, runner);
                 snapshot.FrucFailureKind = snapshot.FrucAvailable ? "" : Classify(reason);
-                if(snapshot.FrucAvailable) { snapshot.FrucVersion=report.Version; snapshot.FrucEvidence=report.Evidence; }
+                if(report!=null) { snapshot.FrucVersion=report.Version; snapshot.FrucEvidence=report.Evidence; }
                 snapshot.FrucReason = snapshot.FrucAvailable ? report.Summary(snapshot.FrucPerf, snapshot.FrucGrid) : reason;
             }
             catch (OperationCanceledException) { throw; }

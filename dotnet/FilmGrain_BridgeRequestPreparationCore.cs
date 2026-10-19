@@ -57,6 +57,18 @@ namespace FilmGrainStudioPreview
             IDictionary<string,string> state,HardwareCapabilitySnapshot caps,bool noReencode,
             out BridgePreparedExecution prepared,out string reason)
         {
+            var timer=System.Diagnostics.Stopwatch.StartNew();
+            bool ok=TryPrepareCore(appRoot,input,info,state,caps,noReencode,out prepared,out reason);
+            timer.Stop();
+            if(ok && prepared!=null && prepared.ExecutionRequest!=null)
+                prepared.ExecutionRequest.PreparationElapsed=timer.Elapsed;
+            return ok;
+        }
+
+        internal static bool TryPrepareCore(string appRoot,string input,MediaProbeInfo info,
+            IDictionary<string,string> state,HardwareCapabilitySnapshot caps,bool noReencode,
+            out BridgePreparedExecution prepared,out string reason)
+        {
             prepared=null;reason="";
             if(string.IsNullOrWhiteSpace(input)||!File.Exists(input)){reason="input file does not exist or is inaccessible: "+input;return false;}
             if(info==null){reason="media probe cache is not ready: "+input;return false;}
