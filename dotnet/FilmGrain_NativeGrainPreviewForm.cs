@@ -36,12 +36,17 @@ namespace FilmGrainStudioPreview
         private readonly TextBox start = new ThemeTextBox();
         private readonly NativeSeekStrip timeline = new NativeSeekStrip();
         private volatile bool running;
+        private readonly bool isZh;
+        private bool initialPreviewQueued, automaticRequest;
+        private string renderLocation="";
+        private string T(string zh,string en){return isZh?zh:en;}
         internal int SelectedStrength { get; private set; }
 
-        internal NativeGrainPreviewForm(string ffmpegPath, string gravPath, string input, List<string> args, MediaProbeInfo media)
+        internal NativeGrainPreviewForm(string ffmpegPath, string gravPath, string input, List<string> args, MediaProbeInfo media, string languageCode = "zh-CN")
         {
+            isZh=string.Equals(languageCode,"zh-CN",StringComparison.OrdinalIgnoreCase);
             info=media; ffmpeg=ffmpegPath; grav1synth=gravPath; source=input; grainArgs=new List<string>(args);
-            Text="颗粒四档对比 / Four grain strengths";
+            Text=T("颗粒四档对比","Four grain strengths");
             Size=new Size(1180,860); MinimumSize=new Size(1000,700); StartPosition=FormStartPosition.CenterParent;
             var layout=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=2,RowCount=4,Padding=new Padding(8)};
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,50));layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,50));
@@ -52,24 +57,25 @@ namespace FilmGrainStudioPreview
                 int index=i;
                 var panel=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=1,RowCount=2};
                 panel.RowStyles.Add(new RowStyle(SizeType.Absolute,30));panel.RowStyles.Add(new RowStyle(SizeType.Percent,100));
-                choose[i].Text=strengths[i]+"% · 点击应用 / Apply";choose[i].Dock=DockStyle.Fill;choose[i].Enabled=false;
+                choose[i].Text=strengths[i]+T("% · 点击应用","% · Apply");choose[i].Dock=DockStyle.Fill;choose[i].Enabled=false;
                 choose[i].Click+=delegate {SelectedStrength=strengths[index]; DialogResult=DialogResult.OK; Close();};
                 panes[i].Dock=DockStyle.Fill;panes[i].SizeMode=PictureBoxSizeMode.Zoom;panes[i].BackColor=Color.Black;
                 panel.Controls.Add(choose[i],0,0);panel.Controls.Add(panes[i],0,1);layout.Controls.Add(panel,i%2,i/2);
             }
             var bar=new FlowLayoutPanel {Dock=DockStyle.Fill,WrapContents=true};
             start.Text="00:00:00";start.Width=80;
-            render.Text="生成四档 / Render";render.AutoSize=true;render.Click+=delegate {if(!running)StartRender();};
-            play.Text="播放 / Play";play.AutoSize=true;play.Enabled=false;play.Click+=delegate {playback.Enabled=!playback.Enabled;};
+            render.Text=T("生成四档","Render four strengths");render.AutoSize=true;render.Click+=delegate {if(!running)StartRender();};
+            play.Text=T("播放","Play");play.AutoSize=true;play.Enabled=false;play.Click+=delegate {playback.Enabled=!playback.Enabled;play.Text=playback.Enabled?T("暂停","Pause"):T("播放","Play");};
             frame.Width=180;frame.Maximum=0;frame.TickStyle=TickStyle.None;frame.Enabled=false;frame.ValueChanged+=delegate {ShowFrame();};
-            actualSize.Text="1:1 中心 / Center";actualSize.AutoSize=true;
+            actualSize.Text=T("1:1 居中","1:1 centered");actualSize.AutoSize=true;
             actualSize.CheckedChanged+=delegate {foreach(var box in panes)box.SizeMode=actualSize.Checked?PictureBoxSizeMode.CenterImage:PictureBoxSizeMode.Zoom;};
             actualSize.Checked=true;
-            skipBlack.Text="跳过黑帧 / Skip black";skipBlack.Checked=true;skipBlack.AutoSize=true;
-            showClean.Text="查看原图 / Clean";showClean.AutoSize=true;showClean.Enabled=false;showClean.CheckedChanged+=delegate {ShowFrame();};
-            bar.Controls.Add(new ThemeLabel {Text="起始 / Start",AutoSize=true,Padding=new Padding(0,7,0,0)});bar.Controls.Add(start);bar.Controls.Add(render);bar.Controls.Add(play);bar.Controls.Add(frame);bar.Controls.Add(actualSize);bar.Controls.Add(skipBlack);bar.Controls.Add(showClean);
+            skipBlack.Text=T("跳过黑帧","Skip black frames");skipBlack.Checked=true;skipBlack.AutoSize=true;
+            showClean.Text=T("查看原图","Show original");showClean.AutoSize=true;showClean.Enabled=false;showClean.CheckedChanged+=delegate {ShowFrame();};
+            bar.Controls.Add(new ThemeLabel {Text=T("起始","Start"),AutoSize=true,Padding=new Padding(0,7,0,0)});bar.Controls.Add(start);bar.Controls.Add(render);bar.Controls.Add(play);bar.Controls.Add(frame);bar.Controls.Add(actualSize);bar.Controls.Add(skipBlack);bar.Controls.Add(showClean);
             double sourceDuration;double.TryParse(info.Duration,NumberStyles.Float,CultureInfo.InvariantCulture,out sourceDuration);
-            timeline.Duration=Math.Min(359999,Math.Max(0,sourceDuration));timeline.Dock=DockStyle.Fill;
+            timeline.Duration=double.IsNaN(sourceDuration)||double.IsInfinity(sourceDuration)?0:Math.Min(359999,Math.Max(0,sourceDuration));
+            timeline.AccessibleName=T("视频时间轴","Video timeline");timeline.Dock=DockStyle.Fill;
             timeline.PositionChanged+=delegate {start.Text=NativeSeekStrip.FormatTime(timeline.Position);};
             timeline.SeekCommitted+=delegate {if(!running)StartRender();};
             start.TextChanged+=delegate {double seconds;if(SharedEncodePreviewCore.TryParseStart(start.Text.Trim(),out seconds))timeline.Position=seconds;};
@@ -77,32 +83,57 @@ namespace FilmGrainStudioPreview
             seekLayout.RowStyles.Add(new RowStyle(SizeType.Absolute,30));seekLayout.RowStyles.Add(new RowStyle(SizeType.Percent,100));
             seekLayout.Controls.Add(timeline,0,0);seekLayout.Controls.Add(bar,0,1);
             layout.Controls.Add(seekLayout,0,2);layout.SetColumnSpan(seekLayout,2);
-            status.Dock=DockStyle.Fill;status.Text="同片段、同帧、同随机种子；仅颗粒。起始时间按关键帧裁剪；HDR 转换仅用于显示。";
+            status.Dock=DockStyle.Fill;status.Text=T("窗口显示后将随机选点并自动生成四档预览。","A random position will be selected and four previews rendered automatically.");
             layout.Controls.Add(status,0,3);layout.SetColumnSpan(status,2);Controls.Add(layout);
             playback.Interval=150;playback.Tick+=delegate {if(frame.Maximum>0)frame.Value=(frame.Value+1)%(frame.Maximum+1);};
             FormClosing+=delegate {closing=true;playback.Stop();lock(sync){try {if(active!=null&&!active.HasExited)active.Kill();}catch{}}};
             FormClosed+=delegate {playback.Dispose();ReleaseImages();if(!running)Cleanup();};
         }
 
-        internal NativeGrainPreviewForm(string ffmpegPath,string root,string input,IDictionary<string,string> state,HardwareCapabilitySnapshot caps,MediaProbeInfo media)
-            : this(ffmpegPath,"",input,new List<string>(),media)
+        internal NativeGrainPreviewForm(string ffmpegPath,string root,string input,IDictionary<string,string> state,HardwareCapabilitySnapshot caps,MediaProbeInfo media,string languageCode = "zh-CN")
+            : this(ffmpegPath,"",input,new List<string>(),media,languageCode)
         {
             appRoot=root;pixelState=new Dictionary<string,string>(state,StringComparer.OrdinalIgnoreCase);capabilities=caps;
-            Text="像素颗粒四档对比 / Pixel grain comparison";
+            Text=T("像素颗粒四档对比","Pixel grain comparison");
+        }
+
+        protected override void OnShown(EventArgs e)
+        {
+            base.OnShown(e);
+            if(initialPreviewQueued)return;initialPreviewQueued=true;
+            BeginInvoke(new Action(delegate {
+                if(closing||IsDisposed||running)return;
+                start.Text=NativeSeekStrip.FormatTime(ChooseInitialSeconds(timeline.Duration,new Random().NextDouble()));
+                automaticRequest=true;StartRender();
+            }));
+        }
+
+        internal static double ChooseInitialSeconds(double duration,double random)
+        {
+            if(double.IsNaN(duration)||double.IsInfinity(duration)||duration<=0)return 0;
+            duration=Math.Min(duration,359999);
+            double lower=duration*.10,upper=Math.Min(duration*.85,Math.Max(0,duration-10));
+            if(upper<lower){lower=0;upper=Math.Max(0,duration-1);}
+            random=double.IsNaN(random)?0:Math.Max(0,Math.Min(1,random));
+            return Math.Floor(lower+(upper-lower)*random);
         }
 
         private void StartRender()
         {
-            try { if(info.Identity==null)throw new InvalidOperationException("Probe is not ready"); info.Identity.RequireCurrent(); }
+            if(closing||IsDisposed||running)return;
+            try { if(info.Identity==null)throw new InvalidOperationException(T("视频探测尚未完成。","Video probing is not ready.")); info.Identity.RequireCurrent(); }
             catch(Exception ex){status.Text=ex.Message;return;}
             double seconds;
-            if(!SharedEncodePreviewCore.TryParseStart(start.Text.Trim(),out seconds)) {MessageBox.Show(this,"起始格式 / Start format: 00:00:00");return;}
+            if(!SharedEncodePreviewCore.TryParseStart(start.Text.Trim(),out seconds)) {MessageBox.Show(this,T("起始时间格式应为：00:00:00","Start time format: 00:00:00"));return;}
             double duration;
-            if(double.TryParse(info.Duration,NumberStyles.Float,CultureInfo.InvariantCulture,out duration)&&seconds>=duration) {MessageBox.Show(this,"起始时间超出视频时长 / Start exceeds duration");return;}
-            running=true;timeline.Enabled=false;render.Enabled=start.Enabled=false;playback.Stop();play.Enabled=frame.Enabled=showClean.Enabled=false;
+            if(double.TryParse(info.Duration,NumberStyles.Float,CultureInfo.InvariantCulture,out duration)&&duration>0&&seconds>=duration) {MessageBox.Show(this,T("起始时间超出视频时长。","Start time exceeds the video duration."));return;}
+            bool automatic=automaticRequest;automaticRequest=false;
+            string requestedTime=NativeSeekStrip.FormatTime(seconds);
+            running=true;timeline.Enabled=false;render.Enabled=start.Enabled=false;playback.Stop();play.Text=T("播放","Play");play.Enabled=frame.Enabled=showClean.Enabled=false;
             foreach(var button in choose)button.Enabled=false;
             ReleaseImages();cleanFrames.Clear();foreach(var list in variants)list.Clear();
-            status.Text="正在生成同片段的 25% / 50% / 75% / 100% 实际颗粒… / Rendering actual grain…";
+            renderLocation=(automatic?T("已随机选点：","Random position: "):T("请求起始：","Requested start: "))+requestedTime;
+            status.Text=renderLocation+T("；正在生成 25%、50%、75%、100% 四档预览…","; rendering 25%, 50%, 75% and 100% previews...");
             bool skipOpening=skipBlack.Checked;
             var worker=new Thread(new ThreadStart(delegate {
                 string error="";int firstFrame=0;double actualStart=0;
@@ -120,7 +151,7 @@ namespace FilmGrainStudioPreview
                     var data=parser.DeserializeObject(json) as Dictionary<string,object>;object raw;
                     var packets=data!=null&&data.TryGetValue("packets",out raw)?raw as object[]:null;
                     var packet=packets!=null&&packets.Length>0?packets[0] as Dictionary<string,object>:null;object pts,flags;
-                    if(packet==null||!packet.TryGetValue("pts_time",out pts)||!packet.TryGetValue("flags",out flags)||Convert.ToString(flags).IndexOf('K')<0)throw new InvalidDataException("Preview sample does not start at a confirmed keyframe.");
+                    if(packet==null||!packet.TryGetValue("pts_time",out pts)||!packet.TryGetValue("flags",out flags)||Convert.ToString(flags).IndexOf('K')<0)throw new InvalidDataException(T("预览片段未从已确认的关键帧开始。","The preview sample does not start at a confirmed keyframe."));
                     double firstPts=double.Parse(Convert.ToString(pts),CultureInfo.InvariantCulture);
                     json=Run(probe,new List<string>{"-v","error","-show_entries","format=start_time","-of","json",source});
                     data=parser.DeserializeObject(json) as Dictionary<string,object>;
@@ -135,7 +166,7 @@ namespace FilmGrainStudioPreview
                     data=parser.DeserializeObject(json) as Dictionary<string,object>;
                     packets=data!=null&&data.TryGetValue("packets",out raw)?raw as object[]:null;
                     packet=packets!=null&&packets.Length>0?packets[0] as Dictionary<string,object>:null;
-                    if(packet==null||!packet.TryGetValue("pts_time",out pts)||Math.Abs(double.Parse(Convert.ToString(pts),CultureInfo.InvariantCulture))>0.000001)throw new InvalidDataException("Preview IVF timeline did not normalize to zero.");
+                    if(packet==null||!packet.TryGetValue("pts_time",out pts)||Math.Abs(double.Parse(Convert.ToString(pts),CultureInfo.InvariantCulture))>0.000001)throw new InvalidDataException(T("预览 IVF 时间轴未归零。","The preview IVF timeline did not normalize to zero."));
                     var selected=new List<string>(grainArgs);
                     int tableIndex=selected.IndexOf("--grain");if(tableIndex<0)tableIndex=selected.IndexOf("-g");
                     if(tableIndex>=0)
@@ -150,6 +181,7 @@ namespace FilmGrainStudioPreview
                     RenderFrames(baseIvf,"0","clean",firstFrame);
                     for(int i=0;i<4;i++)
                     {
+                        ReportProgress(T("正在生成颗粒强度 ","Rendering grain strength ")+strengths[i]+"%…");
                         string video=model;
                         if(strengths[i]!=100) {string table=Path.Combine(temporary,"strength"+i+".tbl");video=Path.Combine(temporary,"strength"+i+".ivf");File.WriteAllText(table,Av1GrainStrengthCore.ScaleTable(originalText,strengths[i]),new UTF8Encoding(false));Run(grav1synth,new List<string>{"apply",baseIvf,"-o",video,"--grain",table,"--replace","-y"});}
                         RenderFrames(video,"1","variant"+i+"_",firstFrame);
@@ -160,22 +192,28 @@ namespace FilmGrainStudioPreview
                 finally
                 {
                     if(closing){running=false;Cleanup();}
-                    else try {running=false;BeginInvoke(new Action(delegate {
+                    else try {BeginInvoke(new Action(delegate {
                         running=false;if(closing){Cleanup();return;}
                         timeline.Enabled=true;render.Enabled=start.Enabled=true;
-                        if(error.Length>0){status.Text="预览失败 / Preview failed: "+error;return;}
+                        if(error.Length>0){status.Text=T("预览失败：","Preview failed: ")+error;return;}
                         try {
                             info.Identity.RequireCurrent();
                             cleanFrames.AddRange(Directory.GetFiles(temporary,"clean*.png"));cleanFrames.Sort(StringComparer.Ordinal);
-                            for(int i=0;i<4;i++){variants[i].AddRange(Directory.GetFiles(temporary,"variant"+i+"_*.png"));variants[i].Sort(StringComparer.Ordinal);if(variants[i].Count!=cleanFrames.Count)throw new InvalidDataException("Preview frame counts do not match.");}
-                            if(cleanFrames.Count==0)throw new InvalidDataException("No preview frames.");
+                            for(int i=0;i<4;i++){variants[i].AddRange(Directory.GetFiles(temporary,"variant"+i+"_*.png"));variants[i].Sort(StringComparer.Ordinal);if(variants[i].Count!=cleanFrames.Count)throw new InvalidDataException(T("四档预览的帧数不一致。","Preview frame counts do not match."));}
+                            if(cleanFrames.Count==0)throw new InvalidDataException(T("未生成预览画面。","No preview frames were generated."));
                             frame.Maximum=cleanFrames.Count-1;frame.Value=0;ShowFrame();
                             play.Enabled=frame.Enabled=showClean.Enabled=true;foreach(var button in choose)button.Enabled=true;
-                            status.Text="实际关键帧起始 / Actual start: "+TimeSpan.FromSeconds(actualStart).ToString()+"；同帧同种子，点击档位应用。\r\n仅颗粒；HDR 显示转换，不含 LUT/调色/插帧。中心 1:1 可检查颗粒细节。";
-                        }catch(Exception ex){ReleaseImages();status.Text="预览失败 / Preview failed: "+ex.Message;}
+                            status.Text=(automatic?T("随机选点：","Random position: "):T("请求起始：","Requested start: "))+requestedTime+T("；实际关键帧起始：","; actual keyframe start: ")+TimeSpan.FromSeconds(actualStart).ToString()+T("。同帧同种子，点击档位应用。\r\n仅比较颗粒；HDR 转换仅用于显示，不包含 LUT、调色或插帧。1:1 居中可检查颗粒细节。",". Same frames and seed; click a strength to apply.\r\nGrain only; HDR conversion is for display. LUTs, color correction and interpolation are excluded. Use 1:1 centered to inspect detail.");
+                        }catch(Exception ex){ReleaseImages();status.Text=T("预览失败：","Preview failed: ")+ex.Message;}
                     }));}catch{running=false;Cleanup();}
                 }
             }));worker.IsBackground=true;worker.Start();
+        }
+
+        private void ReportProgress(string text)
+        {
+            if(closing)return;
+            try{BeginInvoke(new Action(delegate {if(!closing&&!IsDisposed&&running)status.Text=renderLocation+T("；","; ")+text;}));}catch(InvalidOperationException){}
         }
 
         private void RenderPixelSample(string sample,string probe,bool skipOpening)
@@ -196,7 +234,7 @@ namespace FilmGrainStudioPreview
             var request=prepared.ExecutionRequest;
             try
             {
-                if(request.PixelGrainFullFilter==null||request.PixelGrainCleanFilter==null)throw new InvalidDataException("Selected route did not supply a native pixel grain comparison graph.");
+                if(request.PixelGrainFullFilter==null||request.PixelGrainCleanFilter==null)throw new InvalidDataException(T("当前处理路径未提供像素颗粒对比滤镜。","The selected route did not supply a pixel grain comparison graph."));
                 if(request.DirectStages!=null)foreach(var stage in request.DirectStages)
                 {
                     if(stage.OriginalArguments!=null && stage.OriginalArguments.Contains("-filter_complex"))
@@ -205,10 +243,10 @@ namespace FilmGrainStudioPreview
                     if(stage.PrepareWithCancellation!=null)stage.PrepareWithCancellation(delegate {return closing;});
                     if(stage.BeforeRunPreparation!=null)stage.BeforeRunPreparation();
                     if(stage.ShouldRun!=null&&!stage.ShouldRun())continue;
-                    if(stage.OriginalArguments==null)throw new InvalidDataException("Preview preprocessing arguments unavailable.");
+                    if(stage.OriginalArguments==null)throw new InvalidDataException(T("缺少预览预处理参数。","Preview preprocessing arguments are unavailable."));
                     Run(stage.ToolPath,new List<string>(stage.OriginalArguments),stage.WorkingDirectory);
                 }
-                if(request.PixelGrainEncodeArguments==null)throw new InvalidDataException("Native preview encode arguments missing.");
+                if(request.PixelGrainEncodeArguments==null)throw new InvalidDataException(T("缺少预览编码参数。","Native preview encode arguments are missing."));
                 string pair=Path.Combine(temporary,"pixel_pair.mkv");
                 var args=PixelGrainStrengthCore.PreviewArguments(request.PixelGrainEncodeArguments,request.PixelGrainFullFilter,request.PixelGrainCleanFilter,pair);
                 PixelGrainStrengthCore.StampPreviewColor(args,request.PixelGrainHdr,media);
@@ -222,7 +260,7 @@ namespace FilmGrainStudioPreview
                     first=FindPreviewStartFrame(File.ReadAllBytes(scan));if(first<0)first=0;
                 }
                 Run(ffmpeg,PixelGrainStrengthCore.FrameArguments(pair,0,PreviewFilter(pairInfo,first),Path.Combine(temporary,"clean%02d.png")));
-                for(int i=0;i<4;i++)Run(ffmpeg,PixelGrainStrengthCore.FrameArguments(pair,strengths[i],PreviewFilter(pairInfo,first),Path.Combine(temporary,"variant"+i+"_%02d.png")));
+                for(int i=0;i<4;i++){ReportProgress(T("正在生成颗粒强度 ","Rendering grain strength ")+strengths[i]+"%…");Run(ffmpeg,PixelGrainStrengthCore.FrameArguments(pair,strengths[i],PreviewFilter(pairInfo,first),Path.Combine(temporary,"variant"+i+"_%02d.png")));}
 
             }
             finally {BridgeExecutionCore.CleanupTemporaryFiles(request);}
@@ -286,7 +324,7 @@ namespace FilmGrainStudioPreview
         private string Run(string tool,List<string> arguments) {return Run(tool,arguments,null);}
         private string Run(string tool, List<string> arguments,string workingDirectory)
         {
-            if (!File.Exists(tool)) throw new FileNotFoundException("Preview dependency missing", tool);
+            if (!File.Exists(tool)) throw new FileNotFoundException(T("缺少预览依赖程序。","A preview dependency is missing."), tool);
             using (var process = new Process())
             {
                 var command = new StringBuilder(); foreach (string argument in arguments) { if (command.Length > 0) command.Append(' '); command.Append(Quote(argument)); }
@@ -296,7 +334,7 @@ namespace FilmGrainStudioPreview
                 try
                 {
                     var stdout = process.StandardOutput.ReadToEndAsync(); var stderr = process.StandardError.ReadToEndAsync();
-                    if (!process.WaitForExit(120000)) { try { process.Kill(); } catch { } process.WaitForExit(); throw new TimeoutException("Preview process timed out."); }
+                    if (!process.WaitForExit(120000)) { try { process.Kill(); } catch { } process.WaitForExit(); throw new TimeoutException(T("预览生成超时。","The preview process timed out.")); }
                     stdout.Wait(); stderr.Wait();
                     if (closing) throw new OperationCanceledException();
                     if (process.ExitCode != 0) throw new InvalidOperationException(stderr.Result.Length > 0 ? stderr.Result : stdout.Result);

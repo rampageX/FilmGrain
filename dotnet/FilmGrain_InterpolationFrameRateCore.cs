@@ -363,10 +363,6 @@ namespace FilmGrainStudioPreview
             return true;
         }
 
-        // D8P6WK: fixed upstream release, checked by bytes rather than a mutable marker.
-        internal const string OptionsPlugin1Hash = "36258dfa4f1c8f4a3b88a61c0327c2271ec3fc6a107ce0c1e0cb859b23f7fa9d";
-        internal const string OptionsPlugin2Hash = "da82451364b65241b6547b703739e761422d922c45b8f111fcd98f805faf58eb";
-
         internal static string[] ExtraArguments(IDictionary<string,string> state)
         {
             string dedup = ExtraNumber(state,"FG_SVP_DEDUP","0",10);
@@ -402,15 +398,9 @@ namespace FilmGrainStudioPreview
         internal static void ValidateExtraPlugins(string plugins)
         {
             string[] files={"svpflow1_vs.dll","svpflow2_vs.dll"};
-            string[] hashes={OptionsPlugin1Hash,OptionsPlugin2Hash};
-            for(int i=0;i<files.Length;i++) {
-                string path=Path.Combine(plugins,files[i]);
-                if(!File.Exists(path))throw new IOException("OpenSVPFlow new options require nightly-20261011-deadbadae0d9: "+path);
-                using(var sha=System.Security.Cryptography.SHA256.Create())
-                using(var stream=File.OpenRead(path)) {
-                    string actual=BitConverter.ToString(sha.ComputeHash(stream)).Replace("-","").ToLowerInvariant();
-                    if(actual!=hashes[i])throw new IOException("OpenSVPFlow 新选项需要本版配套固定插件 nightly-20261011-deadbadae0d9；当前 DLL 未通过能力门禁。 / New options require the pinned plugin: "+files[i]);
-                }
+            foreach(string file in files) {
+                string path=Path.Combine(plugins,file);
+                if(!File.Exists(path))throw new IOException("OpenSVPFlow 插件文件不存在 / Plugin not found: "+path);
             }
         }
 

@@ -733,24 +733,24 @@ namespace FilmGrainStudioPreview
                 Label encInfo = new ThemeLabel {Location=new Point(28,318),Size=new Size(630,32),ForeColor=ColorMuted,Text=UiText("默认保持原有组合；复制音轨不使用 AAC 码率设置。","Defaults preserve existing combinations; copied tracks ignore AAC bitrate.")};enc.Controls.Add(encInfo);
 
 
-                Label algoLabel = new ThemeLabel(); algoLabel.Text = "SmoothFps Algo"; algoLabel.Location = new Point(18, 18); algoLabel.Size = new Size(150, 24); interp.Controls.Add(algoLabel);
+                Label algoLabel = new ThemeLabel(); algoLabel.Text = UiText("插帧算法", "SmoothFps Algo"); algoLabel.Location = new Point(18, 18); algoLabel.Size = new Size(150, 24); interp.Controls.Add(algoLabel);
                 ComboBox algo = new ThemeComboBox(); algo.DropDownStyle = ComboBoxStyle.DropDownList; algo.Location = new Point(180, 14); algo.Size = new Size(150, 26);
                 foreach (string item in new string[] { "1", "2", "11", "13", "21", "22", "23" }) algo.Items.Add(item);
                 int ai = algo.Items.IndexOf(config.Get("SVP_ALGO")); algo.SelectedIndex = ai >= 0 ? ai : 3; interp.Controls.Add(algo);
-                Label analyseLabel = new ThemeLabel(); analyseLabel.Text = "Analyse Profile"; analyseLabel.Location = new Point(18, 54); analyseLabel.Size = new Size(150, 24); interp.Controls.Add(analyseLabel);
+                Label analyseLabel = new ThemeLabel(); analyseLabel.Text = UiText("分析方案", "Analyse Profile"); analyseLabel.Location = new Point(18, 54); analyseLabel.Size = new Size(150, 24); interp.Controls.Add(analyseLabel);
                 ComboBox analyse = new ThemeComboBox(); analyse.DropDownStyle = ComboBoxStyle.DropDownList; analyse.Location = new Point(180, 50); analyse.Size = new Size(150, 26); analyse.DropDownWidth = 360;
                 analyse.Items.Add(lang.T("advanced.analyse_recommended")); analyse.Items.Add(lang.T("advanced.analyse_baseline")); analyse.SelectedIndex = string.Equals(config.Get("SVP_ANALYSE"), "BASE", StringComparison.OrdinalIgnoreCase) ? 1 : 0; interp.Controls.Add(analyse);
-                Label maskLabel = new ThemeLabel(); maskLabel.Text = "Artifact Mask Area"; maskLabel.Location = new Point(18, 90); maskLabel.Size = new Size(150, 24); interp.Controls.Add(maskLabel);
+                Label maskLabel = new ThemeLabel(); maskLabel.Text = UiText("伪影遮罩范围", "Artifact Mask Area"); maskLabel.Location = new Point(18, 90); maskLabel.Size = new Size(150, 24); interp.Controls.Add(maskLabel);
                 NumericUpDown mask = new ThemeNumericUpDown(); mask.Location = new Point(180, 86); mask.Size = new Size(120, 26); mask.Minimum = 0; mask.Maximum = 100; mask.Increment = 5; mask.Value = Math.Max(mask.Minimum, Math.Min(mask.Maximum, config.GetInt("SVP_MASK_AREA", 100))); interp.Controls.Add(mask);
-                Label speedLabel = new ThemeLabel { Text = "OpenSVPFlow Speed", Location = new Point(18, 126), Size = new Size(155, 24) }; interp.Controls.Add(speedLabel);
+                Label speedLabel = new ThemeLabel { Text = UiText("OpenSVPFlow 速度档位", "OpenSVPFlow Speed"), Location = new Point(18, 126), Size = new Size(155, 24) }; interp.Controls.Add(speedLabel);
                 ComboBox svpSpeed = new ThemeComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(180, 122), Size = new Size(150, 26) };
                 svpSpeed.Items.AddRange(new object[] { "FGS", "medium", "fast", "faster", "fastest" });
                 svpSpeed.SelectedItem = config.Get("SVP_SPEED"); if (svpSpeed.SelectedIndex < 0) svpSpeed.SelectedIndex = 0; interp.Controls.Add(svpSpeed);
-                Label tuningLabel = new ThemeLabel { Text = "OpenSVPFlow Tuning", Location = new Point(18, 162), Size = new Size(155, 24) }; interp.Controls.Add(tuningLabel);
+                Label tuningLabel = new ThemeLabel { Text = UiText("OpenSVPFlow 调校预设", "OpenSVPFlow Tuning"), Location = new Point(18, 162), Size = new Size(155, 24) }; interp.Controls.Add(tuningLabel);
                 ComboBox svpTuning = new ThemeComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(180, 158), Size = new Size(150, 26) };
                 svpTuning.Items.AddRange(new object[] { "FGS", "weak", "film", "smooth", "animation" });
                 svpTuning.SelectedItem = config.Get("SVP_TUNING"); if (svpTuning.SelectedIndex < 0) svpTuning.SelectedIndex = 0; interp.Controls.Add(svpTuning);
-                Label blockLabel = new ThemeLabel { Text = "OpenSVPFlow Block Size", Location = new Point(18, 198), Size = new Size(160, 24) }; interp.Controls.Add(blockLabel);
+                Label blockLabel = new ThemeLabel { Text = UiText("OpenSVPFlow 分块大小", "OpenSVPFlow Block Size"), Location = new Point(18, 198), Size = new Size(160, 24) }; interp.Controls.Add(blockLabel);
                 ComboBox svpBlock = new ThemeComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(180, 194), Size = new Size(150, 26) };
                 svpBlock.Items.AddRange(new object[] { "auto", "8", "16", "32" });
                 svpBlock.SelectedItem = config.Get("SVP_BLOCK_SIZE"); if (svpBlock.SelectedIndex < 0) svpBlock.SelectedIndex = 0; interp.Controls.Add(svpBlock);
@@ -766,6 +766,19 @@ namespace FilmGrainStudioPreview
                 Label frucGridLabel = new ThemeLabel(); frucGridLabel.Text = UiText("FRUC Vulkan 光流网格", "FRUC Vulkan grid"); frucGridLabel.Location = new Point(18, 274); frucGridLabel.Size = new Size(150, 24); interp.Controls.Add(frucGridLabel);
                 ComboBox frucGrid = new ThemeComboBox(); frucGrid.DropDownStyle = ComboBoxStyle.DropDownList; frucGrid.Location = new Point(180, 270); frucGrid.Size = new Size(150, 26);
                 frucGrid.Items.Add("auto"); frucGrid.Items.Add("1"); frucGrid.Items.Add("2"); frucGrid.Items.Add("4"); frucGrid.Items.Add("8"); int gridIndex = frucGrid.Items.IndexOf(config.Get("FRUC_GRID").ToLowerInvariant()); frucGrid.SelectedIndex = gridIndex >= 0 ? gridIndex : 0; interp.Controls.Add(frucGrid);
+                // Localize only the displayed text. SelectedItem remains the original
+                // upstream token, so config/GUI/CLI parameters never receive translations.
+                var interpolationNames = new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase) {
+                    {"auto","自动"},{"slow","慢速"},{"medium","中等"},{"fast","快速"},
+                    {"faster","更快"},{"fastest","最快"},{"film","电影"},{"smooth","流畅"},{"animation","动画"}
+                };
+                foreach(ComboBox choice in new ComboBox[]{svpSpeed,svpTuning,svpBlock,frucPerf,frucGrid}) {
+                    choice.Format+=delegate(object sender,ListControlConvertEventArgs e) {
+                        string translated;
+                        if(string.Equals(lang.Code,"zh-CN",StringComparison.OrdinalIgnoreCase) && interpolationNames.TryGetValue(Convert.ToString(e.ListItem,CultureInfo.InvariantCulture),out translated))e.Value=translated;
+                    };
+                    choice.FormattingEnabled=true;
+                }
                 Button updateSvp = new ThemeButton { Text = UiText("更新 OpenSVPFlow 插件", "Update OpenSVPFlow plugins"), Location = new Point(22, 406), Size = new Size(235, 30) };
                 updateSvp.Click += delegate { StartNativeSvpUpdate(dlg); }; dlg.Controls.Add(updateSvp);
 
@@ -777,7 +790,7 @@ namespace FilmGrainStudioPreview
                 Action<string,int> extraLabel = delegate(string text,int y) { interp.Controls.Add(new ThemeLabel { Text=text,Location=new Point(360,y+4),Size=new Size(195,24) }); };
                 extraLabel(UiText("重复帧阈值（0 = 关闭）","Dedup threshold (0 = off)"),18);
                 NumericUpDown dedup=extraNumber("SVP_DEDUP",0,10,18);
-                CheckBox still = new ThemeCheckBox { Text=UiText("保护静止文字 / Logo","Protect still text / logos"),Checked=config.GetBool("SVP_STILL"),Location=new Point(360,58),Size=new Size(310,26) };interp.Controls.Add(still);
+                CheckBox still = new ThemeCheckBox { Text=UiText("保护静止文字 / 标识","Protect still text / logos"),Checked=config.GetBool("SVP_STILL"),Location=new Point(360,58),Size=new Size(310,26) };interp.Controls.Add(still);
                 extraLabel("Still limit",90);NumericUpDown stillLimit=extraNumber("SVP_STILL_LIMIT",4.5m,100,90);
                 extraLabel("Still edge",122);NumericUpDown stillEdge=extraNumber("SVP_STILL_EDGE",5,100,122);
                 extraLabel("Still tolerance",154);NumericUpDown stillTolerance=extraNumber("SVP_STILL_TOLERANCE",30,100,154);
@@ -787,7 +800,7 @@ namespace FilmGrainStudioPreview
                 still.CheckedChanged+=refreshExtra;peel.CheckedChanged+=refreshExtra;refreshExtra(null,EventArgs.Empty);
                 Label extraInfo = new ThemeLabel { Text=UiText("默认全部关闭；dedup 建议从 0.5 开始。\nStill / Peel 仅 GPU，需支持这些选项的插件。\nHDR 直通、隔行旁路与 FRUC 不使用这些选项。", "All off by default; start dedup at 0.5.\nStill / Peel: GPU and compatible plugins required.\nNot used with HDR Preserve, interlaced bypass or FRUC."),Location=new Point(360,266),Size=new Size(310,80),ForeColor=ColorMuted };interp.Controls.Add(extraInfo);
                 interpTips.SetToolTip(dedup,UiText("仅处理孤立重复帧；亮度采样平均差低于阈值才算重复，不是VFR或音画同步修复。", "Handles isolated repeats using sampled mean luma difference; not a VFR or audio sync repair."));
-                interpTips.SetToolTip(still,UiText("上游 GPU 静止遮罩，帮助减少固定文字和Logo拖影。", "Upstream GPU still mask for stationary text and logos."));
+                interpTips.SetToolTip(still,UiText("上游 GPU 静止遮罩，帮助减少固定文字和标识的拖影。", "Upstream GPU still mask for stationary text and logos."));
                 interpTips.SetToolTip(peel,UiText("上游 GPU HUD 剥离/重合成；先单独测试，再测试与Still的组合。", "Upstream GPU HUD peeling; test separately before combining with Still."));
 
                 Label hdrLabel = new ThemeLabel(); hdrLabel.Text = lang.T("advanced.hdr_policy"); hdrLabel.Location = new Point(28, 34); hdrLabel.Size = new Size(150, 24); hdr.Controls.Add(hdrLabel);
@@ -821,10 +834,10 @@ namespace FilmGrainStudioPreview
                 setInterpTip(algo, algoLabel, UiText("SmoothFps 插帧算法，默认 13。算法与 Speed/Tuning 独立生效。", "SmoothFps interpolation algorithm; default 13. Independent of Speed/Tuning."));
                 setInterpTip(analyse, analyseLabel, UiText("EncodeGUI 为推荐分析配置。BASE 仅支持 Speed=FGS、Tuning=FGS、Block Size=auto；选择新预设时使用 EncodeGUI。", "EncodeGUI is the recommended analysis profile. BASE requires Speed=FGS, Tuning=FGS and Block Size=auto; new presets use EncodeGUI."));
                 setInterpTip(mask, maskLabel, UiText("伪影遮罩面积，范围 0–100，默认 100。控制 SmoothFps 的 mask.area。", "Artifact mask area: 0–100, default 100. Sets SmoothFps mask.area."));
-                setInterpTip(svpSpeed, speedLabel, UiText("FGS 默认保留现有搜索成本；medium/fast/faster/fastest 调整精度、块重叠与 refine。实际速度和画质取决于样本。", "FGS preserves existing search cost. medium/fast/faster/fastest adjust precision, block overlap and refinement; speed and quality depend on the clip."));
-                setInterpTip(svpTuning, tuningLabel, UiText("FGS 保留现有调校；weak 调整运动搜索并在正常场景模式启用切镜混合；animation 使用动画搜索配置；film/smooth 当前同义。", "FGS preserves existing tuning. weak changes motion search and enables scene blending in normal scene mode; animation uses animation search; film/smooth are aliases."));
-                setInterpTip(svpBlock, blockLabel, UiText("auto 随 Speed/Tuning 自动选块；8/16/32 指定分析块尺寸。三个新选项默认 FGS/FGS/auto 保持现有参数。", "auto chooses block size from Speed/Tuning; 8/16/32 select it explicitly. FGS/FGS/auto preserves existing parameters."));
-                setInterpTip(frucPerf, frucPerfLabel, UiText("perf 控制光流估计：slow 优先质量，medium 平衡，fast 优先速度。FGS 默认 medium；上游默认可能不同。效果与耗时须用同一视频比较。", "perf trades motion-estimation quality for speed: slow / medium / fast. FGS defaults to medium; upstream defaults can differ. Compare using the same video."));
+                setInterpTip(svpSpeed, speedLabel, UiText("FGS 默认保留现有搜索成本；中等、快速、更快、最快调整精度、块重叠与细化。实际速度和画质取决于样本。", "FGS preserves existing search cost. medium/fast/faster/fastest adjust precision, block overlap and refinement; speed and quality depend on the clip."));
+                setInterpTip(svpTuning, tuningLabel, UiText("FGS 保留现有调校；weak 调整运动搜索并在正常场景模式启用切镜混合；动画使用动画搜索配置；电影与流畅当前同义。", "FGS preserves existing tuning. weak changes motion search and enables scene blending in normal scene mode; animation uses animation search; film/smooth are aliases."));
+                setInterpTip(svpBlock, blockLabel, UiText("自动随速度档位和调校预设选块；8/16/32 指定分析块尺寸。三个新选项默认 FGS/FGS/auto 保持现有参数。", "auto chooses block size from Speed/Tuning; 8/16/32 select it explicitly. FGS/FGS/auto preserves existing parameters."));
+                setInterpTip(frucPerf, frucPerfLabel, UiText("性能档位控制光流估计：慢速优先质量，中等平衡，快速优先速度。FGS 默认中等；上游默认可能不同。效果与耗时须用同一视频比较。", "perf trades motion-estimation quality for speed: slow / medium / fast. FGS defaults to medium; upstream defaults can differ. Compare using the same video."));
                 setInterpTip(frucGrid, frucGridLabel, UiText("grid 是光流网格尺寸（像素）。当前上游 auto 选设备支持的最细网格，通常为 1；不是速度优先。较粗网格减少向量和内存，但损失细节。仅设备支持的尺寸可用；以实际构建日志为准。", "grid is the optical-flow grid size in pixels. Current upstream auto chooses the finest supported grid, usually 1, rather than fastest. Coarser grids use fewer vectors and less memory but lose detail. Support and selection depend on the actual build/device."));
 
                 ok.Click += delegate

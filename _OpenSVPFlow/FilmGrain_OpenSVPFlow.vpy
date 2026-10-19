@@ -1,7 +1,6 @@
 import os
 import sys
 import math
-import hashlib
 import vapoursynth as vs
 
 core = vs.core
@@ -158,15 +157,6 @@ if not os.path.isfile(svp1_path):
     raise vs.Error(f"Plugin not found: {svp1_path}")
 if not os.path.isfile(svp2_path):
     raise vs.Error(f"Plugin not found: {svp2_path}")
-
-if dedup_value > 0 or still_value or peel_value:
-    expected = [(svp1_path, "36258dfa4f1c8f4a3b88a61c0327c2271ec3fc6a107ce0c1e0cb859b23f7fa9d"),
-                (svp2_path, "da82451364b65241b6547b703739e761422d922c45b8f111fcd98f805faf58eb")]
-    for path, digest in expected:
-        with open(path, "rb") as stream:
-            actual = hashlib.sha256(stream.read()).hexdigest()
-        if actual != digest:
-            raise vs.Error("New OpenSVPFlow options require pinned nightly-20261011-deadbadae0d9")
 
 core.std.LoadPlugin(svp1_path)
 core.std.LoadPlugin(svp2_path)

@@ -59,6 +59,7 @@ $RequiredPackageFiles = @(
     'dotnet\FilmGrain_NativeX264DigitalGrainCore.cs',
     'dotnet\FilmGrain_NetworkProxyCore.cs',
     'dotnet\FilmGrain_SettingsDialogs.cs',
+    'dotnet\FilmGrain_ResourceMonitor.cs',
     'dotnet\FilmGrain_SetupPhase1.cs',
     'dotnet\FilmGrain_SharedHdrPreprocessCore.cs',
     'dotnet\FilmGrain_SharedPipeTimelineCore.cs',

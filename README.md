@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.0.11 · Stable · .NET Native-only。** AV1、HEVC、x264使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.12 · Stable · .NET Native-only。** AV1、HEVC、x264使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
 
@@ -26,6 +26,10 @@ Film Grain Studio 的目标不是只提供一种“加颗粒”方法，而是�
 | **H.264 x264 Grain** | 真实扫描 Grain Plate、Digital Grain、GPU Film Grain (FGSIM) | libx264；启用颗粒时附加 `tune grain` |
 
 默认配置为 **AV1 Main10 + MP4 + AAC 256k**。
+
+主界面提供整机 CPU、GPU、物理内存及专用显存监控。GPU 优先显示当前监控显卡的 Windows 最忙引擎占用；悬停可查看设备名称和统计来源，`GPU*` 表示已回退 NVIDIA NVML 口径，与任务管理器可能存在差异。
+
+颗粒四档预览打开后自动随机选点生成画面，也可通过时间轴或精确时间重新选择片段；按当前界面语言显示，并可点击档位应用颗粒强度。
 
 ### 高级编码：音频与 NVENC Multipass
 
@@ -655,7 +659,7 @@ HEVC/x264 已覆盖路线使用 VSPipe Y4M → FFmpeg 管道，AV1 使用共享 
 
 所有新选项默认关闭，保留既有插帧参数。dedup 不重建逐帧时间戳，不是 VFR 或音画同步修复；也不能处理任意连续重复帧。当前脚本输入为 YUV420P8，采用普通 SmoothFps/OpenCL；HDR 直通、隔行旁路及 FRUC 保持原有行为。
 
-本版配套插件为 `nightly-20261011-deadbadae0d9`。启用新选项需要两枚 DLL 通过固定哈希门禁；旧版或不同构建会明确报错。插件更新按钮仍可更新插件，但不同构建不能据版本日期推断新选项可用，须重新确认能力。建议先分别启用选项比较效果，再组合使用。
+原配套插件为 `nightly-20261011-deadbadae0d9`，现已取消新选项对固定 DLL 哈希的限制，可使用其它构建或更新插件。仍检查插件文件是否存在；插件加载或参数不兼容时，由实际运行返回错误。建议先分别启用选项比较效果，再组合使用。
 
 ### FRUC Vulkan
 

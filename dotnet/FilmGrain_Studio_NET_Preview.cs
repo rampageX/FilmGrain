@@ -106,8 +106,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.11";
-        internal const string FileReleaseVersion = "5.0.11.0";
+        internal const string ReleaseVersion = "5.0.12";
+        internal const string FileReleaseVersion = "5.0.12.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -969,7 +969,9 @@ namespace FilmGrainStudioPreview
             lblUploadX264Settings.Padding = new Padding(3, 0, 0, 0);
             t.Controls.Add(lblUploadX264Settings, 0, 12); t.SetColumnSpan(lblUploadX264Settings, 2);
             t.Controls.Add(btnSubtitle, 0, 13); t.SetColumnSpan(btnSubtitle, 2);
-            t.Controls.Add(lblFrameHelp, 0, 14); t.SetColumnSpan(lblFrameHelp, 2);
+            var resourceMonitor = new ResourceMonitorPanel(UiText("内存", "RAM"), UiText("显存", "VRAM"));
+            resourceMonitor.Font = UiFont(8f, FontStyle.Regular);
+            t.Controls.Add(resourceMonitor, 0, 14); t.SetColumnSpan(resourceMonitor, 2); t.SetRowSpan(resourceMonitor, 2);
 
             cmbCodec.SelectedIndexChanged += delegate
             {
@@ -3802,7 +3804,7 @@ namespace FilmGrainStudioPreview
                 if (!IsGrainEnabled()) {MessageBox.Show(this,UiText("请先启用颗粒。","Enable grain first."));return;}
                 string error;var pixelState=BuildBridgeEnvironment(out error);
                 if(pixelState==null){MessageBox.Show(this,error);return;}
-                using(var window=new NativeGrainPreviewForm(Path.Combine(config.Get("FFMPEG_DIR"),"ffmpeg.exe"),appRoot,input,pixelState,hardwareCaps,info))
+                using(var window=new NativeGrainPreviewForm(Path.Combine(config.Get("FFMPEG_DIR"),"ffmpeg.exe"),appRoot,input,pixelState,hardwareCaps,info,lang.Code))
                 {window.ShowDialog(this);if(window.SelectedStrength>0 && pixelStrengthControl!=null)pixelStrengthControl.Value=window.SelectedStrength;}
                 return;
             }
@@ -3818,7 +3820,7 @@ namespace FilmGrainStudioPreview
             var args = new List<string>(); string tag, reason;
             string mode = new string[] { "PRESET", "ISO", "TABLE" }[cmbGrainMode.SelectedIndex];
             if (!NativeAv1GrainReplaceCore.TryBuildGrainArgs(mode, state, args, out tag, out reason)) { MessageBox.Show(this, reason); return; }
-            using (var window = new NativeGrainPreviewForm(Path.Combine(config.Get("FFMPEG_DIR"), "ffmpeg.exe"), config.Get("GRAV1SYNTH"), input, args, info))
+            using (var window = new NativeGrainPreviewForm(Path.Combine(config.Get("FFMPEG_DIR"), "ffmpeg.exe"), config.Get("GRAV1SYNTH"), input, args, info, lang.Code))
             {
                 window.ShowDialog(this);
                 if (window.SelectedStrength > 0 && av1StrengthControl != null) av1StrengthControl.Value = window.SelectedStrength;
