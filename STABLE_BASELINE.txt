@@ -1,12 +1,12 @@
 Film Grain Studio formal stable baseline
 
 Baseline:
-v5.0.14
+v5.0.15
 Supersedes:
-v5.0.13
+v5.0.14
 
 Formal release:
-FilmGrain_Studio_v5.0.14_Stable.zip
+FilmGrain_Studio_v5.0.15_Stable.zip
 
 Application runtime: .NET Native-only. Legacy tools archived and independent.
 Acceptance applies only to explicitly tested combinations, not every container/timestamp/clip/hardware combination.
@@ -18,6 +18,7 @@ v4.8.26: baseline measurement 42 cases x3=126 executions; 66 pre-encode hash/PTS
 v4.8.26: user manual picture/A-V sync spot checks passed; measured 4K SDR/50% wall time reduced approximately29-51% on RTX4080/FFmpeg9.0.2. Results do not cover every strength, hardware or filter combination.
 v4.8.27:212 PASS/0 FAIL/0 SKIP, including12 real preview tasks and180 full-variant PNG comparisons across3 rounds (1440 matching PNG pairs). User manual SDR/HDR preview spot checks passed. Prior synthetic HDR input gap closed with22 PASS including8 real encodes; old failed reports retained.
 v5.0.00: .NET native milestone based on published4.8.27. EXE ProductName/FileDescription=FilmGrain Studio; file/fixed numeric/assembly version5.0.0.0; product version string5.0.00. Build gate requires matching managed attributes and native VERSIONINFO. Video behavior remains the accepted4.8.27 implementation.
+v5.0.15: RTX4080 HDR merge integration 110/110 checks passed across10 encode cases;17 logic checks passed. Actual old/new pre-encode SHA256 matched for all486 PQ frames. PQ/HLG GPU,CPU Mobius,LUT/color/subtitles/framing,preview,legacy grain,HDR Preserve and upload were tested. User picture comparison passed. Timings include validation/hash overhead and are not a pure encoding speed comparison.
 Root and compatible executables are rebuilt from the same committed C# source with Stable label.
 Shared Lang, SVP vpy/plugins, FGSIM template/texture and original grain tables remain in their shared locations.
 Exclude local configuration, caches, private environments, downloads, generated hooks, logs, Tests_Shared and test-delivery markers.

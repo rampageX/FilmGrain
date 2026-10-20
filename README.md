@@ -1,6 +1,6 @@
 ﻿# Film Grain Studio
 
-> **Film Grain Studio v5.0.14 · Stable · .NET Native-only。** AV1、HEVC、x264使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.15 · Stable · .NET Native-only。** AV1、HEVC、x264使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
 
@@ -526,6 +526,8 @@ CQ 不是默认模式，而是针对色带问题的可选解决方案。界面�
 ## HDR Preserve / HDR→SDR
 
 FGS 会根据 FFprobe 结果识别 HDR10/PQ 或 HLG。HEVC Main10 与 AV1 Main10 的 HDR Preserve 路线会尽量保持源视频已有的 HDR 信号，而不是人为伪造源中不存在的 mastering metadata。
+
+逐行、关闭颗粒与插帧的 HEVC HDR→SDR 任务，会在同一编码进程完成 HDR 转换、调色、LUT、画幅和字幕，减少中间视频读写。Hable 优先使用 Vulkan/libplacebo，能力不足时回退原 CPU 算法；手选其它算法保持原值。颗粒、插帧、隔行和 HDR 保留组合沿用各自处理路径。
 
 当前保持与验证的项目包括：
 

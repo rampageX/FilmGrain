@@ -633,7 +633,8 @@ namespace FilmGrainStudioPreview
 
                 int uploadPassCount = upload ? (uploadPass == "VBR1" ? 1 : uploadPass == "3PASS" ? 3 : 2) : 0;
 
-                bool needsHdrWorkfile = hdrToSdr && (!skipMain || plateMode);
+                bool mergedHdr = SharedHdrPreprocessCore.CanMergeHevc(hdrToSdr,grainEnabled,interpolate,info.IsInterlaced,skipMain);
+                bool needsHdrWorkfile = hdrToSdr && !mergedHdr && (!skipMain || plateMode);
 
                 bool needsFieldWorkfile = separateDeint && (!skipMain || plateMode);
 
@@ -680,7 +681,12 @@ namespace FilmGrainStudioPreview
 
                         if(fieldWorkfile || separateDeint || hdrOffSdr)SharedHdrPreprocessCore.AttachFieldTimeline(mainStage,ffprobe,encodeInput,info,hdrToSdr,!hdrOffSdr);
 
-                        if (!grainEnabled && !interpolate && !(fieldWorkfile || separateDeint || hdrOffSdr))
+                        if (mergedHdr)
+                        {
+                            mainStage.StageText = "HEVC：HDR 转 SDR / 调色 / LUT / 编码";
+                            SharedHdrPreprocessCore.AttachMergedHevc(mainStage,ffprobe,input,info,tonemap,caps.GpuName);
+                        }
+                        else if (!grainEnabled && !interpolate && !(fieldWorkfile || separateDeint || hdrOffSdr))
                             SharedOrdinaryTimelineCore.Attach(mainStage,ffprobe,encodeInput);
                         stages.Add(mainStage);
 

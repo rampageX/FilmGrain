@@ -219,18 +219,7 @@ $ExcludedRecursiveDirectoryNames = @(
     '__pycache__'
 )
 $ExcludedRootDeliveryPatterns = @(
-    'Build_And_Open_Grain_R6M8VP.cmd',
-    'Build_And_Open_LutHint_N7P4VX.cmd',
-    'Build_And_Open_LutReference_P9C4WN.cmd',
-    'Build_And_Open_LutVideo_K8V3LM.cmd',
-    'Build_And_Open_LutZero_V6R2NK.cmd',
-    'Build_And_Open_Lut_T4N7QK.cmd',
-    'GRAIN_CHECK_R6M8VP.md',
-    'LUT_CHECK_T4N7QK.md',
-    'LUT_HINT_N7P4VX.md',
-    'LUT_REFERENCE_P9C4WN.md',
-    'LUT_VIDEO_K8V3LM.md',
-    'LUT_ZERO_V6R2NK.md',
+    'Start_HDRMerge_Auto_*.cmd',
     'PatchManifest_*.json',
     'PATCH_MANIFEST_*.json',
     'TEST_BUILD_*.txt',

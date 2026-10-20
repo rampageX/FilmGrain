@@ -37,7 +37,7 @@ namespace FilmGrainStudioPreview
                 return (string.IsNullOrEmpty(prior)?"":prior+"\n")+notice;
             };
         }
-        internal static List<string> BuildGpuArguments(IList<string> cpu)
+        internal static List<string> BuildGpuArguments(IList<string> cpu,string vulkanDevice = "0")
         {
             var args=new List<string>(cpu);
             int vf=args.IndexOf("-vf"),input=args.IndexOf("-i");
@@ -51,10 +51,10 @@ namespace FilmGrainStudioPreview
             string sourceTags="setparams=range="+source.Groups[1].Value+":color_primaries="+source.Groups[2].Value+":color_trc="+source.Groups[3].Value+":colorspace="+source.Groups[4].Value+",";
             args[vf+1]=sourceTags+deint+"format=p010le,hwupload,libplacebo=tonemapping=hable:peak_detect=1:colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv:format=p010le:contrast_recovery=0:gamut_mode=clip,hwdownload,format=p010le,"+filter.Substring(clean);
             // A Vulkan deinterlace stage already supplies a filter device; reuse it.
-            if(!args.Contains("-filter_hw_device"))args.InsertRange(input,new[]{"-init_hw_device","vulkan=hdrvk:0","-filter_hw_device","hdrvk"});
+            if(!args.Contains("-filter_hw_device"))args.InsertRange(input,new[]{"-init_hw_device","vulkan=hdrvk:"+vulkanDevice,"-filter_hw_device","hdrvk"});
             return args;
         }
-        internal static List<string> SelectAutomatic(string ffmpeg,IList<string> cpu,string tonemap,out string notice)
+        internal static List<string> SelectAutomatic(string ffmpeg,IList<string> cpu,string tonemap,out string notice,string vulkanDevice = "0",SharedFrucCore.ProbeRunner runner = null)
         {
             if(!string.Equals(tonemap,"hable",StringComparison.OrdinalIgnoreCase))
             {
@@ -62,7 +62,7 @@ namespace FilmGrainStudioPreview
                 return new List<string>(cpu);
             }
             // Command construction errors are programming errors, not missing GPU support.
-            var gpu=BuildGpuArguments(cpu);
+            var gpu=BuildGpuArguments(cpu,vulkanDevice);
             var probe=new List<string>{"-hide_banner","-nostdin","-loglevel","verbose"};
             foreach(string option in new[]{"-init_hw_device","-filter_hw_device"})
                 for(int i=0;i+1<gpu.Count;i++)if(gpu[i]==option)probe.AddRange(new[]{option,gpu[i+1]});
@@ -70,7 +70,8 @@ namespace FilmGrainStudioPreview
                 "-frames:v","3","-an","-sn","-dn","-c:v","hevc_nvenc","-profile:v","main10","-pix_fmt","p010le",
                 "-preset","p4","-tune","lossless","-fps_mode","passthrough","-f","null","-"});
             string output,reason;
-            bool supported=SharedFrucCore.Run(ffmpeg,SharedFrucCore.JoinArguments(probe),30000,out output,out reason);
+            if(runner==null)runner=SharedFrucCore.Run;
+            bool supported=runner(ffmpeg,SharedFrucCore.JoinArguments(probe),30000,out output,out reason);
             bool software=false;
             foreach(string line in output.Split(new[]{'\r','\n'},StringSplitOptions.RemoveEmptyEntries))
             {
@@ -87,6 +88,48 @@ namespace FilmGrainStudioPreview
             // Include the diagnostic output, bounded by the existing process helper (64 KiB).
             notice="[HDR preprocess] CPU fallback: GPU capability check unavailable or failed.\n"+detail;
             return new List<string>(cpu);
+        }
+
+        // A single-input progressive HEVC encode can consume HDR directly. Color/LUT,
+        // framing and subtitles remain downstream of the exact shared SDR conversion.
+        internal static bool CanMergeHevc(bool hdrToSdr,bool grain,bool interpolation,bool interlaced,bool skipMain)
+        { return hdrToSdr && !grain && !interpolation && !interlaced && !skipMain; }
+
+        internal static List<string> MergeHevcArguments(IList<string> original,IList<string> hdr)
+        {
+            var args=new List<string>(original);
+            int graph=args.IndexOf("-filter_complex"),vf=IndexOf(hdr,"-vf"),input=args.IndexOf("-i");
+            if(graph<0 || graph+1>=args.Count || vf<0 || vf+1>=hdr.Count || input<0 ||
+                !args[graph+1].StartsWith("[0:v:0]",StringComparison.Ordinal))
+                throw new InvalidOperationException("HDR merge input/filter layout changed");
+            if(args.Contains("-filter_hw_device"))throw new InvalidOperationException("HDR merge already has a filter device");
+            args[graph+1]="[0:v:0]"+hdr[vf+1]+","+args[graph+1].Substring("[0:v:0]".Length);
+            var devices=new List<string>();
+            foreach(string option in new[]{"-init_hw_device","-filter_hw_device"})
+                for(int i=0;i+1<hdr.Count;i++)if(hdr[i]==option)devices.AddRange(new[]{option,hdr[i+1]});
+            if(devices.Count>0)args.InsertRange(input,devices);
+            args.InsertRange(args.Count-1,new[]{"-color_range","tv","-color_primaries","bt709","-color_trc","bt709","-colorspace","bt709"});
+            return args;
+        }
+        static int IndexOf(IList<string> args,string value){for(int i=0;i<args.Count;i++)if(args[i]==value)return i;return -1;}
+
+        internal static void AttachMergedHevc(BridgeExecutionStage stage,string ffprobe,string input,MediaProbeInfo info,string tonemap,string gpuName)
+        {
+            if(stage.BeforeRunPreparation!=null)throw new InvalidOperationException("HDR merge preparation already attached");
+            var frozen=new List<string>(stage.OriginalArguments);
+            // No workfile is created: reuse the shared filter builders and their worker-side probe/fallback.
+            var cpu=BuildToSdr(input,"unused-inline-hdr.mkv",info,tonemap,false);
+            string device=string.IsNullOrWhiteSpace(gpuName)?"0":gpuName;
+            stage.BeforeRunPreparation=delegate {
+                string notice;
+                var selected=SelectAutomatic(stage.ToolPath,cpu,tonemap,out notice,device);
+                var merged=MergeHevcArguments(frozen,selected);
+                var time=SharedFrucCore.ProbeTimeline(ffprobe,input);
+                merged=SharedOrdinaryTimelineCore.Build(merged,input,time.CommonOrigin,time.VideoDelay);
+                stage.DirectArguments=SharedFrucCore.JoinArguments(merged);
+                return "[HDR merged HEVC] 单次 HDR 转 SDR / 调色 / LUT / 编码；不生成 HDR 中间文件。\n"+notice+
+                    "\n[Native ordinary timeline] source_common="+Number(time.CommonOrigin)+" video_delay="+Number(time.VideoDelay);
+            };
         }
 
         // A dedicated process owns the deinterlace device; the grain process uploads anew.
