@@ -1,6 +1,6 @@
 ﻿# Film Grain Studio — Windows 构建
 
-当前发布目标为 v5.0.16 / Stable。产品版本为 5.0.16，文件和程序集版本为 5.0.16.0；由 `.github/release/sync_native_version.ps1` 同步。
+当前发布目标为 v5.0.17 / Stable。产品版本为 5.0.17，文件和程序集版本为 5.0.17.0；由 `.github/release/sync_native_version.ps1` 同步。
 
 ## 本机构建
 
@@ -18,7 +18,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File dotnet\BuildTools\Test_UI_St
 
 ## 正式发布
 
-先运行 `release.bat --dry-run 5.0.16`，通过后运行 `release.bat 5.0.16`。本机和 Windows runner 共用 `.github/release/build_release.ps1` 与 `release_layout.ps1`，从源码重建、审计并校验版本资源。准备包和 Dry Run 均不代表已经发布。
+先运行 `release.bat --dry-run 5.0.17`，通过后运行 `release.bat 5.0.17`。本机和 Windows runner 共用 `.github/release/build_release.ps1` 与 `release_layout.ps1`，从源码重建、审计并校验版本资源。准备包和 Dry Run 均不代表已经发布。
 
 ## 编译基线与 API 审计
 

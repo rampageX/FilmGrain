@@ -95,7 +95,17 @@ namespace FilmGrainStudioPreview
 
             try
             {
-                executionCore.Start(task.ExecutionRequest);
+                lock (sync)
+                {
+                    // Running notifications may synchronously cancel or dispose the coordinator.
+                    if (disposed || state == BridgeTaskState.Cancelling)
+                    {
+                        BridgeExecutionCore.CleanupTemporaryFiles(task.ExecutionRequest);
+                        OnExecutionCompleted(this, new BridgeExecutionCompletedEventArgs(new BridgeExecutionResult(-1, true, null)));
+                        return;
+                    }
+                    executionCore.Start(task.ExecutionRequest);
+                }
             }
             catch
             {
@@ -188,7 +198,15 @@ namespace FilmGrainStudioPreview
                 {
                     activeTask = pending.Dequeue();
                     RaiseStateChanged(BridgeTaskState.Running, activeTask);
-                    try { executionCore.Start(activeTask.ExecutionRequest); return; }
+                    try
+                    {
+                        if (disposed || state == BridgeTaskState.Cancelling)
+                        {
+                            BridgeExecutionCore.CleanupTemporaryFiles(activeTask == null ? null : activeTask.ExecutionRequest);
+                            result = new BridgeExecutionResult(-1, true, null);
+                        }
+                        else { executionCore.Start(activeTask.ExecutionRequest); return; }
+                    }
                     catch (Exception ex)
                     {
                         BridgeExecutionCore.CleanupTemporaryFiles(activeTask.ExecutionRequest);

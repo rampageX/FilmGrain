@@ -13,6 +13,17 @@ using System.Web.Script.Serialization;
 
 namespace FilmGrainStudioPreview
 {
+    internal static class NvencAqUiPolicy
+    {
+        internal static bool IsEnabled(bool ready, HardwareCapabilitySnapshot caps, bool temporal)
+        {
+            if (!ready || caps == null) return true;
+            return (caps.Av1Available && (temporal ? caps.Av1TemporalAq : caps.Av1SpatialAq)) ||
+                (caps.HevcAvailable && (temporal ? caps.HevcTemporalAq : caps.HevcSpatialAq)) ||
+                (caps.H264Available && (temporal ? caps.H264TemporalAq : caps.H264SpatialAq));
+        }
+    }
+
     internal sealed partial class MainForm
     {
         
@@ -666,7 +677,7 @@ namespace FilmGrainStudioPreview
                 return UiText("FGS 推荐：4 个 B 帧；编码器不支持时不强制设置 B 帧。手动设为 0 或 1 时不启用 B 参考帧；不支持的手动值会停止任务。", "FGS recommended: 4 B frames; no B-frame override if unsupported. Manual 0 or 1 disables B references; unsupported manual values stop the task.");
             if (key.EndsWith("BREF_MODE", StringComparison.Ordinal))
                 return UiText("FGS 推荐：middle（中间 B 帧作参考），需要该编码器同时支持 B 帧和 B 参考。B 帧少于 2 时不启用 B 参考；不支持的手动值会停止任务。", "FGS recommended: middle (middle B frame as reference), when both B frames and B references are supported. Fewer than 2 B frames disable B references; unsupported manual values stop the task.");
-            return UiText("FGS 推荐 Lookahead：快速 16 帧、标准 27 帧、高动态 32 帧（高动态优先）。编码器不支持时不强制设置。手动 0 表示关闭；不支持的手动值会停止任务。", "FGS recommended Lookahead: Fast 16 frames, Standard 27 frames, high motion 32 frames (takes priority). No override if unsupported. Manual 0 disables it; unsupported manual values stop the task.");
+            return UiText("FGS 推荐 Lookahead：快速 16 帧、标准 27 帧、高动态 32 帧（高动态优先）。编码器不支持时不强制设置。手动 0 表示关闭；数值是请求深度，不代表硬件已完整生效。NVIDIA SDK 13.1 普通 Lookahead 文档限制为 31 减 B 帧数（4 个 B 帧时为 27）；FFmpeg 还可能按缓冲/延迟裁剪。32 必须结合具体编码器、B 帧与实际日志验证，不是已确认的 4080 上限。x264 不使用这些 NVENC 设置。", "FGS recommended Lookahead: Fast 16 frames, Standard 27 frames, high motion 32 frames (takes priority). No override if unsupported. Manual 0 disables it. Values are requested depths, not guaranteed effective depths. NVIDIA SDK 13.1 documents ordinary lookahead as 31 minus B-frame count (27 with 4 B frames). FFmpeg may also clip for surfaces/delay. Validate 32 per encoder/B-frame combination and logs; it is not a verified RTX 4080 maximum. x264 does not use these NVENC controls.");
         }
 
         private void ShowAdvancedSettingsDialog()
@@ -709,8 +720,8 @@ namespace FilmGrainStudioPreview
                 Label aqLabel = new ThemeLabel(); aqLabel.Text = lang.T("advanced.hevc_spatial_aq"); aqLabel.Location = new Point(28, 138); aqLabel.Size = new Size(150, 24); enc.Controls.Add(aqLabel);
                 ComboBox aq = new ThemeComboBox(); aq.DropDownStyle = ComboBoxStyle.DropDownList; aq.Location = new Point(190, 134); aq.Size = new Size(260, 26);
                 aq.Items.Add(lang.T("advanced.hevc_spatial_off")); aq.Items.Add(lang.T("advanced.hevc_spatial_4")); aq.Items.Add(lang.T("advanced.hevc_spatial_8")); aq.Items.Add(lang.T("advanced.hevc_spatial_10")); aq.Items.Add(lang.T("advanced.hevc_spatial_12")); aq.Items.Add(lang.T("advanced.hevc_spatial_15"));
-                int aqValue = config.GetInt("NVENC_SPATIAL_AQ", 8); aq.SelectedIndex = aqValue == 0 ? 0 : (aqValue == 4 ? 1 : (aqValue == 10 ? 3 : (aqValue == 12 ? 4 : (aqValue == 15 ? 5 : 2)))); aq.Enabled = !hardwareCapsReady || hardwareCaps == null || hardwareCaps.Av1Available || hardwareCaps.HevcAvailable || hardwareCaps.H264Available; enc.Controls.Add(aq);
-                CheckBox temporal = new ThemeCheckBox(); temporal.Text = lang.T("advanced.hevc_temporal_aq"); temporal.Checked = config.GetBool("NVENC_TEMPORAL_AQ"); temporal.Enabled = !hardwareCapsReady || hardwareCaps == null || hardwareCaps.Av1Available || hardwareCaps.HevcAvailable || hardwareCaps.H264Available; temporal.Location = new Point(190, 170); temporal.Size = new Size(260, 26); enc.Controls.Add(temporal);
+                int aqValue = config.GetInt("NVENC_SPATIAL_AQ", 8); aq.SelectedIndex = aqValue == 0 ? 0 : (aqValue == 4 ? 1 : (aqValue == 10 ? 3 : (aqValue == 12 ? 4 : (aqValue == 15 ? 5 : 2)))); aq.Enabled = NvencAqUiPolicy.IsEnabled(hardwareCapsReady, hardwareCaps, false);aq.Name="NVENC_SPATIAL_AQ"; enc.Controls.Add(aq);
+                CheckBox temporal = new ThemeCheckBox(); temporal.Text = lang.T("advanced.hevc_temporal_aq"); temporal.Checked = config.GetBool("NVENC_TEMPORAL_AQ"); temporal.Enabled = NvencAqUiPolicy.IsEnabled(hardwareCapsReady, hardwareCaps, true);temporal.Name="NVENC_TEMPORAL_AQ"; temporal.Location = new Point(190, 170); temporal.Size = new Size(260, 26); enc.Controls.Add(temporal);
                 var audioModes=new[]{"FGS","SMART","COPY","AAC"};
                 var audioRates=new[]{"SOURCE","128","160","192","256","320"};
                 var multipassValues=new[]{"FGS","DISABLED","QRES","FULLRES"};
@@ -728,6 +739,11 @@ namespace FilmGrainStudioPreview
                 av1Multipass.SelectedIndex=Math.Max(0,Array.IndexOf(multipassValues,config.Get("AV1_MULTIPASS").ToUpperInvariant()));hevcMultipass.SelectedIndex=Math.Max(0,Array.IndexOf(multipassValues,config.Get("HEVC_MULTIPASS").ToUpperInvariant()));
                 enc.Controls.AddRange(new Control[]{new ThemeLabel{Text=UiText("音频处理","Audio policy"),Location=new Point(28,208),Size=new Size(155,24)},audioMode,new ThemeLabel{Text=UiText("AAC 音频码率","AAC bitrate"),Location=new Point(28,246),Size=new Size(155,24)},audioRate,new ThemeLabel{Text="AV1 Multipass",Location=new Point(28,322),Size=new Size(115,24)},av1Multipass,new ThemeLabel{Text="HEVC Multipass",Location=new Point(335,322),Size=new Size(115,24)},hevcMultipass});
                 var encodingTip=new ToolTip();dlg.Disposed+=delegate{encodingTip.Dispose();};
+                string spatialTip=UiText("FGS 默认强度：8；0 关闭 Spatial AQ。此设置供 AV1 / HEVC / H.264 NVENC 主编码线共享，逐编码器检查 Spatial AQ 能力；不支持的编码器不追加该选项，x264 不使用此设置。硬件检测完成且三条 NVENC 均不支持时禁用。", "FGS default strength: 8; 0 disables Spatial AQ. Shared by the AV1 / HEVC / H.264 NVENC main encoders, with per-encoder Spatial AQ capability checks. Unsupported encoders omit the option. x264 does not use it. Disabled after detection if no available NVENC encoder supports Spatial AQ.");
+                string temporalTip=UiText("FGS 默认：关闭 Temporal AQ。启用后仅向实际支持 Temporal AQ 的 AV1 / HEVC / H.264 NVENC 主编码器追加参数；AV1 UHQ 不追加此参数。x264 不使用此设置。硬件检测完成且三条 NVENC 均不支持时禁用。", "FGS default: Temporal AQ off. When enabled, only supported AV1 / HEVC / H.264 NVENC main encoders receive the option. AV1 UHQ omits this option. x264 does not use it. Disabled after detection if no available NVENC encoder supports Temporal AQ.");
+                aq.AccessibleDescription=spatialTip;temporal.AccessibleDescription=temporalTip;
+                encodingTip.SetToolTip(aq,spatialTip);encodingTip.SetToolTip(aqLabel,spatialTip);encodingTip.SetToolTip(temporal,temporalTip);
+
                 encodingTip.SetToolTip(audioMode,UiText("与 MP4/MKV 独立。智能模式下，MP4 复制 AAC/MP3/AC3/EAC3，其它转 AAC；MKV 保留。独立烘焙仍仅第一音轨，且需要时转换为双声道。","Independent of MP4/MKV. Smart MP4 copies AAC/MP3/AC3/EAC3; other codecs become AAC. Smart MKV copies. Standalone bake retains its first-track/stereo scope."));
                 encodingTip.SetToolTip(audioRate,UiText("仅对转 AAC 的音轨生效，复制不升码率。接近源：先用音轨码率，缺失时最多读取128个音频包估算；仍未知按声道回退（单声道64、双声道128、多声道384k）。不代表跨编码器同等音质。","Only encoded AAC tracks use this rate. Near-source uses per-track metadata or up to128 audio packets, then channel fallback (mono64/stereo128/multichannel384k). Equal bitrate is not equal quality."));
                 encodingTip.InitialDelay=400;encodingTip.ReshowDelay=100;encodingTip.AutoPopDelay=25000;encodingTip.ShowAlways=true;

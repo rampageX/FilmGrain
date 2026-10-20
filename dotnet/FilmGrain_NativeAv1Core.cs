@@ -950,6 +950,11 @@ namespace FilmGrainStudioPreview
                 int overwrite=args.IndexOf("-y");if(overwrite>=0)args[overwrite]="-n";
                 Stamp(args,"-color_range",info.ColorRange);Stamp(args,"-colorspace",info.ColorSpace);
                 Stamp(args,"-color_trc",info.ColorTransfer);Stamp(args,"-color_primaries",info.ColorPrimaries);
+                // H.264 may omit video_signal_type_present_flag for default limited range
+                // when no colour description is supplied. Make the known source range
+                // explicit in SPS VUI, without changing pixels or adding another encode.
+                if(!hevc && (info.ColorRange=="tv" || info.ColorRange=="pc"))
+                    args.InsertRange(args.Count-1,new[]{"-bsf:v","h264_metadata=video_full_range_flag="+(info.ColorRange=="pc"?"1":"0")});
                 double duration;double.TryParse(info.Duration,NumberStyles.Float,CultureInfo.InvariantCulture,out duration);
                 var req=new BridgeExecutionRequest{ToolPath=ffmpeg,WorkingDirectory=dir,DirectProcess=true,
                     InputFiles=new List<string>{input},OutputFiles=new List<string>(),TemporaryFiles=new List<string>{staging},
@@ -973,7 +978,7 @@ namespace FilmGrainStudioPreview
                     if(!actual.HasVideo||actual.VideoCodec!=(hevc?"hevc":"h264")||actual.PixelFormat!=(hevc?"yuv420p10le":"yuv420p")||(hevc && actual.VideoProfile!="Main 10")||actual.Width!=info.Width||actual.Height!=info.Height||actual.IsHdr||
                        (info.HasAudio && (!actual.HasAudio||actual.AudioCodec!="aac")))return "Bake output format validation failed.";
                     if(!EqualKnown(info.ColorRange,actual.ColorRange)||!EqualKnown(info.ColorSpace,actual.ColorSpace)||
-                       !EqualKnown(info.ColorTransfer,actual.ColorTransfer)||!EqualKnown(info.ColorPrimaries,actual.ColorPrimaries))return "Bake output color signaling changed.";
+                       !EqualKnown(info.ColorTransfer,actual.ColorTransfer)||!EqualKnown(info.ColorPrimaries,actual.ColorPrimaries))return "Bake output color signaling changed: source {range="+info.ColorRange+", matrix="+info.ColorSpace+", transfer="+info.ColorTransfer+", primaries="+info.ColorPrimaries+"}; output {range="+actual.ColorRange+", matrix="+actual.ColorSpace+", transfer="+actual.ColorTransfer+", primaries="+actual.ColorPrimaries+"}.";
                     return null;
                 };
                 req.PostRunCommit=delegate {

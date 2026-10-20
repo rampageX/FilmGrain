@@ -1,6 +1,6 @@
 ﻿# Film Grain Studio
 
-> **Film Grain Studio v5.0.16 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.17 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
 
@@ -47,7 +47,9 @@ AAC 码率仅对实际重编码的音轨生效，复制音轨忽略此设置。�
 
 AV1、HEVC 与 H.264 NVENC 主输出可分别选择 NVENC Multipass：**FGS 推荐（默认）／关闭／四分之一分辨率／完整分辨率**。FGS 推荐：快速档优先 QRes，标准 / AV1 UHQ / 高动态优先 FullRes，并按各编码器实测能力处理；手动值仅覆盖该主编码线的 multipass，不重设其它参数。不支持的手动档位明确停止；独立烘焙维持已有视频推荐组合。NVENC multipass 是逐帧内部分析，不是 x264 整片两遍编码。
 
-x264 插帧两遍/三遍共用一次完整渲染后的无损缓存，插帧、LUT、颗粒、字幕和画幅仅计算一次。非插帧 x264 多遍仍逐遍计算滤镜，避免额外整片无损缓存的存储开销。
+x264 插帧两遍/三遍共用一次完整渲染后的无损缓存，插帧、LUT、颗粒、字幕和画幅仅计算一次。非插帧 x264 多遍仍逐遍计算滤镜；是否增加整片缓存需要结合片长、效果负载和磁盘成本评估，目前不默认生成。
+
+Spatial AQ 默认强度 8（0 关闭），Temporal AQ 默认关闭；仅对支持对应能力的 NVENC 编码器生效，x264 不使用这些设置，AV1 UHQ 不追加 Temporal AQ。Lookahead 的数值是请求深度，可能受到编码器、B 帧、驱动及 FFmpeg 缓冲配置约束；不能仅凭可选数值判断实际深度，也不将 27 视为 RTX 4080 的固定上限。
 
 ### 输入文件与媒体信息
 
