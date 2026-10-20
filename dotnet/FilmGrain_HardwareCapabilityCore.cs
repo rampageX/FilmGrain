@@ -57,6 +57,18 @@ namespace FilmGrainStudioPreview
         public int Av1SplitEncodeMaxEngines { get; set; }
         public bool Grav1synthSfeCompatible { get; set; }
         public string Grav1synthVersion { get; set; }
+        public int CapabilitiesRevision { get; set; }
+        public int HevcSplitEncodeMaxEngines { get; set; }
+        public bool H264Available { get; set; }
+        public bool H264BFrames { get; set; }
+        public bool H264BReference { get; set; }
+        public bool H264SpatialAq { get; set; }
+        public bool H264TemporalAq { get; set; }
+        public bool H264Lookahead { get; set; }
+        public bool H264AdaptiveB { get; set; }
+        public bool H264SceneCut { get; set; }
+        public bool H264MultipassQres { get; set; }
+        public bool H264MultipassFullres { get; set; }
         public bool HevcAvailable { get; set; }
         public bool HevcBFrames { get; set; }
         public bool HevcBReference { get; set; }
@@ -161,7 +173,7 @@ namespace FilmGrainStudioPreview
         }
         private static bool ValidStoredNative(HardwareCapabilitySnapshot caps) {
             return caps!=null && caps.Ready && string.IsNullOrEmpty(caps.Error) && !string.IsNullOrWhiteSpace(caps.GpuName)
-                && !string.IsNullOrWhiteSpace(caps.FfmpegVersion) && caps.Av1SplitEncodeMaxEngines>=1 && caps.Av1SplitEncodeMaxEngines<=32;
+                && caps.CapabilitiesRevision == 10 && !string.IsNullOrWhiteSpace(caps.FfmpegVersion) && caps.Av1SplitEncodeMaxEngines>=1 && caps.Av1SplitEncodeMaxEngines<=32;
         }
         private static bool ValidStoredFruc(HardwareCapabilitySnapshot caps,HardwareCapabilityRequest request) {
             return CanCacheFruc(caps) && string.Equals(caps.FrucFfmpegPath,request.FrucFfmpegPath,StringComparison.OrdinalIgnoreCase)
@@ -428,6 +440,7 @@ namespace FilmGrainStudioPreview
             Dictionary<string, object> caps = Child(root, "caps");
             Dictionary<string, object> av1 = Child(caps, "av1");
             Dictionary<string, object> hevc = Child(caps, "hevc");
+            Dictionary<string,object> h264 = Child(caps,"h264");
             Dictionary<string, object> x264 = Child(caps, "x264");
             Dictionary<string, object> svp = Child(caps, "openSvp");
 
@@ -450,6 +463,18 @@ namespace FilmGrainStudioPreview
             result.Av1SplitEncodeMaxEngines = Math.Max(1, GetInt(av1, "splitEncodeMaxEngines", 1));
             result.Grav1synthSfeCompatible = GetBool(grav, "sfeCompatible");
             result.Grav1synthVersion = GetString(grav, "version");
+            result.CapabilitiesRevision = GetInt(root,"schemaVersion",0);
+            result.HevcSplitEncodeMaxEngines=Math.Max(1,GetInt(hevc,"splitEncodeMaxEngines",1));
+            result.H264Available=GetBool(h264,"available");
+            result.H264BFrames=GetBool(h264,"bFrames");
+            result.H264BReference=GetBool(h264,"bReference");
+            result.H264SpatialAq=GetBool(h264,"spatialAQ");
+            result.H264TemporalAq=GetBool(h264,"temporalAQ");
+            result.H264Lookahead=GetBool(h264,"lookahead");
+            result.H264AdaptiveB=GetBool(h264,"adaptiveB");
+            result.H264SceneCut=GetBool(h264,"sceneCut");
+            result.H264MultipassQres=GetBool(h264,"multipassQres");
+            result.H264MultipassFullres=GetBool(h264,"multipassFullres");
             result.HevcAvailable = GetBool(caps, "hevcPipeline");
             result.HevcBFrames = GetBool(hevc, "bFrames");
             result.HevcBReference = GetBool(hevc, "bReference");
@@ -661,7 +686,9 @@ internal static class FilmGrainNvencCaps
         System.Runtime.InteropServices.Marshal.Copy(zero, 0, ptr, size);
     }
 
-    public static int GetAv1EncoderEngineCount(int gpuIndex)
+    public static int GetAv1EncoderEngineCount(int gpuIndex) { return GetEncoderEngineCount(gpuIndex,Av1Guid); }
+    public static int GetHevcEncoderEngineCount(int gpuIndex) { return GetEncoderEngineCount(gpuIndex,new Guid("790CDC88-4522-4D7B-9425-BDA9975F7603")); }
+    private static int GetEncoderEngineCount(int gpuIndex,Guid codecGuid)
     {
         if (IntPtr.Size != 8) return 1;
         IntPtr functionList = IntPtr.Zero;
@@ -744,7 +771,7 @@ internal static class FilmGrainNvencCaps
             System.Runtime.InteropServices.Marshal.WriteInt32(capsParam, 4, NumEncoderEnginesCap);
 
             int engines;
-            if (getCaps(encoder, Av1Guid, capsParam, out engines) != 0)
+            if (getCaps(encoder, codecGuid, capsParam, out engines) != 0)
                 return 1;
 
             if (engines < 1)
@@ -834,18 +861,18 @@ namespace FilmGrainStudioPreview
             var caps=Map("available",false,"uhq",false,"bFrames",false,"bReference",false,"spatialAQ",false,"temporalAQ",false,
                 "lookahead",false,"adaptiveB",false,"sceneCut",false,"multipassQres",false,"multipassFullres",false,"splitEncodeMaxEngines",1);
             bool available=Option(encoder);caps["available"]=available;if(!available)return caps;
-            if(encoder=="av1_nvenc")
+            if(encoder=="av1_nvenc"||encoder=="hevc_nvenc")
             {
-                caps["uhq"]=EncoderTest(encoder,"uhq","-preset","p4","-multipass","fullres","-spatial-aq","1","-aq-strength","8");
+                if(encoder=="av1_nvenc")caps["uhq"]=EncoderTest(encoder,"uhq","-preset","p4","-multipass","fullres","-spatial-aq","1","-aq-strength","8");
                 int engines=1;
                 if(File.Exists(request.NvencQueryPath))
                 {
-                    var query=Run(request.NvencQueryPath,new string[]{"--hardware-nvenc-engines"},null,15000);
+                    var query=Run(request.NvencQueryPath,new string[]{encoder=="hevc_nvenc"?"--hardware-hevc-engines":"--hardware-nvenc-engines"},null,15000);
                     Match m=Regex.Match(query.Output??"",@"FGS_NVENC_ENGINES=([1-4])(?:\s|$)");
                     if(query.Success&&m.Success)engines=int.Parse(m.Groups[1].Value,CultureInfo.InvariantCulture);
                 }
                 if(engines>=2&&FF(new string[]{"-hide_banner","-loglevel","error","-f","lavfi","-i","testsrc2=size=3840x2160:rate=30",
-                    "-frames:v","4","-an","-c:v","av1_nvenc","-gpu","0","-pix_fmt","p010le","-highbitdepth","1","-preset","p6",
+                    "-frames:v","4","-an","-c:v",encoder,"-gpu","0","-pix_fmt","p010le","-preset","p7",
                     "-tune","hq","-rc","vbr","-b:v","12M","-maxrate:v","36M","-bufsize:v","72M","-multipass","fullres",
                     "-split_encode_mode",engines.ToString(CultureInfo.InvariantCulture),"-f","null",NullOutput}))caps["splitEncodeMaxEngines"]=engines;
             }
@@ -967,7 +994,7 @@ namespace FilmGrainStudioPreview
                 if(FF(args))nvdec=FF(new string[]{"-hide_banner","-loglevel","error","-hwaccel","cuda","-hwaccel_device","0","-i",file,"-map","0:v:0","-frames:v","1","-f","null",NullOutput});}}
             finally{try{if(File.Exists(file))File.Delete(file);}catch{}}
             var info=new FileInfo(request.FfmpegPath);
-            return Map("schemaVersion",9,"detector","Native.NET.H8R4WN","signature",signature,"generatedAt",DateTime.UtcNow.ToString("o"),"cacheState","Detected",
+            return Map("schemaVersion",10,"detector","Native.NET.Q7H4NV","signature",signature,"generatedAt",DateTime.UtcNow.ToString("o"),"cacheState","Detected",
                 "ffmpeg",Map("path",info.FullName,"version",version,"size",info.Length,"lastWriteTimeUtc",info.LastWriteTimeUtc.ToString("o")),"gpu",gpu,"grav1synth",grav,
                 "caps",Map("av1",av1,"hevc",hevc,"h264",h264,"x264",x264,"nvdec",nvdec,"vulkan",vulkan,"vulkanGrain",grain,
                     "hevcPipeline",(bool)hevc["available"]&&vulkan,"x264Pipeline",(bool)x264["available"]&&(bool)x264["tuneGrain"]&&vulkan&&grain,"openSvp",Svp(svpRoot)));
@@ -981,7 +1008,7 @@ namespace FilmGrainStudioPreview
                 if(line.StartsWith("ffmpeg version ",StringComparison.OrdinalIgnoreCase)){version=line;break;}
             if(version.Length==0)throw new InvalidOperationException("FFmpeg version probe returned no version line.");
             var gpu=Gpu();var grav=Grav();string svp=Path.Combine(request.AppRoot,"_OpenSVPFlow");
-            var signature=new StringBuilder("schema=9|Native.NET.H8R4WN|gpu=0|cuda=0|vulkan=0|").Append(HardwareCapabilityCore.ToolBundleStamp(request.FfmpegPath)).Append('|').Append(version)
+            var signature=new StringBuilder("schema=10|Native.NET.Q7H4NV|gpu=0|cuda=0|vulkan=0|").Append(HardwareCapabilityCore.ToolBundleStamp(request.FfmpegPath)).Append('|').Append(version)
                 .Append('|').Append(gpu["identity"]).Append('|').Append(Tag(request.Grav1synthPath)).Append('|').Append(grav["version"]).Append('|').Append(Tag(request.NvencQueryPath));
             foreach(string rel in new string[]{".venv/Scripts/vspipe.exe","Plugins/svpflow1_vs.dll","Plugins/svpflow2_vs.dll","Check_OpenSVPFlow.vpy",".venv/pyvenv.cfg","_UserConfig/vapoursynth/vapoursynth.toml"})signature.Append('|').Append(Tag(Path.Combine(svp,rel)));
             string hash=Hash(signature.ToString()),cache=Path.Combine(request.AppRoot,"Utils","_HardwareCaps_NET.json");
@@ -989,7 +1016,7 @@ namespace FilmGrainStudioPreview
             if(!request.ForceDetection && (string)gpu["identity"]!="unknown" && File.Exists(cache))
             {
                 try{var saved=serializer.DeserializeObject(File.ReadAllText(cache,Encoding.UTF8)) as Dictionary<string,object>;
-                    if(saved!=null&&Convert.ToInt32(saved["schemaVersion"],CultureInfo.InvariantCulture)==9&&(string)saved["signature"]==hash)
+                    if(saved!=null&&Convert.ToInt32(saved["schemaVersion"],CultureInfo.InvariantCulture)==10&&(string)saved["signature"]==hash)
                     {HardwareCapabilityCore.ParseProfile(saved);profile=saved;profile["cacheState"]="Cached";trace.Append("\r\nNative cache signature matched; FRUC remains independently rechecked.");}}
                 catch(Exception ex){trace.Append("\r\nIgnoring invalid native cache: ").Append(Short(ex.Message));}
             }

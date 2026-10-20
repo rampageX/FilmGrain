@@ -240,7 +240,7 @@ namespace FilmGrainStudioPreview
                 else state["FG_PROC_STRENGTH"]=strengths[level].ToString(CultureInfo.InvariantCulture);
                 state["FG_COLOR_ENABLED"]="0";state["FG_LUT_PATH"]="";
                 state["FG_SUBTITLE"]="0";state["FG_CINEMATIC_FRAME"]="0";state["FG_SVP_INTERPOLATE"]="0";
-                state["FG_FPS_MODE"]="SOURCE";state["FG_UPLOAD"]="0";state["FG_X264_PASS_MODE"]="VBR1";
+                state["FG_FPS_MODE"]="SOURCE";state["FG_X264_PASS_MODE"]="VBR1";
                 state["FG_ENCODE_PREVIEW"]="0";state["FG_SFE_ENGINES"]="0";
                 state["FG_OUTPUT_MODE"]="CUSTOM";state["FG_OUTPUT_CUSTOM_DIR"]=temporary;
                 state["FG_TEMP_MODE"]="CUSTOM";state["FG_TEMP_CUSTOM_DIR"]=temporary;

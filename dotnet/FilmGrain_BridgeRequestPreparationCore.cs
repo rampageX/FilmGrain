@@ -111,8 +111,8 @@ namespace FilmGrainStudioPreview
                     string mode;state.TryGetValue("FG_MODE",out mode);
                     if(string.Equals(mode,"AV1BAKE",StringComparison.OrdinalIgnoreCase))success=NativeAv1BakeCore.TryPrepare(appRoot,input,info,state,out prepared,out reason);
                     else if(string.Equals(mode,"AV1",StringComparison.OrdinalIgnoreCase))success=NativeAv1Core.TryPrepare(appRoot,input,info,state,caps,out prepared,out reason);
-                    else if(string.Equals(mode,"HEVC",StringComparison.OrdinalIgnoreCase))success=NativeHevcCore.TryPrepare(appRoot,input,info,state,caps,out prepared,out reason);
-                    else if(string.Equals(mode,"X264",StringComparison.OrdinalIgnoreCase))success=NativeX264DigitalGrainCore.TryPrepare(appRoot,input,info,state,out prepared,out reason);
+                    else if((string.Equals(mode,"HEVC",StringComparison.OrdinalIgnoreCase)||string.Equals(mode,"H264",StringComparison.OrdinalIgnoreCase)))success=NativeHevcCore.TryPrepare(appRoot,input,info,state,caps,out prepared,out reason);
+                    else if(string.Equals(mode,"X264",StringComparison.OrdinalIgnoreCase))success=NativeX264DigitalGrainCore.TryPrepare(appRoot,input,info,state,out prepared,out reason,caps==null?"":caps.GpuName);
                     else {reason="unsupported codec: "+mode;return false;}
                 }
                 if(success && prepared!=null && prepared.ExecutionRequest!=null)

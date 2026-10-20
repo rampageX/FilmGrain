@@ -11,7 +11,7 @@ namespace FilmGrainStudioPreview
     {
 
 
-        internal static bool TryPrepare(string appRoot, string input, MediaProbeInfo info, IDictionary<string,string> state, out BridgePreparedExecution prepared, out string reason)
+        internal static bool TryPrepare(string appRoot, string input, MediaProbeInfo info, IDictionary<string,string> state, out BridgePreparedExecution prepared, out string reason, string gpuName = "")
         {
             prepared = null;
             reason = "";
@@ -21,19 +21,19 @@ namespace FilmGrainStudioPreview
             if (!SharedInterpolationBypassCore.TryResolve(info,state,out normalized,out bypassNotice,out reason)) return false;
             if (normalized != null)
             {
-                bool success = TryPrepare(appRoot,input,info,normalized,out prepared,out reason);
+                bool success = TryPrepare(appRoot,input,info,normalized,out prepared,out reason,gpuName);
                 if (success) SharedInterpolationBypassCore.Attach(prepared,bypassNotice);
                 return success;
             }
-            if (!SharedGrainCore.IsEnabled(state)) return TryPrepareEngine(appRoot, input, info, state, false, out prepared, out reason);
-            if (SharedGrainCore.Engine(state) == "PROCEDURAL") return TryPrepareEngine(appRoot, input, info, state, false, out prepared, out reason);
-            if (SharedGrainCore.Engine(state) == "NATIVE") return TryPrepareEngine(appRoot, input, info, state, true, out prepared, out reason);
-            if (SharedGrainCore.Engine(state) == "FGSIM") return TryPrepareEngine(appRoot, input, info, state, false, out prepared, out reason);
+            if (!SharedGrainCore.IsEnabled(state)) return TryPrepareEngine(appRoot, input, info, state, false, out prepared, out reason, gpuName);
+            if (SharedGrainCore.Engine(state) == "PROCEDURAL") return TryPrepareEngine(appRoot, input, info, state, false, out prepared, out reason, gpuName);
+            if (SharedGrainCore.Engine(state) == "NATIVE") return TryPrepareEngine(appRoot, input, info, state, true, out prepared, out reason, gpuName);
+            if (SharedGrainCore.Engine(state) == "FGSIM") return TryPrepareEngine(appRoot, input, info, state, false, out prepared, out reason, gpuName);
             reason = "unsupported native x264 grain engine";
             return false;
         }
 
-        private static bool TryPrepareEngine(string appRoot, string input, MediaProbeInfo info, IDictionary<string,string> state, bool plateMode, out BridgePreparedExecution prepared, out string reason)
+        private static bool TryPrepareEngine(string appRoot, string input, MediaProbeInfo info, IDictionary<string,string> state, bool plateMode, out BridgePreparedExecution prepared, out string reason, string gpuName = "")
         {
             prepared = null;
             reason = "";
@@ -49,11 +49,12 @@ namespace FilmGrainStudioPreview
             bool interpolate = Get(state, "FG_SVP_INTERPOLATE") == "1";
             bool fruc = interpolate && Eq(state, "FG_INTERPOLATION_ENGINE", "FRUC");
             bool svp = interpolate && !fruc;
+            bool shareInterpolation=SharedInterpolationEncodeCore.CanShare(interpolate,info.IsInterlaced,passMode);
+            bool mergeFrucHdr=fruc&&info.IsHdr&&!Eq(state,"FG_HDR_POLICY","PRESERVE");
             if (interpolate && !fruc && !Eq(state, "FG_INTERPOLATION_ENGINE", "SVP") && !string.IsNullOrEmpty(Get(state, "FG_INTERPOLATION_ENGINE")))
             { reason = "unsupported interpolation engine"; return false; }
             if (fruc && info.IsInterlaced) { reason = "interlaced FRUC is not supported"; return false; }
             bool transportSvp = svp && !info.IsHdr && IsTransportInput(input);
-            if (Get(state, "FG_UPLOAD") == "1") { reason = "unsupported x264 main-output upload copy"; return false; }
             bool hdrToSdr = info.IsHdr && !Eq(state, "FG_HDR_POLICY", "PRESERVE");
             if (info.IsHdr && !hdrToSdr) { reason = "HDR preservation is unavailable for x264"; return false; }
             string tonemap = Get(state, "FG_TONEMAP_ALGO").ToLowerInvariant();
@@ -191,13 +192,18 @@ namespace FilmGrainStudioPreview
                 return false;
             }
 
+            string workingDirectory=string.IsNullOrEmpty(lutCompatPath)?Path.GetDirectoryName(input):Path.GetDirectoryName(lutCompatPath);
+            string subtitleFilterPath;
+            if(!NativeSubtitlePrepareCore.TryStageForFilter(subtitleAss,workingDirectory,out subtitleFilterPath,out reason))
+            {TryDelete(lutCompatPath);TryDelete(subtitleAss);return false;}
             string passlog = "";
             List<string> temporaryFiles = new List<string>();
             if (!string.IsNullOrEmpty(lutCompatPath)) temporaryFiles.Add(lutCompatPath);
             if (!string.IsNullOrEmpty(subtitleAss)) temporaryFiles.Add(subtitleAss);
+            if(!string.IsNullOrEmpty(subtitleFilterPath)&&subtitleFilterPath!=subtitleAss)temporaryFiles.Add(subtitleFilterPath);
             try
             {
-                string subtitleFilter = string.IsNullOrEmpty(subtitleAss) ? "" : ",format=yuv420p10le,subtitles=filename='" + EscapeFilterPath(subtitleAss) + "',format=p010le";
+                string subtitleFilter=NativeSubtitlePrepareCore.BurnInFilter(subtitleFilterPath);
                 string filter;
                 if (!grainEnabled)
                 {
@@ -256,7 +262,7 @@ namespace FilmGrainStudioPreview
 
                 long max = bitrate * 3L;
                 long buf = bitrate * 6L;
-                string workingDirectory = string.IsNullOrEmpty(lutCompatPath) ? Path.GetDirectoryName(input) : Path.GetDirectoryName(lutCompatPath);
+
                 List<string> requestInputs = new List<string>(); requestInputs.Add(input); if (plateMode) requestInputs.Add(grainInput);
                 BridgeExecutionRequest request = new BridgeExecutionRequest();
                 request.PixelGrainFullFilter = pixelFull;
@@ -273,9 +279,12 @@ namespace FilmGrainStudioPreview
 
                 string encodeInput = input;
                 List<BridgeExecutionStage> stages = new List<BridgeExecutionStage>();
-                int stageOffset = hdrToSdr || separateDeint ? 1 : 0;
+                // Multiple analysis/final passes share one conversion instead of repeating HDR work per pass.
+                bool mergedHdr=SharedHdrPreprocessCore.CanMergeEncode(hdrToSdr,interpolate,info.IsInterlaced) && passMode=="VBR1";
+                bool hdrWorkfile=hdrToSdr && !mergedHdr && !mergeFrucHdr;
+                int stageOffset = (hdrWorkfile || separateDeint ? 1 : 0)+(shareInterpolation?1:0);
                 int stageTotal = stageOffset + (passMode == "VBR1" ? 1 : passMode == "3PASS" ? 3 : 2);
-                if (hdrToSdr || separateDeint)
+                if (hdrWorkfile || separateDeint)
                 {
                     string tempRoot;
                     if (!TryResolveTempRoot(input, state, out tempRoot, out reason)) return false;
@@ -284,9 +293,28 @@ namespace FilmGrainStudioPreview
                     stages.Add(MakeStage(ffmpeg, workingDirectory, hdrToSdr ? SharedHdrPreprocessCore.BuildToSdr(input,encodeInput,info,tonemap,true,fieldWorkfile?fieldFilter:"") : SharedHdrPreprocessCore.BuildDeinterlaced(input,encodeInput,info,fieldFilter), durationSeconds, 1, stageTotal, hdrToSdr ? "HDR to SDR / " + tonemapLabel : "Shared field deinterlace / separate Vulkan device"));
                     if(hdrToSdr)SharedHdrPreprocessCore.AttachAutomatic(stages[stages.Count-1],tonemap);
                 }
+                string interpolationAudio=input;
+                if(shareInterpolation) {
+                    string interpolationRoot;if(!TryResolveTempRoot(input,state,out interpolationRoot,out reason))return false;
+                    string cached=Path.Combine(interpolationRoot,"__FGS_INTERPOLATED_"+Guid.NewGuid().ToString("N")+".mkv");
+                    temporaryFiles.Add(cached);
+                    // Cache the exact complete render graph once. Replaying interpolation through a
+                    // different container clock before libplacebo changes its output frame queue.
+                    var render=BuildEncodeArgs(encodeInput,grainInput,filter,cached,preset,highMotion,bitrate,max,buf,fps,duration,plateMode,autoFps,high10,mkv,deinterlace,0,"",false,svp,grainEnabled,state,info);
+                    render=SharedInterpolationEncodeCore.BuildRenderCache(render,cached,high10?"yuv420p10le":"yuv420p");
+                    var shared=MakeStage(ffmpeg,workingDirectory,render,durationSeconds,stageOffset,stageTotal,"Shared interpolation and effects render cache");
+                    if(fruc)shared.FrucProbePath=ffprobe;
+                    if(svp) {
+                        SharedSvpCore.AttachProducer(shared,vspipe,vpy,svpPlugins,encodeInput,state,fps);
+                        if(hdrToSdr)SharedHdrPreprocessCore.AttachPipeTimeline(shared,ffprobe,encodeInput,info,shared.OriginalArguments,input);
+                        else SharedPipeTimelineCore.AttachTransportSource(shared,ffprobe,encodeInput,info,shared.OriginalArguments);
+                    }
+                    if(mergeFrucHdr)SharedHdrPreprocessCore.AttachMergedFruc(shared,input,info,tonemap,gpuName);
+                    stages.Add(shared);encodeInput=cached;filter="[0:v:0]null[vout]";plateMode=false;
+                }
                 if (passMode == "VBR1")
                 {
-                    List<string> args = BuildEncodeArgs(encodeInput, grainInput, filter, output, preset, highMotion, bitrate, max, buf, fps, duration, plateMode, autoFps, high10, mkv, deinterlace, 0, "", true, svp, grainEnabled, state, info);
+                    List<string> args = BuildEncodeArgs(encodeInput, grainInput, filter, output, preset, highMotion, bitrate, max, buf, fps, duration, plateMode, autoFps, high10, mkv, deinterlace, 0, "", true, svp && !shareInterpolation, grainEnabled, state, info);
                     request.PixelGrainEncodeArguments = args;
                     if (hdrToSdr || separateDeint || svp || fruc || !grainEnabled)
                     {
@@ -301,18 +329,18 @@ namespace FilmGrainStudioPreview
                     if (!TryResolveTempRoot(input, state, out tempRoot, out reason)) return false;
                     passlog = Path.Combine(tempRoot, (plateMode ? "__FGS_X264_" : fgsimMode ? "__FGS_X264_FGSIM_" : "__FGS_X264_PROC_") + Guid.NewGuid().ToString("N"));
                     AddPasslogTemps(temporaryFiles, passlog);
-                    stages.Add(MakeStage(ffmpeg, workingDirectory, BuildEncodeArgs(encodeInput, grainInput, filter, output, preset, highMotion, bitrate, max, buf, fps, duration, plateMode, autoFps, high10, mkv, deinterlace, 1, passlog, false, svp, grainEnabled, state, info), durationSeconds, stageOffset + 1, stageTotal, !grainEnabled ? "pass 1: analysis / 颗粒：关闭" : plateMode ? "pass 1: Grain Plate analysis" : fgsimMode ? "pass 1: FGSIM analysis" : "pass 1: Digital Grain analysis"));
+                    stages.Add(MakeStage(ffmpeg, workingDirectory, BuildEncodeArgs(encodeInput, grainInput, filter, output, preset, highMotion, bitrate, max, buf, fps, duration, plateMode, autoFps, high10, mkv, deinterlace, 1, passlog, false, svp && !shareInterpolation, grainEnabled, state, info), durationSeconds, stageOffset + 1, stageTotal, !grainEnabled ? "pass 1: analysis / 颗粒：关闭" : plateMode ? "pass 1: Grain Plate analysis" : fgsimMode ? "pass 1: FGSIM analysis" : "pass 1: Digital Grain analysis"));
                     if (passMode == "3PASS")
-                        stages.Add(MakeStage(ffmpeg, workingDirectory, BuildEncodeArgs(encodeInput, grainInput, filter, output, preset, highMotion, bitrate, max, buf, fps, duration, plateMode, autoFps, high10, mkv, deinterlace, 3, passlog, false, svp, grainEnabled, state, info), durationSeconds, stageOffset + 2, stageTotal, "pass 3: stats refinement"));
-                    stages.Add(MakeStage(ffmpeg, workingDirectory, BuildEncodeArgs(encodeInput, grainInput, filter, output, preset, highMotion, bitrate, max, buf, fps, duration, plateMode, autoFps, high10, mkv, deinterlace, 2, passlog, true, svp, grainEnabled, state, info), durationSeconds, stageTotal, stageTotal, !grainEnabled ? "pass 2: final encode / 颗粒：关闭" : plateMode ? "pass 2: Grain Plate final encode" : fgsimMode ? "pass 2: FGSIM final encode" : "pass 2: Digital Grain final encode"));
+                        stages.Add(MakeStage(ffmpeg, workingDirectory, BuildEncodeArgs(encodeInput, grainInput, filter, output, preset, highMotion, bitrate, max, buf, fps, duration, plateMode, autoFps, high10, mkv, deinterlace, 3, passlog, false, svp && !shareInterpolation, grainEnabled, state, info), durationSeconds, stageOffset + 2, stageTotal, "pass 3: stats refinement"));
+                    stages.Add(MakeStage(ffmpeg, workingDirectory, BuildEncodeArgs(encodeInput, grainInput, filter, output, preset, highMotion, bitrate, max, buf, fps, duration, plateMode, autoFps, high10, mkv, deinterlace, 2, passlog, true, svp && !shareInterpolation, grainEnabled, state, info), durationSeconds, stageTotal, stageTotal, !grainEnabled ? "pass 2: final encode / 颗粒：关闭" : plateMode ? "pass 2: Grain Plate final encode" : fgsimMode ? "pass 2: FGSIM final encode" : "pass 2: Digital Grain final encode"));
                     request.DirectStages = stages;
                 }
 
-                if (svp)
+                if (svp && !shareInterpolation)
                     for (int i = stageOffset; i < stages.Count; i++)
                     {
                         SharedSvpCore.AttachProducer(stages[i],vspipe,vpy,svpPlugins,encodeInput,state,fps);
-                        if (hdrToSdr) SharedHdrPreprocessCore.AttachPipeTimeline(stages[i],ffprobe,encodeInput,info,stages[i].OriginalArguments);
+                        if (hdrToSdr) SharedHdrPreprocessCore.AttachPipeTimeline(stages[i],ffprobe,encodeInput,info,stages[i].OriginalArguments,input);
                         else if (transportSvp) SharedPipeTimelineCore.AttachTransportSource(stages[i],ffprobe,encodeInput,info,stages[i].OriginalArguments);
                     }
 
@@ -324,18 +352,32 @@ namespace FilmGrainStudioPreview
                 if (fruc && request.DirectStages != null)
                     foreach (BridgeExecutionStage stage in request.DirectStages)
                         if (stage.FrucArguments != null) stage.FrucProbePath = ffprobe;
-                if (!grainEnabled && !interpolate && !(fieldWorkfile || separateDeint || hdrOffSdr))
+                if(shareInterpolation)
+                    for(int i=stageOffset;i<stages.Count;i++)
+                        SharedInterpolationEncodeCore.AttachConsumer(stages[i],ffprobe,encodeInput,interpolationAudio,fps,fruc,hdrToSdr);
+                else if(mergeFrucHdr)
+                    for(int i=stageOffset;i<stages.Count;i++)
+                        SharedHdrPreprocessCore.AttachMergedFruc(stages[i],input,info,tonemap,gpuName);
+                else if(mergedHdr)
+                    for(int i=stageOffset;i<stages.Count;i++)
+                        SharedHdrPreprocessCore.AttachMergedEncode(stages[i],ffprobe,input,info,tonemap,gpuName);
+                else if(hdrWorkfile && !interpolate && !info.IsInterlaced)
+                    for(int i=stageOffset;i<stages.Count;i++)
+                        SharedHdrPreprocessCore.AttachSharedWorkfileEncode(stages[i],ffprobe,encodeInput,gpuName);
+                else if (!grainEnabled && !interpolate && !(fieldWorkfile || separateDeint || hdrOffSdr))
                     for (int i=stageOffset;i<stages.Count;i++)SharedOrdinaryTimelineCore.Attach(stages[i],ffprobe,encodeInput);
                 if(info.IsHdr && info.IsInterlaced && !deinterlace)request.ExecutionNotice="[Native .NET] 反交错 OFF：沿用不反交错的逐帧处理，不启用 bob/光流或双倍场率；不保证隔行编码标记。 / Deinterlace OFF: frame processing without bob/interpolation; no interlaced-encoding flags are added.";
             prepared = new BridgePreparedExecution(request, false, ffmpeg, requestInputs);
                 lutCompatPath = "";
                 subtitleAss = "";
+                subtitleFilterPath="";
                 return true;
             }
             finally
             {
                 if (!string.IsNullOrEmpty(lutCompatPath)) TryDelete(lutCompatPath);
                 if (!string.IsNullOrEmpty(subtitleAss)) TryDelete(subtitleAss);
+                if(!string.IsNullOrEmpty(subtitleFilterPath))TryDelete(subtitleFilterPath);
             }
         }
 
@@ -452,7 +494,11 @@ namespace FilmGrainStudioPreview
                 a.Add(output);
             }
             else { a.Add("-f"); a.Add("null"); a.Add("NUL"); }
-            if (svp) ConvertToPipeInput(a, input);
+            if (svp) {
+                ConvertToPipeInput(a, input);
+                SharedInterpolationEncodeCore.NormalizeRenderedCadence(a,fps);
+                a.InsertRange(a.Count-1,new[]{"-enc_time_base:v",fps.Contains("/")?fps.Split('/')[1]+"/"+fps.Split('/')[0]:"1/"+fps});
+            }
             if(finalOutput)AudioOutputCore.Apply(a,audioState,audioInfo,mkv,false,false);
             return a;
         }

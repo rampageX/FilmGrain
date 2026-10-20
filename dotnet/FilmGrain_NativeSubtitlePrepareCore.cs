@@ -106,6 +106,25 @@ namespace FilmGrainStudioPreview
         }
 
 
+        // Keep filter syntax independent of directory punctuation and Windows drive colons.
+        // The ASS remains task-owned; only a short generated filename enters the graph.
+        internal static bool TryStageForFilter(string assPath,string workingDirectory,out string staged,out string reason)
+        {
+            staged="";reason="";if(string.IsNullOrEmpty(assPath))return true;
+            try
+            {
+                if(string.Equals(Path.GetDirectoryName(Path.GetFullPath(assPath)),Path.GetFullPath(workingDirectory).TrimEnd(Path.DirectorySeparatorChar,Path.AltDirectorySeparatorChar),StringComparison.OrdinalIgnoreCase))
+                {staged=assPath;return true;}
+                staged=Path.Combine(workingDirectory,"__FGS_SUB_"+Guid.NewGuid().ToString("N")+".ass");
+                File.Copy(assPath,staged,false);return true;
+            }
+            catch(Exception ex){TryDelete(staged);staged="";reason="could not stage subtitle for encoding: "+ex.Message;return false;}
+        }
+        internal static string BurnInFilter(string staged)
+        {
+            return string.IsNullOrEmpty(staged)?"":",format=yuv420p10le,subtitles=filename='"+Path.GetFileName(staged)+"',format=p010le";
+        }
+
         private static bool HasSubtitleFilter(string ffmpeg, out string error)
         {
             error = "";

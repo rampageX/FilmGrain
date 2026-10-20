@@ -59,6 +59,7 @@ namespace FilmGrainStudioPreview
     internal sealed class BridgeExecutionStage
     {
         public Func<string> BeforeRunPreparation { get; set; }
+        internal Action PreparedObserver { get; set; }
         internal Func<Func<bool>, string> PrepareWithCancellation { get; set; }
         public Func<bool> ShouldRun { get; set; }
         public IList<string> FrucArguments { get; set; }
@@ -325,6 +326,8 @@ namespace FilmGrainStudioPreview
                             RaiseLog(BridgeLogStream.System, SharedFrucCore.PrepareStage(stage));
                             if (cancelRequested) break;
                         }
+                        if(stage.PreparedObserver!=null)stage.PreparedObserver();
+                        if(cancelRequested)break;
                         PrepareStageProgress(stage);
                         string stageMode;
                         string stagePrefix = request.Environment != null && request.Environment.TryGetValue("FG_MODE", out stageMode) ? stageMode + " step " : "Native step ";
@@ -781,12 +784,6 @@ namespace FilmGrainStudioPreview
                         CleanupCancelledX264Pattern(root, "__FGS_X264_*.log.temp", earliestWriteUtc, removed);
                         CleanupCancelledX264Pattern(root, "__FGS_X264_*.log.mbtree.temp", earliestWriteUtc, removed);
                         CleanupCancelledX264Pattern(root, "__FGS_X264_*.mbtree.temp", earliestWriteUtc, removed);
-                        CleanupCancelledX264Pattern(root, "__FGS_UPLOAD_X264_*.log", earliestWriteUtc, removed);
-                        CleanupCancelledX264Pattern(root, "__FGS_UPLOAD_X264_*.log.mbtree", earliestWriteUtc, removed);
-                        CleanupCancelledX264Pattern(root, "__FGS_UPLOAD_X264_*.mbtree", earliestWriteUtc, removed);
-                        CleanupCancelledX264Pattern(root, "__FGS_UPLOAD_X264_*.log.temp", earliestWriteUtc, removed);
-                        CleanupCancelledX264Pattern(root, "__FGS_UPLOAD_X264_*.log.mbtree.temp", earliestWriteUtc, removed);
-                        CleanupCancelledX264Pattern(root, "__FGS_UPLOAD_X264_*.mbtree.temp", earliestWriteUtc, removed);
                     }
                     if (attempt < 4) Thread.Sleep(120);
                 }

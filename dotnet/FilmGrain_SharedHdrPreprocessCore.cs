@@ -92,8 +92,6 @@ namespace FilmGrainStudioPreview
 
         // A single-input progressive HEVC encode can consume HDR directly. Color/LUT,
         // framing and subtitles remain downstream of the exact shared SDR conversion.
-        internal static bool CanMergeHevc(bool hdrToSdr,bool grain,bool interpolation,bool interlaced,bool skipMain)
-        { return hdrToSdr && !grain && !interpolation && !interlaced && !skipMain; }
 
         internal static List<string> MergeHevcArguments(IList<string> original,IList<string> hdr)
         {
@@ -129,6 +127,123 @@ namespace FilmGrainStudioPreview
                 stage.DirectArguments=SharedFrucCore.JoinArguments(merged);
                 return "[HDR merged HEVC] 单次 HDR 转 SDR / 调色 / LUT / 编码；不生成 HDR 中间文件。\n"+notice+
                     "\n[Native ordinary timeline] source_common="+Number(time.CommonOrigin)+" video_delay="+Number(time.VideoDelay);
+            };
+        }
+
+        internal static bool CanMergeEncode(bool hdrToSdr,bool interpolation,bool interlaced)
+        { return hdrToSdr && !interpolation && !interlaced; }
+
+        internal static List<string> MergeEncodeArguments(IList<string> original,IList<string> hdr,
+            bool videoOnly,double common,double delay,string gpuName,bool sourceCadence=true)
+        {
+            if(double.IsNaN(common)||double.IsInfinity(common)||double.IsNaN(delay)||double.IsInfinity(delay)||delay<0)
+                throw new InvalidOperationException("Invalid merged encode timeline");
+            var args=new List<string>(original);
+            int graph=args.IndexOf("-filter_complex"),vf=IndexOf(hdr,"-vf"),input=args.IndexOf("-i");
+            if(graph<0||vf<0||input<0||!args[graph+1].StartsWith("[0:v:0]",StringComparison.Ordinal))
+                throw new InvalidOperationException("Merged encode input/filter layout changed");
+            // Match the old workfile clock before shaders and procedural noise.
+            args[graph+1]="[0:v:0]"+hdr[vf+1]+",format=yuv420p10le,setpts=PTS-STARTPTS,"+args[graph+1].Substring(7);
+            if(args.Contains("-filter_hw_device")) {
+                int init=args.IndexOf("-init_hw_device");
+                if(init<0||!args[init+1].StartsWith("vulkan=",StringComparison.Ordinal))
+                    throw new InvalidOperationException("Merged HDR requires an existing Vulkan filter device");
+                int colon=args[init+1].IndexOf(':');
+                string name=colon<0?args[init+1]:args[init+1].Substring(0,colon);
+                args[init+1]=name+":"+(string.IsNullOrWhiteSpace(gpuName)?"0":gpuName);
+            } else {
+                var devices=new List<string>();
+                foreach(string option in new[]{"-init_hw_device","-filter_hw_device"})
+                    for(int j=0;j+1<hdr.Count;j++)if(hdr[j]==option)devices.AddRange(new[]{option,hdr[j+1]});
+                args.InsertRange(input,devices);
+            }
+            graph=args.IndexOf("-filter_complex");input=args.IndexOf("-i");
+            // The former Matroska workfile supplied millisecond frame timestamps to FGSIM.
+            // Match that link time base before libplacebo's shader/frame queue.
+            if(args[graph+1].Contains("custom_shader_path="))
+                args[graph+1]=args[graph+1].Replace("format=yuv420p10le,setpts=PTS-STARTPTS,","format=yuv420p10le,settb=expr=1/1000,setpts=PTS-STARTPTS,");
+            // blend_vulkan can repeat the last main frame while a looping plate ends.
+            // Keep the main video's strictly increasing timestamps, without an extra copy/blend.
+            if(args[graph+1].Contains("blend_vulkan="))
+                args[graph+1]=args[graph+1].Replace("[vout]",",select='isnan(prev_selected_pts)+gt(pts,prev_selected_pts)'[vout]");
+            string tail=videoOnly?",setpts=PTS-STARTPTS":",setpts=PTS-STARTPTS+"+Number(delay)+"/TB";
+            args[graph+1]=args[graph+1].Replace("[vout]",tail+"[vout]");
+            if(!videoOnly || sourceCadence) {
+                for(int j=graph+2;j+1<args.Count;j++) {
+                    if(args[j]=="-r"){args.RemoveRange(j,2);j--;continue;}
+                    if(args[j]=="-fps_mode"||args[j]=="-fps_mode:v")args[j+1]="passthrough";
+                }
+            }
+            if(!videoOnly) {
+                // Offset only the main input; the looping plate keeps its local clock.
+                args.InsertRange(input,new[]{"-copyts","-itsoffset",Number(-common)});
+            }
+            args.InsertRange(args.Count-1,new[]{"-color_range","tv","-color_primaries","bt709","-color_trc","bt709","-colorspace","bt709"});
+            return args;
+        }
+        internal static List<string> MergeFrucArguments(IList<string> original,IList<string> hdr,string gpuName,string encoderRate = null)
+        {
+            var args=MergeEncodeArguments(original,hdr,true,0,0,gpuName);
+            int graph=args.IndexOf("-filter_complex");
+            if(!args[graph+1].Contains("fruc_vulkan="))throw new InvalidOperationException("FRUC HDR merge requires FRUC filter");
+            args[graph+1]=args[graph+1].Replace("format=yuv420p10le,setpts=PTS-STARTPTS,","format=yuv420p10le,settb=expr=1/1000,setpts=PTS-STARTPTS,");
+            if(!string.IsNullOrEmpty(encoderRate)) {
+                if(!System.Text.RegularExpressions.Regex.IsMatch(encoderRate,@"^[1-9][0-9]*/[1-9][0-9]*$"))throw new InvalidOperationException("Invalid HDR workfile encoder clock");
+                string[] rate=encoderRate.Split('/');
+                // Old HDR output rounded PTS to the encoder clock before Matroska rounded
+                // again to milliseconds. Preserve both quantizations before FRUC resets PTS.
+                args[graph+1]=args[graph+1].Replace("format=yuv420p10le,settb=expr=1/1000,","format=yuv420p10le,settb=expr="+rate[1]+"/"+rate[0]+",settb=expr=1/1000,");
+            }
+            return args;
+        }
+        internal static string ProbeWorkfileFrameRate(string ffmpeg,string input)
+        {
+            string output,error;
+            var args=new[]{"-hide_banner","-nostdin","-loglevel","info","-i",input,"-map","0:v:0","-an","-sn","-dn","-vf","showinfo","-frames:v","1","-f","null","-"};
+            if(!SharedFrucCore.Run(ffmpeg,SharedFrucCore.JoinArguments(args),15000,out output,out error))throw new InvalidOperationException("HDR workfile clock probe failed: "+error);
+            var match=System.Text.RegularExpressions.Regex.Match(output??"",@"config in time_base:\s*[0-9]+/[0-9]+,\s*frame_rate:\s*([1-9][0-9]*/[1-9][0-9]*)");
+            if(!match.Success)throw new InvalidOperationException("HDR workfile clock probe did not report the decoder filter frame rate");
+            return match.Groups[1].Value;
+        }
+        internal static void AttachMergedFruc(BridgeExecutionStage stage,string input,MediaProbeInfo info,string tonemap,string gpuName)
+        {
+            if(stage.BeforeRunPreparation!=null||stage.FrucArguments==null)throw new InvalidOperationException("FRUC merge preparation layout changed");
+            var original=new List<string>(stage.FrucArguments);
+            var cpu=BuildToSdr(input,"unused-fruc-hdr.mkv",info,tonemap,false);
+            stage.BeforeRunPreparation=delegate {
+                string notice;var hdr=SelectAutomatic(stage.ToolPath,cpu,tonemap,out notice,string.IsNullOrWhiteSpace(gpuName)?"0":gpuName);
+                string rate=ProbeWorkfileFrameRate(stage.ToolPath,input);
+                stage.FrucArguments=MergeFrucArguments(original,hdr,gpuName,rate);
+                return "[HDR merged FRUC] conversion before interpolation; no HDR workfile; encoder clock="+rate+" then Matroska milliseconds.\n"+notice;
+            };
+        }
+        internal static void AttachSharedWorkfileEncode(BridgeExecutionStage stage,string ffprobe,string workfile,string gpuName)
+        {
+            if(stage.BeforeRunPreparation!=null)throw new InvalidOperationException("Shared HDR workfile preparation already attached");
+            var frozen=new List<string>(stage.OriginalArguments);
+            stage.BeforeRunPreparation=delegate {
+                var time=SharedFrucCore.ProbeTimeline(ffprobe,workfile);
+                // Conversion has finished once. Reuse the validated clock, layout and plate EOF adapter only.
+                var args=MergeEncodeArguments(frozen,new[]{"-vf","null"},false,time.CommonOrigin,time.VideoDelay,gpuName);
+                stage.DirectArguments=SharedFrucCore.JoinArguments(args);
+                return "[HDR shared workfile encode] conversion reused; no repeated HDR filtering; source_common="+Number(time.CommonOrigin)+" video_delay="+Number(time.VideoDelay);
+            };
+        }
+        internal static void AttachMergedEncode(BridgeExecutionStage stage,string ffprobe,string input,
+            MediaProbeInfo info,string tonemap,string gpuName,bool videoOnly=false,bool sourceCadence=true)
+        {
+            if(stage.BeforeRunPreparation!=null)throw new InvalidOperationException("Merged encode preparation already attached");
+            var frozen=new List<string>(stage.OriginalArguments);
+            var cpu=BuildToSdr(input,"unused-inline-hdr.mkv",info,tonemap,false);
+            string device=string.IsNullOrWhiteSpace(gpuName)?"0":gpuName;
+            stage.BeforeRunPreparation=delegate {
+                string notice;
+                var selected=SelectAutomatic(stage.ToolPath,cpu,tonemap,out notice,device);
+                var time=SharedFrucCore.ProbeTimeline(ffprobe,input);
+                var merged=MergeEncodeArguments(frozen,selected,videoOnly,time.CommonOrigin,time.VideoDelay,device,sourceCadence);
+                stage.DirectArguments=SharedFrucCore.JoinArguments(merged);
+                return "[HDR merged encode] conversion / color / LUT / grain / encode; no HDR workfile.\n"+notice+
+                    "\n[HDR merged timeline] video_only="+videoOnly+" source_common="+Number(time.CommonOrigin)+" video_delay="+Number(time.VideoDelay);
             };
         }
 
@@ -240,24 +355,34 @@ namespace FilmGrainStudioPreview
             Func<string> next=stage.BeforeRunPreparation;
             stage.BeforeRunPreparation=delegate {string result=ValidateWorkfile(ffprobe,workfile,original);return result+(next==null?"":"\n"+next());};
         }
-        internal static void AttachPipeTimeline(BridgeExecutionStage stage,string ffprobe,string workfile,MediaProbeInfo original,IList<string> originalArguments)
+        internal static void AttachPipeTimeline(BridgeExecutionStage stage,string ffprobe,string workfile,MediaProbeInfo original,IList<string> originalArguments,string source)
         {
-            var frozen=new List<string>(originalArguments);
+            // Y4M loses timestamps; the original input remains authoritative for A/V sync.
+            // HDR filtering/encoding may normalize workfile video PTS independently of audio.
+            var frozen=UseOriginalPipeAudio(originalArguments,workfile,source);
             stage.BeforeRunPreparation=delegate {
                 string checkedFile=ValidateWorkfile(ffprobe,workfile,original);
-                SharedFrucCore.FrucTimeline time=SharedFrucCore.ProbeTimeline(ffprobe,workfile);
-                stage.DirectArguments=SharedFrucCore.JoinArguments(BuildPipeTimeline(frozen,workfile,time.CommonOrigin,time.VideoDelay));
-                return checkedFile+"\n[HDR→SDR→SVP timeline] source_common="+Number(time.CommonOrigin)+" video_delay="+Number(time.VideoDelay)+"; video from Y4M, audio/subtitles from SDR workfile";
+                var time=SharedFrucCore.ProbeTimeline(ffprobe,source);
+                stage.DirectArguments=SharedFrucCore.JoinArguments(BuildPipeTimeline(frozen,source,time.CommonOrigin,time.VideoDelay));
+                return checkedFile+"\n[HDR→SDR→SVP timeline] source_common="+Number(time.CommonOrigin)+" video_delay="+Number(time.VideoDelay)+"; video from SDR workfile/Y4M, audio/subtitles from original input";
             };
+        }
+        internal static List<string> UseOriginalPipeAudio(IList<string> original,string workfile,string source)
+        {
+            var args=new List<string>(original);int input=args.IndexOf("-i"),audio=-1;
+            if(input<0||input+1>=args.Count||args[input+1]!="pipe:0")throw new InvalidOperationException("HDR SVP requires a Y4M video input");
+            for(int i=input+2;i+1<args.Count;i++)if(args[i]=="-i"){audio=i;break;}
+            if(audio<0||args[audio+1]!=workfile)throw new InvalidOperationException("HDR SVP audio input mapping changed");
+            args[audio+1]=source;return args;
         }
         internal static List<string> BuildPipeTimeline(IList<string> original,string workfile,double common,double delay)
         {
             return SharedPipeTimelineCore.Build(original,workfile,common,delay,true);
         }
-        internal static List<string> BuildUploadTimeline(IList<string> original,bool stampBt709 = true)
+        internal static List<string> BuildBakeTimeline(IList<string> original,bool stampBt709 = true)
         {
             var args=new List<string>(original);int input=args.IndexOf("-i");
-            if(input<0||input+1>=args.Count)throw new InvalidOperationException("HDR SVP 上传输入映射已改变");
+            if(input<0||input+1>=args.Count)throw new InvalidOperationException("烘焙输入映射已改变");
             for(int i=input+2;i+1<args.Count;i++)
                 if(args[i]=="-r"){args.RemoveRange(i,2);i--;}
                 else if(args[i]=="-fps_mode"||args[i]=="-fps_mode:v"){args.RemoveRange(i,2);i--;}
@@ -267,67 +392,6 @@ namespace FilmGrainStudioPreview
             return args;
         }
         static string Number(double value){return value.ToString("0.#########",CultureInfo.InvariantCulture);}
-    }
-}
-
-namespace FilmGrainStudioPreview
-{
-    // Reuse a completed main file without placing it in the output-cleanup list.
-    internal static class SharedExistingUploadCore
-    {
-        internal static MediaProbeInfo ValidateMain(string ffprobe,string path,string codec,double expectedFps,MediaProbeInfo source)
-        {
-            if(!File.Exists(path)||new FileInfo(path).Length==0)throw new IOException("existing main output is missing or empty: "+path);
-            string json,error;
-            if(!SharedFrucCore.Run(ffprobe,SharedFrucCore.JoinArguments(new[]{"-v","error","-show_streams","-show_format","-of","json",path}),15000,out json,out error))
-                throw new IOException("existing main output probe failed: "+error);
-            var actual=MediaProbeInfo.Parse(path,json);
-            double rate=BitrateRecommendationCore.ParseMediaFps(actual),a,b;
-            if(!actual.HasVideo || actual.VideoCodec!=codec || actual.IsHdr || actual.IsInterlaced || actual.Width<=0 || actual.Height<=0 ||
-                source.HasAudio&&!actual.HasAudio || rate<=0 || Math.Abs(rate-expectedFps)>0.03 ||
-                double.TryParse(source.Duration,NumberStyles.Float,CultureInfo.InvariantCulture,out a)&&double.TryParse(actual.Duration,NumberStyles.Float,CultureInfo.InvariantCulture,out b)&&Math.Abs(a-b)>0.5)
-                throw new IOException("existing main output does not match the requested SDR upload route: "+path);
-            return actual;
-        }
-        static double ParseDuration(string text){double value;return double.TryParse(text,NumberStyles.Float,CultureInfo.InvariantCulture,out value)?value:0;}
-        internal static bool TryPrepare(string ffmpeg,string ffprobe,string originalInput,string main,string output,string tempRoot,
-            IDictionary<string,string> state,string passMode,string passlog,MediaProbeInfo source,double fps,
-            Func<int,string,List<string>> buildArgs,out BridgePreparedExecution prepared,out string reason)
-        {
-            prepared=null;reason="";
-            try
-            {
-                if(!File.Exists(ffmpeg)||!File.Exists(ffprobe))throw new IOException("existing main upload requires ffmpeg.exe and ffprobe.exe");
-                var actual=ValidateMain(ffprobe,main,"av1",fps,source);
-                var existing=new FileInfo(main);long length=existing.Length;DateTime modified=existing.LastWriteTimeUtc;
-                int count=passMode=="3PASS"?3:passMode=="2PASS"?2:1;
-                var req=new BridgeExecutionRequest{ToolPath=ffmpeg,WorkingDirectory=tempRoot,DirectProcess=true,
-                    InputFiles=new List<string>{main},OutputFiles=new List<string>{output},TemporaryFiles=new List<string>(),
-                    Environment=new Dictionary<string,string>(state,StringComparer.OrdinalIgnoreCase),
-                    ProgressDurationSeconds=ParseDuration(actual.Duration),
-                    ExecutionNotice="[Native .NET] 已有 AV1 主输出已验证，跳过主编码/颗粒/封装，仅补生成上传副本。 / Existing AV1 main output reused; upload only."};
-                if(count>1)foreach(string suffix in new[]{"-0.log","-0.log.mbtree","-0.mbtree","-0.log.temp","-0.log.mbtree.temp"})req.TemporaryFiles.Add(passlog+suffix);
-                var stages=new List<BridgeExecutionStage>();
-                var passes=count==1?new[]{0}:count==2?new[]{1,2}:new[]{1,3,2};
-                foreach(int pass in passes)
-                {
-                    var args=buildArgs(pass,passlog);
-                    // The output is new; never overwrite a file that appeared after planning.
-                    int overwrite=args.IndexOf("-y");if(overwrite>=0)args[overwrite]="-n";
-                    var stage=new BridgeExecutionStage{ToolPath=ffmpeg,WorkingDirectory=tempRoot,OriginalArguments=args,
-                        DirectArguments=SharedFrucCore.JoinArguments(args),ProgressDurationSeconds=req.ProgressDurationSeconds,
-                        StageCurrent=stages.Count+1,StageTotal=count,StageText=pass==0||pass==2?"H.264 upload final encode (existing AV1 main)":"H.264 upload pass "+pass+" (existing AV1 main)"};
-                    stage.BeforeRunPreparation=delegate {
-                        var current=new FileInfo(main);
-                        if(!current.Exists || current.Length!=length || current.LastWriteTimeUtc!=modified)throw new IOException("existing main output changed after upload preparation: "+main);
-                        return "[Native reuse] existing main output unchanged; upload stage only";
-                    };
-                    stages.Add(stage);
-                }
-                req.DirectStages=stages;prepared=new BridgePreparedExecution(req,false,ffmpeg,new List<string>{originalInput});return true;
-            }
-            catch(Exception ex){reason="existing main upload preparation failed: "+ex.Message;return false;}
-        }
     }
 }
 

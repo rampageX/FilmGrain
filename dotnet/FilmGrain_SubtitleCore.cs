@@ -25,7 +25,6 @@ namespace FilmGrainStudioPreview
         internal void WriteEnvironment(SortedDictionary<string, string> state)
         {
             state["FG_SUBTITLE"] = Enabled ? "1" : "0";
-            state["FG_UPLOAD_SUBTITLE"] = state["FG_SUBTITLE"];
             state["FG_SUB_MODE"] = Mode;
             state["FG_SUB_INDEX"] = EmbeddedIndex.ToString(CultureInfo.InvariantCulture);
             state["FG_SUB_PATH"] = ExternalPath;

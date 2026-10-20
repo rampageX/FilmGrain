@@ -13,7 +13,7 @@ namespace FilmGrainStudioPreview
             for(int i=first+2;i<args.Count;i++)if(args[i]=="-i"){second=i;break;}
             if(first<0||first+1>=args.Count||args[first+1]!="pipe:0"||second<0||second+1>=args.Count||args[second+1]!=source||filter<0||filter+1>=args.Count||!args[filter+1].Contains("[vout]"))throw new InvalidOperationException("SVP pipe 输入映射或滤镜输出已改变");
             string tail=stampBt709?",setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709":"";
-            if(delay>0.000000001)tail+=",setpts=PTS+"+Number(delay)+"/TB";
+            if(delay>0.000000001)tail+=",setpts=PTS+round("+Number(delay)+"/TB)";
             args[filter+1]=args[filter+1].Replace("[vout]",tail+"[vout]");
             // Only output timing options are changed; the looping grain input keeps its own -t.
             for(int i=filter+2;i+1<args.Count;i++) {

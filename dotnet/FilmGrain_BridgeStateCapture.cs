@@ -15,7 +15,7 @@ namespace FilmGrainStudioPreview
             BridgeEnvironmentSnapshot snapshot = CaptureBridgeEnvironmentSnapshot(out error);
             if (snapshot == null) return null;
             var state = BridgeEnvironmentCore.Build(snapshot);
-            if (snapshot.Mode == "AV1" && config.Get("AV1_UPLOAD_ENCODER") == "NVENC") state["FG_UPLOAD_MODE"] = "NVENC";
+            
             return state;
         }
 
@@ -29,23 +29,19 @@ namespace FilmGrainStudioPreview
         private BridgeEnvironmentSnapshot CaptureBridgeEnvironmentSnapshot(out string error)
         {
             error = "";
-            if (cmbCodec != null && cmbCodec.SelectedIndex == 3) return CaptureNoReencodeEnvironmentSnapshot(out error);
+            if (cmbCodec != null && cmbCodec.SelectedIndex == 4) return CaptureNoReencodeEnvironmentSnapshot(out error);
 
             long bitrate;
-            string bitrateText = IsHevcFgsim() && fgsimRcChoice != "VBR" ? modeBitrate[1] : (cmbBitrate == null ? "" : cmbBitrate.Text.Trim());
+            string bitrateText = IsHevcFgsim() && fgsimRcChoice != "VBR" ? modeBitrate[Math.Max(0,Math.Min(3,cmbCodec.SelectedIndex))] : (cmbBitrate == null ? "" : cmbBitrate.Text.Trim());
             if (!long.TryParse(bitrateText, NumberStyles.Integer, CultureInfo.InvariantCulture, out bitrate) || bitrate <= 10 || bitrate > 500000000)
             {
                 error = lang.T("error.bitrate_invalid");
                 return null;
             }
 
-            long uploadBitrate = 0;
-            bool uploadEnabled = cmbCodec.SelectedIndex != 2 && chkUpload != null && chkUpload.Checked;
-            if (uploadEnabled && (cmbUploadBitrate == null || !long.TryParse(cmbUploadBitrate.Text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out uploadBitrate) || uploadBitrate <= 10 || uploadBitrate > 500000000))
-            {
-                error = lang.T("error.upload_bitrate_invalid");
-                return null;
-            }
+            
+            
+            
 
             if (IsLutEffectEnabled())
             {
@@ -53,7 +49,7 @@ namespace FilmGrainStudioPreview
                 if (!File.Exists(selectedLutPath)) { error = LF("error.selected_lut_missing", selectedLutPath); return null; }
             }
 
-            string mode = cmbCodec.SelectedIndex == 0 ? "AV1" : (cmbCodec.SelectedIndex == 1 ? "HEVC" : "X264");
+            string mode = cmbCodec.SelectedIndex == 0 ? "AV1" : (cmbCodec.SelectedIndex == 1 ? "HEVC" : cmbCodec.SelectedIndex == 3 ? "H264" : "X264");
             bool av1 = mode == "AV1";
             int grainMode = cmbGrainMode == null ? 0 : Math.Max(0, cmbGrainMode.SelectedIndex);
             if (IsGrainEnabled() && av1 && grainMode == 2)
@@ -91,7 +87,8 @@ namespace FilmGrainStudioPreview
             {
                 snapshot.SfeEngines = hardwareCaps.Av1SplitEncodeMaxEngines;
             }
-            snapshot.BitrateMode = modeBitrateAuto[Math.Max(0, Math.Min(2, cmbCodec.SelectedIndex))] ? "AUTO" : "MANUAL";
+            if(mode=="HEVC"&&chkSfe!=null&&chkSfe.Checked&&hardwareCapsReady&&hardwareCaps!=null&&hardwareCaps.HevcSplitEncodeMaxEngines>=2)snapshot.SfeEngines=hardwareCaps.HevcSplitEncodeMaxEngines;
+            snapshot.BitrateMode = modeBitrateAuto[Math.Max(0, Math.Min(3, cmbCodec.SelectedIndex))] ? "AUTO" : "MANUAL";
             snapshot.Bitrate = bitrate;
             snapshot.HighMotion = chkHighMotion != null && chkHighMotion.Checked;
             snapshot.FpsMode = cmbFps != null && cmbFps.SelectedIndex == 1 ? "SOURCE" : "AUTO";
@@ -156,9 +153,9 @@ namespace FilmGrainStudioPreview
             snapshot.HevcTemporalAq = config.GetBool("NVENC_TEMPORAL_AQ");
             snapshot.HdrPolicy = config.Get("HDR_POLICY");
             snapshot.TonemapAlgo = config.Get("TONE_MAP_ALGO");
-            snapshot.UploadEnabled = uploadEnabled;
-            snapshot.UploadBitrateMode = uploadBitrateAuto ? "AUTO" : "MANUAL";
-            snapshot.UploadBitrate = uploadBitrate;
+            
+            
+            
 
             snapshot.ColorEnabled = colorCorrectionEnabled;
             snapshot.ColorContrast = colorContrast;
@@ -244,6 +241,10 @@ namespace FilmGrainStudioPreview
             snapshot.AudioBitrate = config.Get("AUDIO_BITRATE");
             snapshot.Av1Multipass = config.Get("AV1_MULTIPASS");
             snapshot.HevcMultipass = config.Get("HEVC_MULTIPASS");
+            snapshot.H264Multipass = config.Get("H264_MULTIPASS");
+            snapshot.HevcBFrames = config.Get("HEVC_BFRAMES"); snapshot.H264BFrames = config.Get("H264_BFRAMES");
+            snapshot.HevcBReference = config.Get("HEVC_BREF_MODE"); snapshot.H264BReference = config.Get("H264_BREF_MODE");
+            snapshot.HevcLookahead = config.Get("HEVC_LOOKAHEAD"); snapshot.H264Lookahead = config.Get("H264_LOOKAHEAD");
 
             snapshot.Av1GrainStrength = Av1GrainStrengthPercent;
             snapshot.PixelGrainStrength = 100;

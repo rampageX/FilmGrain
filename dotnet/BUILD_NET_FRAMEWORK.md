@@ -1,29 +1,25 @@
-# .NET Framework 成品构建要求
+﻿# Film Grain Studio — Windows 构建
 
-## 当前强制门禁 P8N3LK
+当前发布目标为 v5.0.16 / Stable。产品版本为 5.0.16，文件和程序集版本为 5.0.16.0；由 `.github/release/sync_native_version.ps1` 同步。
 
-非 Windows 交付必须执行 `dotnet/BuildTools/build_verified.py`，显式传入微软 net45 1.0.3 参考程序集目录、Mono/编译器及配置路径。脚本启用 `-nostdlib`，所有BCL引用来自该目录；编译候选 EXE 后执行成品 API 审计，成功才复制两处产物。禁止另用 Mono 默认引用集生成交付 EXE。
+## 本机构建
 
-Windows `build_NET_Preview.bat` 在复制根 EXE 前强制运行 `BuildTools/Test_Framework_Api.ps1`；正式发布核心也在成品元数据校验时执行该审计。缺失审计文件、Cecil哈希不符、编译/解析失败均终止；不提供跳过开关。
+在 Windows 运行 `dotnet\build_NET_Preview.bat`。脚本使用 Windows .NET Framework 的 C# 编译器，构建所有产品源码；Framework API 审计通过后更新根目录 `FilmGrain_Studio.exe` 与 `dotnet/build/FilmGrain_Studio_NET_Preview.exe`。两处 EXE 必须一致。构建工具不参与应用运行时。
 
-审计通过 Mono.Cecil 0.11.6 读取成品元数据，验证类型、方法、字段及泛型引用。解析器仅使用指定微软参考程序集，或Windows当前Framework的物理DLL路径，禁止回落到Mono或应用程序集目录。CLR多维数组的构造/Get/Set/Address按签名单独验证，不误判为缺失BCL方法。
+## 界面检查
 
-`Tests_Shared/Run_Framework_Api_Check.bat`先检查未重编译的两处包内EXE，避免重编译掩盖交付错误。`Run_SVP_Tests.bat`也已加入重编译前及编译后门禁。本地BAT/PS1是构建工具，FGS应用运行时不调用这些工具。
+构建后执行：
 
-历史审计说明如下；当前入口以上述新工具为准。
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File dotnet\BuildTools\Test_UI_Startup.ps1
+```
 
-目标是 Windows .NET Framework，不能用 Mono 的默认运行库作为发布 EXE 的 API 引用基线。即使 C# 5 编译成功、Mono 自动检查通过，Mono 的 String 单字符重载、参数为空的 TrimStart/TrimEnd、Array.Empty 或基础类型程序集归属也可能与 Framework 不同。
+独立 STA 进程加载实际应用，检查主窗口构造、四种编码切换、首次显示和高级设置三页的控件边界、说明顺序、推荐提示。测试以取消关闭，不保存设置、不启动媒体编码或依赖安装。结果和临时文件在 `dotnet/BuildTools/UiAudit`，发布流程会排除。
 
-Windows：现有 build_NET_Preview.bat 使用 Windows 自带 Framework csc，更新 dotnet/build 与根目录两处成品。请先关闭程序，检查脚本返回码。
+## 正式发布
 
-非 Windows 预构建：本轮使用 Microsoft.NETFramework.ReferenceAssemblies.net45 1.0.3；编译启用 -nostdlib，并显式引用该包中的 mscorlib、System、System.Core、System.Drawing、System.Windows.Forms、System.Web.Extensions。所有产品 C# 源文件都使用同一引用集。不要混入 Mono 默认的同名 DLL。
+先运行 `release.bat --dry-run 5.0.16`，通过后运行 `release.bat 5.0.16`。本机和 Windows runner 共用 `.github/release/build_release.ps1` 与 `release_layout.ps1`，从源码重建、审计并校验版本资源。准备包和 Dry Run 均不代表已经发布。
 
-交付前必须对实际成品进行微软参考程序集元数据校验。ReferenceApiAudit_8BBMST.cs 是开发审计源码，需要 Mono.Cecil 0.11.6；不能仅在 Mono 运行时调用 ResolveMember 来代替此项，因为 Mono 会统一到自身 mscorlib。本轮报告位于 Tests_Shared/reference_new_8BBMST.log。
+## 编译基线与 API 审计
 
-Windows 无需上述开发审计依赖：Run_StartupFix_Checks_4GP6Z6.cmd（旧 8BBMST 入口已转发）首先对包内两处预编译成品做当前 Windows Framework API 解析与配置/语言读取检查，再运行启动检查与既有回归。此检查不替代 Windows GUI/GPU 实测。
-
-检查工具 4GP6Z6 直接解析泛型元数据，使用 Tests_Shared 内的 Mono.Cecil net40 DLL；不再逐个无上下文调用 Module.ResolveMember。Windows 模式读取当前 Framework 的物理 DLL/GAC，开发模式可指定微软参考程序集目录；不能把 Mono 当前运行库解析成功当成 Windows API 校验。依赖、许可和哈希见 Tests_Shared/ThirdPartyAudit_4GP6Z6.md。
-
-4FH3JQ：WinExe 的启动诊断及硬件查询协议通过 Console.OpenStandardOutput 和无 BOM UTF-8 StreamWriter 写入继承管道，不设置 Console.OutputEncoding，避免无控制台进程调用控制台代码页 API 引发句柄无效。新检查入口 Run_StartupFix_Checks_4FH3JQ.cmd，旧 8BBMST / 4GP6Z6 入口转发。正式版本仍 v4.8.13，产品测试标识为 4FH3JQ。
-
-v4.8.14 发布准备：Program.ReleaseVersion 是 .NET 版本唯一显示来源；正式 TestBuild 为 Stable。发布核心的 sync_native_version.ps1 同步版本，build_release.ps1 校验 Native 与 Legacy 版本一致。Windows 编译清单覆盖全部 39 个 C# 文件，两处 EXE 必须 SHA256 相同。Tests_Shared 仅供本地检查，正式 Stable ZIP 排除；本地使用 Run_ReleaseReady_Checks_HKW0ES.cmd，发布 Dry Run 使用 release.bat --dry-run 4.8.14。
+非 Windows 环境只能以 Microsoft .NET Framework 参考程序集检查 C# 语义和 API；不能用 Mono 或现代 .NET 默认程序集代替 Windows Framework 引用。成品的类型、方法、字段和泛型引用由 `BuildTools/FrameworkApiAudit.cs` 与 `Test_Framework_Api.ps1` 检查。审计使用固定版本 Mono.Cecil，许可与完整性检查随工具保留；失败时不跳过门禁。Windows GUI/GPU 实测仍需 Windows 环境。

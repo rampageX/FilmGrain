@@ -9,7 +9,6 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 
-
 namespace FilmGrainStudioPreview
 
 {
@@ -17,10 +16,6 @@ namespace FilmGrainStudioPreview
     internal static class NativeHevcCore
 
     {
-
-
-
-
 
         internal static bool TryPrepare(string appRoot, string input, MediaProbeInfo info, IDictionary<string,string> state, HardwareCapabilitySnapshot caps, out BridgePreparedExecution prepared, out string reason)
 
@@ -32,7 +27,7 @@ namespace FilmGrainStudioPreview
 
             if (state == null || info == null) { reason = "missing state/media probe"; return false; }
 
-            if (!Eq(state, "FG_MODE", "HEVC")) { reason = "codec is not HEVC"; return false; }
+            if (!Eq(state, "FG_MODE", "HEVC") && !Eq(state,"FG_MODE","H264")) { reason = "codec is not HEVC"; return false; }
             IDictionary<string,string> normalized; string bypassNotice;
             if (!SharedInterpolationBypassCore.TryResolve(info,state,out normalized,out bypassNotice,out reason)) return false;
             if (normalized != null)
@@ -42,7 +37,7 @@ namespace FilmGrainStudioPreview
                 return success;
             }
 
-            if (caps == null || !caps.Ready || !caps.HevcAvailable) { reason = "HEVC hardware capability cache is unavailable"; return false; }
+            if (caps == null || !caps.Ready || !(Eq(state,"FG_MODE","H264")?caps.H264Available:caps.HevcAvailable)) { reason = "HEVC hardware capability cache is unavailable"; return false; }
 
             if (!SharedGrainCore.IsEnabled(state)) return TryPrepareEngine(appRoot, input, info, state, caps, false, out prepared, out reason);
             if (SharedGrainCore.Engine(state) == "PROCEDURAL") return TryPrepareEngine(appRoot, input, info, state, caps, false, out prepared, out reason);
@@ -57,8 +52,6 @@ namespace FilmGrainStudioPreview
 
         }
 
-
-
         private static bool TryPrepareEngine(string appRoot, string input, MediaProbeInfo info, IDictionary<string,string> state, HardwareCapabilitySnapshot caps, bool plateMode, out BridgePreparedExecution prepared, out string reason)
 
         {
@@ -69,6 +62,7 @@ namespace FilmGrainStudioPreview
 
             bool grainEnabled = SharedGrainCore.IsEnabled(state);
             if (!SharedGrainCore.ValidateHdr(info,state,out reason)) return false;
+            bool h264 = Eq(state,"FG_MODE","H264");
             bool fgsimMode = SharedGrainCore.Engine(state) == "FGSIM";
 
             bool interpolate = Get(state, "FG_SVP_INTERPOLATE") == "1";
@@ -89,29 +83,17 @@ namespace FilmGrainStudioPreview
 
                 fgsimMode || (Eq(state, "FG_HDR_POLICY", "AUTO") &&
 
-                (Get(state, "FG_COLOR_ENABLED") == "1" || !string.IsNullOrWhiteSpace(Get(state, "FG_LUT_PATH")) || Get(state, "FG_UPLOAD") == "1" || svp)));
+                (Get(state, "FG_COLOR_ENABLED") == "1" || !string.IsNullOrWhiteSpace(Get(state, "FG_LUT_PATH")) || svp)));
 
+            if(h264&&info.IsHdr&&!Eq(state,"FG_HDR_POLICY","PRESERVE"))hdrToSdr=true;
             bool hdrPreserve = info.IsHdr && !hdrToSdr;
-
-
+            if(h264&&hdrPreserve){reason="H.264 NVENC 本线输出 8bit；HDR 源请选 HDR→SDR，不能保留 HDR10。 / H.264 8-bit output requires HDR to SDR.";return false;}
 
             string tonemap = Get(state, "FG_TONEMAP_ALGO").ToLowerInvariant();
 
             if (tonemap != "mobius" && tonemap != "reinhard" && tonemap != "gamma" && tonemap != "linear" && tonemap != "clip") tonemap = "hable";
 
             string tonemapLabel = char.ToUpperInvariant(tonemap[0]) + tonemap.Substring(1);
-
-            bool uploadRequested = Get(state, "FG_UPLOAD") == "1";
-
-            bool uploadSkippedForHdrPreserve = uploadRequested && hdrPreserve;
-
-            bool upload = uploadRequested && !hdrPreserve;
-
-            if (upload && !caps.X264Available) { reason = "x264 upload capability is unavailable"; return false; }
-
-            string uploadPass = Get(state, "FG_X264_PASS_MODE").ToUpperInvariant();
-
-            if (upload && uploadPass != "VBR1" && uploadPass != "2PASS" && uploadPass != "3PASS") { reason = "unsupported upload pass mode"; return false; }
 
             bool mkv = Eq(state, "FG_CONTAINER", "MKV");
 
@@ -124,7 +106,6 @@ namespace FilmGrainStudioPreview
             if (fruc && info.IsInterlaced) { reason = "interlaced FRUC is not supported"; return false; }
 
             if (interpolate && hdrPreserve) { reason = "HDR source bypasses 8-bit interpolation on legacy backend"; return false; }
-
 
             bool mpegTsSvp = svp && !hdrToSdr && IsMpegTsInput(input);
             // No-grain SVP keeps the original audio lead on the common clock.
@@ -160,8 +141,6 @@ namespace FilmGrainStudioPreview
             // CUDA avoids that stage unless HDR-to-SDR preprocessing already requires one.
 
             if (info.Width <= 0 || info.Height <= 0) { reason = "invalid dimensions"; return false; }
-
-
 
             long bitrate;
 
@@ -219,13 +198,9 @@ namespace FilmGrainStudioPreview
 
             string duration = durationSeconds > 0.0 ? durationSeconds.ToString("0.######", CultureInfo.InvariantCulture) : "";
 
-
-
             string ffmpeg = Path.Combine(GetFfmpegDir(appRoot), "ffmpeg.exe");
 
             string ffprobe = Path.Combine(GetFfmpegDir(appRoot), "ffprobe.exe");
-
-            if (mpegTsSvp && !preserveSvpTransportTimeline && !TryGetMpegTsVideoOffset(ffprobe, input, out mpegTsVideoOffset, out reason)) return false;
 
             if (fruc && Get(state, "FG_FRUC_USE_MAIN_FFMPEG") == "0" && string.IsNullOrWhiteSpace(Get(state, "FG_FRUC_FFMPEG_PATH")))
 
@@ -235,17 +210,11 @@ namespace FilmGrainStudioPreview
 
             if (!File.Exists(ffmpeg)) { reason = "ffmpeg.exe not found: " + ffmpeg; return false; }
 
-            if (fruc && !SharedFrucCore.TryPreflight(ffmpeg, Get(state, "FG_FRUC_PERF").ToLowerInvariant(), Get(state, "FG_FRUC_GRID").ToLowerInvariant(), out reason)) return false;
-
             string vspipe = Path.Combine(appRoot, "_OpenSVPFlow", ".venv", "Scripts", "vspipe.exe");
 
             string vpy = Path.Combine(appRoot, "_OpenSVPFlow", "FilmGrain_OpenSVPFlow.vpy");
 
             string svpPlugins = Path.Combine(appRoot, "_OpenSVPFlow", "Plugins");
-
-            if (svp && (!File.Exists(vspipe) || !File.Exists(vpy) || !File.Exists(Path.Combine(svpPlugins, "svpflow1_vs.dll")) || !File.Exists(Path.Combine(svpPlugins, "svpflow2_vs.dll"))))
-
-            { reason = "OpenSVPFlow dependencies are missing"; return false; }
 
             string fgsimHook = "", fgsimTag = "";
 
@@ -261,14 +230,7 @@ namespace FilmGrainStudioPreview
 
                 fgsimHook = Path.Combine(appRoot, "Utils", "_FilmGrainSimplified", "Generated", "FilmGrainSimplified_" + fgsimPreset + ".hook");
 
-                if (!TryPrepareFgsimHook(appRoot, ffmpeg, fgsimHook, fgsimPreset, out reason)) return false;
-                if (hdrPreserve && !ValidateFgsimHdrHook(ffmpeg, fgsimHook, out reason)) return false;
-
             }
-
-            
-
-
 
             CinematicFramePlan frame;
 
@@ -285,32 +247,6 @@ namespace FilmGrainStudioPreview
                 bitrate = BitrateRecommendationCore.GetRecommendedBitrate(1, frame.ActiveWidth, frame.ActiveHeight, rateFps, highMotion);
 
             }
-
-            long uploadBitrate = 0;
-
-            if (upload)
-
-            {
-
-                if (Eq(state, "FG_UPLOAD_BITRATE_MODE", "MANUAL"))
-
-                {
-
-                    if (!long.TryParse(Get(state, "FG_UPLOAD_BITRATE"), NumberStyles.Integer, CultureInfo.InvariantCulture, out uploadBitrate) || uploadBitrate <= 0)
-
-                    { reason = "invalid manual upload bitrate"; return false; }
-
-                }
-
-                else if (Eq(state, "FG_UPLOAD_BITRATE_MODE", "AUTO"))
-
-                    uploadBitrate = BitrateRecommendationCore.GetRecommendedBitrate(2, frame.ActiveWidth, frame.ActiveHeight, ParseFps(fps), Get(state, "FG_UPLOAD_HIGH_MOTION") == "1");
-
-                else { reason = "unsupported upload bitrate mode"; return false; }
-
-            }
-
-
 
             string colorFilter, colorSuffix;
 
@@ -343,7 +279,7 @@ namespace FilmGrainStudioPreview
 
                 string plate = Get(state, "FG_HEVC_GRAIN_PATH");
 
-                if (string.IsNullOrWhiteSpace(plate) || !File.Exists(plate)) { reason = "selected Grain Plate is missing: " + plate; return false; }
+                if (string.IsNullOrWhiteSpace(plate)) { reason = "selected Grain Plate is missing: " + plate; return false; }
 
                 grainInput = plate;
 
@@ -382,15 +318,11 @@ namespace FilmGrainStudioPreview
 
             }
 
-
-
             string outDir = ResolveOutputDirectory(input, state);
 
             try { Directory.CreateDirectory(outDir); }
 
             catch (Exception ex) { reason = "cannot create output directory: " + ex.Message; return false; }
-
-
 
             string subSuffix = Get(state, "FG_SUBTITLE") == "1" ? "_SUB" : "";
 
@@ -398,17 +330,18 @@ namespace FilmGrainStudioPreview
             string grainFileName = !grainEnabled ? "" : plateMode ? "_FG_" + grainTag + "_STR" + plateStrengthPercent.ToString(CultureInfo.InvariantCulture) : fgsimMode ? "_FG_FGSIM_" + fgsimTag : "_FG_DG" + procStrength.ToString(CultureInfo.InvariantCulture);
 
             if (grainEnabled && pixelPercent != 100) grainFileName += "_GS" + pixelPercent.ToString(CultureInfo.InvariantCulture);
-            string output = Path.Combine(outDir, Path.GetFileNameWithoutExtension(input) + "_HEVC_" + speedSuffix + "_" + bitrate.ToString(CultureInfo.InvariantCulture) + "k" + rcSuffix + fpsSuffix + deinterlaceSuffix + frame.FileSuffix + grainFileName + colorSuffix + lutNamingSuffix + (hdrToSdr ? "_SDR_" + tonemapLabel : "") + subSuffix + (mkv ? ".mkv" : ".mp4"));
+            string output = Path.Combine(outDir, Path.GetFileNameWithoutExtension(input) + (h264?"_H264_NVENC_":"_HEVC_") + speedSuffix + "_" + bitrate.ToString(CultureInfo.InvariantCulture) + "k" + rcSuffix + fpsSuffix + deinterlaceSuffix + frame.FileSuffix + grainFileName + colorSuffix + lutNamingSuffix + (hdrToSdr ? "_SDR_" + tonemapLabel : "") + subSuffix + (mkv ? ".mkv" : ".mp4"));
 
-            string uploadOutput = upload ? Path.Combine(outDir, Path.GetFileNameWithoutExtension(input) + "_X264" + BuildX264FileSuffix(Get(state, "FG_X264_PRESET").ToLowerInvariant(), uploadPass) + "_" + uploadBitrate.ToString(CultureInfo.InvariantCulture) + "k" + fpsSuffix + deinterlaceSuffix + frame.FileSuffix + grainFileName + colorSuffix + lutNamingSuffix + (hdrToSdr ? "_SDR_" + tonemapLabel : "") + "_UPLOAD_FROM_HEVC_" + speedSuffix + "_" + bitrate.ToString(CultureInfo.InvariantCulture) + "k" + rcSuffix + subSuffix + ".mp4") : "";
+            if (File.Exists(output)) { reason = "native output already exists: " + output; return false; }
 
-            bool skipMain = upload && File.Exists(output);
-
-            if (!upload && File.Exists(output)) { reason = "native output already exists: " + output; return false; }
-
-            if (upload && File.Exists(uploadOutput)) { reason = "native upload output already exists: " + uploadOutput; return false; }
-
-
+                            if (plateMode && !File.Exists(Get(state,"FG_HEVC_GRAIN_PATH"))) { reason="selected Grain Plate is missing";return false; }
+                if (fruc && !SharedFrucCore.TryPreflight(ffmpeg,Get(state,"FG_FRUC_PERF").ToLowerInvariant(),Get(state,"FG_FRUC_GRID").ToLowerInvariant(),out reason))return false;
+                if (svp && (!File.Exists(vspipe)||!File.Exists(vpy)||!File.Exists(Path.Combine(svpPlugins,"svpflow1_vs.dll"))||!File.Exists(Path.Combine(svpPlugins,"svpflow2_vs.dll")))) { reason="OpenSVPFlow dependencies are missing";return false; }
+                if (mpegTsSvp && !preserveSvpTransportTimeline && !TryGetMpegTsVideoOffset(ffprobe,input,out mpegTsVideoOffset,out reason))return false;
+                if(fgsimMode) {
+                    if(!TryPrepareFgsimHook(appRoot,ffmpeg,fgsimHook,Get(state,"FG_FGSIM_PRESET").ToUpperInvariant(),out reason))return false;
+                    if(hdrPreserve&&!ValidateFgsimHdrHook(ffmpeg,fgsimHook,out reason))return false;
+                }
 
             string lutCompatPath = "", lutCompatName = "", lutOpacity = "";
 
@@ -426,21 +359,22 @@ namespace FilmGrainStudioPreview
 
             }
 
-
-
-
-
+            string workingDirectory=string.IsNullOrEmpty(lutCompatPath)?Path.GetDirectoryName(input):Path.GetDirectoryName(lutCompatPath);
+            string subtitleFilterPath;
+            if(!NativeSubtitlePrepareCore.TryStageForFilter(subtitleAss,workingDirectory,out subtitleFilterPath,out reason))
+            {TryDelete(lutCompatPath);TryDelete(subtitleAss);return false;}
             List<string> temporaryFiles = new List<string>();
 
             if (!string.IsNullOrEmpty(lutCompatPath)) temporaryFiles.Add(lutCompatPath);
 
             if (!string.IsNullOrEmpty(subtitleAss)) temporaryFiles.Add(subtitleAss);
+            if(!string.IsNullOrEmpty(subtitleFilterPath)&&subtitleFilterPath!=subtitleAss)temporaryFiles.Add(subtitleFilterPath);
 
             try
 
             {
 
-                string subtitleFilter = string.IsNullOrEmpty(subtitleAss) ? "" : ",format=yuv420p10le,subtitles=filename='" + EscapeFilterPath(subtitleAss) + "',format=p010le";
+                string subtitleFilter=NativeSubtitlePrepareCore.BurnInFilter(subtitleFilterPath);
 
                 string filter;
 
@@ -560,8 +494,6 @@ namespace FilmGrainStudioPreview
 
                 }
 
-
-
                 filter=LutStrengthCore.OptimizeGraph(filter);
                 string pixelFull = grainEnabled ? filter : null;
                 string pixelClean = grainEnabled ? SharedGrainCore.BuildWithoutGrain(deinterlaceFilter + fpsFilter + colorFilter,
@@ -570,7 +502,7 @@ namespace FilmGrainStudioPreview
                 pixelClean=LutStrengthCore.OptimizeGraph(pixelClean);
                 if (grainEnabled) filter = PixelGrainStrengthCore.Wrap(filter,pixelClean,pixelPercent);
 
-                if (fruc)
+                if (fruc )
 
                 {
 
@@ -588,13 +520,11 @@ namespace FilmGrainStudioPreview
 
                 if (svp && plateMode) filter = filter.Replace("[1:v:0]", "[2:v:0]");
 
-
-
                 long max = bitrate * 3L;
 
                 long buf = bitrate * 6L;
 
-                string workingDirectory = string.IsNullOrEmpty(lutCompatPath) ? Path.GetDirectoryName(input) : Path.GetDirectoryName(lutCompatPath);
+
 
                 List<string> requestInputs = new List<string>(); requestInputs.Add(input); if (plateMode) requestInputs.Add(grainInput);
 
@@ -619,28 +549,23 @@ namespace FilmGrainStudioPreview
 
                 request.OutputFiles = new List<string>();
 
-                if (!skipMain) request.OutputFiles.Add(output);
-
-                if (upload) request.OutputFiles.Add(uploadOutput);
+                request.OutputFiles.Add(output);
 
                 request.ProgressDurationSeconds = durationSeconds > 0.0 ? durationSeconds : 0.0;
 
                 if (hdrPreserve) request.PostRunValidation = delegate { return VerifyHdrOutput(ffprobe, output, info); };
 
-
-
                 string encodeInput = input;
 
-                int uploadPassCount = upload ? (uploadPass == "VBR1" ? 1 : uploadPass == "3PASS" ? 3 : 2) : 0;
+                bool mergedHdr = SharedHdrPreprocessCore.CanMergeEncode(hdrToSdr,interpolate,info.IsInterlaced);
+                bool mergedFrucHdr=hdrToSdr&&fruc&&!info.IsInterlaced;
+                bool needsHdrWorkfile = hdrToSdr && !mergedHdr && !mergedFrucHdr ;
 
-                bool mergedHdr = SharedHdrPreprocessCore.CanMergeHevc(hdrToSdr,grainEnabled,interpolate,info.IsInterlaced,skipMain);
-                bool needsHdrWorkfile = hdrToSdr && !mergedHdr && (!skipMain || plateMode);
+                bool needsFieldWorkfile = separateDeint ;
 
-                bool needsFieldWorkfile = separateDeint && (!skipMain || plateMode);
+                int totalStages = (needsHdrWorkfile || needsFieldWorkfile ? 1 : 0) + 1;
 
-                int totalStages = (needsHdrWorkfile || needsFieldWorkfile ? 1 : 0) + (skipMain ? 0 : 1) + uploadPassCount;
-
-                List<BridgeExecutionStage> stages = (hdrToSdr || separateDeint || upload || svp || fruc || uploadSkippedForHdrPreserve || !grainEnabled) ? new List<BridgeExecutionStage>() : null;
+                List<BridgeExecutionStage> stages = new List<BridgeExecutionStage>();
 
                 if (needsHdrWorkfile || needsFieldWorkfile)
 
@@ -659,97 +584,41 @@ namespace FilmGrainStudioPreview
 
                 }
 
-                if (!skipMain)
-
-                {
-
                     List<string> hevcArgs = BuildHevcArgs(encodeInput, grainInput, filter, output, preset, highMotion, bitrate, max, buf, fps, duration, plateMode, mkv, caps, state, quality, hdrPreserve ? info : null, fruc, info);
 
-                    if (svp) ConvertToPipeInput(hevcArgs, encodeInput, mpegTsSvp && !preserveSvpTransportTimeline ? mpegTsVideoOffset : null);
+                    if (svp) {
+                        ConvertToPipeInput(hevcArgs, encodeInput, mpegTsSvp && !preserveSvpTransportTimeline ? mpegTsVideoOffset : null);
+                        SharedInterpolationEncodeCore.NormalizeRenderedCadence(hevcArgs,fps);
+                        hevcArgs.InsertRange(hevcArgs.Count-1,new[]{"-enc_time_base:v",fps.Contains("/")?fps.Split('/')[1]+"/"+fps.Split('/')[0]:"1/"+fps});
+                    }
 
-                    if (stages != null)
-
-                    {
-
-                        string mainStageText = uploadSkippedForHdrPreserve ? "HEVC final encode (H.264 upload copy skipped by HDR Preserve)" : "HEVC final encode";
+                        string mainStageText = h264?"H.264 NVENC final encode":"HEVC final encode";
 
                         BridgeExecutionStage mainStage = MakeStage(ffmpeg, workingDirectory, hevcArgs, durationSeconds, (needsHdrWorkfile || needsFieldWorkfile ? 2 : 1), totalStages, mainStageText);
 
                         if (svp) SharedSvpCore.AttachProducer(mainStage, vspipe, vpy, svpPlugins, encodeInput, state, fps);
-                        if (svp && hdrToSdr) SharedHdrPreprocessCore.AttachPipeTimeline(mainStage,ffprobe,encodeInput,info,hevcArgs);
+                        if (svp && hdrToSdr) SharedHdrPreprocessCore.AttachPipeTimeline(mainStage,ffprobe,encodeInput,info,hevcArgs,input);
                         else if (preserveSvpTransportTimeline) SharedPipeTimelineCore.AttachTransportSource(mainStage,ffprobe,encodeInput,info,hevcArgs);
 
                         if(fieldWorkfile || separateDeint || hdrOffSdr)SharedHdrPreprocessCore.AttachFieldTimeline(mainStage,ffprobe,encodeInput,info,hdrToSdr,!hdrOffSdr);
 
-                        if (mergedHdr)
+                        if(mergedFrucHdr)
+                            SharedHdrPreprocessCore.AttachMergedFruc(mainStage,input,info,tonemap,caps.GpuName);
+                        else if (mergedHdr)
                         {
-                            mainStage.StageText = "HEVC：HDR 转 SDR / 调色 / LUT / 编码";
-                            SharedHdrPreprocessCore.AttachMergedHevc(mainStage,ffprobe,input,info,tonemap,caps.GpuName);
+                            mainStage.StageText = (h264?"H.264":"HEVC")+"：HDR 合并 / 调色 / LUT / 颗粒 / 编码";
+                            if(!grainEnabled)SharedHdrPreprocessCore.AttachMergedHevc(mainStage,ffprobe,input,info,tonemap,caps.GpuName);
+                            else SharedHdrPreprocessCore.AttachMergedEncode(mainStage,ffprobe,input,info,tonemap,caps.GpuName);
                         }
+                        else if(needsHdrWorkfile && !interpolate && !info.IsInterlaced)
+                            SharedHdrPreprocessCore.AttachSharedWorkfileEncode(mainStage,ffprobe,encodeInput,caps.GpuName);
                         else if (!grainEnabled && !interpolate && !(fieldWorkfile || separateDeint || hdrOffSdr))
                             SharedOrdinaryTimelineCore.Attach(mainStage,ffprobe,encodeInput);
                         stages.Add(mainStage);
 
-                    }
-
-                    else request.DirectArguments = JoinArgs(hevcArgs);
                     request.PixelGrainEncodeArguments = hevcArgs;
 
-                }
-
-                if (upload)
-
-                {
-
-                    string uploadPreset = Get(state, "FG_X264_PRESET").ToLowerInvariant();
-
-                    if (uploadPreset != "medium" && uploadPreset != "slow") uploadPreset = "faster";
-
-                    string passlog = "";
-
-                    string uploadFilter = "";
-
-                    if (plateMode && !interpolate)
-
-                    {
-
-                        string uploadSubtitle = string.IsNullOrEmpty(subtitleAss) ? "" : ",subtitles=filename='" + EscapeFilterPath(subtitleAss) + "'";
-
-                        if (!TryBuildPlateUploadFilter(filter, subtitleFilter, uploadSubtitle, pixelPercent, out uploadFilter))
-                        { reason = "cannot derive Grain Plate upload filter"; return false; }
-
-                    }
-
-                    if (uploadPassCount > 1)
-
-                    {
-
-                        string tempRoot;
-
-                        if (!TryResolveTempRoot(input, state, out tempRoot, out reason)) return false;
-
-                        passlog = Path.Combine(tempRoot, "__FGS_UPLOAD_X264_" + Guid.NewGuid().ToString("N"));
-
-                        AddPasslogTemps(temporaryFiles, passlog);
-
-                        stages.Add(MakeStage(ffmpeg, workingDirectory, plateMode && !interpolate ? BuildPlateUploadArgs(encodeInput, grainInput, uploadFilter, uploadOutput, uploadPreset, uploadBitrate, fps, duration, Get(state, "FG_UPLOAD_HIGH_MOTION") == "1" && caps.X264BStrategy2, 1, passlog, state, info) : BuildUploadArgs(output, uploadOutput, uploadPreset, uploadBitrate, fps, Get(state, "FG_UPLOAD_HIGH_MOTION") == "1" && caps.X264BStrategy2, 1, passlog, (hdrToSdr && svp) || fieldWorkfile || separateDeint || hdrOffSdr, hdrToSdr, grainEnabled, state, AudioOutputCore.Derived(info,state,mkv)), durationSeconds, totalStages - uploadPassCount + 1, totalStages, "upload pass 1: analysis"));
-
-                        if (uploadPassCount == 3)
-
-                            stages.Add(MakeStage(ffmpeg, workingDirectory, plateMode && !interpolate ? BuildPlateUploadArgs(encodeInput, grainInput, uploadFilter, uploadOutput, uploadPreset, uploadBitrate, fps, duration, Get(state, "FG_UPLOAD_HIGH_MOTION") == "1" && caps.X264BStrategy2, 3, passlog, state, info) : BuildUploadArgs(output, uploadOutput, uploadPreset, uploadBitrate, fps, Get(state, "FG_UPLOAD_HIGH_MOTION") == "1" && caps.X264BStrategy2, 3, passlog, (hdrToSdr && svp) || fieldWorkfile || separateDeint || hdrOffSdr, hdrToSdr, grainEnabled, state, AudioOutputCore.Derived(info,state,mkv)), durationSeconds, totalStages - 1, totalStages, "upload pass 3: stats refinement"));
-
-                    }
-
-                    stages.Add(MakeStage(ffmpeg, workingDirectory, plateMode && !interpolate ? BuildPlateUploadArgs(encodeInput, grainInput, uploadFilter, uploadOutput, uploadPreset, uploadBitrate, fps, duration, Get(state, "FG_UPLOAD_HIGH_MOTION") == "1" && caps.X264BStrategy2, uploadPassCount == 1 ? 0 : 2, passlog, state, info) : BuildUploadArgs(output, uploadOutput, uploadPreset, uploadBitrate, fps, Get(state, "FG_UPLOAD_HIGH_MOTION") == "1" && caps.X264BStrategy2, uploadPassCount == 1 ? 0 : 2, passlog, (hdrToSdr && svp) || fieldWorkfile || separateDeint || hdrOffSdr, hdrToSdr, grainEnabled, state, AudioOutputCore.Derived(info,state,mkv)), durationSeconds, totalStages, totalStages, "H.264 upload final encode"));
-
-                }
-
-                if((fieldWorkfile || separateDeint || hdrOffSdr) && plateMode && !interpolate && stages!=null)
-                    foreach(var stage in stages)
-                        if(stage.StageText.StartsWith("upload",StringComparison.Ordinal) || stage.StageText=="H.264 upload final encode")
-                            SharedHdrPreprocessCore.AttachFieldTimeline(stage,ffprobe,encodeInput,info,hdrToSdr,!hdrOffSdr);
-
-                if (stages != null) request.DirectStages = stages;
+                request.DirectStages = stages;
 
                 request.TemporaryFiles = temporaryFiles.Count == 0 ? null : temporaryFiles;
 
@@ -762,6 +631,7 @@ namespace FilmGrainStudioPreview
                 lutCompatPath = "";
 
                 subtitleAss = "";
+                subtitleFilterPath="";
 
                 return true;
 
@@ -774,12 +644,11 @@ namespace FilmGrainStudioPreview
                 if (!string.IsNullOrEmpty(lutCompatPath)) TryDelete(lutCompatPath);
 
                 if (!string.IsNullOrEmpty(subtitleAss)) TryDelete(subtitleAss);
+                if(!string.IsNullOrEmpty(subtitleFilterPath))TryDelete(subtitleFilterPath);
 
             }
 
         }
-
-
 
         // StudioBridge :DOUBLE_SOURCE_FPS: preserve the ffprobe denominator.
 
@@ -807,44 +676,6 @@ namespace FilmGrainStudioPreview
 
         }
 
-
-
-        private static bool SupportsHigh10(string ffmpeg)
-
-        {
-
-            try
-
-            {
-
-                ProcessStartInfo psi = new ProcessStartInfo(ffmpeg, "-hide_banner -h encoder=libx264");
-
-                psi.UseShellExecute = false; psi.CreateNoWindow = true; psi.RedirectStandardOutput = true; psi.RedirectStandardError = true;
-
-                using (Process process = new Process())
-
-                {
-
-                    process.StartInfo = psi; process.Start();
-
-                    string stdout = process.StandardOutput.ReadToEnd();
-
-                    string stderr = process.StandardError.ReadToEnd();
-
-                    if (!process.WaitForExit(5000)) { try { process.Kill(); } catch { } return false; }
-
-                    return process.ExitCode == 0 && (stdout + stderr).IndexOf("yuv420p10le", StringComparison.OrdinalIgnoreCase) >= 0;
-
-                }
-
-            }
-
-            catch { return false; }
-
-        }
-
-
-
         private static double ParseFps(string value)
 
         {
@@ -860,8 +691,6 @@ namespace FilmGrainStudioPreview
             return d > 0.0 && n > 0.0 ? n / d : 0.0;
 
         }
-
-
 
         // Matches StudioBridge :AUTO_CINEMA_FPS, including its exact-rate cases and 0.25 tolerance.
 
@@ -909,109 +738,6 @@ namespace FilmGrainStudioPreview
 
         }
 
-
-
-        private static List<string> BuildHdrToSdrArgs(string input, string output, MediaProbeInfo info, string tonemap)
-
-        {
-            return SharedHdrPreprocessCore.BuildToSdr(input,output,info,tonemap,true);
-        }
-
-
-
-        private static List<string> BuildEncodeArgs(string input, string grainInput, string filter, string output, string preset, bool highMotion, long bitrate, long max, long buf, string fps, string duration, bool plateMode, bool autoFps, bool high10, bool mkv, bool deinterlace, int passNumber, string passlog, bool finalOutput, IDictionary<string,string> audioState, MediaProbeInfo audioInfo)
-
-        {
-
-            List<string> a = new List<string>{"-hide_banner","-stats","-progress","pipe:2","-stats_period","0.5","-y"};
-
-            if (plateMode || filter.Contains("libplacebo=")) { a.Add("-init_hw_device"); a.Add("vulkan=vk:0"); a.Add("-filter_hw_device"); a.Add("vk"); }
-
-            else if (filter.Contains("bwdif_vulkan=")) { a.Add("-init_hw_device"); a.Add("vulkan=deintvk:0"); a.Add("-filter_hw_device"); a.Add("deintvk"); }
-
-            a.Add("-i"); a.Add(input);
-
-            if (plateMode)
-
-            {
-
-                a.Add("-stream_loop"); a.Add("-1");
-
-                a.Add("-t"); a.Add(duration);
-
-                a.Add("-i"); a.Add(grainInput);
-
-            }
-
-            a.Add("-filter_complex"); a.Add(filter);
-
-            a.Add("-map"); a.Add("[vout]");
-
-            if (finalOutput)
-
-            {
-
-                a.Add("-map"); a.Add("0:a?");
-
-                if (mkv) { a.Add("-map"); a.Add("0:s?"); a.Add("-map"); a.Add("0:t?"); }
-
-                a.Add("-map_metadata"); a.Add("0"); a.Add("-map_chapters"); a.Add("0");
-
-            }
-
-            else a.Add("-an");
-
-            a.Add("-c:v"); a.Add("libx264"); a.Add("-profile:v"); a.Add(high10 ? "high10" : "high"); a.Add("-pix_fmt"); a.Add(high10 ? "yuv420p10le" : "yuv420p");
-
-            a.Add("-preset"); a.Add(preset); a.Add("-tune"); a.Add("grain");
-
-            if (highMotion) { a.Add("-b_strategy"); a.Add("2"); }
-
-            a.Add("-b:v"); a.Add(bitrate.ToString(CultureInfo.InvariantCulture) + "k");
-
-            a.Add("-maxrate"); a.Add(max.ToString(CultureInfo.InvariantCulture) + "k");
-
-            a.Add("-bufsize"); a.Add(buf.ToString(CultureInfo.InvariantCulture) + "k");
-
-            if (passNumber > 0)
-
-            {
-
-                a.Add("-pass"); a.Add(passNumber.ToString(CultureInfo.InvariantCulture));
-
-                a.Add("-passlogfile"); a.Add(passlog);
-
-            }
-
-            if (autoFps || deinterlace || plateMode || passNumber > 0) { a.Add("-r"); a.Add(fps); }
-
-            a.Add("-fps_mode:v"); a.Add("cfr");
-
-            if (plateMode && !string.IsNullOrEmpty(duration)) { a.Add("-t"); a.Add(duration); }
-
-            else if (passNumber > 0 && !string.IsNullOrEmpty(duration)) { a.Add("-t"); a.Add(duration); }
-
-            if (finalOutput)
-
-            {
-
-                if (mkv) { a.Add("-c:a"); a.Add("copy"); a.Add("-c:s"); a.Add("copy"); a.Add("-c:t"); a.Add("copy"); }
-
-                else { a.Add("-c:a"); a.Add("aac"); a.Add("-b:a"); a.Add("256k"); a.Add("-movflags"); a.Add("+faststart"); }
-
-                a.Add(output);
-
-            }
-
-            else { a.Add("-f"); a.Add("null"); a.Add("NUL"); }
-
-            if(finalOutput)AudioOutputCore.Apply(a,audioState,audioInfo,mkv,false,false);
-            return a;
-
-        }
-
-
-
         private static string HdrRange(MediaProbeInfo info)
 
         {
@@ -1019,8 +745,6 @@ namespace FilmGrainStudioPreview
             return string.Equals(info.ColorRange, "pc", StringComparison.OrdinalIgnoreCase) ? "pc" : "tv";
 
         }
-
-
 
         private static string HdrPrimaries(MediaProbeInfo info)
 
@@ -1032,8 +756,6 @@ namespace FilmGrainStudioPreview
 
         }
 
-
-
         private static string HdrSpace(MediaProbeInfo info)
 
         {
@@ -1044,8 +766,6 @@ namespace FilmGrainStudioPreview
 
         }
 
-
-
         private static string BuildHdrFrameFilter(MediaProbeInfo info)
 
         {
@@ -1055,8 +775,6 @@ namespace FilmGrainStudioPreview
                 ":color_trc=" + info.ColorTransfer + ":colorspace=" + HdrSpace(info);
 
         }
-
-
 
         private static string VerifyHdrOutput(string ffprobe, string output, MediaProbeInfo info)
 
@@ -1122,12 +840,12 @@ namespace FilmGrainStudioPreview
 
         }
 
-
-
         private static List<string> BuildHevcArgs(string input, string grainInput, string filter, string output, string preset, bool highMotion, long bitrate, long max, long buf, string fps, string duration, bool plateMode, bool mkv, HardwareCapabilitySnapshot caps, IDictionary<string,string> state, string quality, MediaProbeInfo hdrInfo, bool fruc, MediaProbeInfo audioInfo)
 
         {
 
+            bool h264=Eq(state,"FG_MODE","H264");
+            if(h264)filter=filter.Replace("[vout]",",format=yuv420p[vout]");
             List<string> a = new List<string>{"-hide_banner","-stats","-progress","pipe:2","-stats_period","0.5","-y"};
 
             if (plateMode || filter.Contains("libplacebo=") || filter.Contains("fruc_vulkan=")) { a.Add("-init_hw_device"); a.Add("vulkan=vk:0"); a.Add("-filter_hw_device"); a.Add("vk"); }
@@ -1146,7 +864,7 @@ namespace FilmGrainStudioPreview
 
             a.Add("-map_metadata"); a.Add("0"); a.Add("-map_chapters"); a.Add("0");
 
-            a.Add("-c:v"); a.Add("hevc_nvenc"); a.Add("-pix_fmt"); a.Add("p010le"); a.Add("-gpu"); a.Add("0"); a.Add("-profile:v"); a.Add("main10");
+            a.Add("-c:v"); a.Add(h264?"h264_nvenc":"hevc_nvenc"); a.Add("-pix_fmt"); a.Add(h264?"yuv420p":"p010le"); a.Add("-gpu"); a.Add("0"); a.Add("-profile:v"); a.Add(h264?"high":"main10");
 
             a.Add("-preset"); a.Add(preset); a.Add("-tune"); a.Add("hq"); a.Add("-rc"); a.Add("vbr");
 
@@ -1162,27 +880,27 @@ namespace FilmGrainStudioPreview
 
             bool standard = preset == "p7";
 
-            if (caps.HevcMultipassFullres && (standard || highMotion)) { a.Add("-multipass"); a.Add("fullres"); }
+            if ((h264?caps.H264MultipassFullres:caps.HevcMultipassFullres) && (standard || highMotion)) { a.Add("-multipass"); a.Add("fullres"); }
 
-            else if (caps.HevcMultipassQres) { a.Add("-multipass"); a.Add("qres"); }
+            else if ((h264?caps.H264MultipassQres:caps.HevcMultipassQres)) { a.Add("-multipass"); a.Add("qres"); }
 
             int lookahead = highMotion ? 32 : standard ? 27 : 16;
 
-            if (caps.HevcLookahead) { a.Add("-rc-lookahead"); a.Add(lookahead.ToString(CultureInfo.InvariantCulture)); }
+            if ((h264?caps.H264Lookahead:caps.HevcLookahead)) { a.Add("-rc-lookahead"); a.Add(lookahead.ToString(CultureInfo.InvariantCulture)); }
 
-            if (highMotion && caps.HevcLookahead && caps.HevcAdaptiveB) { a.Add("-b_adapt"); a.Add("1"); }
+            if (highMotion && (h264?caps.H264Lookahead:caps.HevcLookahead) && (h264?caps.H264AdaptiveB:caps.HevcAdaptiveB)) { a.Add("-b_adapt"); a.Add("1"); }
 
-            if (highMotion && caps.HevcLookahead && caps.HevcSceneCut) { a.Add("-no-scenecut"); a.Add("0"); }
+            if (highMotion && (h264?caps.H264Lookahead:caps.HevcLookahead) && (h264?caps.H264SceneCut:caps.HevcSceneCut)) { a.Add("-no-scenecut"); a.Add("0"); }
 
             int aq;
 
             if (!int.TryParse(Get(state,"FG_HEVC_SPATIAL_AQ"), NumberStyles.Integer, CultureInfo.InvariantCulture, out aq)) aq = 8;
 
-            if (aq != 0 && caps.HevcSpatialAq) { a.Add("-spatial-aq"); a.Add("1"); a.Add("-aq-strength"); a.Add(aq.ToString(CultureInfo.InvariantCulture)); }
+            if (aq != 0 && (h264?caps.H264SpatialAq:caps.HevcSpatialAq)) { a.Add("-spatial-aq"); a.Add("1"); a.Add("-aq-strength"); a.Add(aq.ToString(CultureInfo.InvariantCulture)); }
 
-            if (Get(state,"FG_HEVC_TEMPORAL_AQ") == "1" && caps.HevcTemporalAq) { a.Add("-temporal-aq"); a.Add("1"); }
+            if (Get(state,"FG_HEVC_TEMPORAL_AQ") == "1" && (h264?caps.H264TemporalAq:caps.HevcTemporalAq)) { a.Add("-temporal-aq"); a.Add("1"); }
 
-            if (caps.HevcBFrames) { a.Add("-bf"); a.Add("4"); if (caps.HevcBReference) { a.Add("-b_ref_mode"); a.Add("middle"); } }
+            if ((h264?caps.H264BFrames:caps.HevcBFrames)) { a.Add("-bf"); a.Add("4"); if ((h264?caps.H264BReference:caps.HevcBReference)) { a.Add("-b_ref_mode"); a.Add("middle"); } }
 
             if (hdrInfo != null)
 
@@ -1210,139 +928,16 @@ namespace FilmGrainStudioPreview
 
             if (mkv) { a.Add("-c:a"); a.Add("copy"); a.Add("-c:s"); a.Add("copy"); a.Add("-c:t"); a.Add("copy"); }
 
-            else { a.Add("-c:a"); a.Add("aac"); a.Add("-b:a"); a.Add("256k"); a.Add("-tag:v"); a.Add("hvc1"); a.Add("-movflags"); a.Add("+faststart"); }
+            else { a.Add("-c:a"); a.Add("aac"); a.Add("-b:a"); a.Add("256k"); if(!h264){a.Add("-tag:v"); a.Add("hvc1");} a.Add("-movflags"); a.Add("+faststart"); }
 
-            NvencMultipassCore.Apply(a,state,"HEVC",caps);
+            NvencMultipassCore.Apply(a,state,h264?"H264":"HEVC",caps);
+            NvencMainOptionsCore.Apply(a,state,h264?"H264":"HEVC",caps);
             a.Add(output);
 
             AudioOutputCore.Apply(a,state,audioInfo,mkv,false,false);
             return a;
 
         }
-
-
-
-        private static List<string> BuildPlateUploadArgs(string input, string grainInput, string filter, string uploadOutput, string preset, long bitrate, string fps, string duration, bool highMotion, int pass, string passlog, IDictionary<string,string> audioState, MediaProbeInfo audioInfo)
-
-        {
-
-            List<string> a = new List<string>{"-hide_banner","-stats","-progress","pipe:2","-stats_period","0.5","-y",
-
-                "-init_hw_device","vulkan=vk:0","-filter_hw_device","vk","-i",input,"-stream_loop","-1","-t",duration,"-i",grainInput,
-
-                "-filter_complex",filter,"-map","[vout]"};
-
-            if (pass == 0 || pass == 2)
-
-            {
-
-                a.Add("-map"); a.Add("0:a:0?"); a.Add("-map_metadata"); a.Add("0");
-
-            }
-
-            else a.Add("-an");
-
-            a.Add("-c:v"); a.Add("libx264"); a.Add("-profile:v"); a.Add("high"); a.Add("-pix_fmt"); a.Add("yuv420p");
-
-            a.Add("-preset"); a.Add(preset); a.Add("-tune"); a.Add("grain");
-
-            if (highMotion) { a.Add("-b_strategy"); a.Add("2"); }
-
-            a.Add("-b:v"); a.Add(bitrate.ToString(CultureInfo.InvariantCulture) + "k");
-
-            a.Add("-maxrate"); a.Add((bitrate * 3L).ToString(CultureInfo.InvariantCulture) + "k");
-
-            a.Add("-bufsize"); a.Add((bitrate * 6L).ToString(CultureInfo.InvariantCulture) + "k");
-
-            if (pass != 0)
-
-            {
-
-                a.Add("-pass"); a.Add(pass.ToString(CultureInfo.InvariantCulture));
-
-                a.Add("-passlogfile"); a.Add(passlog);
-
-            }
-
-            a.Add("-r"); a.Add(fps); a.Add("-fps_mode:v"); a.Add("cfr"); a.Add("-t"); a.Add(duration);
-
-            if (pass == 1 || pass == 3) { a.Add("-f"); a.Add("null"); a.Add("NUL"); }
-
-            else
-
-            {
-
-                a.Add("-c:a"); a.Add("aac"); a.Add("-b:a"); a.Add("256k"); a.Add("-ac"); a.Add("2"); a.Add("-ar"); a.Add("48000");
-
-                a.Add("-movflags"); a.Add("+faststart"); a.Add(uploadOutput);
-
-            }
-
-            if(pass==0||pass==2)AudioOutputCore.Apply(a,audioState,audioInfo,false,true,true);
-            return a;
-
-        }
-
-
-
-        private static List<string> BuildUploadArgs(string mainOutput, string uploadOutput, string preset, long bitrate, string fps, bool highMotion, int pass, string passlog, bool preserveTimeline = false, bool stampBt709 = true, bool grainEnabled = true, IDictionary<string,string> audioState = null, MediaProbeInfo audioInfo = null)
-
-        {
-
-            List<string> a = new List<string>{"-hide_banner","-stats","-progress","pipe:2","-stats_period","0.5","-y","-i",mainOutput,"-map","0:v:0"};
-
-            if (pass == 0 || pass == 2)
-
-            {
-
-                a.Add("-map"); a.Add("0:a:0?"); a.Add("-map_metadata"); a.Add("0");
-
-            }
-
-            a.Add("-vf"); a.Add("format=yuv420p");
-
-            a.Add("-c:v"); a.Add("libx264"); a.Add("-profile:v"); a.Add("high"); a.Add("-pix_fmt"); a.Add("yuv420p");
-
-            a.Add("-preset"); a.Add(preset); SharedGrainCore.AddX264Tune(a,grainEnabled);
-
-            if (highMotion) { a.Add("-b_strategy"); a.Add("2"); }
-
-            a.Add("-b:v"); a.Add(bitrate.ToString(CultureInfo.InvariantCulture) + "k");
-
-            a.Add("-maxrate"); a.Add((bitrate * 3L).ToString(CultureInfo.InvariantCulture) + "k");
-
-            a.Add("-bufsize"); a.Add((bitrate * 6L).ToString(CultureInfo.InvariantCulture) + "k");
-
-            if (pass != 0)
-
-            {
-
-                a.Add("-pass"); a.Add(pass.ToString(CultureInfo.InvariantCulture));
-
-                a.Add("-passlogfile"); a.Add(passlog);
-
-            }
-
-            a.Add("-r"); a.Add(fps); a.Add("-fps_mode:v"); a.Add("cfr");
-
-            if (pass == 1 || pass == 3) { a.Add("-an"); a.Add("-f"); a.Add("null"); a.Add("NUL"); }
-
-            else
-
-            {
-
-                a.Add("-c:a"); a.Add("aac"); a.Add("-b:a"); a.Add("256k"); a.Add("-ac"); a.Add("2"); a.Add("-ar"); a.Add("48000");
-
-                a.Add("-movflags"); a.Add("+faststart"); a.Add(uploadOutput);
-
-            }
-
-            if(pass==0||pass==2)AudioOutputCore.Apply(a,audioState,audioInfo,false,true,true);
-            return preserveTimeline || !grainEnabled ? SharedHdrPreprocessCore.BuildUploadTimeline(a,stampBt709) : a;
-
-        }
-
-
 
         private static bool ValidateFgsimHdrHook(string ffmpeg, string hook, out string reason)
 
@@ -1412,8 +1007,6 @@ namespace FilmGrainStudioPreview
 
         }
 
-
-
         internal static bool HasFrucFilter(string ffmpeg)
         {
             string output, reason;
@@ -1434,8 +1027,6 @@ namespace FilmGrainStudioPreview
                 extension.Equals(".m2ts", StringComparison.OrdinalIgnoreCase);
 
         }
-
-
 
         private static bool TryGetMpegTsVideoOffset(string ffprobe, string input, out string sourceOffset, out string reason)
 
@@ -1543,8 +1134,6 @@ namespace FilmGrainStudioPreview
 
         }
 
-
-
         private static void ConvertToPipeInput(List<string> args, string input, string sourceOffset)
 
         {
@@ -1593,8 +1182,6 @@ namespace FilmGrainStudioPreview
 
         }
 
-
-
         private static BridgeExecutionStage MakeStage(string ffmpeg, string workingDirectory, IList<string> args, double duration, int current, int total, string text)
 
         {
@@ -1623,28 +1210,6 @@ namespace FilmGrainStudioPreview
             return stage;
 
         }
-
-
-
-
-
-
-
-        private static string BuildX264FileSuffix(string preset, string passMode)
-
-        {
-
-            string suffix = preset == "medium" ? "_MEDIUM" : preset == "slow" ? "_SLOW" : "";
-
-            if (passMode == "2PASS") suffix += "_2PASS";
-
-            else if (passMode == "3PASS") suffix += "_3PASS";
-
-            return suffix;
-
-        }
-
-
 
         private static bool TryResolveTempRoot(string input, IDictionary<string,string> state, out string root, out string reason)
 
@@ -1680,20 +1245,6 @@ namespace FilmGrainStudioPreview
 
         }
 
-
-
-        private static void AddPasslogTemps(List<string> files, string prefix)
-
-        {
-
-            string[] suffixes = new string[]{"-0.log","-0.log.mbtree","-0.mbtree","-0.log.temp","-0.log.mbtree.temp","-0.mbtree.temp",".log",".log.mbtree",".mbtree",".log.temp",".log.mbtree.temp",".mbtree.temp"};
-
-            foreach (string suffix in suffixes) files.Add(prefix + suffix);
-
-        }
-
-
-
         private static bool TryBuildColorFilter(IDictionary<string,string> state, out string filter, out string suffix, out string reason)
 
         {
@@ -1718,8 +1269,6 @@ namespace FilmGrainStudioPreview
 
         }
 
-
-
         private static string BuildLutNamingSuffix(IDictionary<string,string> state)
 
         {
@@ -1733,8 +1282,6 @@ namespace FilmGrainStudioPreview
             return "_LUT_" + Path.GetFileNameWithoutExtension(path) + "_" + strength.ToString(CultureInfo.InvariantCulture);
 
         }
-
-
 
         private static bool TryPrepareLut(string ffmpeg, IDictionary<string,string> state, bool bypassLut, out string compatPath, out string compatName, out string opacity, out string reason)
 
@@ -1836,8 +1383,6 @@ namespace FilmGrainStudioPreview
 
         }
 
-
-
         private static bool ValidateLut(string ffmpeg, string workingDirectory, string compatName, out string error)
 
         {
@@ -1880,8 +1425,6 @@ namespace FilmGrainStudioPreview
 
         }
 
-
-
         private static string ResolvePlateTag(string plate, string fallback)
 
         {
@@ -1914,8 +1457,6 @@ namespace FilmGrainStudioPreview
 
         }
 
-
-
         private static int NormalizeLutStrength(string value) { int v; if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out v)) return 75; return v == 25 || v == 50 || v == 100 ? v : 75; }
 
         private static bool TryReadDouble(IDictionary<string,string> s, string k, out double v) { return double.TryParse(Get(s, k), NumberStyles.Float, CultureInfo.InvariantCulture, out v); }
@@ -1930,7 +1471,6 @@ namespace FilmGrainStudioPreview
         {
             string prepared; return FgsimTextureCore.TryPrepareHook(appRoot, preset, out prepared, out reason);
         }
-
 
         private static string EscapeFgsimShaderPath(string value)
 
@@ -1950,25 +1490,6 @@ namespace FilmGrainStudioPreview
 
         // Relative strength produces its own final blend; convert that completed result once.
         // Keep the established 100% subtitle/conversion order unchanged.
-        internal static bool TryBuildPlateUploadFilter(string filter, string subtitleFilter, string uploadSubtitle,
-            int pixelPercent, out string uploadFilter)
-        {
-            uploadFilter = "";
-            if (string.IsNullOrEmpty(filter)) return false;
-            if (pixelPercent != 100)
-            {
-                const string output = "[vout]";
-                if (!filter.EndsWith(output, StringComparison.Ordinal)) return false;
-                uploadFilter = filter.Substring(0, filter.Length - output.Length) +
-                    "[plateupload10];[plateupload10]format=yuv420p[vout]";
-                return true;
-            }
-            string oldTail = subtitleFilter + ",format=p010le[vout]";
-            if (!filter.EndsWith(oldTail, StringComparison.Ordinal)) return false;
-            uploadFilter = filter.Substring(0, filter.Length - oldTail.Length) +
-                ",format=yuv420p" + uploadSubtitle + "[vout]";
-            return true;
-        }
 
         private static string GetFfmpegDir(string root)
 

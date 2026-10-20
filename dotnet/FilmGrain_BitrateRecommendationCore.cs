@@ -90,6 +90,7 @@ namespace FilmGrainStudioPreview
                 { 7000, 11000, 15000, 22000 },
                 { 10000, 15000, 20000, 30000 }
             };
+            if(codecIndex==3)codecIndex=2;
             codecIndex = Math.Max(0, Math.Min(2, codecIndex));
             double baseRate = highMotion ? motion[codecIndex, tier] : normal[codecIndex, tier];
             double raw = baseRate * GetBitrateFpsFactor(fps);

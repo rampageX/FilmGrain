@@ -416,6 +416,74 @@ namespace FilmGrainStudioPreview
         }
     }
 
+    internal static class SharedInterpolationEncodeCore
+    {
+        internal static void NormalizeRenderedCadence(List<string> args,string fps)
+        {
+            int graph=args.IndexOf("-filter_complex");
+            if(graph<0||!args[graph+1].Contains("[vout]"))throw new InvalidOperationException("Rendered cadence graph missing");
+            string[] rate=fps.Split('/');
+            string clock=(rate.Length==2?rate[1]:"1")+"/"+rate[0];
+            string tail=args[graph+1].Contains("blend_vulkan=")?",select='isnan(prev_selected_pts)+gt(pts,prev_selected_pts)'":"";
+            tail+=",settb=expr="+clock+",setpts=N,fps=fps="+fps+":round=near:eof_action=pass";
+            args[graph+1]=args[graph+1].Replace("[vout]",tail+"[vout]");
+        }
+        internal static List<string> BuildRenderCache(IList<string> original,string output,string pixelFormat)
+        {
+            var args=new List<string>(original);int graph=args.IndexOf("-filter_complex");
+            if(graph<0||!args[graph+1].Contains("[vout]"))throw new InvalidOperationException("Shared render graph missing");
+            args.RemoveRange(graph+2,args.Count-graph-2);
+            if(args[graph+1].Contains("blend_vulkan=")&&!args[graph+1].Contains("gt(pts,prev_selected_pts)"))args[graph+1]=args[graph+1].Replace("[vout]",",select='isnan(prev_selected_pts)+gt(pts,prev_selected_pts)'[vout]");
+            args.AddRange(new[]{"-map","[vout]","-an","-sn","-dn","-c:v","ffv1","-level","3","-pix_fmt",pixelFormat,"-fps_mode:v","passthrough","-enc_time_base:v","1/1000000",output});
+            return args;
+        }
+        internal static bool CanShare(bool interpolate,bool interlaced,string passMode)
+        {return interpolate&&!interlaced&&(passMode=="2PASS"||passMode=="3PASS");}
+        internal static List<string> BuildConsumer(IList<string> original,string cached,string audioSource,string fps,
+            bool fruc,bool stampBt709,double common,double delay)
+        {
+            var args=new List<string>(original);int input=args.IndexOf("-i"),graph=args.IndexOf("-filter_complex");
+            if(input<0||args[input+1]!=cached||graph<0||!args[graph+1].StartsWith("[0:v:0]",StringComparison.Ordinal))
+                throw new InvalidOperationException("Shared interpolation consumer layout changed");
+            if(double.IsNaN(common)||double.IsInfinity(common)||double.IsNaN(delay)||double.IsInfinity(delay)||delay<0)
+                throw new InvalidOperationException("Shared interpolation timeline invalid");
+            string[] rate=fps.Split('/');
+            if(!System.Text.RegularExpressions.Regex.IsMatch(fps,@"^[1-9][0-9]*(/[1-9][0-9]*)?$"))throw new InvalidOperationException("Shared interpolation rate invalid");
+            string clock=(rate.Length==2?rate[1]:"1")+"/"+rate[0];
+            if(args[graph+1]!="[0:v:0]null[vout]")throw new InvalidOperationException("Shared render consumer must not repeat effects");
+            string filter="[0:v:0]settb=expr="+clock+",setpts=N,fps=fps="+fps+":round=near:eof_action=pass,setpts=PTS+round("+Number(delay)+"/TB),null";
+            if(stampBt709)filter+=",setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709";
+            args[graph+1]=filter+"[vout]";
+            for(int j=graph+2;j+1<args.Count;j++) {
+                if(args[j]=="-r"){args.RemoveRange(j,2);j--;continue;}
+                if(args[j]=="-fps_mode"||args[j]=="-fps_mode:v")args[j+1]="passthrough";
+                if(args[j]=="-t"){double length;if(double.TryParse(args[j+1],NumberStyles.Float,CultureInfo.InvariantCulture,out length))args[j+1]=Number(length+delay);}
+                if(args[j]=="-map"&&(args[j+1].StartsWith("0:a",StringComparison.Ordinal)||args[j+1].StartsWith("0:s",StringComparison.Ordinal)||args[j+1].StartsWith("0:t",StringComparison.Ordinal)))args[j+1]="1"+args[j+1].Substring(1);
+                if((args[j]=="-map_metadata"||args[j]=="-map_chapters")&&args[j+1]=="0")args[j+1]="1";
+            }
+            args.InsertRange(input+2,new[]{"-itsoffset",Number(-common),"-i",audioSource});
+            args.Insert(0,"-copyts");
+            // The clock filter advertises the same rational cadence as its one-frame-per-tick input.
+            args.InsertRange(args.Count-1,new[]{"-enc_time_base:v",clock});
+            if(!args.Contains("-fps_mode")&&!args.Contains("-fps_mode:v"))args.InsertRange(args.Count-1,new[]{"-fps_mode:v","passthrough"});
+            for(int j=0;j+1<args.Count;j++)if(args[j]=="-init_hw_device"||args[j]=="-filter_hw_device"){args.RemoveRange(j,2);j--;}
+            if(stampBt709)args.InsertRange(args.Count-1,new[]{"-color_range","tv","-color_primaries","bt709","-color_trc","bt709","-colorspace","bt709"});
+            return args;
+        }
+        internal static void AttachConsumer(BridgeExecutionStage stage,string ffprobe,string cached,string audioSource,
+            string fps,bool fruc,bool stampBt709)
+        {
+            if(stage.BeforeRunPreparation!=null)throw new InvalidOperationException("Shared interpolation consumer already prepared");
+            var frozen=new List<string>(stage.OriginalArguments);
+            stage.BeforeRunPreparation=delegate {
+                var timeline=SharedFrucCore.ProbeTimeline(ffprobe,audioSource);
+                stage.DirectArguments=SharedFrucCore.JoinArguments(BuildConsumer(frozen,cached,audioSource,fps,fruc,stampBt709,timeline.CommonOrigin,timeline.VideoDelay));
+                return "[Shared interpolation encode] reuse fully rendered frames; interpolation/LUT/grain/subtitles run once; delay="+Number(timeline.VideoDelay);
+            };
+        }
+        static string Number(double value){return value.ToString("0.#########",CultureInfo.InvariantCulture);}
+    }
+
     // Shared .NET process preparation; VapourSynth remains the interpolation engine.
     internal static class SharedSvpCore
     {
@@ -532,7 +600,7 @@ namespace FilmGrainStudioPreview
         {
             var originalArgs = new List<string>{"-hide_banner", "-stats", "-progress", "pipe:2", "-stats_period", "0.5", "-y",
                 "-f", "yuv4mpegpipe", "-i", "pipe:0", "-map", "0:v:0", "-an", "-sn", "-dn",
-                "-c:v", "ffv1", "-level", "3", "-pix_fmt", "yuv420p", "-fps_mode", "passthrough", output};
+                "-c:v", "ffv1", "-level", "3", "-pix_fmt", "yuv420p", "-enc_time_base:v",fps.Contains("/")?fps.Split('/')[1]+"/"+fps.Split('/')[0]:"1/"+fps,"-fps_mode", "passthrough", output};
             var stage = new BridgeExecutionStage{ToolPath=ffmpeg, WorkingDirectory=cwd,
                 DirectArguments=JoinArgs(originalArgs), ProgressDurationSeconds=duration,
                 StageCurrent=index, StageTotal=total, StageText="OpenSVPFlow shared video preprocessing"};

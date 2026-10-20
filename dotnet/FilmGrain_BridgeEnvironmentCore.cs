@@ -61,15 +61,16 @@ namespace FilmGrainStudioPreview
         public bool H264High10;
         public string X264Preset = "";
         public string X264PassMode = "";
-        public string AudioMode = "FGS", AudioBitrate = "256", Av1Multipass = "FGS", HevcMultipass = "FGS";
+        public string AudioMode = "FGS", AudioBitrate = "256", Av1Multipass = "FGS", HevcMultipass = "FGS", H264Multipass = "FGS";
+        public string HevcBFrames="FGS",H264BFrames="FGS",HevcBReference="FGS",H264BReference="FGS",HevcLookahead="FGS",H264Lookahead="FGS";
         public string HevcSpatialAq = "";
         public bool HevcTemporalAq;
         public string HdrPolicy = "";
         public string TonemapAlgo = "";
 
-        public bool UploadEnabled;
-        public string UploadBitrateMode = "";
-        public long UploadBitrate;
+        
+        
+        
 
         public bool ColorEnabled;
         public double ColorContrast;
@@ -111,7 +112,7 @@ namespace FilmGrainStudioPreview
         private static SortedDictionary<string, string> BuildEncode(BridgeEnvironmentSnapshot snapshot)
         {
             long bitrate = snapshot.Bitrate;
-            long uploadBitrate = snapshot.UploadBitrate;
+            
             int grainMode = snapshot.GrainMode;
             bool av1 = snapshot.Av1;
 
@@ -134,6 +135,10 @@ namespace FilmGrainStudioPreview
             state["FG_AUDIO_BITRATE"] = snapshot.AudioBitrate;
             state["FG_AV1_MULTIPASS"] = snapshot.Av1Multipass;
             state["FG_HEVC_MULTIPASS"] = snapshot.HevcMultipass;
+            state["FG_H264_MULTIPASS"]=snapshot.H264Multipass;
+            state["FG_HEVC_BFRAMES"]=snapshot.HevcBFrames;state["FG_H264_BFRAMES"]=snapshot.H264BFrames;
+            state["FG_HEVC_BREF_MODE"]=snapshot.HevcBReference;state["FG_H264_BREF_MODE"]=snapshot.H264BReference;
+            state["FG_HEVC_LOOKAHEAD"]=snapshot.HevcLookahead;state["FG_H264_LOOKAHEAD"]=snapshot.H264Lookahead;
             state["FG_SPEED"] = snapshot.Speed;
             state["FG_SFE_ENGINES"] = Math.Max(0, snapshot.SfeEngines).ToString(CultureInfo.InvariantCulture);
             state["FG_BITRATE_MODE"] = snapshot.BitrateMode;
@@ -178,13 +183,13 @@ namespace FilmGrainStudioPreview
             state["FG_HEVC_TEMPORAL_AQ"] = snapshot.HevcTemporalAq ? "1" : "0";
             state["FG_HDR_POLICY"] = snapshot.HdrPolicy;
             state["FG_TONEMAP_ALGO"] = snapshot.TonemapAlgo;
-            state["FG_UPLOAD"] = snapshot.UploadEnabled ? "1" : "0";
-            state["FG_UPLOAD_MODE"] = "X264";
-            state["FG_UPLOAD_BITRATE_MODE"] = snapshot.UploadBitrateMode;
-            state["FG_UPLOAD_BITRATE"] = uploadBitrate.ToString(CultureInfo.InvariantCulture);
-            state["FG_UPLOAD_MAXRATE"] = (uploadBitrate * 3L).ToString(CultureInfo.InvariantCulture);
-            state["FG_UPLOAD_BUFSIZE"] = (uploadBitrate * 6L).ToString(CultureInfo.InvariantCulture);
-            state["FG_UPLOAD_HIGH_MOTION"] = snapshot.HighMotion ? "1" : "0";
+            
+            
+            
+            
+            
+            
+            
 
             snapshot.Subtitle.WriteEnvironment(state);
 
@@ -272,6 +277,10 @@ namespace FilmGrainStudioPreview
             state["FG_AUDIO_BITRATE"] = snapshot.AudioBitrate;
             state["FG_AV1_MULTIPASS"] = snapshot.Av1Multipass;
             state["FG_HEVC_MULTIPASS"] = snapshot.HevcMultipass;
+            state["FG_H264_MULTIPASS"]=snapshot.H264Multipass;
+            state["FG_HEVC_BFRAMES"]=snapshot.HevcBFrames;state["FG_H264_BFRAMES"]=snapshot.H264BFrames;
+            state["FG_HEVC_BREF_MODE"]=snapshot.HevcBReference;state["FG_H264_BREF_MODE"]=snapshot.H264BReference;
+            state["FG_HEVC_LOOKAHEAD"]=snapshot.HevcLookahead;state["FG_H264_LOOKAHEAD"]=snapshot.H264Lookahead;
             string[] av1Modes = new string[] { "PRESET", "ISO", "TABLE" };
             state["FG_AV1_GRAIN_MODE"] = av1Modes[Math.Max(0, Math.Min(2, grainMode))];
             state["FG_AV1_FORMAT"] = (snapshot.Av1FormatIndex + 1).ToString(CultureInfo.InvariantCulture);
@@ -372,7 +381,7 @@ namespace FilmGrainStudioPreview
             bool compatible=mkv||Mp4Copy(track.Codec);
             if(mode=="COPY") {
                 if(!compatible)throw new InvalidOperationException("MP4 音频兼容策略不允许复制 "+track.Codec+"；请选择智能保留或 AAC。 / MP4 copy policy rejects this codec; choose Smart or AAC.");
-                if(stereo&&track.Channels>2)throw new InvalidOperationException("上传/烘焙输出要求双声道，不能直接复制多声道音轨；请选择智能或 AAC。 / Stereo output requires audio conversion.");
+                if(stereo&&track.Channels>2)throw new InvalidOperationException("独立烘焙输出要求双声道，不能直接复制多声道音轨；请选择智能或 AAC。 / Stereo output requires audio conversion.");
                 return true;
             }
             if(mode=="FGS")return mkv;
@@ -442,10 +451,51 @@ namespace FilmGrainStudioPreview
         {
             string choice=AudioOutputCore.Get(state,"FG_"+codec+"_MULTIPASS","FGS");if(choice=="FGS")return;
             if(choice!="DISABLED"&&choice!="QRES"&&choice!="FULLRES")throw new InvalidOperationException("Invalid NVENC multipass: "+choice);
-            bool supported=choice=="DISABLED"||(caps!=null&&(codec=="AV1"?(choice=="QRES"?caps.Av1MultipassQres:caps.Av1MultipassFullres):(choice=="QRES"?caps.HevcMultipassQres:caps.HevcMultipassFullres)));
+            bool supported=choice=="DISABLED"||(caps!=null&&(codec=="AV1"?(choice=="QRES"?caps.Av1MultipassQres:caps.Av1MultipassFullres):(codec=="H264"?(choice=="QRES"?caps.H264MultipassQres:caps.H264MultipassFullres):(choice=="QRES"?caps.HevcMultipassQres:caps.HevcMultipassFullres))));
             if(!supported)throw new InvalidOperationException(codec+" NVENC 不支持所选 Multipass；请使用 FGS 推荐或支持的选项。 / Requested multipass unsupported.");
             for(int i=0;i<args.Count-1;i++)if(args[i]=="-multipass"){args.RemoveRange(i,2);i--;}
             args.AddRange(new[]{"-multipass",choice.ToLowerInvariant()});
         }
     }
+    internal static class NvencMainOptionsCore
+    {
+        internal static void Set(List<string> args,string name,string value)
+        {
+            for(int i=0;i<args.Count-1;i++)if(args[i]==name){args.RemoveRange(i,2);i--;}
+            if(value!=null)args.AddRange(new[]{name,value});
+        }
+        internal static void Apply(List<string> args,IDictionary<string,string> state,string codec,HardwareCapabilitySnapshot caps)
+        {
+            bool h264=codec=="H264";
+            string prefix="FG_"+codec+"_";
+            string frames=AudioOutputCore.Get(state,prefix+"BFRAMES","FGS"),reference=AudioOutputCore.Get(state,prefix+"BREF_MODE","FGS"),lookahead=AudioOutputCore.Get(state,prefix+"LOOKAHEAD","FGS");
+            int count;
+            if(frames!="FGS")
+            {
+                if(!int.TryParse(frames,out count)||count<0||count>4)throw new InvalidOperationException("Invalid B-frame count: "+frames);
+                if(count>0&&(caps==null||!(h264?caps.H264BFrames:caps.HevcBFrames)))throw new InvalidOperationException(codec+" does not support requested B frames.");
+                Set(args,"-bf",frames);
+                if(count<2)Set(args,"-b_ref_mode",null);
+            }
+            if(reference!="FGS")
+            {
+                reference=reference.ToLowerInvariant();
+                if(reference!="disabled"&&reference!="middle")throw new InvalidOperationException("Invalid B reference: "+reference);
+                if(reference!="disabled"&&((frames=="0"||frames=="1")||caps==null||!(h264?caps.H264BReference:caps.HevcBReference)))throw new InvalidOperationException(codec+" B reference requires supported B frames.");
+                Set(args,"-b_ref_mode",reference);
+            }
+            if(lookahead!="FGS")
+            {
+                if(!int.TryParse(lookahead,out count)||count<0||count>32)throw new InvalidOperationException("Invalid lookahead: "+lookahead);
+                if(count>0&&(caps==null||!(h264?caps.H264Lookahead:caps.HevcLookahead)))throw new InvalidOperationException(codec+" does not support lookahead.");
+                Set(args,"-rc-lookahead",lookahead);
+                if(count==0){Set(args,"-b_adapt",null);Set(args,"-no-scenecut",null);}
+            }
+            int engines;int.TryParse(AudioOutputCore.Get(state,"FG_SFE_ENGINES","0"),out engines);
+            if(engines>0&&(h264||caps==null||engines<2||engines>caps.HevcSplitEncodeMaxEngines))throw new InvalidOperationException(codec+" split-frame encoding is unavailable.");
+            // Explicitly disable HEVC implicit SFE when the checkbox is off.
+            if(!h264&&caps!=null&&caps.HevcSplitEncodeMaxEngines>=2)Set(args,"-split_encode_mode",engines>0?engines.ToString(CultureInfo.InvariantCulture):"disabled");
+        }
+    }
+
 }
