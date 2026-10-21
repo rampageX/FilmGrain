@@ -106,8 +106,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.17";
-        internal const string FileReleaseVersion = "5.0.17.0";
+        internal const string ReleaseVersion = "5.0.18";
+        internal const string FileReleaseVersion = "5.0.18.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -825,7 +825,7 @@ namespace FilmGrainStudioPreview
             shortcut.Cursor = Cursors.Hand;
             shortcut.AccessibleName = UiText("打开高级设置：", "Open advanced settings: ") + page;
             lutToolTip.SetToolTip(shortcut, shortcut.AccessibleName);
-            shortcut.Click += delegate { if(tabIndex<0)OpenCinematicCrop();else ShowAdvancedSettingsDialog(tabIndex); };
+            shortcut.Click += delegate { if(tabIndex<0)OpenCinematicCrop();else ShowAdvancedSettingsDialog(tabIndex==0?(cmbCodec.SelectedIndex==2||cmbCodec.SelectedIndex==3?1:0):tabIndex+1); };
             row.Controls.Add(content, 0, 0); row.Controls.Add(shortcut, 1, 0);
             return row;
         }

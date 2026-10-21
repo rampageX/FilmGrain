@@ -1,6 +1,6 @@
 ﻿# Film Grain Studio
 
-> **Film Grain Studio v5.0.17 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.18 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
 
@@ -49,7 +49,9 @@ AV1、HEVC 与 H.264 NVENC 主输出可分别选择 NVENC Multipass：**FGS 推�
 
 x264 插帧两遍/三遍共用一次完整渲染后的无损缓存，插帧、LUT、颗粒、字幕和画幅仅计算一次。非插帧 x264 多遍仍逐遍计算滤镜；是否增加整片缓存需要结合片长、效果负载和磁盘成本评估，目前不默认生成。
 
-Spatial AQ 默认强度 8（0 关闭），Temporal AQ 默认关闭；仅对支持对应能力的 NVENC 编码器生效，x264 不使用这些设置，AV1 UHQ 不追加 Temporal AQ。Lookahead 的数值是请求深度，可能受到编码器、B 帧、驱动及 FFmpeg 缓冲配置约束；不能仅凭可选数值判断实际深度，也不将 27 视为 RTX 4080 的固定上限。
+高级编码分为 AV1 / HEVC 与 H.264 / x264 两页，编码器参数按上下两区显示。HEVC 与 H.264 NVENC 的 Spatial AQ（默认8，0关闭）和 Temporal AQ（默认关闭）分别保存，只对该编码器支持的能力生效；x264 不使用这些设置。旧共享 AQ 配置作为两线各自的初始值，后续独立修改不影响 AV1 原有配置。音频为四线共用设置，放在第一页；恢复默认值只重置当前页，第一页包含共用音频设置。
+
+Lookahead 的数值是请求深度，可能受到编码器、B 帧、驱动及 FFmpeg 缓冲配置约束；不能仅凭可选数值判断实际深度，也不将 27 视为 RTX 4080 的固定上限。
 
 ### 输入文件与媒体信息
 
@@ -400,7 +402,7 @@ HEVC 主线适合将真实扫描 Grain Plate 直接合成到视频像素，再�
 
 ### HEVC AQ
 
-`高级设置 → 编码` 提供 NVENC Spatial AQ 与 Temporal AQ 控制。Spatial AQ 可选 `0 / 4 / 8 / 10 / 12 / 15`，默认 `8`，其中 `0` 表示关闭；Temporal AQ 为独立复选框并默认关闭。两项设置作用于支持对应功能的 AV1 / HEVC / H.264 NVENC 主编码（AV1 UHQ 使用其自身分析策略），继续服从各编码器独立能力检测。
+`高级设置 → AV1 / HEVC` 和 `H.264 / x264` 分别提供 HEVC、H.264 NVENC 的独立 Spatial AQ 与 Temporal AQ 控制。Spatial AQ 可选 `0 / 4 / 8 / 10 / 12 / 15`，默认 `8`，其中 `0` 表示关闭；Temporal AQ 为同行复选框并默认关闭。两线分别保存并服从各自能力检测；不会改变 AV1 原有设置，也不作用于 x264。
 
 ### Grain Cache
 

@@ -22,6 +22,7 @@ namespace FilmGrainStudioPreview
 
         private static readonly KeyValuePair<string, string[]>[] Sections = new KeyValuePair<string, string[]>[]
         {
+            new KeyValuePair<string, string[]>("Advanced.EncoderAQ", new[] { "HEVC_SPATIAL_AQ", "HEVC_TEMPORAL_AQ", "H264_SPATIAL_AQ", "H264_TEMPORAL_AQ" }),
             new KeyValuePair<string, string[]>("Paths", new string[] { "FFMPEG_DIR", "FRUC_FFMPEG_SAME_AS_MAIN", "FRUC_FFMPEG_PATH", "GRAV1SYNTH", "GRAIN_ROOT", "LUT_ROOT", "TEMP_MODE", "TEMP_CUSTOM_DIR", "OUTPUT_MODE", "OUTPUT_CUSTOM_DIR" }),
             new KeyValuePair<string, string[]>("General", new string[] { "LANGUAGE", "UI_THEME", "MAIN_WINDOW", "SETUP_VERSION", "NETWORK_PROXY_MODE", "NETWORK_PROXY_URL", "LOG_ENTRY_LIMIT", "GRAIN_ENABLED", "AV1_GRAIN_STRENGTH", "AV1_COPY_FAST", "AV1_COPY_FULL_VERIFY" }),
             new KeyValuePair<string, string[]>("LUTGallery", new string[] { "SMART_FILTER_ENABLED", "LUT_GALLERY_SIZE", "LUT_GALLERY_FIXED" }),
@@ -84,6 +85,10 @@ namespace FilmGrainStudioPreview
             defaults["HEVC_LOOKAHEAD"] = "FGS";
             defaults["H264_LOOKAHEAD"] = "FGS";
 
+            defaults["HEVC_SPATIAL_AQ"] = "8";
+            defaults["HEVC_TEMPORAL_AQ"] = "false";
+            defaults["H264_SPATIAL_AQ"] = "8";
+            defaults["H264_TEMPORAL_AQ"] = "false";
             defaults["NVENC_SPATIAL_AQ"] = "8";
             defaults["NVENC_TEMPORAL_AQ"] = "false";
             defaults["SVP_ALGO"] = "13";
@@ -131,6 +136,7 @@ namespace FilmGrainStudioPreview
             string legacyFfmpeg = "";
             string legacyFfprobe = "";
             bool hasFfmpegDir = false;
+            var explicitKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             string[] lines = File.ReadAllLines(configPath, new UTF8Encoding(false, true));
             foreach (string raw in lines)
             {
@@ -143,13 +149,19 @@ namespace FilmGrainStudioPreview
 
                 if (key == "FFMPEG") { legacyFfmpeg = value; continue; }
                 if (key == "FFPROBE") { legacyFfprobe = value; continue; }
-                if (key == "HEVC_SPATIAL_AQ") key = "NVENC_SPATIAL_AQ";
-                if (key == "HEVC_TEMPORAL_AQ") key = "NVENC_TEMPORAL_AQ";
                 if (!defaults.ContainsKey(key)) continue;
 
+                explicitKeys.Add(key);
                 values[key] = value;
                 if (key == "FFMPEG_DIR") hasFfmpegDir = true;
             }
+
+            // Seed missing per-encoder settings from the previous shared value.
+            // Explicit settings win regardless of INI ordering; Load never writes the user's file.
+            foreach (string encoder in new[] { "HEVC", "H264" })
+                foreach (string suffix in new[] { "SPATIAL_AQ", "TEMPORAL_AQ" })
+                    if (!explicitKeys.Contains(encoder + "_" + suffix))
+                        values[encoder + "_" + suffix] = Get("NVENC_" + suffix);
 
             if (!hasFfmpegDir)
             {
@@ -164,6 +176,12 @@ namespace FilmGrainStudioPreview
                     catch { }
                 }
             }
+        }
+
+        internal string EncoderAq(string mode, bool temporal)
+        {
+            string prefix = mode == "HEVC" ? "HEVC" : mode == "H264" ? "H264" : "NVENC";
+            return Get(prefix + (temporal ? "_TEMPORAL_AQ" : "_SPATIAL_AQ"));
         }
 
         public string Get(string key)

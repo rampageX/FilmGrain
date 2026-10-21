@@ -149,8 +149,8 @@ namespace FilmGrainStudioPreview
             snapshot.H264High10 = config.GetBool("H264_HIGH10") && (!hardwareCapsReady || hardwareCaps == null || (hardwareCaps.X264Available && hardwareCaps.X264High10Available));
             snapshot.X264Preset = config.Get("X264_PRESET");
             snapshot.X264PassMode = config.Get("X264_RATE_MODE");
-            snapshot.HevcSpatialAq = config.Get("NVENC_SPATIAL_AQ");
-            snapshot.HevcTemporalAq = config.GetBool("NVENC_TEMPORAL_AQ");
+            snapshot.HevcSpatialAq = config.EncoderAq(mode, false);
+            snapshot.HevcTemporalAq = string.Equals(config.EncoderAq(mode, true), "true", StringComparison.OrdinalIgnoreCase);
             snapshot.HdrPolicy = config.Get("HDR_POLICY");
             snapshot.TonemapAlgo = config.Get("TONE_MAP_ALGO");
             
