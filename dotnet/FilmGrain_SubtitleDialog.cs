@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
@@ -9,7 +9,7 @@ namespace FilmGrainStudioPreview
     internal sealed partial class MainForm
     {
         private readonly SubtitleState subtitleState = new SubtitleState();
-        private readonly ToolTip subtitleToolTip = new ToolTip();
+        private readonly ToolTip subtitleToolTip = new ThemeToolTip();
 
         private sealed class SubtitleChoice
         {

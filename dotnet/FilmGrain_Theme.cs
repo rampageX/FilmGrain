@@ -75,6 +75,7 @@ namespace FilmGrainStudioPreview
             catch (DllNotFoundException) { }
             catch (EntryPointNotFoundException) { }
         }
+        private readonly ThemeToolTip stripTip=new ThemeToolTip();
         private readonly ToolStripRenderer darkRenderer = new ToolStripProfessionalRenderer(new ThemeTable());
         private readonly Dictionary<Control, Snapshot> controls = new Dictionary<Control, Snapshot>();
         private readonly Dictionary<ToolStripItem, Color> items = new Dictionary<ToolStripItem, Color>();
@@ -86,7 +87,7 @@ namespace FilmGrainStudioPreview
             internal Color Edge, Hover, Down;
             internal DrawMode Draw;
             internal ToolStripRenderer Renderer;
-            internal bool OwnerDraw, GridLines;
+            internal bool OwnerDraw, GridLines, ShowItemToolTips;
             internal BorderStyle TextBorder;
             internal bool PageVisual;
             internal Color Link, ActiveLink, VisitedLink, DisabledLink;
@@ -135,7 +136,7 @@ namespace FilmGrainStudioPreview
             if (combo != null) { s.Draw = combo.DrawMode; if (s.Draw == DrawMode.Normal) combo.DrawItem += DrawCombo; }
             ListView list = c as ListView;
             if (list != null) {
-                s.OwnerDraw = list.OwnerDraw; s.GridLines = list.GridLines;
+                s.OwnerDraw = list.OwnerDraw; s.GridLines = list.GridLines;s.ShowItemToolTips=list.ShowItemToolTips;list.ShowItemToolTips=false;list.MouseMove+=ListMouseMove;list.MouseLeave+=StripMouseLeave;
                 if (!s.OwnerDraw) { list.DrawColumnHeader += DrawHeader; list.DrawItem += DrawListItem; list.DrawSubItem += DrawSubItem; }
             }
             controls.Add(c, s);
@@ -145,10 +146,23 @@ namespace FilmGrainStudioPreview
             c.ContextMenuStripChanged += ContextMenuChanged;
             c.Disposed += Removed;
             ToolStrip strip = c as ToolStrip;
-            if (strip != null) { s.Renderer = strip.Renderer; strip.ItemAdded += StripItemAdded; foreach (ToolStripItem i in strip.Items) RegisterItem(i); }
+            if (strip != null) { s.Renderer = strip.Renderer;s.ShowItemToolTips=strip.ShowItemToolTips;strip.ShowItemToolTips=false;strip.MouseMove+=StripMouseMove;strip.MouseLeave+=StripMouseLeave; strip.ItemAdded += StripItemAdded; foreach (ToolStripItem i in strip.Items) RegisterItem(i); }
             if (c.ContextMenuStrip != null) Register(c.ContextMenuStrip);
             foreach (Control child in c.Controls) Register(child);
         }
+        private void ListMouseMove(object sender,MouseEventArgs e)
+        {
+            var list=(ListView)sender;var item=list.GetItemAt(e.X,e.Y);
+            string text=item==null?"":item.ToolTipText;
+            if(stripTip.GetToolTip(list)!=text)stripTip.SetToolTip(list,text);
+        }
+        private void StripMouseMove(object sender,MouseEventArgs e)
+        {
+            var strip=(ToolStrip)sender;var item=strip.GetItemAt(e.Location);
+            string text=item==null?"":item.ToolTipText;
+            if(stripTip.GetToolTip(strip)!=text)stripTip.SetToolTip(strip,text);
+        }
+        private void StripMouseLeave(object sender,EventArgs e) {stripTip.SetToolTip((Control)sender,"");}
         private void StripItemAdded(object sender, ToolStripItemEventArgs e)
         {
             RegisterItem(e.Item);
@@ -241,8 +255,9 @@ namespace FilmGrainStudioPreview
             c.ForeColorChanged -= ForeChanged; c.BackColorChanged -= BackChanged; c.ControlAdded -= Added; c.ContextMenuStripChanged -= ContextMenuChanged; c.Disposed -= Removed;
             ComboBox combo = c as ComboBox; if (combo != null && s.Draw == DrawMode.Normal) combo.DrawItem -= DrawCombo;
             ListView list = c as ListView;
+            if(list!=null) {list.MouseMove-=ListMouseMove;list.MouseLeave-=StripMouseLeave;stripTip.SetToolTip(list,"");if(!list.IsDisposed)list.ShowItemToolTips=s.ShowItemToolTips;}
             if (list != null && !s.OwnerDraw) { list.DrawColumnHeader -= DrawHeader; list.DrawItem -= DrawListItem; list.DrawSubItem -= DrawSubItem; }
-            ToolStrip strip = c as ToolStrip; if (strip != null) strip.ItemAdded -= StripItemAdded;
+            ToolStrip strip = c as ToolStrip; if (strip != null) {strip.ItemAdded -= StripItemAdded;strip.MouseMove-=StripMouseMove;strip.MouseLeave-=StripMouseLeave;stripTip.SetToolTip(strip,"");if(!strip.IsDisposed)strip.ShowItemToolTips=s.ShowItemToolTips;}
             controls.Remove(c);
         }
         private void DrawCombo(object sender, DrawItemEventArgs e)
@@ -291,7 +306,7 @@ namespace FilmGrainStudioPreview
             foreach (Control c in new List<Control>(nativeScrollControls)) RemoveNativeScrollbars(c);
             foreach (Control c in new List<Control>(controls.Keys)) Unregister(c);
             foreach (ToolStripItem i in new List<ToolStripItem>(items.Keys)) ItemDisposed(i, EventArgs.Empty);
-            items.Clear();
+            items.Clear();stripTip.Dispose();
         }
         private sealed class ThemeTable : ProfessionalColorTable
         {
@@ -503,6 +518,43 @@ namespace FilmGrainStudioPreview
 namespace FilmGrainStudioPreview
 {
     internal interface IThemeSurface { bool DarkTheme { get; set; } }
+    // Shared by every explicit tooltip and ToolStrip hint. Resolve theme at display time.
+    internal sealed class ThemeToolTip : ToolTip
+    {
+        internal static bool UsesDark(Control control)
+        {
+            if(control==null)return false;
+            var menu=control as ContextMenuStrip;
+            Form window=menu!=null&&menu.SourceControl!=null?menu.SourceControl.FindForm():control.FindForm();
+            return (window!=null?window.BackColor:control.BackColor).GetBrightness()<0.35f;
+        }
+        internal static Size Measure(Graphics graphics,string text,Font font,int screenWidth)
+        {
+            int width=Math.Max(120,Math.Min((int)(520*graphics.DpiX/96f),screenWidth-32));
+            SizeF size=graphics.MeasureString(text??"",font,width-24,StringFormat.GenericDefault);
+            return new Size(size.Height>font.Height*1.5?width:Math.Min(width,(int)Math.Ceiling(size.Width)+26),(int)Math.Ceiling(size.Height)+20);
+        }
+        internal static void Render(Graphics graphics,Rectangle bounds,string text,Font font,bool dark)
+        {
+            using(var brush=new SolidBrush(dark?UiTheme.Surface:SystemColors.Info))graphics.FillRectangle(brush,bounds);
+            using(var pen=new Pen(dark?UiTheme.Border:SystemColors.InfoText))graphics.DrawRectangle(pen,bounds.X,bounds.Y,Math.Max(0,bounds.Width-1),Math.Max(0,bounds.Height-1));
+            using(var brush=new SolidBrush(dark?UiTheme.TextColor:SystemColors.InfoText))
+                graphics.DrawString(text??"",font,brush,new RectangleF(bounds.X+12,bounds.Y+9,Math.Max(1,bounds.Width-24),Math.Max(1,bounds.Height-18)),StringFormat.GenericDefault);
+        }
+        internal ThemeToolTip()
+        {
+            OwnerDraw=true;IsBalloon=false;UseAnimation=false;UseFading=false;AutoPopDelay=20000;
+            Popup+=delegate(object sender,PopupEventArgs e) {
+                Control c=e.AssociatedControl;Font font=c!=null?c.Font:SystemFonts.MessageBoxFont;
+                using(Graphics graphics=c!=null?c.CreateGraphics():Graphics.FromHwnd(IntPtr.Zero))
+                    e.ToolTipSize=Measure(graphics,c!=null?GetToolTip(c):"",font,(c!=null?Screen.FromControl(c):Screen.PrimaryScreen).WorkingArea.Width);
+            };
+            Draw+=delegate(object sender,DrawToolTipEventArgs e) {
+                Render(e.Graphics,e.Bounds,e.ToolTipText,e.AssociatedControl!=null?e.AssociatedControl.Font:SystemFonts.MessageBoxFont,UsesDark(e.AssociatedControl));
+            };
+        }
+    }
+
     internal static class ThemeDrawing
     {
         // One GDI+ text path for parent-backed and buffered custom controls.

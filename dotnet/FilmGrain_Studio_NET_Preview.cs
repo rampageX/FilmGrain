@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -106,8 +106,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.19";
-        internal const string FileReleaseVersion = "5.0.19.0";
+        internal const string ReleaseVersion = "5.0.20";
+        internal const string FileReleaseVersion = "5.0.20.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -325,8 +325,8 @@ namespace FilmGrainStudioPreview
         private PictureBox picLutPreview;
         private Button btnLutGallery;
         private Button btnColorCorrection;
-        private readonly ToolTip lutToolTip = new ToolTip();
-        private readonly ToolTip sfeToolTip = new ToolTip();
+        private readonly ToolTip lutToolTip = new ThemeToolTip();
+        private readonly ToolTip sfeToolTip = new ThemeToolTip();
         private ComboBox cmbLanguage;
         private Button btnFgsimTextureUpdate;
         private Label lblFgsimTextureStatus;
@@ -334,6 +334,9 @@ namespace FilmGrainStudioPreview
         private bool loadingLutLists;
         private bool updatingBitrateUi;
         private int lastCodecIndex = 0;
+        private CheckBox chkCq;
+        private Control rateControlLabel;
+        private readonly string[] bitrateChoices = new string[] { "3000", "3500", "4000", "5000", "6000", "7000", "7500", "8000", "9000", "10000", "11000", "12000", "15000", "18000", "20000", "22000", "30000" };
         private readonly string[] modeBitrate = new string[] { "5000", "6000", "7500", "7500" };
         private readonly bool[] modeBitrateAuto = new bool[] { true, true, true, true };
         
@@ -615,7 +618,7 @@ namespace FilmGrainStudioPreview
                 }
             }
             cmbLanguage.Enabled = true;
-            ToolTip tip = new ToolTip();
+            ToolTip tip = new ThemeToolTip();
             tip.SetToolTip(cmbLanguage, lang.T("language.tooltip"));
             cmbLanguage.SelectedIndexChanged += delegate
             {
@@ -941,8 +944,18 @@ namespace FilmGrainStudioPreview
             AddLabeledRow(t, 2, lang.T("encode.speed"), WithAdvancedShortcut(cmbSpeed, 0, lang.T("advanced.tab.encode"), out speedShortcut));
             speedShortcut.Visible = cmbCodec.SelectedIndex == 1 || cmbCodec.SelectedIndex == 2 || cmbCodec.SelectedIndex == 3;
             cmbCodec.SelectedIndexChanged += delegate { speedShortcut.Visible = cmbCodec.SelectedIndex == 1 || cmbCodec.SelectedIndex == 2 || cmbCodec.SelectedIndex == 3; };
-            t.Controls.Add(chkSfe, 1, 3);
+            var rateModes = new FlowLayoutPanel { Dock=DockStyle.Fill, Margin=Padding.Empty, WrapContents=false };
+            chkSfe.Dock=DockStyle.None;chkSfe.AutoSize=true;
+            chkCq=Check(UiText("CQ 模式", "CQ mode"),false);chkCq.AutoSize=true;
+            rateModes.Controls.Add(chkSfe);rateModes.Controls.Add(chkCq);t.Controls.Add(rateModes,1,3);
+            chkCq.CheckedChanged += delegate {
+                if(restoringFileEditor||updatingBitrateUi)return;
+                int index=cmbCodec.SelectedIndex;if(index!=0&&index!=1&&index!=3)return;
+                config.SaveValue(RateControlKey("RATE_CONTROL"),chkCq.Checked?"CQ":"VBR");
+                LoadBitrateStateForCodec();UpdateBitrateDisplays();
+            };
             AddLabeledRow(t, 4, lang.T("encode.bitrate"), bitrate);
+            rateControlLabel=t.GetControlFromPosition(0,4);
             AddLabeledRow(t, 5, lang.T("encode.fps"), cmbFps);
             Button interpShortcut;
             AddLabeledRow(t, 6, lang.T("encode.interpolation"), WithAdvancedShortcut(interp, 1, lang.T("advanced.tab.interp"), out interpShortcut));
@@ -962,13 +975,6 @@ namespace FilmGrainStudioPreview
             cmbCodec.SelectedIndexChanged += delegate
             { if(restoringFileEditor)return;
                 if (GuardUnavailableCodecSelection()) return;
-                if (!updatingBitrateUi && lastCodecIndex >= 0 && lastCodecIndex < modeBitrate.Length)
-                {
-                    long current;
-                    if (long.TryParse(cmbBitrate.Text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out current) && current > 10)
-                        modeBitrate[lastCodecIndex] = cmbBitrate.Text.Trim();
-                    modeBitrateAuto[lastCodecIndex] = chkBitrateAuto.Checked;
-                }
                 if (cmbCodec.SelectedIndex >= 0 && cmbCodec.SelectedIndex <= 3)
                     lastCodecIndex = cmbCodec.SelectedIndex;
                 UpdateGrainForCodec();
@@ -978,21 +984,25 @@ namespace FilmGrainStudioPreview
                 UpdateSfeUi();
                 UpdateMediaDrivenUi(GetSelectedMediaInfo());
                 UpdateBitrateDisplays();
-                UpdateHardwareDependentControls();
+                UpdateHardwareDependentControls();LoadBitrateStateForCodec();UpdateBitrateDisplays();
             };
             cmbSpeed.SelectedIndexChanged += delegate { if(restoringFileEditor)return; UpdateSfeUi(); };
             cmbBitrate.TextChanged += delegate
             { if(restoringFileEditor)return;
                 if (updatingBitrateUi || cmbCodec.SelectedIndex < 0 || cmbCodec.SelectedIndex > 3) return;
+                if(IsCqSelected()) {SaveManualCq();return;}
                 modeBitrate[cmbCodec.SelectedIndex] = cmbBitrate.Text.Trim();
                 modeBitrateAuto[cmbCodec.SelectedIndex] = false;
                 updatingBitrateUi = true;
                 try { chkBitrateAuto.Checked = false; }
                 finally { updatingBitrateUi = false; }
             };
+            cmbBitrate.SelectionChangeCommitted += delegate { SaveManualCq(); };
+            cmbBitrate.SelectedIndexChanged += delegate { SaveManualCq(); };
             chkBitrateAuto.CheckedChanged += delegate
             { if(restoringFileEditor)return;
                 if (updatingBitrateUi || cmbCodec.SelectedIndex < 0 || cmbCodec.SelectedIndex > 3) return;
+                if(IsCqSelected()) {config.Save(new Dictionary<string,string>{{RateControlKey("CQ_AUTO"),chkBitrateAuto.Checked?"true":"false"},{RateControlKey("CQ"),ManualCq()}});LoadBitrateStateForCodec();return;}
                 modeBitrateAuto[cmbCodec.SelectedIndex] = chkBitrateAuto.Checked;
                 UpdateBitrateDisplays();
             };
@@ -2295,6 +2305,26 @@ namespace FilmGrainStudioPreview
             return mediaProbeCache.TryGetValue(path, out info) ? info : null;
         }
 
+        private string RateControlKey(string option)
+        { return "NVENC_"+(cmbCodec.SelectedIndex==0?"AV1":cmbCodec.SelectedIndex==3?"H264":"HEVC")+"_"+option; }
+        private bool IsCqSelected()
+        { return cmbCodec!=null&&(cmbCodec.SelectedIndex==0||cmbCodec.SelectedIndex==1||cmbCodec.SelectedIndex==3)&&config.Get(RateControlKey("RATE_CONTROL"))=="CQ"; }
+
+        private bool IsCqAutomatic()
+        {
+            string saved=config.Get(RateControlKey("CQ_AUTO"));
+            return saved.Length==0?config.Get(RateControlKey("CQ"))=="AUTO":saved.Equals("true",StringComparison.OrdinalIgnoreCase);
+        }
+        private string ManualCq()
+        {double value;string text=config.Get(RateControlKey("CQ"));return NvencRateControlCore.TryQuality(cmbCodec.SelectedIndex==0?"AV1":"HEVC",text,out value)?text:"23";}
+        private string RecommendedCq()
+        {return NvencRateControlCore.Recommend(cmbCodec.SelectedIndex==0?"AV1":cmbCodec.SelectedIndex==3?"H264":"HEVC",chkHighMotion.Checked,IsGrainEnabled());}
+        private void SaveManualCq()
+        {
+            if(restoringFileEditor||updatingBitrateUi||!IsCqSelected())return;
+            config.Save(new Dictionary<string,string>{{RateControlKey("CQ"),cmbBitrate.Text.Trim()},{RateControlKey("CQ_AUTO"),"false"}});
+            updatingBitrateUi=true;try {chkBitrateAuto.Checked=false;}finally {updatingBitrateUi=false;}
+        }
         private void LoadBitrateStateForCodec()
         {
             if (cmbCodec == null || cmbBitrate == null || chkBitrateAuto == null) return;
@@ -2302,8 +2332,17 @@ namespace FilmGrainStudioPreview
             updatingBitrateUi = true;
             try
             {
-                chkBitrateAuto.Checked = modeBitrateAuto[index];
-                cmbBitrate.Text = modeBitrate[index];
+                bool cq=IsCqSelected();
+                chkCq.Enabled=cmbCodec.SelectedIndex==0||cmbCodec.SelectedIndex==1||cmbCodec.SelectedIndex==3;chkCq.Checked=cq;
+                cmbBitrate.Items.Clear();
+                if(cq)cmbBitrate.Items.AddRange(index==0?new object[]{"20","22","24","25","26","28","30"}:index==1?new object[]{"18","20","21","22","23","24","26"}:new object[]{"16","18","19","20","21","22","24"});
+                else cmbBitrate.Items.AddRange(bitrateChoices);
+                chkBitrateAuto.Enabled=cmbCodec.SelectedIndex!=4;
+                chkBitrateAuto.Checked=cq?IsCqAutomatic():modeBitrateAuto[index];
+                cmbBitrate.Text=cq?(IsCqAutomatic()?RecommendedCq():ManualCq()):modeBitrate[index];
+                if(rateControlLabel!=null)rateControlLabel.Text=cq?UiText("目标质量 CQ", "Target quality CQ"):lang.T("encode.bitrate");
+                string help=UiText("CQ 数值越小质量越高，输出码率和体积不固定。勾选自动时使用 FGS 推荐：AV1 25 / HEVC 22 / H.264 20；高动态、启用颗粒各降低 1。手动数值不受影响。预置值由高画质到小体积，仅供起点参考，不保证视觉无损。0 是驱动自动，不能等同 FGS 自动推荐。", "Lower CQ targets higher quality; bitrate and size vary. Automatic: FGS starting targets AV1 25 / HEVC 22 / H.264 20; subtract 1 each for high motion and enabled grain. Manual values stay unchanged. Presets span quality to size, without a visual-lossless guarantee. Zero means driver automatic, not FGS AUTO.");
+                lutToolTip.SetToolTip(chkCq,help);lutToolTip.SetToolTip(cmbBitrate,cq?help:UiText("视频码率，单位 kbps。", "Video bitrate in kbps."));
             }
             finally { updatingBitrateUi = false; }
         }
@@ -2311,7 +2350,12 @@ namespace FilmGrainStudioPreview
         private void UpdateBitrateDisplays()
         {
             if (cmbCodec == null || cmbBitrate == null || chkBitrateAuto == null) return;
+            if(chkCq!=null)chkCq.Enabled=cmbCodec.SelectedIndex==0||cmbCodec.SelectedIndex==1||cmbCodec.SelectedIndex==3;
             if (cmbCodec.SelectedIndex == 4) return;
+            if(IsCqSelected()) {
+                if(IsCqAutomatic()) {updatingBitrateUi=true;try {cmbBitrate.Text=RecommendedCq();chkBitrateAuto.Checked=true;}finally {updatingBitrateUi=false;}}
+                return;
+            }
             int codecIndex = Math.Max(0, Math.Min(3, cmbCodec.SelectedIndex));
             MediaProbeInfo info = GetBitrateMediaContext();
             int width = info != null ? info.Width : 1920;

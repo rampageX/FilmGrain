@@ -26,6 +26,9 @@ namespace FilmGrainStudioPreview
         public string Speed = "";
         public int SfeEngines;
         public string BitrateMode = "";
+        public bool NvencCqLimitEnabled;
+        public string NvencCqMaxrate="", NvencCqUser="";
+        public string NvencRateControl = "VBR", NvencCq = "23";
         public long Bitrate;
         public bool HighMotion;
         public string FpsMode = "";
@@ -140,7 +143,13 @@ namespace FilmGrainStudioPreview
             state["FG_HEVC_LOOKAHEAD"]=snapshot.HevcLookahead;state["FG_H264_LOOKAHEAD"]=snapshot.H264Lookahead;
             state["FG_SPEED"] = snapshot.Speed;
             state["FG_SFE_ENGINES"] = Math.Max(0, snapshot.SfeEngines).ToString(CultureInfo.InvariantCulture);
-            state["FG_BITRATE_MODE"] = snapshot.BitrateMode;
+            state["FG_NVENC_RATE_CONTROL"] = snapshot.Mode == "X264" || snapshot.NoReencode ? "VBR" : snapshot.NvencRateControl;
+            state["FG_NVENC_CQ"] = snapshot.NvencCq;
+            state["FG_NVENC_CQ_USER"]=snapshot.NvencCqUser;
+            state["FG_NVENC_CQ_LIMIT_ENABLED"]=snapshot.NvencCqLimitEnabled?"true":"false";
+            state["FG_NVENC_CQ_MAXRATE"]=snapshot.NvencCqMaxrate;
+            state["FG_BITRATE_MODE"] = NvencRateControlCore.IsCq(state) ? "MANUAL" : snapshot.BitrateMode;
+            if(NvencRateControlCore.IsCq(state))bitrate=0;
             state["FG_BITRATE"] = bitrate.ToString(CultureInfo.InvariantCulture);
             state["FG_MAXRATE"] = (bitrate * 3L).ToString(CultureInfo.InvariantCulture);
             state["FG_BUFSIZE"] = (bitrate * 6L).ToString(CultureInfo.InvariantCulture);
@@ -492,6 +501,82 @@ namespace FilmGrainStudioPreview
             if(engines>0&&(h264||caps==null||engines<2||engines>caps.HevcSplitEncodeMaxEngines))throw new InvalidOperationException(codec+" split-frame encoding is unavailable.");
             // Explicitly disable HEVC implicit SFE when the checkbox is off.
             if(!h264&&caps!=null&&caps.HevcSplitEncodeMaxEngines>=2)Set(args,"-split_encode_mode",engines>0?engines.ToString(CultureInfo.InvariantCulture):"disabled");
+        }
+    }
+    // Common final rate-control boundary. Does not alter grain, filters or advanced options.
+    internal static class NvencRateControlCore
+    {
+        private static readonly Dictionary<string,string> helpCache=new Dictionary<string,string>();
+        internal static bool IsCq(IDictionary<string,string> state)
+        {
+            string codec=AudioOutputCore.Get(state,"FG_MODE","");
+            return (codec=="AV1"||codec=="HEVC"||codec=="H264") && AudioOutputCore.Get(state,"FG_NVENC_RATE_CONTROL","VBR")=="CQ";
+        }
+        internal static string Recommend(string codec,bool highMotion,bool grain)
+        {
+            // A conservative starting point; never infer scene complexity from resolution or bitrate.
+            int value=codec=="AV1"?25:codec=="HEVC"?22:20;
+            return (value-(highMotion?1:0)-(grain?1:0)).ToString(CultureInfo.InvariantCulture);
+        }
+        internal static int Limit(IDictionary<string,string> state)
+        {
+            if(AudioOutputCore.Get(state,"FG_NVENC_CQ_LIMIT_ENABLED","FALSE")!="TRUE")return 0;
+            int value;
+            if(!int.TryParse(AudioOutputCore.Get(state,"FG_NVENC_CQ_MAXRATE",""),NumberStyles.Integer,CultureInfo.InvariantCulture,out value)||value<1||value>2000)
+                throw new InvalidDataException("CQ maximum bitrate must be 1..2000 Mbps.");
+            return value;
+        }
+        internal static bool TryQuality(string codec,string text,out double quality)
+        {
+            return double.TryParse(text,NumberStyles.AllowDecimalPoint,CultureInfo.InvariantCulture,out quality)
+                && !double.IsNaN(quality)&&!double.IsInfinity(quality)&&quality>=1&&quality<=(codec=="AV1"?63:51);
+        }
+        internal static string Quality(IDictionary<string,string> state)
+        {
+            double quality;
+            if(!TryQuality(AudioOutputCore.Get(state,"FG_MODE",""),AudioOutputCore.Get(state,"FG_NVENC_CQ",""),out quality))
+                throw new InvalidDataException("Invalid NVENC CQ target (0 is automatic, not a numeric quality target).");
+            return quality.ToString("R",CultureInfo.InvariantCulture);
+        }
+        internal static string FileToken(IDictionary<string,string> state,long bitrate)
+        {return IsCq(state)?"CQ"+Quality(state):bitrate.ToString(CultureInfo.InvariantCulture)+"k";}
+        internal static string Notice(IDictionary<string,string> state)
+        {
+            string codec=AudioOutputCore.Get(state,"FG_MODE","");
+            if(codec!="AV1"&&codec!="HEVC"&&codec!="H264")return "";
+            return IsCq(state)?"[NVENC rate control] codec="+codec+" mode=CQ user_target="+Quality(state)+" user_selection="+AudioOutputCore.Get(state,"FG_NVENC_CQ_USER",Quality(state))+" maxrate_Mbps="+Limit(state)+" rc=vbr b:v=0; bitrate/size variable; manual CQ unchanged; AUTO applies documented motion/grain adjustment.":
+                "[NVENC rate control] codec="+codec+" mode=VBR bitrate_policy="+AudioOutputCore.Get(state,"FG_BITRATE_MODE","MANUAL")+"; see final command for resolved bitrate.";
+        }
+        internal static void Apply(List<string> args,IDictionary<string,string> state)
+        {
+            string mode=AudioOutputCore.Get(state,"FG_NVENC_RATE_CONTROL","VBR");
+            if(mode!="CQ"&&mode!="VBR")throw new InvalidDataException("Invalid NVENC rate-control mode: "+mode);
+            if(!IsCq(state))return; // preserve the exact verified VBR argument order and defaults
+            string quality=Quality(state);
+            foreach(string key in new[]{"-rc","-b:v","-maxrate","-maxrate:v","-bufsize","-bufsize:v","-cq"})
+                NvencMainOptionsCore.Set(args,key,null);
+            args.AddRange(new[]{"-rc","vbr","-cq",quality,"-b:v","0"});
+            int limit=Limit(state);if(limit>0)args.AddRange(new[]{"-maxrate",limit+"M","-bufsize",(limit*2)+"M"});
+        }
+        internal static void RequireSupport(string ffmpeg,IDictionary<string,string> state)
+        {
+            if(!IsCq(state))return;
+            string encoder=AudioOutputCore.Get(state,"FG_MODE","").ToLowerInvariant()+"_nvenc";
+            var file=new FileInfo(ffmpeg);
+            string key=Path.GetFullPath(ffmpeg)+"|"+file.Length+"|"+file.LastWriteTimeUtc.Ticks+"|"+encoder;
+            string help;
+            lock(helpCache) {
+                if(!helpCache.TryGetValue(key,out help)) {
+                    string reason;
+                    if(!SharedFrucCore.Run(ffmpeg,"-hide_banner -h encoder="+encoder,10000,out help,out reason))
+                        throw new InvalidDataException("Cannot inspect CQ support for "+encoder+": "+reason);
+                    helpCache[key]=help;
+                }
+            }
+            var match=System.Text.RegularExpressions.Regex.Match(help,@"(?m)^\s*-cq\s+<[^>]+>[^\r\n]*\(from 0 to ([0-9]+)\)");
+            double maximum,quality=double.Parse(Quality(state),CultureInfo.InvariantCulture);
+            if(!match.Success||!double.TryParse(match.Groups[1].Value,NumberStyles.Integer,CultureInfo.InvariantCulture,out maximum)||quality>maximum||!SharedFrucCore.HasOption(help,"-rc"))
+                throw new InvalidDataException(encoder+" / "+ffmpeg+": installed FFmpeg does not advertise the requested CQ "+quality+"; inspect -h encoder="+encoder+". No VBR fallback.");
         }
     }
 

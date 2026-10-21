@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -375,7 +375,7 @@ namespace FilmGrainStudioPreview
                 Label statusLut = ConfigStatusLabel(lang.T("config.not_checked"));
                 Button buildCache = ConfigButton(lang.T("config.build_cache"));
                 Button buildThumbs = ConfigButton(lang.T("config.build_thumbs"));
-                ToolTip configTip = new ToolTip();
+                ToolTip configTip = new ThemeToolTip();
                 configTip.SetToolTip(buildCache, lang.T("config.tip.cache"));
                 configTip.SetToolTip(buildThumbs, lang.T("config.tip.thumbs"));
 
@@ -696,7 +696,7 @@ namespace FilmGrainStudioPreview
             config.Load();
             string hardwareBefore = HardwareCapabilityCore.RequestKey(CreateHardwareRequest());
             using (Form dlg = new Form())
-            using (ToolTip interpTips = new ToolTip())
+            using (ToolTip interpTips = new ThemeToolTip())
             {
                 dlg.Text = lang.T("advanced.title");
                 dlg.StartPosition = FormStartPosition.CenterParent;
@@ -745,7 +745,7 @@ namespace FilmGrainStudioPreview
                 av1Multipass.Items.AddRange(mpLabels);hevcMultipass.Items.AddRange(mpLabels);
                 av1Multipass.SelectedIndex=Math.Max(0,Array.IndexOf(multipassValues,config.Get("AV1_MULTIPASS").ToUpperInvariant()));hevcMultipass.SelectedIndex=Math.Max(0,Array.IndexOf(multipassValues,config.Get("HEVC_MULTIPASS").ToUpperInvariant()));
                 enc.Controls.AddRange(new Control[]{new ThemeLabel{Text=UiText("音频处理","Audio policy"),Location=new Point(28,208),Size=new Size(155,24)},audioMode,new ThemeLabel{Text=UiText("AAC 音频码率","AAC bitrate"),Location=new Point(28,246),Size=new Size(155,24)},audioRate,new ThemeLabel{Text="AV1 Multipass",Location=new Point(28,322),Size=new Size(115,24)},av1Multipass,new ThemeLabel{Text="HEVC Multipass",Location=new Point(335,322),Size=new Size(115,24)},hevcMultipass});
-                var encodingTip=new ToolTip();dlg.Disposed+=delegate{encodingTip.Dispose();};
+                var encodingTip=new ThemeToolTip();dlg.Disposed+=delegate{encodingTip.Dispose();};
 
                 encodingTip.SetToolTip(audioMode,UiText("与 MP4/MKV 独立。智能模式下，MP4 复制 AAC/MP3/AC3/EAC3，其它转 AAC；MKV 保留。独立烘焙仍仅第一音轨，且需要时转换为双声道。","Independent of MP4/MKV. Smart MP4 copies AAC/MP3/AC3/EAC3; other codecs become AAC. Smart MKV copies. Standalone bake retains its first-track/stereo scope."));
                 encodingTip.SetToolTip(audioRate,UiText("仅对转 AAC 的音轨生效，复制不升码率。接近源：先用音轨码率，缺失时最多读取128个音频包估算；仍未知按声道回退（单声道64、双声道128、多声道384k）。不代表跨编码器同等音质。","Only encoded AAC tracks use this rate. Near-source uses per-track metadata or up to128 audio packets, then channel fallback (mono64/stereo128/multichannel384k). Equal bitrate is not equal quality."));
@@ -780,7 +780,7 @@ namespace FilmGrainStudioPreview
                     page.Controls.Add(control); control.Location=new Point(x,y); control.Width=width;
                 };
                 Action<TabPage,string,int> heading = delegate(TabPage page,string text,int y) {
-                    page.Controls.Add(new ThemeLabel { Text=text,Location=new Point(28,y),Size=new Size(650,24),Font=UiFont(9f,FontStyle.Bold) });
+                    page.Controls.Add(new ThemeLabel { Text=text,Location=new Point(28,y),Size=new Size(400,24),Font=UiFont(9f,FontStyle.Bold) });
                 };
                 Action<TabPage,int> divider = delegate(TabPage page,int y) {
                     page.Controls.Add(new ThemeLabel { Name="ENCODER_DIVIDER",Location=new Point(28,y),Size=new Size(672,1),BorderStyle=BorderStyle.FixedSingle });
@@ -825,6 +825,21 @@ namespace FilmGrainStudioPreview
                 }
 
 
+                var cqLimitChecks=new Dictionary<string,CheckBox>();
+                var cqLimitValues=new Dictionary<string,TextBox>();
+                foreach(string codec in new[]{"AV1","HEVC","H264"}) {
+                    Control page=codec=="H264"?h264Page:enc;int y=codec=="HEVC"?200:14;
+                    string prefix="NVENC_"+codec+"_";
+                    var enabled=new ThemeCheckBox {Name=prefix+"CQ_LIMIT_ENABLED",Text=codec+UiText(" CQ 码率上限", " CQ bitrate limit"),Checked=config.GetBool(prefix+"CQ_LIMIT_ENABLED"),Location=new Point(470,y),Size=new Size(235,26)};
+                    var value=new ThemeTextBox {Name=prefix+"CQ_MAXRATE",Text=config.Get(prefix+"CQ_MAXRATE"),AutoSize=false,Location=new Point(470,y+32),Size=new Size(110,26)};
+                    var unit=new ThemeLabel {Text="Mbps",Location=new Point(590,y+36),Size=new Size(60,24)};
+                    ComboBox alignedPeer=codec=="AV1"?av1Multipass:codec=="HEVC"?hevcMultipass:codecOptions["H264_MULTIPASS"];
+                    dlg.Shown+=delegate {value.Top=alignedPeer.Top;value.Height=alignedPeer.Height;};
+                    value.Enabled=enabled.Checked;enabled.CheckedChanged+=delegate {value.Enabled=enabled.Checked;};
+                    string tip=UiText("仅 CQ 生效；默认 AV1 80 / HEVC 100 / H.264 120 Mbps，VBV 缓冲为上限的 2 秒。可取消限制；VBR 保留原策略。达到上限可能降低画质，不保证文件体积或所有设备兼容。", "CQ only. Defaults: AV1 80 / HEVC 100 / H.264 120 Mbps, with a two-second VBV buffer. Optional; VBR retains its policy. The cap may reduce quality; it does not guarantee file size or device compatibility.");
+                    encodingTip.SetToolTip(enabled,tip);encodingTip.SetToolTip(value,tip);page.Controls.AddRange(new Control[]{enabled,value,unit});
+                    cqLimitChecks[codec]=enabled;cqLimitValues[codec]=value;
+                }
                 Label algoLabel = new ThemeLabel(); algoLabel.Text = UiText("插帧算法", "SmoothFps Algo"); algoLabel.Location = new Point(18, 18); algoLabel.Size = new Size(150, 24); interp.Controls.Add(algoLabel);
                 ComboBox algo = new ThemeComboBox(); algo.DropDownStyle = ComboBoxStyle.DropDownList; algo.Location = new Point(180, 14); algo.Size = new Size(150, 26);
                 foreach (string item in new string[] { "1", "2", "11", "13", "21", "22", "23" }) algo.Items.Add(item);
@@ -925,8 +940,8 @@ namespace FilmGrainStudioPreview
                 EventHandler updateAdvancedActions = delegate { updateSvp.Visible = tabs.SelectedTab == interp; };
                 tabs.SelectedIndexChanged += updateAdvancedActions; updateAdvancedActions(null, EventArgs.Empty);
                 pageDefaults.Click += delegate {
-                    if (tabs.SelectedTab == enc) { aq.SelectedIndex=2;temporal.Checked=false;audioMode.SelectedIndex=0;audioRate.SelectedIndex=4;av1Multipass.SelectedIndex=hevcMultipass.SelectedIndex=0;foreach(var item in codecOptions)if(item.Key.StartsWith("HEVC_",StringComparison.Ordinal))item.Value.SelectedIndex=0; }
-                    else if(tabs.SelectedTab==h264Page) {high10.Checked=false;rate.SelectedIndex=preset.SelectedIndex=0;h264Aq.SelectedIndex=2;h264Temporal.Checked=false;foreach(var item in codecOptions)if(item.Key.StartsWith("H264_",StringComparison.Ordinal))item.Value.SelectedIndex=0;}
+                    if (tabs.SelectedTab == enc) { foreach(string codec in new[]{"AV1","HEVC"}) {cqLimitChecks[codec].Checked=true;cqLimitValues[codec].Text=codec=="AV1"?"80":"100";} aq.SelectedIndex=2;temporal.Checked=false;audioMode.SelectedIndex=0;audioRate.SelectedIndex=4;av1Multipass.SelectedIndex=hevcMultipass.SelectedIndex=0;foreach(var item in codecOptions)if(item.Key.StartsWith("HEVC_",StringComparison.Ordinal))item.Value.SelectedIndex=0; }
+                    else if(tabs.SelectedTab==h264Page) {cqLimitChecks["H264"].Checked=true;cqLimitValues["H264"].Text="120";high10.Checked=false;rate.SelectedIndex=preset.SelectedIndex=0;h264Aq.SelectedIndex=2;h264Temporal.Checked=false;foreach(var item in codecOptions)if(item.Key.StartsWith("H264_",StringComparison.Ordinal))item.Value.SelectedIndex=0;}
                     else if (tabs.SelectedTab == interp) { svpSpeed.SelectedIndex = 0; svpTuning.SelectedIndex = 0; svpBlock.SelectedIndex = 0; algo.SelectedItem = "13"; analyse.SelectedIndex = 0; mask.Value = 100; frucPerf.SelectedIndex = 1; frucGrid.SelectedIndex = 0; dedup.Value=0;still.Checked=false;stillLimit.Value=4.5m;stillEdge.Value=5;stillTolerance.Value=30;peel.Checked=false;peelLimit.Value=6; }
                     else if (tabs.SelectedTab == hdr) { hdrPolicy.SelectedIndex = 0; tone.SelectedIndex = 0; updateHdr(null, EventArgs.Empty); }
                 };
@@ -954,6 +969,14 @@ namespace FilmGrainStudioPreview
                     updates["HEVC_TEMPORAL_AQ"] = temporal.Checked ? "true" : "false";
                     updates["H264_SPATIAL_AQ"] = aqValues[Math.Max(0, Math.Min(aqValues.Length - 1, h264Aq.SelectedIndex))].ToString(CultureInfo.InvariantCulture);
                     updates["H264_TEMPORAL_AQ"] = h264Temporal.Checked ? "true" : "false";
+                    foreach(string codec in new[]{"AV1","HEVC","H264"}) {
+                        updates["NVENC_"+codec+"_CQ_LIMIT_ENABLED"]=cqLimitChecks[codec].Checked?"true":"false";
+                        int limit;
+                        if(cqLimitChecks[codec].Checked&&(!int.TryParse(cqLimitValues[codec].Text.Trim(),out limit)||limit<1||limit>2000)) {
+                            MessageBox.Show(dlg,codec+UiText(" CQ 最高码率请输入 1–2000 Mbps 的整数。"," CQ maximum bitrate must be an integer from 1 to 2000 Mbps."));dlg.DialogResult=DialogResult.None;cqLimitValues[codec].Focus();return;
+                        }
+                        updates["NVENC_"+codec+"_CQ_MAXRATE"]=cqLimitValues[codec].Text.Trim();
+                    }
                     updates["AUDIO_MODE"]=audioModes[audioMode.SelectedIndex];updates["AUDIO_BITRATE"]=audioRates[audioRate.SelectedIndex];
                     for(int oi=0;oi<optionKeys.Length;oi++)updates[optionKeys[oi]]=optionValues[oi][codecOptions[optionKeys[oi]].SelectedIndex];
                     updates["AV1_MULTIPASS"]=multipassValues[av1Multipass.SelectedIndex];updates["HEVC_MULTIPASS"]=multipassValues[hevcMultipass.SelectedIndex];

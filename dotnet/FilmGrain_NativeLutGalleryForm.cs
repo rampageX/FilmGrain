@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Drawing;
@@ -293,7 +293,7 @@ namespace FilmGrainStudioPreview
 
                 var name=new ThemeLabel{Text="",Left=6,Top=144,Width=204,Height=36,AutoEllipsis=true};
                 var fav=new ThemeButton{Text="",Left=215,Top=143,Width=31,Height=30};
-                var tip=new ToolTip();card.Disposed+=delegate{tip.Dispose();};
+                var tip=new ThemeToolTip();card.Disposed+=delegate{tip.Dispose();};
                 Action choose=delegate{selected=slot.Entry;status.Text=slot.Entry.Relative;foreach(Control c in cards.Controls)c.BackColor=c==card?Color.LightSteelBlue:SystemColors.Control;};
                 pic.Click+=delegate{choose();};name.Click+=delegate{choose();};card.Click+=delegate{choose();};
                 pic.DoubleClick+=delegate{Commit(slot.Entry);};name.DoubleClick+=delegate{Commit(slot.Entry);};card.DoubleClick+=delegate{Commit(slot.Entry);};

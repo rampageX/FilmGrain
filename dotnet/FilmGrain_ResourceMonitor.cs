@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
@@ -240,7 +240,7 @@ namespace FilmGrainStudioPreview {
     }
 
     internal sealed class ResourceMonitorPanel : Control,IThemeSurface {
-        readonly ToolTip tip=new ToolTip();
+        readonly ToolTip tip=new ThemeToolTip();
         readonly string memoryLabel, videoLabel;
         readonly System.Windows.Forms.Timer pulse=new System.Windows.Forms.Timer();
         ResourceSampler sampler;ResourceSample sample;Form owner;

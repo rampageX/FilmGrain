@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -33,9 +33,9 @@ namespace FilmGrainStudioPreview
             error = "";
             if (cmbCodec != null && cmbCodec.SelectedIndex == 4) return CaptureNoReencodeEnvironmentSnapshot(out error);
 
-            long bitrate;
+            long bitrate = 0;
             string bitrateText = cmbBitrate == null ? "" : cmbBitrate.Text.Trim();
-            if (!long.TryParse(bitrateText, NumberStyles.Integer, CultureInfo.InvariantCulture, out bitrate) || bitrate <= 10 || bitrate > 500000000)
+            if (!IsCqSelected() && (!long.TryParse(bitrateText, NumberStyles.Integer, CultureInfo.InvariantCulture, out bitrate) || bitrate <= 10 || bitrate > 500000000))
             {
                 error = lang.T("error.bitrate_invalid");
                 return null;
@@ -90,6 +90,13 @@ namespace FilmGrainStudioPreview
                 snapshot.SfeEngines = hardwareCaps.Av1SplitEncodeMaxEngines;
             }
             if(mode=="HEVC"&&chkSfe!=null&&chkSfe.Checked&&hardwareCapsReady&&hardwareCaps!=null&&hardwareCaps.HevcSplitEncodeMaxEngines>=2)snapshot.SfeEngines=hardwareCaps.HevcSplitEncodeMaxEngines;
+            snapshot.NvencRateControl = IsCqSelected() ? "CQ" : "VBR";
+            snapshot.NvencCq = IsCqSelected() ? cmbBitrate.Text.Trim() : config.Get(RateControlKey("CQ"));
+            snapshot.NvencCqUser=IsCqSelected()&&IsCqAutomatic()?"AUTO":snapshot.NvencCq;
+            if(IsCqSelected()&&IsCqAutomatic())snapshot.NvencCq=RecommendedCq();
+            snapshot.NvencCqLimitEnabled=config.GetBool(RateControlKey("CQ_LIMIT_ENABLED"));
+            snapshot.NvencCqMaxrate=config.Get(RateControlKey("CQ_MAXRATE"));
+            if(IsCqSelected()) { double quality; if(!NvencRateControlCore.TryQuality(mode,snapshot.NvencCq,out quality)) { error="CQ: 请输入至少 1 且不超过 "+(mode=="AV1"?"63":"51")+" 的数值 / Invalid CQ target";return null; } }
             snapshot.BitrateMode = modeBitrateAuto[Math.Max(0, Math.Min(3, cmbCodec.SelectedIndex))] ? "AUTO" : "MANUAL";
             snapshot.Bitrate = bitrate;
             snapshot.HighMotion = chkHighMotion != null && chkHighMotion.Checked;
@@ -278,7 +285,7 @@ namespace FilmGrainStudioPreview
             }
         }
         private const string FileEditorFields="ordinaryGrainEnabled av1GrainModeIndex pixelGrainModeIndex av1FormatIndex av1StockIndex av1IsoValue av1ChromaEnabled selectedAv1GrainTable proceduralStrength fgsimPresetIndex selectedGrainPlatePath scannedGrainStrengthPercent selectedLutPath selectedLutSource colorCorrectionEnabled colorContrast colorBrightness colorSaturation colorGamma colorBlackWhite";
-        private const string FileEditorControls="cmbCodec cmbContainer cmbSpeed chkSfe cmbBitrate chkBitrateAuto chkHighMotion cmbFps chkInterpolation cmbInterpolationMode cmbInterpolationFps cmbDeint cmbDeintMethod chkCinematic cmbFrameMode chkGrainEnabled chkLut trackLutStrength";
+        private const string FileEditorControls="cmbCodec cmbContainer cmbSpeed chkSfe chkCq cmbBitrate chkBitrateAuto chkHighMotion cmbFps chkInterpolation cmbInterpolationMode cmbInterpolationFps cmbDeint cmbDeintMethod chkCinematic cmbFrameMode chkGrainEnabled chkLut trackLutStrength";
         private readonly Dictionary<string,FileEditorSettings> fileSettings=new Dictionary<string,FileEditorSettings>(StringComparer.OrdinalIgnoreCase);
         private FileEditorSettings sharedEditor;
         private string editingFile, captureInputPath;
@@ -294,7 +301,7 @@ namespace FilmGrainStudioPreview
         private FileEditorSettings CaptureFileEditor()
         {
             // Retain only the user's manual value. AUTO's displayed media recommendation is not a setting.
-            if(cmbCodec.SelectedIndex>=0&&cmbCodec.SelectedIndex<4&&!chkBitrateAuto.Checked) {
+            if(cmbCodec.SelectedIndex>=0&&cmbCodec.SelectedIndex<4&&!IsCqSelected()&&!chkBitrateAuto.Checked) {
                 long n;if(long.TryParse(cmbBitrate.Text,out n)&&n>10)modeBitrate[cmbCodec.SelectedIndex]=cmbBitrate.Text;
             }
             var result=new FileEditorSettings { Config=config.CaptureTaskValues(),Bitrates=(string[])modeBitrate.Clone(),Automatic=(bool[])modeBitrateAuto.Clone(),Subtitle=subtitleState.Copy() };
@@ -314,7 +321,7 @@ namespace FilmGrainStudioPreview
             }
             string[] placeholders={"5000","6000","7500","7500"};
             for(int i=0;i<result.Automatic.Length;i++)if(result.Automatic[i])result.Bitrates[i]=placeholders[i];
-            if(cmbCodec.SelectedIndex>=0&&cmbCodec.SelectedIndex<4&&result.Automatic[cmbCodec.SelectedIndex])result.Controls["cmbBitrate"]=placeholders[cmbCodec.SelectedIndex];
+            if(cmbCodec.SelectedIndex>=0&&cmbCodec.SelectedIndex<4&&!IsCqSelected()&&result.Automatic[cmbCodec.SelectedIndex])result.Controls["cmbBitrate"]=placeholders[cmbCodec.SelectedIndex];
             return result;
         }
         private void ApplyFileEditor(FileEditorSettings source, bool taskOverlay)
@@ -345,7 +352,7 @@ namespace FilmGrainStudioPreview
                 // Media-derived text is refreshed below, never stored as a task configuration.
                 UpdateNoReencodeUi();UpdateSfeUi();UpdateMediaDrivenUi(GetBitrateMediaContext());UpdateGrainEnableUi();UpdateCinematicCropLabels();RefreshSubtitleButton();UpdateColorCorrectionUi();UpdateLutUi();lblLutStrength.Text=GetLutStrength().ToString(CultureInfo.InvariantCulture)+"%";
             } finally {restoringFileEditor=false;ResumeLayout(true);}
-            UpdateBitrateDisplays();
+            LoadBitrateStateForCodec();UpdateBitrateDisplays();
         }
         private void SaveEditingFile()
         {

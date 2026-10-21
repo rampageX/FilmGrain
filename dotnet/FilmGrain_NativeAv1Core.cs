@@ -139,10 +139,10 @@ namespace FilmGrainStudioPreview
                 if (ParseDuration(info.Duration) <= 0.0) { reason = "AV1 interpolation requires a known positive source duration"; return false; }
             }
 
-            long bitrate;
-            if (!long.TryParse(Get(state, "FG_BITRATE"), NumberStyles.Integer, CultureInfo.InvariantCulture, out bitrate) || bitrate <= 0)
+            long bitrate = 0;
+            if (!NvencRateControlCore.IsCq(state) && (!long.TryParse(Get(state, "FG_BITRATE"), NumberStyles.Integer, CultureInfo.InvariantCulture, out bitrate) || bitrate <= 0))
             { reason = "invalid bitrate"; return false; }
-            if (Eq(state, "FG_BITRATE_MODE", "AUTO"))
+            if (!NvencRateControlCore.IsCq(state) && Eq(state, "FG_BITRATE_MODE", "AUTO"))
                 bitrate = BitrateRecommendationCore.GetRecommendedBitrate(0, frame.ActiveWidth, frame.ActiveHeight, outputFps, Get(state, "FG_HIGH_MOTION") == "1");
             long maxRate = bitrate * 3L;
             long bufferSize = bitrate * 6L;
@@ -163,11 +163,12 @@ namespace FilmGrainStudioPreview
             }
             if (interpolate) fpsSuffix = (fruc ? "_FRUC" : "_SVP") + frucRate.Label;
             string output = Path.Combine(outputDirectory,
-                Path.GetFileNameWithoutExtension(input) + "_AV1_" + speed + "_" + bitrate.ToString(CultureInfo.InvariantCulture) + "k" + fpsSuffix + deinterlaceSuffix + frame.FileSuffix + (grainEnabled ? "_GS_" + grainTag : "") + colorSuffix + lutNamingSuffix + (hdrToSdr ? "_SDR_" + tonemapLabel : "") + subtitleSuffix + extension);
+                Path.GetFileNameWithoutExtension(input) + "_AV1_" + speed + "_" + NvencRateControlCore.FileToken(state,bitrate) + fpsSuffix + deinterlaceSuffix + frame.FileSuffix + (grainEnabled ? "_GS_" + grainTag : "") + colorSuffix + lutNamingSuffix + (hdrToSdr ? "_SDR_" + tonemapLabel : "") + subtitleSuffix + extension);
             if (File.Exists(output)) { reason = "native output already exists: " + output; return false; }
 
             string ffmpeg = Path.Combine(ReadConfigValue(appRoot, "FFMPEG_DIR"), "ffmpeg.exe");
             
+            NvencRateControlCore.RequireSupport(ffmpeg,state);
             string grav1synth = ReadConfigValue(appRoot, "GRAV1SYNTH");
             string ffprobe = Path.Combine(ReadConfigValue(appRoot, "FFMPEG_DIR"), "ffprobe.exe");
             
@@ -295,6 +296,7 @@ namespace FilmGrainStudioPreview
             if (hdrPreserve) Add(encode, "-color_range", HdrRange(info), "-color_primaries", HdrPrimaries(info), "-color_trc", info.ColorTransfer, "-colorspace", HdrSpace(info));
             else if (hdrToSdr) Add(encode, "-color_range", "tv", "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709");
             if (!grainEnabled && !interpolate) SharedOrdinaryTimelineCore.NormalizeVideoOnly(encode);
+            NvencRateControlCore.Apply(encode,state);
             NvencMultipassCore.Apply(encode,state,"AV1",caps);
             Add(encode, "-f", "ivf", cleanIvf);
 

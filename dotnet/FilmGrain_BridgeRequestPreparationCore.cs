@@ -116,7 +116,7 @@ namespace FilmGrainStudioPreview
                     else {reason="unsupported codec: "+mode;return false;}
                 }
                 if(success && prepared!=null && prepared.ExecutionRequest!=null)
-                { info.Identity.RequireCurrent(); string audioNotice=AudioOutputCore.Notice(info,state);if(audioNotice.Length>0)prepared.ExecutionRequest.ExecutionNotice=(prepared.ExecutionRequest.ExecutionNotice??"")+Environment.NewLine+audioNotice; prepared.ExecutionRequest.SourceIdentity=info.Identity; prepared.ExecutionRequest.SourceConfigRoot=appRoot; NativeProcessPolicy.ValidateRequest(prepared.ExecutionRequest);return true; }
+                { info.Identity.RequireCurrent(); string rateNotice=NvencRateControlCore.Notice(state);if(rateNotice.Length>0)prepared.ExecutionRequest.ExecutionNotice=(prepared.ExecutionRequest.ExecutionNotice??"")+Environment.NewLine+rateNotice; string audioNotice=AudioOutputCore.Notice(info,state);if(audioNotice.Length>0)prepared.ExecutionRequest.ExecutionNotice=(prepared.ExecutionRequest.ExecutionNotice??"")+Environment.NewLine+audioNotice; prepared.ExecutionRequest.SourceIdentity=info.Identity; prepared.ExecutionRequest.SourceConfigRoot=appRoot; NativeProcessPolicy.ValidateRequest(prepared.ExecutionRequest);return true; }
                 if(success)reason="Native preparation returned no execution request";
             }
             catch(Exception ex){reason="Native preparation failed: "+ex.Message;}
