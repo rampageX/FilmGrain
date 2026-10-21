@@ -238,7 +238,6 @@ namespace FilmGrainStudioPreview
                 if (!TryPrepareFgsimHook(appRoot, fgsimPreset, out fgsimHook, out reason)) { TryDelete(lutCompatPath); TryDelete(subtitleAss); TryDelete(subtitleFilterPath); return false; }
                 if (hdrPreserve)
                 {
-                    if (!ValidateFgsimHdrHook(ffmpeg, fgsimHook, out reason)) { TryDelete(lutCompatPath); TryDelete(subtitleAss); TryDelete(subtitleFilterPath); return false; }
                     filterGraph = AppendHdrFgsimFilter(info, frame, deinterlaceFilter, colorFilter, subtitleFilter, fgsimHook);
                 }
                 else filterGraph = AppendFgsimFilter(filterGraph, fgsimHook);
@@ -394,6 +393,7 @@ namespace FilmGrainStudioPreview
             if (grainPercent != 100) Av1GrainStrengthCore.NumberStages(directStages);
             request.DirectStages = directStages;
             if(info.IsHdr && info.IsInterlaced && !deinterlace)request.ExecutionNotice="[Native .NET] 反交错 OFF：沿用不反交错的逐帧处理，不启用 bob/光流或双倍场率；不保证隔行编码标记。 / Deinterlace OFF: frame processing without bob/interpolation; no interlaced-encoding flags are added.";
+            if (fgsimGrain) FgsimTextureCore.AttachVerifiedDevice(request, fgsimHook, hdrPreserve);
             prepared = new BridgePreparedExecution(request, false, ffmpeg, new List<string> { input });
             return true;
         }
@@ -446,40 +446,7 @@ namespace FilmGrainStudioPreview
                 frame.Filter + subtitleFilter + BuildHdrFrameFilter(info) + ",format=p010le[vout]";
         }
 
-        private static bool ValidateFgsimHdrHook(string ffmpeg, string hook, out string reason)
-        {
-            reason = "";
-            try
-            {
-                string filter = "hwupload,libplacebo=format=yuv420p10le:custom_shader_path=" + EscapeFgsimShaderPath(hook) +
-                    ",hwdownload,format=yuv420p10le";
-                List<string> args = new List<string> { "-hide_banner", "-loglevel", "warning", "-init_hw_device", "vulkan=vk:0",
-                    "-filter_hw_device", "vk", "-f", "lavfi", "-i", "color=c=gray:s=32x32:d=0.04,format=yuv420p10le",
-                    "-vf", filter, "-frames:v", "1", "-f", "null", "NUL" };
-                ProcessStartInfo psi = new ProcessStartInfo(ffmpeg, JoinArgs(args));
-                psi.UseShellExecute = false; psi.CreateNoWindow = true;
-                psi.RedirectStandardOutput = true; psi.RedirectStandardError = true;
-                using (Process process = new Process())
-                {
-                    StringBuilder stdout = new StringBuilder();
-                    StringBuilder stderr = new StringBuilder();
-                    process.StartInfo = psi;
-                    process.OutputDataReceived += delegate(object sender, DataReceivedEventArgs eventArgs) { if (eventArgs.Data != null) stdout.AppendLine(eventArgs.Data); };
-                    process.ErrorDataReceived += delegate(object sender, DataReceivedEventArgs eventArgs) { if (eventArgs.Data != null) stderr.AppendLine(eventArgs.Data); };
-                    process.Start(); process.BeginOutputReadLine(); process.BeginErrorReadLine();
-                    if (!process.WaitForExit(15000)) { try { process.Kill(); } catch { } reason = "10-bit FGSIM shader preflight timed out"; return false; }
-                    process.WaitForExit();
-                    if (process.ExitCode != 0)
-                    {
-                        string detail = FirstLine(string.IsNullOrWhiteSpace(stderr.ToString()) ? stdout.ToString() : stderr.ToString());
-                        reason = "10-bit FGSIM shader preflight failed" + (string.IsNullOrWhiteSpace(detail) ? "" : ": " + detail);
-                        return false;
-                    }
-                }
-                return true;
-            }
-            catch (Exception ex) { reason = "10-bit FGSIM shader preflight failed: " + ex.Message; return false; }
-        }
+
 
         private static string AppendProceduralFilter(string baseGraph, int width, int height, int strength)
         {

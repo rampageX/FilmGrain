@@ -101,6 +101,119 @@ namespace FilmGrainStudioPreview
                 }
             }
         }
+        // FGSIM shaders can compile successfully yet render black on a particular adapter.
+        // Select by name (Vulkan indices are unrelated to NVENC indices), then verify pixels.
+        internal static bool TrySelectDevice(string ffmpeg, string hook, bool tenBit, out string device, out string reason, Func<bool> cancelled = null)
+        {
+            device = ""; reason = "";
+            string directory = Path.Combine(Path.GetDirectoryName(hook), "Probe_" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                Directory.CreateDirectory(directory);
+                File.Copy(hook, Path.Combine(directory, "probe.hook"));
+                StringBuilder evidence = new StringBuilder();
+                foreach (string candidate in new[] { "NVIDIA", "0" })
+                {
+                    if (cancelled != null && cancelled()) { reason = "FGSIM GPU validation cancelled"; return false; }
+                    string detail;
+                    if (ProbeDevice(ffmpeg, directory, candidate, tenBit, out detail, cancelled))
+                    {
+                        evidence.AppendLine(candidate + ": PASS " + detail);
+                        File.WriteAllText(Path.Combine(directory, "DeviceProbe.log"), evidence.ToString(), new UTF8Encoding(false));
+                        device = candidate; return true;
+                    }
+                    evidence.AppendLine(candidate + ": FAIL " + detail);
+                }
+                File.WriteAllText(Path.Combine(directory, "DeviceProbe.log"), evidence.ToString(), new UTF8Encoding(false));
+                reason = "FGSIM GPU pixel validation failed; no verified adapter. See " + Path.Combine(directory, "DeviceProbe.log");
+                return false;
+            }
+            catch (Exception ex) { reason = "FGSIM GPU pixel validation failed: " + ex.Message; return false; }
+            finally { try { File.Delete(Path.Combine(directory, "probe.hook")); } catch { } }
+        }
+
+        private static bool ProbeDevice(string ffmpeg, string directory, string device, bool tenBit, out string detail, Func<bool> cancelled)
+        {
+            detail = "";
+            string format = tenBit ? "yuv420p10le" : "yuv420p";
+            string args = SharedFrucCore.JoinArguments(new[] { "-hide_banner", "-loglevel", "verbose", "-nostdin",
+                "-init_hw_device", "vulkan=fgprobe:" + device, "-filter_hw_device", "fgprobe", "-f", "lavfi", "-i",
+                "color=c=gray:s=64x64:r=1", "-vf", "format=" + format + ",hwupload,libplacebo=format=" + format +
+                ":custom_shader_path=probe.hook,hwdownload,format=" + format + ",format=gray", "-frames:v", "1", "-threads:v", "1",
+                "-c:v", "rawvideo", "-f", "rawvideo", "pipe:1" });
+            try
+            {
+                using (Process process = new Process())
+                {
+                    process.StartInfo = new ProcessStartInfo(ffmpeg, args) { WorkingDirectory = directory, UseShellExecute = false,
+                        CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+                    process.Start();
+                    var pixels = System.Threading.Tasks.Task.Factory.StartNew(delegate {
+                        using (MemoryStream stream = new MemoryStream()) { process.StandardOutput.BaseStream.CopyTo(stream); return stream.ToArray(); }
+                    });
+                    var errors = System.Threading.Tasks.Task.Factory.StartNew(delegate { return process.StandardError.ReadToEnd(); });
+                    Stopwatch timer = Stopwatch.StartNew();
+                    while (!process.WaitForExit(100))
+                    {
+                        if ((cancelled != null && cancelled()) || timer.ElapsedMilliseconds >= 15000)
+                        {
+                            try { process.Kill(); process.WaitForExit(5000); } catch { }
+                            try { System.Threading.Tasks.Task.WaitAll(new System.Threading.Tasks.Task[] { pixels, errors }, 5000); } catch { }
+                            detail = cancelled != null && cancelled() ? "CANCELLED" : "TIMEOUT"; return false;
+                        }
+                    }
+                    if (!System.Threading.Tasks.Task.WaitAll(new System.Threading.Tasks.Task[] { pixels, errors }, 5000))
+                    { detail = "Output capture timeout"; return false; }
+                    string log = errors.Result;
+                    File.WriteAllText(Path.Combine(directory, device + ".log"), ffmpeg + " " + args + "\r\nexit=" + process.ExitCode + "\r\n" + log, new UTF8Encoding(false));
+                    if (process.ExitCode != 0 || log.IndexOf("Registering hook pass", StringComparison.OrdinalIgnoreCase) < 0 ||
+                        System.Text.RegularExpressions.Regex.IsMatch(log, @"(?i)error:|VK_ERROR_|Failed executing hook|Failed creating render pass|shaderc compile status .error"))
+                    { detail = "Process/shader failure (including silently disabled hook)"; return false; }
+                    byte[] data = pixels.Result;
+                    if (data.Length != 4096) { detail = "Missing/invalid raw frame: " + data.Length; return false; }
+                    int min = 255, max = 0; long sum = 0;
+                    foreach (byte value in data) { min = Math.Min(min, value); max = Math.Max(max, value); sum += value; }
+                    double mean = sum / 4096.0;
+                    detail = "min=" + min + " max=" + max + " mean=" + mean.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                    // Gray must remain gray, with visible spatial grain. A disabled hook gives a flat image.
+                    return mean >= 32 && mean <= 224 && max - min >= 4;
+                }
+            }
+            catch (Exception ex) { detail = ex.Message; return false; }
+        }
+
+        internal static void AttachVerifiedDevice(BridgeExecutionRequest request, string hook, bool tenBit)
+        {
+            if (request.DirectStages == null) return;
+            foreach (BridgeExecutionStage stage in request.DirectStages)
+            {
+                if (stage.DirectArguments == null || !stage.DirectArguments.Contains("custom_shader_path=")) continue;
+                BridgeExecutionStage target = stage;
+                Func<bool> cancelled = null;
+                Func<Func<bool>, string> priorCancellable = target.PrepareWithCancellation;
+                target.PrepareWithCancellation = delegate(Func<bool> check) {
+                    cancelled = check;
+                    return priorCancellable == null ? "" : priorCancellable(check);
+                };
+                Func<string> prior = target.BeforeRunPreparation;
+                target.BeforeRunPreparation = delegate {
+                    string notice = prior == null ? "" : prior();
+                    string device, reason;
+                    if (!TrySelectDevice(target.ToolPath, hook, tenBit, out device, out reason, cancelled))
+                    {
+                        if (cancelled != null && cancelled()) return notice + "\n[FGSIM] GPU validation cancelled.";
+                        throw new InvalidOperationException(reason);
+                    }
+                    // Timeline preparation may regenerate the command. Apply the verified device last.
+                    target.DirectArguments = System.Text.RegularExpressions.Regex.Replace(target.DirectArguments, @"vulkan=vk:(?:0|NVIDIA)(?=[\s""]|$)", "vulkan=vk:" + device);
+                    if (target.OriginalArguments != null)
+                        for (int i = 0; i < target.OriginalArguments.Count; i++)
+                            if (target.OriginalArguments[i] == "vulkan=vk:0" || target.OriginalArguments[i] == "vulkan=vk:NVIDIA") target.OriginalArguments[i] = "vulkan=vk:" + device;
+                    return notice + "\n[FGSIM] Vulkan adapter=" + device + "; actual shader pixel validation passed.";
+                };
+            }
+        }
+
         private static string Hash(byte[] bytes)
         {
             using (SHA256 sha = SHA256.Create()) return BitConverter.ToString(sha.ComputeHash(bytes)).Replace("-", "").ToLowerInvariant();

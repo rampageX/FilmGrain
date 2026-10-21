@@ -106,8 +106,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.18";
-        internal const string FileReleaseVersion = "5.0.18.0";
+        internal const string ReleaseVersion = "5.0.19";
+        internal const string FileReleaseVersion = "5.0.19.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -336,10 +336,6 @@ namespace FilmGrainStudioPreview
         private int lastCodecIndex = 0;
         private readonly string[] modeBitrate = new string[] { "5000", "6000", "7500", "7500" };
         private readonly bool[] modeBitrateAuto = new bool[] { true, true, true, true };
-        private const string FgsimStandardItem = "Standard CQ27 / QP18-26";
-        private const string FgsimHighItem = "High Quality CQ23 / QP18-24";
-        private bool fgsimRcActive;
-        private string fgsimRcChoice = "VBR";
         
         private string selectedLutPath = "";
         private string selectedLutSource = "None";
@@ -437,6 +433,7 @@ namespace FilmGrainStudioPreview
             UpdateSpeedChoices();
             bridgeTaskCoordinator = new BridgeTaskCoordinator();
             bridgeTaskCoordinator.StateChanged += OnBridgeTaskStateChanged;
+            bridgeTaskCoordinator.ItemCompleted += OnQueueItemCompleted;
             bridgeTaskCoordinator.LogLine += OnBridgeExecutionLogLine;
             bridgeTaskCoordinator.ProgressChanged += OnBridgeExecutionProgressChanged;
             bridgeTaskCoordinator.Completed += OnBridgeExecutionCompleted;
@@ -508,6 +505,7 @@ namespace FilmGrainStudioPreview
                 if (bridgeTaskCoordinator != null)
                 {
                     bridgeTaskCoordinator.StateChanged -= OnBridgeTaskStateChanged;
+                    bridgeTaskCoordinator.ItemCompleted -= OnQueueItemCompleted;
                     bridgeTaskCoordinator.LogLine -= OnBridgeExecutionLogLine;
                     bridgeTaskCoordinator.ProgressChanged -= OnBridgeExecutionProgressChanged;
                     bridgeTaskCoordinator.Completed -= OnBridgeExecutionCompleted;
@@ -704,7 +702,7 @@ namespace FilmGrainStudioPreview
             layout.Padding = new Padding(7, 6, 7, 7);
             layout.ColumnCount = 1;
             layout.RowCount = 4;
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 39));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 74));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 112));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
@@ -719,11 +717,14 @@ namespace FilmGrainStudioPreview
             Button clear = new ThemeButton(); clear.Text = lang.T("button.clear"); clear.Size = new Size(62, 29);
             add.Click += delegate { AddFilesWithDialog(); };
             remove.Click += delegate { RemoveSelected(); };
-            clear.Click += delegate { listFiles.Items.Clear(); UpdateSelectedInfo(); UpdateStatusCount(); };
+            clear.Click += delegate { editingFile=null;fileSettings.Clear();listFiles.Items.Clear(); UpdateSelectedInfo(); UpdateStatusCount(); };
             buttons.Controls.Add(add); buttons.Controls.Add(remove); buttons.Controls.Add(clear);
             var bake = new ThemeButton { Text = UiText("AV1 烘焙...", "AV1 Bake..."), Size = new Size(106,29) };
             bake.Click += delegate { ShowAv1BakeDialog(); }; buttons.Controls.Add(bake);
-            layout.Controls.Add(buttons, 0, 0);
+            var inputBars=new TableLayoutPanel { Dock=DockStyle.Fill,ColumnCount=1,RowCount=2,Margin=new Padding(0) };
+            inputBars.RowStyles.Add(new RowStyle(SizeType.Absolute,36));inputBars.RowStyles.Add(new RowStyle(SizeType.Absolute,34));
+            inputBars.Controls.Add(buttons,0,0);inputBars.Controls.Add(BuildFileSettingsBar(),0,1);
+            layout.Controls.Add(inputBars, 0, 0);
 
             listFiles = new ThemeListView();
             listFiles.Dock = DockStyle.Fill;
@@ -735,7 +736,7 @@ namespace FilmGrainStudioPreview
             listFiles.ShowItemToolTips = true;
             listFiles.Columns.Add(lang.T("input.column.filename"), 178);
             listFiles.Columns.Add(lang.T("input.column.size"), 72);
-            listFiles.Columns.Add(lang.T("input.column.directory"), 260);
+            listFiles.Columns.Add(UiText("状态","Status"), 90);
             listFiles.ClientSizeChanged += delegate { FitFileColumns(); };
             listFiles.ColumnWidthChanged += delegate {
                 int total=0;foreach(ColumnHeader column in listFiles.Columns)total+=column.Width;
@@ -748,7 +749,7 @@ namespace FilmGrainStudioPreview
             FitFileColumns();
             listFiles.DragEnter += OnDragEnter;
             listFiles.DragDrop += OnDragDrop;
-            listFiles.SelectedIndexChanged += delegate { UpdateSelectedInfo(); };
+            listFiles.SelectedIndexChanged += delegate { SelectFileEditor(); UpdateSelectedInfo(); };
             layout.Controls.Add(listFiles, 0, 1);
 
             GroupBox info = new ThemeGroupBox();
@@ -891,8 +892,8 @@ namespace FilmGrainStudioPreview
             cmbInterpolationFps.Dock = DockStyle.Fill; cmbInterpolationFps.DropDownWidth = 130;
             lutToolTip.SetToolTip(cmbInterpolationFps, UiText("目标帧率：绝对帧率、分数帧率或源帧率倍率；默认 60。", "Target rate: absolute FPS, a rational rate, or source-rate multiplier; default 60."));
             cmbInterpolationFps.Text = config.Get("INTERPOLATION_TARGET_FPS"); cmbInterpolationFps.Enabled = false;
-            cmbInterpolationFps.TextChanged += delegate { if (config.Get("INTERPOLATION_TARGET_FPS") != cmbInterpolationFps.Text.Trim()) try { config.Save(new Dictionary<string,string> { { "INTERPOLATION_TARGET_FPS", cmbInterpolationFps.Text.Trim() } }); } catch { } UpdateMediaDrivenUi(GetSelectedMediaInfo()); UpdateBitrateDisplays(); };
-            cmbInterpolationMode.SelectedIndexChanged += delegate {
+            cmbInterpolationFps.TextChanged += delegate { if(restoringFileEditor)return; if (config.Get("INTERPOLATION_TARGET_FPS") != cmbInterpolationFps.Text.Trim()) try { config.Save(new Dictionary<string,string> { { "INTERPOLATION_TARGET_FPS", cmbInterpolationFps.Text.Trim() } }); } catch { } UpdateMediaDrivenUi(GetSelectedMediaInfo()); UpdateBitrateDisplays(); };
+            cmbInterpolationMode.SelectedIndexChanged += delegate { if(restoringFileEditor)return;
                 if (updatingFrucUi) return;
                 if (cmbInterpolationMode.SelectedIndex == 2 &&
                     ((hardwareDetectionInProgress && !hardwareCapsReady) || hardwareCaps == null || !hardwareCaps.FrucReady || !hardwareCaps.FrucAvailable))
@@ -905,7 +906,7 @@ namespace FilmGrainStudioPreview
                     previousSvpSelection = cmbInterpolationMode.SelectedIndex;
                 if (chkInterpolation.Checked) UpdateMediaDrivenUi(GetSelectedMediaInfo());
             };
-            chkInterpolation.CheckedChanged += delegate {
+            chkInterpolation.CheckedChanged += delegate { if(restoringFileEditor)return;
                 if (chkInterpolation.Checked && cmbDeint != null && cmbDeint.SelectedIndex != 0) cmbDeint.SelectedIndex = 0;
                 if (chkInterpolation.Checked && cmbInterpolationMode.SelectedIndex != 2 && (setupTestMode || (!File.Exists(Path.Combine(appRoot, "_OpenSVPFlow", ".venv", "Scripts", "vspipe.exe")) && !AllInputsBypassOpenSvp())))
                 {
@@ -924,7 +925,7 @@ namespace FilmGrainStudioPreview
 
             cmbDeint = Combo(new string[] { lang.T("deint.auto"), lang.T("deint.off") }, 0);
             cmbDeintMethod = Combo(new string[] { lang.T("deint.vulkan"), lang.T("deint.cuda"), lang.T("deint.w3fdif") }, 1);
-            cmbDeint.SelectedIndexChanged += delegate { UpdateMediaDrivenUi(GetSelectedMediaInfo()); UpdateBitrateDisplays(); };
+            cmbDeint.SelectedIndexChanged += delegate { if(restoringFileEditor)return; UpdateMediaDrivenUi(GetSelectedMediaInfo()); UpdateBitrateDisplays(); };
             chkCinematic = Check(lang.T("cinematic.enable"), true);
             cmbFrameMode = Combo(new string[] { lang.T("cinematic.letterbox"), lang.T("cinematic.crop") }, 0);
 
@@ -959,15 +960,14 @@ namespace FilmGrainStudioPreview
             t.Controls.Add(resourceMonitor, 0, 12); t.SetColumnSpan(resourceMonitor, 2); t.SetRowSpan(resourceMonitor, 2);
 
             cmbCodec.SelectedIndexChanged += delegate
-            {
+            { if(restoringFileEditor)return;
                 if (GuardUnavailableCodecSelection()) return;
                 if (!updatingBitrateUi && lastCodecIndex >= 0 && lastCodecIndex < modeBitrate.Length)
                 {
                     long current;
                     if (long.TryParse(cmbBitrate.Text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out current) && current > 10)
                         modeBitrate[lastCodecIndex] = cmbBitrate.Text.Trim();
-                    if (!(fgsimRcActive && (lastCodecIndex == 1 || lastCodecIndex == 3) && fgsimRcChoice != "VBR"))
-                        modeBitrateAuto[lastCodecIndex] = chkBitrateAuto.Checked;
+                    modeBitrateAuto[lastCodecIndex] = chkBitrateAuto.Checked;
                 }
                 if (cmbCodec.SelectedIndex >= 0 && cmbCodec.SelectedIndex <= 3)
                     lastCodecIndex = cmbCodec.SelectedIndex;
@@ -980,33 +980,26 @@ namespace FilmGrainStudioPreview
                 UpdateBitrateDisplays();
                 UpdateHardwareDependentControls();
             };
-            cmbSpeed.SelectedIndexChanged += delegate { UpdateSfeUi(); };
+            cmbSpeed.SelectedIndexChanged += delegate { if(restoringFileEditor)return; UpdateSfeUi(); };
             cmbBitrate.TextChanged += delegate
-            {
+            { if(restoringFileEditor)return;
                 if (updatingBitrateUi || cmbCodec.SelectedIndex < 0 || cmbCodec.SelectedIndex > 3) return;
-                if (IsHevcFgsim())
-                {
-                    if (cmbBitrate.Text == FgsimStandardItem) { fgsimRcChoice = "STANDARD"; UpdateFgsimBitrateControls(); return; }
-                    if (cmbBitrate.Text == FgsimHighItem) { fgsimRcChoice = "HIGH"; UpdateFgsimBitrateControls(); return; }
-                    fgsimRcChoice = "VBR";
-                }
                 modeBitrate[cmbCodec.SelectedIndex] = cmbBitrate.Text.Trim();
                 modeBitrateAuto[cmbCodec.SelectedIndex] = false;
                 updatingBitrateUi = true;
                 try { chkBitrateAuto.Checked = false; }
                 finally { updatingBitrateUi = false; }
-                UpdateFgsimBitrateControls();
             };
             chkBitrateAuto.CheckedChanged += delegate
-            {
+            { if(restoringFileEditor)return;
                 if (updatingBitrateUi || cmbCodec.SelectedIndex < 0 || cmbCodec.SelectedIndex > 3) return;
                 modeBitrateAuto[cmbCodec.SelectedIndex] = chkBitrateAuto.Checked;
                 UpdateBitrateDisplays();
             };
-            chkHighMotion.CheckedChanged += delegate { UpdateBitrateDisplays(); };
-            cmbFps.SelectedIndexChanged += delegate { UpdateBitrateDisplays(); };
-            cmbInterpolationMode.SelectedIndexChanged += delegate { UpdateBitrateDisplays(); };
-            cmbDeintMethod.SelectedIndexChanged += delegate { UpdateBitrateDisplays(); };
+            chkHighMotion.CheckedChanged += delegate { if(restoringFileEditor)return; UpdateBitrateDisplays(); };
+            cmbFps.SelectedIndexChanged += delegate { if(restoringFileEditor)return; UpdateBitrateDisplays(); };
+            cmbInterpolationMode.SelectedIndexChanged += delegate { if(restoringFileEditor)return; UpdateBitrateDisplays(); };
+            cmbDeintMethod.SelectedIndexChanged += delegate { if(restoringFileEditor)return; UpdateBitrateDisplays(); };
             
             
             LoadBitrateStateForCodec();
@@ -1044,14 +1037,13 @@ namespace FilmGrainStudioPreview
             grainContent = new Panel(); grainContent.Dock = DockStyle.Fill;
             chkGrainEnabled = Check(UiText("启用颗粒", "Enable grain"), ordinaryGrainEnabled);
             chkGrainEnabled.CheckedChanged += delegate
-            {
+            { if(restoringFileEditor)return;
                 if (updatingGrainEnableUi) return;
                 ordinaryGrainEnabled = chkGrainEnabled.Checked;
                 EnsureCurrentGrainCatalog(false);
                 try { config.SaveValue("GRAIN_ENABLED", ordinaryGrainEnabled ? "true" : "false"); }
                 catch (Exception ex) { MessageBox.Show(this, ex.Message, UiText("保存设置失败", "Could not save settings")); }
                 UpdateGrainEnableUi();
-                UpdateFgsimBitrateUi(true);
                 UpdateHdrRouteStatus(GetSelectedMediaInfo());
                 UpdateBitrateDisplays();
                 UpdateSfeUi();
@@ -1063,18 +1055,18 @@ namespace FilmGrainStudioPreview
             var previewButton = new ThemeButton { Text = UiText("预览(右键切换模式)", "Preview (right-click for modes)"), AutoSize = true, Dock = DockStyle.Fill, Margin = Padding.Empty, Padding = new Padding(6, 0, 6, 0) };
             previewButton.Click += delegate { OpenGrainPreview(); };
             var grainMenu = new ContextMenuStrip();
-            var fastCopy = new ToolStripMenuItem(UiText("不重编码：自动快速路径", "No-reencode: automatic fast path")) { CheckOnClick = true, Checked = config.Get("AV1_COPY_FAST") != "false" };
-            var fullVerify = new ToolStripMenuItem(UiText("不重编码：完整颗粒检查", "No-reencode: full grain verification")) { CheckOnClick = true, Checked = config.GetBool("AV1_COPY_FULL_VERIFY") };
-            fastCopy.CheckedChanged += delegate { try { config.SaveValue("AV1_COPY_FAST", fastCopy.Checked ? "true" : "false"); } catch (Exception ex) { MessageBox.Show(this, ex.Message, UiText("保存设置失败", "Could not save settings")); } };
-            fullVerify.CheckedChanged += delegate { try { config.SaveValue("AV1_COPY_FULL_VERIFY", fullVerify.Checked ? "true" : "false"); } catch (Exception ex) { MessageBox.Show(this, ex.Message, UiText("保存设置失败", "Could not save settings")); } };
+            var fastCopy = fileCopyFastMenu = new ToolStripMenuItem(UiText("不重编码：自动快速路径", "No-reencode: automatic fast path")) { CheckOnClick = true, Checked = config.Get("AV1_COPY_FAST") != "false" };
+            var fullVerify = fileCopyVerifyMenu = new ToolStripMenuItem(UiText("不重编码：完整颗粒检查", "No-reencode: full grain verification")) { CheckOnClick = true, Checked = config.GetBool("AV1_COPY_FULL_VERIFY") };
+            fastCopy.CheckedChanged += delegate { if(restoringFileEditor)return;try { config.SaveValue("AV1_COPY_FAST", fastCopy.Checked ? "true" : "false"); } catch (Exception ex) { MessageBox.Show(this, ex.Message, UiText("保存设置失败", "Could not save settings")); } };
+            fullVerify.CheckedChanged += delegate { if(restoringFileEditor)return;try { config.SaveValue("AV1_COPY_FULL_VERIFY", fullVerify.Checked ? "true" : "false"); } catch (Exception ex) { MessageBox.Show(this, ex.Message, UiText("保存设置失败", "Could not save settings")); } };
             grainMenu.Items.Add(fastCopy); grainMenu.Items.Add(fullVerify); previewButton.ContextMenuStrip = grainMenu;
             grainHeader.Controls.Add(chkGrainEnabled, 0, 0); grainHeader.Controls.Add(previewButton, 1, 0);
             shell.Controls.Add(grainHeader, 0, 0); shell.Controls.Add(cmbGrainMode, 0, 1); shell.Controls.Add(grainContent, 0, 2);
             grpGrain.Controls.Add(shell);
             cmbGrainMode.SelectedIndexChanged += delegate
-            {
+            { if(restoringFileEditor)return;
                 if (updatingGrainUi) return;
-                if (cmbCodec != null && cmbCodec.SelectedIndex == 0) av1GrainModeIndex = Math.Max(0, cmbGrainMode.SelectedIndex);
+                if (cmbCodec != null && (cmbCodec.SelectedIndex == 0 || cmbCodec.SelectedIndex == 4)) av1GrainModeIndex = Math.Max(0, cmbGrainMode.SelectedIndex);
                 else pixelGrainModeIndex = Math.Max(0, cmbGrainMode.SelectedIndex);
                 EnsureCurrentGrainCatalog(false);
                 BuildGrainContent();
@@ -1193,7 +1185,7 @@ namespace FilmGrainStudioPreview
                     delegate(List<string> value) {
                         bool changed = !SameCatalog(av1GrainTableFiles, value);
                         av1GrainTableFiles.Clear(); av1GrainTableFiles.AddRange(value);
-                        if (!value.Exists(delegate(string path) { return string.Equals(path, selectedAv1GrainTable, StringComparison.OrdinalIgnoreCase); }))
+                        if ((!independentFiles || string.IsNullOrEmpty(selectedAv1GrainTable)) && !value.Exists(delegate(string path) { return string.Equals(path, selectedAv1GrainTable, StringComparison.OrdinalIgnoreCase); }))
                             selectedAv1GrainTable = value.Count > 0 ? value[0] : "";
                         return changed;
                     });
@@ -1203,7 +1195,7 @@ namespace FilmGrainStudioPreview
                     delegate(List<string> value) {
                         bool changed = !SameCatalog(grainPlateFiles, value);
                         grainPlateFiles.Clear(); grainPlateFiles.AddRange(value);
-                        if (!value.Exists(delegate(string path) { return string.Equals(path, selectedGrainPlatePath, StringComparison.OrdinalIgnoreCase); }))
+                        if ((!independentFiles || string.IsNullOrEmpty(selectedGrainPlatePath)) && !value.Exists(delegate(string path) { return string.Equals(path, selectedGrainPlatePath, StringComparison.OrdinalIgnoreCase); }))
                             selectedGrainPlatePath = value.Count > 0 ? value[0] : "";
                         return changed;
                     });
@@ -1312,8 +1304,8 @@ namespace FilmGrainStudioPreview
                 cmbGrainFormat = Combo(new string[] { "Classic35 · Super 35", "Modern35 · Full-frame", "16mm · Coarser", "Super8 · Heavy", "MaxMid · Synthetic" }, Math.Max(0, Math.Min(4, av1FormatIndex)));
                 cmbGrainStock = Combo(new string[] { "Fujifilm Eterna 250D", "Fujifilm Eterna 500T", "Kodak Vision3 250D", "Kodak Vision3 200T" }, Math.Max(0, Math.Min(3, av1StockIndex)));
                 cmbGrainStock.Enabled = cmbGrainFormat.SelectedIndex < 3;
-                cmbGrainFormat.SelectedIndexChanged += delegate { av1FormatIndex = cmbGrainFormat.SelectedIndex; cmbGrainStock.Enabled = av1FormatIndex < 3; };
-                cmbGrainStock.SelectedIndexChanged += delegate { av1StockIndex = cmbGrainStock.SelectedIndex; };
+                cmbGrainFormat.SelectedIndexChanged += delegate { if(restoringFileEditor)return; av1FormatIndex = cmbGrainFormat.SelectedIndex; cmbGrainStock.Enabled = av1FormatIndex < 3; };
+                cmbGrainStock.SelectedIndexChanged += delegate { if(restoringFileEditor)return; av1StockIndex = cmbGrainStock.SelectedIndex; };
                 AddLabeledRow(t, 0, lang.T("grain.format"), cmbGrainFormat);
                 AddLabeledRow(t, 1, lang.T("grain.stock"), cmbGrainStock);
             }
@@ -1321,8 +1313,8 @@ namespace FilmGrainStudioPreview
             {
                 numGrainIso = new ThemeNumericUpDown(); numGrainIso.Minimum = 1; numGrainIso.Maximum = 1000000; numGrainIso.Value = Math.Max(1, Math.Min(1000000, av1IsoValue)); numGrainIso.Increment = 100; numGrainIso.ThousandsSeparator = true; numGrainIso.Dock = DockStyle.Fill; numGrainIso.Margin = new Padding(4, 5, 6, 5);
                 chkGrainChroma = Check(lang.T("grain.chroma"), av1ChromaEnabled);
-                numGrainIso.ValueChanged += delegate { av1IsoValue = (int)numGrainIso.Value; };
-                chkGrainChroma.CheckedChanged += delegate { av1ChromaEnabled = chkGrainChroma.Checked; };
+                numGrainIso.ValueChanged += delegate { if(restoringFileEditor)return; av1IsoValue = (int)numGrainIso.Value; };
+                chkGrainChroma.CheckedChanged += delegate { if(restoringFileEditor)return; av1ChromaEnabled = chkGrainChroma.Checked; };
                 AddLabeledRow(t, 0, lang.T("grain.iso"), numGrainIso);
                 t.Controls.Add(chkGrainChroma, 1, 1);
             }
@@ -1340,7 +1332,7 @@ namespace FilmGrainStudioPreview
                 tablePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 30));
 
                 cmbGrainTable = new ThemeComboBox(); cmbGrainTable.DropDownStyle = ComboBoxStyle.DropDownList; cmbGrainTable.Dock = DockStyle.Fill; cmbGrainTable.Margin = new Padding(4, 5, 3, 5); cmbGrainTable.DropDownWidth = 560;
-                cmbGrainTable.DropDown += delegate { EnsureCurrentGrainCatalog(false); };
+                cmbGrainTable.DropDown += delegate { if(restoringFileEditor)return; EnsureCurrentGrainCatalog(false); };
                 int selectedIndex = -1;
                 for (int i = 0; i < displayedAv1GrainTableFiles.Count; i++)
                 {
@@ -1348,6 +1340,7 @@ namespace FilmGrainStudioPreview
                     cmbGrainTable.Items.Add(GrainFileCatalogCore.RelativeDisplayPath(Path.Combine(appRoot, "_AV1_Grain_Tables"), path));
                     if (string.Equals(path, selectedAv1GrainTable, StringComparison.OrdinalIgnoreCase)) selectedIndex = i;
                 }
+                if(independentFiles && selectedIndex<0 && !string.IsNullOrEmpty(selectedAv1GrainTable)) {selectedIndex=cmbGrainTable.Items.Count;cmbGrainTable.Items.Add(UiText("已保存：","Saved: ")+selectedAv1GrainTable);}
                 if (cmbGrainTable.Items.Count == 0)
                 {
                     string emptyText;
@@ -1359,14 +1352,14 @@ namespace FilmGrainStudioPreview
                         emptyText = UiText("未发现 .tbl/.txt 颗粒表", "No .tbl/.txt grain tables found");
                     cmbGrainTable.Items.Add(!tableCatalog.Ready ? CatalogPendingText(tableCatalog.Error, tableCatalog.Running || tableCatalog.Requested) : emptyText);
                     cmbGrainTable.SelectedIndex = 0; cmbGrainTable.Enabled = !tableCatalog.Ready;
-                    if (tableCatalog.Ready) selectedAv1GrainTable = "";
+                    if (tableCatalog.Ready && !independentFiles) selectedAv1GrainTable = "";
                 }
                 else
                 {
                     cmbGrainTable.SelectedIndex = selectedIndex >= 0 ? selectedIndex : 0;
-                    selectedAv1GrainTable = displayedAv1GrainTableFiles[cmbGrainTable.SelectedIndex];
+                    if(cmbGrainTable.SelectedIndex<displayedAv1GrainTableFiles.Count)selectedAv1GrainTable = displayedAv1GrainTableFiles[cmbGrainTable.SelectedIndex];
                     cmbGrainTable.SelectedIndexChanged += delegate
-                    {
+                    { if(restoringFileEditor)return;
                         if (cmbGrainTable.SelectedIndex >= 0 && cmbGrainTable.SelectedIndex < displayedAv1GrainTableFiles.Count)
                             selectedAv1GrainTable = displayedAv1GrainTableFiles[cmbGrainTable.SelectedIndex];
                     };
@@ -1394,7 +1387,7 @@ namespace FilmGrainStudioPreview
             else if (!av1 && mode == 1)
             {
                 cmbGrainPlate = new ThemeComboBox(); cmbGrainPlate.DropDownStyle = ComboBoxStyle.DropDownList; cmbGrainPlate.Dock = DockStyle.Fill; cmbGrainPlate.Margin = new Padding(4, 5, 6, 5); cmbGrainPlate.DropDownWidth = 520;
-                cmbGrainPlate.DropDown += delegate { EnsureCurrentGrainCatalog(false); };
+                cmbGrainPlate.DropDown += delegate { if(restoringFileEditor)return; EnsureCurrentGrainCatalog(false); };
                 string grainRoot = config.Get("GRAIN_ROOT");
                 int selectedIndex = -1;
                 for (int i = 0; plateCatalog.Ready && i < grainPlateFiles.Count; i++)
@@ -1403,6 +1396,7 @@ namespace FilmGrainStudioPreview
                     cmbGrainPlate.Items.Add(GrainFileCatalogCore.RelativeDisplayPath(grainRoot, path));
                     if (string.Equals(path, selectedGrainPlatePath, StringComparison.OrdinalIgnoreCase)) selectedIndex = i;
                 }
+                if(independentFiles && selectedIndex<0 && !string.IsNullOrEmpty(selectedGrainPlatePath)) {selectedIndex=cmbGrainPlate.Items.Count;cmbGrainPlate.Items.Add(UiText("已保存：","Saved: ")+selectedGrainPlatePath);}
                 if (cmbGrainPlate.Items.Count == 0)
                 {
                     cmbGrainPlate.Items.Add(!plateCatalog.Ready ? CatalogPendingText(plateCatalog.Error, plateCatalog.Running || plateCatalog.Requested) : UiText("颗粒目录中未发现 .mov", "No .mov grain plates found"));
@@ -1411,9 +1405,9 @@ namespace FilmGrainStudioPreview
                 else
                 {
                     cmbGrainPlate.SelectedIndex = selectedIndex >= 0 ? selectedIndex : 0;
-                    selectedGrainPlatePath = grainPlateFiles[cmbGrainPlate.SelectedIndex];
+                    if(cmbGrainPlate.SelectedIndex<grainPlateFiles.Count)selectedGrainPlatePath = grainPlateFiles[cmbGrainPlate.SelectedIndex];
                     cmbGrainPlate.SelectedIndexChanged += delegate
-                    {
+                    { if(restoringFileEditor)return;
                         if (cmbGrainPlate.SelectedIndex >= 0 && cmbGrainPlate.SelectedIndex < grainPlateFiles.Count)
                             selectedGrainPlatePath = grainPlateFiles[cmbGrainPlate.SelectedIndex];
                     };
@@ -1436,11 +1430,6 @@ namespace FilmGrainStudioPreview
             else
             {
                 BuildUnifiedGrainSlider(t, 0, "FGSIM");
-                if (cmbCodec.SelectedIndex == 1 || cmbCodec.SelectedIndex == 3)
-                {
-                    Label note = MutedLabel(lang.T("grain.fgsim_hint"));
-                    t.Controls.Add(note, 0, 1); t.SetColumnSpan(note, 2);
-                }
                 btnFgsimTextureUpdate = new ThemeButton();
                 btnFgsimTextureUpdate.Text = UiText("在线更新纹理", "Update texture online");
                 btnFgsimTextureUpdate.Dock = DockStyle.Fill;
@@ -1465,13 +1454,12 @@ namespace FilmGrainStudioPreview
                     int percent=av1StrengthControl.Value*10;strengthValue.Text=percent+"%";
                     performanceNote.Text=percent==100?"":UiText("选择非100%强度可能会导致性能损失。","Selecting a strength below 100% may reduce performance.");
                 };
-                av1StrengthControl.ValueChanged+=delegate {updateStrength();try{config.SaveValue("AV1_GRAIN_STRENGTH",(av1StrengthControl.Value*10).ToString(CultureInfo.InvariantCulture));}catch(Exception ex){MessageBox.Show(this,ex.Message);}};
+                av1StrengthControl.ValueChanged+=delegate { if(restoringFileEditor)return;updateStrength();try{config.SaveValue("AV1_GRAIN_STRENGTH",(av1StrengthControl.Value*10).ToString(CultureInfo.InvariantCulture));}catch(Exception ex){MessageBox.Show(this,ex.Message);}};
                 updateStrength();
                 lutToolTip.SetToolTip(av1StrengthControl,UiText("相对当前预设/ISO/颗粒表的强度；100%保持原效果。","Relative to the selected preset/ISO/table; 100% preserves the original."));
             }
             grainContent.Controls.Add(t);
             UpdateGrainEnableUi();
-            UpdateFgsimBitrateUi();
         }
 
         private void StartFgsimTextureUpdate()
@@ -1525,7 +1513,7 @@ namespace FilmGrainStudioPreview
             slider.Controls.Add(trackFilmGrainStrength, 0, 0); slider.Controls.Add(lblFilmGrainValue, 1, 0);
             AddLabeledRow(t, row, lang.T("grain.strength"), slider);
             trackFilmGrainStrength.ValueChanged += delegate
-            {
+            { if(restoringFileEditor)return;
                 if (kind == "DIGITAL") proceduralStrength = trackFilmGrainStrength.Value;
                 else if (kind == "FGSIM") fgsimPresetIndex = trackFilmGrainStrength.Value;
                 else scannedGrainStrengthPercent = trackFilmGrainStrength.Value*10;
@@ -1646,9 +1634,9 @@ namespace FilmGrainStudioPreview
 
             trackLutStrength = new ThemeTrackBar(); trackLutStrength.Minimum = 0; trackLutStrength.Maximum = 4; trackLutStrength.Value = 3; trackLutStrength.TickStyle = TickStyle.BottomRight; trackLutStrength.Dock = DockStyle.Fill; trackLutStrength.Margin = Padding.Empty; trackLutStrength.Enabled = false;
             lblLutStrength = new ThemeLabel(); lblLutStrength.Text = "75%"; lblLutStrength.Dock = DockStyle.Fill; lblLutStrength.TextAlign = ContentAlignment.MiddleLeft; lblLutStrength.Enabled = false;
-            chkLut.CheckedChanged += delegate { UpdateLutUi(); UpdateHdrRouteStatus(GetSelectedMediaInfo()); };
+            chkLut.CheckedChanged += delegate { if(restoringFileEditor)return; UpdateLutUi(); UpdateHdrRouteStatus(GetSelectedMediaInfo()); };
             trackLutStrength.ValueChanged += delegate
-            {
+            { if(restoringFileEditor)return;
                 lblLutStrength.Text = GetLutStrength().ToString(CultureInfo.InvariantCulture) + "%";
                 SetLutPreview(selectedLutPath);
                 UpdateHdrRouteStatus(GetSelectedMediaInfo());
@@ -1780,7 +1768,7 @@ namespace FilmGrainStudioPreview
             fittingFileColumns=true;listFiles.BeginUpdate();
             try {
                 int width=Math.Max(3,listFiles.ClientSize.Width-4);
-                int name=Math.Max(1,(int)(width*0.47));
+                int name=Math.Max(1,(int)(width*0.62));
                 int size=Math.Max(1,(int)(width*0.19));
                 int[] targets=new int[]{name,size,Math.Max(1,width-name-size)};
                 // Shrink before growing; keep the sum within the available client width.
@@ -1871,20 +1859,24 @@ namespace FilmGrainStudioPreview
                 FileInfo fi = new FileInfo(path);
                 ListViewItem item = new ListViewItem(fi.Name);
                 item.SubItems.Add(FormatSize(fi.Length));
-                item.SubItems.Add(fi.DirectoryName ?? string.Empty);
+                item.SubItems.Add(UiText("等待","Waiting"));
                 item.Tag = fi.FullName;
                 item.ToolTipText = fi.FullName;
+                if(independentFiles&&sharedEditor!=null)fileSettings[fi.FullName]=sharedEditor.Copy();
                 listFiles.Items.Add(item);
                 existing.Add(path);
             }
             UpdateStatusCount();
             if (listFiles.Items.Count > 0 && listFiles.SelectedItems.Count == 0) listFiles.Items[0].Selected = true;
             UpdateNoReencodeAvailability();
+            UpdateFileSettingsLabels();
         }
 
         private void RemoveSelected()
         {
-            while (listFiles.SelectedItems.Count > 0) listFiles.Items.Remove(listFiles.SelectedItems[0]);
+            changingFileSelection=true;
+            try {while(listFiles.SelectedItems.Count>0) {var item=listFiles.SelectedItems[0];string path=item.Tag as string;if(path!=null)fileSettings.Remove(path);if(path==editingFile)editingFile=null;listFiles.Items.Remove(item);}}
+            finally {changingFileSelection=false;}
             UpdateSelectedInfo();
             UpdateStatusCount();
         }
@@ -2006,8 +1998,8 @@ namespace FilmGrainStudioPreview
         private void UpdateNoReencodeAvailability()
         {
             if (cmbCodec == null || listFiles == null) return;
-            bool eligible = false;
-            if (listFiles.Items.Count == 1)
+            bool eligible = independentFiles;
+            if (!independentFiles && listFiles.Items.Count == 1)
             {
                 string path = listFiles.Items[0].Tag as string;
                 MediaProbeInfo info;
@@ -2060,8 +2052,8 @@ namespace FilmGrainStudioPreview
             }
 
             string currentText = Convert.ToString(cmbSpeed.SelectedItem, CultureInfo.InvariantCulture);
-            int selectedIndex = currentText.StartsWith("Standard", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
-            bool allowUhq = cmbCodec.SelectedIndex == 0 && hardwareCapsReady && hardwareCaps != null && hardwareCaps.Av1UhqAvailable;
+            int selectedIndex = independentFiles ? Math.Max(0,cmbSpeed.SelectedIndex) : currentText.StartsWith("Standard", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+            bool allowUhq = cmbCodec.SelectedIndex == 0 && (independentFiles || hardwareCapsReady && hardwareCaps != null && hardwareCaps.Av1UhqAvailable);
             if (allowUhq && currentText.StartsWith("UHQ", StringComparison.OrdinalIgnoreCase)) selectedIndex = 2;
 
             cmbSpeed.BeginUpdate();
@@ -2087,7 +2079,7 @@ namespace FilmGrainStudioPreview
             bool speedCompatible=hevc||av1&&cmbSpeed!=null&&cmbSpeed.SelectedIndex>=1;
             chkSfe.Text=LF("sfe.engines",Math.Max(1,max));
             chkSfe.Enabled=ready&&(av1||hevc)&&max>=2&&grainCompatible&&speedCompatible;
-            if(!chkSfe.Enabled)chkSfe.Checked=false;
+            if(!chkSfe.Enabled&&!independentFiles)chkSfe.Checked=false;
             string gravVersion = ready ? (hardwareCaps.Grav1synthVersion ?? "") : lang.T("hardware.not_detected");
             sfeToolTip.SetToolTip(chkSfe,hevc?UiText("HEVC 分帧并行：需要多个 NVENC 引擎及实测支持。提高单任务速度，但可能降低压缩效率。关闭时禁用隐式 SFE。","HEVC split-frame encoding requires multiple NVENC engines and a successful capability probe. Faster single-task encoding may reduce compression efficiency. Off explicitly disables implicit SFE."):!av1?UiText("H.264 / x264 不支持 NVENC SFE。","H.264 / x264 do not support NVENC SFE."):!ready?lang.T("tooltip.sfe_unavailable"):!grainCompatible?LF("tooltip.sfe_version",gravVersion):!chkSfe.Enabled?lang.T("tooltip.sfe_unavailable"):LF("tooltip.sfe_ready",max,gravVersion));
         }
@@ -2293,6 +2285,7 @@ namespace FilmGrainStudioPreview
 
         private MediaProbeInfo GetBitrateMediaContext()
         {
+            if(captureInputPath!=null) {MediaProbeInfo capture;return mediaProbeCache.TryGetValue(captureInputPath,out capture)?capture:null;}
             MediaProbeInfo selected = GetSelectedMediaInfo();
             if (selected != null) return selected;
             if (listFiles == null || listFiles.Items.Count == 0) return null;
@@ -2333,14 +2326,13 @@ namespace FilmGrainStudioPreview
                 updatingBitrateUi = true;
                 try
                 {
-                    if (!IsHevcFgsim() || fgsimRcChoice == "VBR") cmbBitrate.Text = modeBitrate[codecIndex];
-                    chkBitrateAuto.Checked = !IsHevcFgsim() || fgsimRcChoice == "VBR";
+                    cmbBitrate.Text = modeBitrate[codecIndex];
+                    chkBitrateAuto.Checked = true;
                 }
                 finally { updatingBitrateUi = false; }
             }
 
             
-            UpdateFgsimBitrateUi();
         }
 
         private bool IsGrainEnabled()
@@ -2358,58 +2350,9 @@ namespace FilmGrainStudioPreview
             lutToolTip.SetToolTip(chkGrainEnabled,dedicated ? UiText("此模式用于添加/更换 AV1 颗粒元数据，颗粒必须开启。", "This mode changes AV1 grain metadata; grain must stay enabled.") : UiText("关闭后不添加 FGS 颗粒；不会消除输入已有颗粒。", "Disabling skips FGS grain addition; existing input grain is not removed."));
         }
 
-        private bool IsHevcFgsim()
+        private bool IsNvencFgsim()
         {
             return IsGrainEnabled() && cmbCodec != null && (cmbCodec.SelectedIndex == 1 || cmbCodec.SelectedIndex == 3) && cmbGrainMode != null && cmbGrainMode.SelectedIndex == 2;
-        }
-
-        private void UpdateFgsimBitrateUi(bool preserveQuality = false)
-        {
-            if (cmbBitrate == null || updatingBitrateUi) return;
-            bool active = IsHevcFgsim();
-            bool entering = active && !fgsimRcActive;
-            bool leaving = !active && fgsimRcActive;
-            if (entering && !preserveQuality) fgsimRcChoice = "VBR";
-            fgsimRcActive = active;
-            updatingBitrateUi = true;
-            try
-            {
-                if (active)
-                {
-                    if (!cmbBitrate.Items.Contains(FgsimStandardItem))
-                    {
-                        cmbBitrate.Items.Insert(0, FgsimStandardItem);
-                        cmbBitrate.Items.Insert(1, FgsimHighItem);
-                    }
-                    if (fgsimRcChoice == "STANDARD") cmbBitrate.SelectedItem = FgsimStandardItem;
-                    else if (fgsimRcChoice == "HIGH") cmbBitrate.SelectedItem = FgsimHighItem;
-                    lutToolTip.SetToolTip(cmbBitrate, lang.T("grain.fgsim_hint"));
-                }
-                else
-                {
-                    cmbBitrate.Items.Remove(FgsimStandardItem);
-                    cmbBitrate.Items.Remove(FgsimHighItem);
-                    if (leaving && cmbCodec != null && cmbCodec.SelectedIndex >= 0 && cmbCodec.SelectedIndex <= 3)
-                        cmbBitrate.Text = modeBitrate[cmbCodec.SelectedIndex];
-                    lutToolTip.SetToolTip(cmbBitrate, "");
-                }
-            }
-            finally { updatingBitrateUi = false; }
-            UpdateFgsimBitrateControls();
-        }
-
-        private void UpdateFgsimBitrateControls()
-        {
-            if (chkBitrateAuto == null || chkHighMotion == null) return;
-            bool cq = IsHevcFgsim() && fgsimRcChoice != "VBR";
-            updatingBitrateUi = true;
-            try
-            {
-                chkBitrateAuto.Enabled = !cq;
-                chkBitrateAuto.Checked = !cq && cmbCodec.SelectedIndex >= 0 && cmbCodec.SelectedIndex <= 3 && modeBitrateAuto[cmbCodec.SelectedIndex];
-                chkHighMotion.Enabled = !cq;
-            }
-            finally { updatingBitrateUi = false; }
         }
 
         private string UiText(string zh, string en)
@@ -2567,14 +2510,14 @@ namespace FilmGrainStudioPreview
                     cmbCodec.Items[1] = hardwareCaps.HevcAvailable ? lang.T("codec.hevc_scan") : lang.T("codec.hevc_unavailable");
                     cmbCodec.Items[2] = hardwareCaps.X264Available ? lang.T("codec.x264_default") : lang.T("codec.x264_unavailable");
                     cmbCodec.Items[3] = hardwareCaps.H264Available ? "H.264 · NVENC" : UiText("H.264 · 不可用", "H.264 · unavailable");
-                    if (cmbCodec.SelectedIndex == 0 && !hardwareCaps.Av1Available)
+                    if (!independentFiles && cmbCodec.SelectedIndex == 0 && !hardwareCaps.Av1Available)
                         cmbCodec.SelectedIndex = hardwareCaps.HevcAvailable ? 1 : (hardwareCaps.X264Available ? 2 : 1);
-                    else if (cmbCodec.SelectedIndex == 1 && !hardwareCaps.HevcAvailable)
+                    else if (!independentFiles && cmbCodec.SelectedIndex == 1 && !hardwareCaps.HevcAvailable)
                     {
                         if (hardwareCaps.Av1Available) cmbCodec.SelectedIndex = 0;
                         else if (hardwareCaps.X264Available) cmbCodec.SelectedIndex = 2;
                     }
-                    else if (cmbCodec.SelectedIndex == 2 && !hardwareCaps.X264Available)
+                    else if (!independentFiles && cmbCodec.SelectedIndex == 2 && !hardwareCaps.X264Available)
                     {
                         if (hardwareCaps.HevcAvailable) cmbCodec.SelectedIndex = 1;
                         else if (hardwareCaps.Av1Available) cmbCodec.SelectedIndex = 0;
@@ -2775,6 +2718,7 @@ namespace FilmGrainStudioPreview
                 MessageBox.Show(this, UiText("颗粒列表正在加载；完成后请重试。", "Loading the grain catalog; retry when ready."));
                 return;
             }
+            if(independentFiles) {StartIndependentQueue();return;}
             if (!ValidateHardwareForSelectedCodec()) return;
 
             if (chkEncodePreview.Checked && !numPreviewDuration.ValidateInput()) return;
@@ -2904,7 +2848,7 @@ namespace FilmGrainStudioPreview
             }
         }
 
-        private void StartSharedQueue(List<string> inputs, SortedDictionary<string, string> capturedState, bool noReencode)
+        private void StartSharedQueue(List<string> inputs, SortedDictionary<string, string> capturedState, bool noReencode, IDictionary<string,SortedDictionary<string,string>> fileStates = null)
         {
             List<BridgeTaskRequest> tasks = new List<BridgeTaskRequest>();
             HashSet<string> outputs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -2913,7 +2857,7 @@ namespace FilmGrainStudioPreview
             try
             {
                 WorkspacePreflightIssue issue;
-                if (!WorkspacePreflightCore.Check(inputs, noReencode ? "AV1" : capturedState["FG_MODE"], noReencode,
+                if (fileStates == null && !WorkspacePreflightCore.Check(inputs, noReencode ? "AV1" : capturedState["FG_MODE"], noReencode,
                     config.Get("TEMP_MODE"), config.Get("TEMP_CUSTOM_DIR"), config.Get("OUTPUT_MODE"), config.Get("OUTPUT_CUSTOM_DIR"),
                     mediaProbeCache, delegate(WorkspaceSpaceWarning warning)
                     {
@@ -2929,6 +2873,15 @@ namespace FilmGrainStudioPreview
                 foreach (string input in inputs)
                 {
                     prepared = null;
+                    if(fileStates!=null) {
+                        capturedState=new SortedDictionary<string,string>(fileStates[input],StringComparer.OrdinalIgnoreCase);
+                        noReencode=capturedState["FG_QUEUE_NO_REENCODE"]=="1";
+                        if(!WorkspacePreflightCore.Check(new List<string>{input},noReencode?"AV1":capturedState["FG_MODE"],noReencode,
+                            config.Get("TEMP_MODE"),config.Get("TEMP_CUSTOM_DIR"),config.Get("OUTPUT_MODE"),config.Get("OUTPUT_CUSTOM_DIR"),mediaProbeCache,
+                            delegate(WorkspaceSpaceWarning warning) {return MessageBox.Show(this,LF(warning.IsOutput?"warning.output_space":"warning.temp_space",warning.Path,FormatWorkspaceBytes(warning.Available),FormatWorkspaceBytes(warning.Required),FormatWorkspaceBytes(warning.Reserve)),Text,MessageBoxButtons.YesNo,MessageBoxIcon.Warning,MessageBoxDefaultButton.Button2)==DialogResult.Yes;},
+                            !noReencode&&capturedState["FG_MODE"]=="AV1"&&capturedState["FG_SVP_INTERPOLATE"]=="1",!noReencode?capturedState["FG_INTERPOLATION_TARGET_FPS"]:"",out issue))throw new InvalidOperationException(issue==null?"Workspace check declined":LF(issue.Key,issue.Path,issue.Detail));
+                    }
+                    foreach(var pair in capturedState)AppendTaskDiagnosticLog("[Queue snapshot] input="+input+" "+pair.Key+"="+pair.Value+Environment.NewLine);
                     string targetDir = capturedState["FG_OUTPUT_MODE"] == "CUSTOM" ? capturedState["FG_OUTPUT_CUSTOM_DIR"] : Path.GetDirectoryName(input);
                     string collisionKey = Path.Combine(Path.GetFullPath(targetDir), Path.GetFileNameWithoutExtension(input));
                     if (!inputNames.Add(collisionKey)) throw new InvalidOperationException("Queue has duplicate output stems: " + input);
@@ -2938,12 +2891,12 @@ namespace FilmGrainStudioPreview
                     SortedDictionary<string,string> itemState = new SortedDictionary<string,string>(capturedState, StringComparer.OrdinalIgnoreCase);
                     if (noReencode) itemState["FG_MODE"] = "AV1";
                     string reason;
-                    if(!NativeExecutionPreparationCore.TryPrepare(appRoot,input,info,itemState,hardwareCaps,noReencode,out prepared,out reason))
+                    if(!NativeExecutionPreparationCore.TryPrepare(appRoot,input,info,itemState,hardwareCaps==null?null:hardwareCaps.Clone(),noReencode,out prepared,out reason))
                         throw new InvalidOperationException("Native queue preparation stopped: "+input+" : "+reason);
                     if (prepared.ExecutionRequest.OutputFiles != null)
                         foreach (string output in prepared.ExecutionRequest.OutputFiles)
                             if (!outputs.Add(Path.GetFullPath(output))) throw new InvalidOperationException("Queue output collision: " + output);
-                    BridgeTaskRequest task = BridgeRequestPreparationCore.CreateTask(prepared, GetRecommendedOutputFps(info));
+                    BridgeTaskRequest task = BridgeRequestPreparationCore.CreateTask(prepared, fileStates==null?GetRecommendedOutputFps(info):double.Parse(capturedState["FG_QUEUE_OUTPUT_FPS"],CultureInfo.InvariantCulture));
                     task.NativeBackend = true;
                     tasks.Add(task);
                     prepared = null;
@@ -2982,6 +2935,7 @@ namespace FilmGrainStudioPreview
                     if (btnCancelTask != null) btnCancelTask.Enabled = e != null && e.State == BridgeTaskState.Running;
 
                     if (e == null) return;
+                    UpdateQueueFileState(e);
                     if (e.State == BridgeTaskState.Running)
                     {
                         BridgeTaskRequest task = e.Task;
@@ -3279,7 +3233,7 @@ namespace FilmGrainStudioPreview
                 bool av1 = codec == 0;
                 bool hevc = codec == 1;
                 bool x264 = codec == 2 || codec == 3;
-                bool fgsim = IsGrainEnabled() && ((hevc && IsHevcFgsim()) ||
+                bool fgsim = IsGrainEnabled() && ((hevc && IsNvencFgsim()) ||
                     (av1 && cmbGrainMode != null && cmbGrainMode.SelectedIndex == 4));
                 
                 bool color = colorCorrectionEnabled;
@@ -3645,7 +3599,7 @@ namespace FilmGrainStudioPreview
             if (lblSelectedLut == null || picLutPreview == null || chkLut == null) return;
 
             bool hasLut = !string.IsNullOrEmpty(selectedLutPath) && File.Exists(selectedLutPath);
-            if (!hasLut && !string.IsNullOrEmpty(selectedLutPath))
+            if (!hasLut && !string.IsNullOrEmpty(selectedLutPath) && !independentFiles)
             {
                 selectedLutPath = "";
                 selectedLutSource = "None";

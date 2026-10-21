@@ -91,7 +91,6 @@ namespace FilmGrainStudioPreview
         public string Av1GrainTable = "";
         public int ProceduralStrength;
         public int FgsimPresetIndex;
-        public string FgsimQuality = "VBR";
         public string GrainRoot = "";
         public string GrainPlatePath = "";
         public int ScannedGrainStrengthIndex;
@@ -241,7 +240,6 @@ namespace FilmGrainStudioPreview
                 {
                     state["FG_GRAIN_ENGINE"] = "FGSIM";
                     state["FG_FGSIM_PRESET"] = fgsimPresets[Math.Max(0, Math.Min(3, snapshot.FgsimPresetIndex))];
-                    state["FG_FGSIM_QUALITY"] = snapshot.FgsimQuality;
                 }
                 else
                 {
@@ -253,7 +251,6 @@ namespace FilmGrainStudioPreview
                     state["FG_GRAIN_PLATE_STRENGTH"] = snapshot.ScannedGrainStrengthPercent.ToString(CultureInfo.InvariantCulture);
                 }
             }
-            if (!state.ContainsKey("FG_FGSIM_QUALITY")) state["FG_FGSIM_QUALITY"] = "VBR";
             return state;
         }
 

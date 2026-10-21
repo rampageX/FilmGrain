@@ -367,6 +367,7 @@ namespace FilmGrainStudioPreview
                 else if (!grainEnabled && !interpolate && !(fieldWorkfile || separateDeint || hdrOffSdr))
                     for (int i=stageOffset;i<stages.Count;i++)SharedOrdinaryTimelineCore.Attach(stages[i],ffprobe,encodeInput);
                 if(info.IsHdr && info.IsInterlaced && !deinterlace)request.ExecutionNotice="[Native .NET] 反交错 OFF：沿用不反交错的逐帧处理，不启用 bob/光流或双倍场率；不保证隔行编码标记。 / Deinterlace OFF: frame processing without bob/interpolation; no interlaced-encoding flags are added.";
+            if (fgsimMode) FgsimTextureCore.AttachVerifiedDevice(request, fgsimHook, false);
             prepared = new BridgePreparedExecution(request, false, ffmpeg, requestInputs);
                 lutCompatPath = "";
                 subtitleAss = "";

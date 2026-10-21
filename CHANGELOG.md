@@ -1,5 +1,14 @@
 ﻿# Film Grain Studio — CHANGELOG
 
+## v5.0.19 — 文件独立配置与队列状态
+
+- 新增文件独立配置：勾选“独立配置”后，复用主界面和高级窗口编辑每个文件；切换文件保留设置，切回统一模式不删除已有独立配置。
+- 开始时冻结本轮各文件参数，按列表顺序逐项执行；统一与独立模式共用现有任务准备和执行流程。
+- 文件列表增加状态列，执行时自动选中并显示当前文件，正确区分结束、失败、取消和未执行。
+- 预览编码开关、起始时间和持续秒数保持主窗口共用，文件或模式切换不再恢复旧值。
+- 修复双显卡环境下 FGSIM 固定使用 Vulkan 设备 0 可能输出黑帧的问题；按名称优先选择 NVIDIA，并以实际 shader 像素预检验证设备。
+- 移除 FGSIM 与 HEVC／H.264 NVENC 专用 CQ／QP 联动，统一使用正常自动或手动 VBR；保留颗粒算法与原有强度。
+
 ## v5.0.18 — 高级编码分页与独立 AQ 设置
 
 - 高级编码拆分为 AV1 / HEVC、H.264 / x264 两页，各编码器按上下区域排列，增加所属标题与细分隔线。
@@ -608,7 +617,6 @@
 
 ### 改进与修复
 
-* .NET 界面为 HEVC + FGSIM 提供 VBR、Standard CQ27 / QP18-26、High Quality CQ23 / QP18-24 三种码率选择；选用 CQ 时禁用不适用的自动码率和高动态控件。
 * 编码启动前检查临时目录和输出目录的写入权限与可用空间；找不到完整程序目录时显示明确的启动位置提示。
 * .NET 保存 `FilmGrain_Config.ini` 时先写同目录临时文件，再替换原文件；配置键继续与正式 GUI 共用。
 * Windows 发布构建从已提交的 .NET 源码编译预览 EXE，并在生成 ZIP 前检查文件存在；dry-run 使用同一构建核心，避免复用本机旧的编译产物。
@@ -730,8 +738,6 @@
 
 - 颗粒模式统一为单一的 **GPU Film Grain (FGSIM)** 项，界面不再分别显示 Light / Medium / Heavy；FGSIM 内部仍映射已经验证的 Light `0.10`、Medium `0.20`、Heavy `0.30` 三档，不调整核心算法、shader、filter graph 或颗粒效果。
 - Digital Grain、Grain Plate 与 GPU Film Grain (FGSIM) 统一使用 **Film Grain Strength** 滑杆；Digital Grain 继续控制 Fast Noise 强度，Grain Plate 继续控制混合比例，FGSIM 根据滑杆映射 Light / Medium / Heavy。
-- HEVC + FGSIM 的“视频码率”下拉框新增 `Standard CQ27 / QP18-26` 与 `High Quality CQ23 / QP18-24`；默认仍按原逻辑选择自动或手动 VBR，用户可按需切换 CQ 方案。
-- HEVC + FGSIM 提示精简为：`HEVC+FGSIM 模式下, 若画面出现色带，请在视频码率中尝试 Standard CQ27 或 High Quality CQ23 方案。`
 - 修复 FGSIM 与 BWDIF Vulkan 同时启用时的 `Only one filter device can be used` 错误；BWDIF Vulkan 与 libplacebo 统一复用 FGSIM 已创建的 `vk` filter device，不再创建 `deintvk` 或追加第二个 `-filter_hw_device`。
 - 仅调整 UI 参数传递与 HEVC + FGSIM 的编码参数选择；AV1、x264 Grain、普通 HEVC VBR、Digital Grain、Grain Plate、输出容器、AAC 256k、插帧、LUT、HDR 及已验证 FGSIM pipeline 保持原样。
 - 正式包版本号统一为 `v4.7.5`，清理测试构建标识与测试说明文件。

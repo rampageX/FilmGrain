@@ -54,7 +54,10 @@ namespace FilmGrainStudioPreview
             if (!TryResolveTempRoot(input, state, out tempRoot, out reason)) return false;
             string directReason;
             bool eligible = CanUseDirectInput(mode, info, state, out directReason);
-            bool fastEnabled = !string.Equals(ReadConfigValue(appRoot, "AV1_COPY_FAST"), "false", StringComparison.OrdinalIgnoreCase);
+            string fastOption,verifyOption;
+            if(!state.TryGetValue("FG_AV1_COPY_FAST",out fastOption))fastOption=ReadConfigValue(appRoot,"AV1_COPY_FAST");
+            if(!state.TryGetValue("FG_AV1_COPY_FULL_VERIFY",out verifyOption))verifyOption=ReadConfigValue(appRoot,"AV1_COPY_FULL_VERIFY");
+            bool fastEnabled = !string.Equals(fastOption, "false", StringComparison.OrdinalIgnoreCase);
             bool fast = fastEnabled && eligible;
             if (!fastEnabled) directReason = "你已关闭快速处理，按原来的方式运行 / automatic fast path disabled";
             string ffprobe = Path.Combine(Path.GetDirectoryName(ffmpeg), "ffprobe.exe");
@@ -95,7 +98,7 @@ namespace FilmGrainStudioPreview
             if (isoGuard) request.TemporaryFiles.Add(Path.Combine(tempRoot, job + "_grain.ivf"));
             request.LogStageTimings = true;
             request.ProgressDurationSeconds = duration;
-            bool fullVerify = mode == "TABLE" && !IsStaticTable(info, state) || string.Equals(ReadConfigValue(appRoot, "AV1_COPY_FULL_VERIFY"), "true", StringComparison.OrdinalIgnoreCase);
+            bool fullVerify = mode == "TABLE" && !IsStaticTable(info, state) || string.Equals(verifyOption, "true", StringComparison.OrdinalIgnoreCase);
             request.ExecutionNotice = isoGuard ? "[AV1 Copy] ISO: 核对原 IVF 色彩条件后选择处理路径 / verifying original IVF color context"
                 : fast ? (cachedIso ? "[AV1 Copy] fast: ISO 已核对的色彩条件仍有效，省略重复核对 / cached ISO context valid; direct input" : "[AV1 Copy] fast: direct container input; identical grain arguments; original stream mapping retained.")
                 : "[AV1 Copy] compatibility: " + directReason + ". 保留原处理流程 / using original processing route.";

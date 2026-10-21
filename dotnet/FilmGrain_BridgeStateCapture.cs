@@ -15,6 +15,8 @@ namespace FilmGrainStudioPreview
             BridgeEnvironmentSnapshot snapshot = CaptureBridgeEnvironmentSnapshot(out error);
             if (snapshot == null) return null;
             var state = BridgeEnvironmentCore.Build(snapshot);
+            state["FG_AV1_COPY_FAST"]=config.Get("AV1_COPY_FAST");
+            state["FG_AV1_COPY_FULL_VERIFY"]=config.Get("AV1_COPY_FULL_VERIFY");
             
             return state;
         }
@@ -32,7 +34,7 @@ namespace FilmGrainStudioPreview
             if (cmbCodec != null && cmbCodec.SelectedIndex == 4) return CaptureNoReencodeEnvironmentSnapshot(out error);
 
             long bitrate;
-            string bitrateText = IsHevcFgsim() && fgsimRcChoice != "VBR" ? modeBitrate[Math.Max(0,Math.Min(3,cmbCodec.SelectedIndex))] : (cmbBitrate == null ? "" : cmbBitrate.Text.Trim());
+            string bitrateText = cmbBitrate == null ? "" : cmbBitrate.Text.Trim();
             if (!long.TryParse(bitrateText, NumberStyles.Integer, CultureInfo.InvariantCulture, out bitrate) || bitrate <= 10 || bitrate > 500000000)
             {
                 error = lang.T("error.bitrate_invalid");
@@ -124,6 +126,7 @@ namespace FilmGrainStudioPreview
                     foreach (ListViewItem item in listFiles.Items)
                     {
                         string sourcePath = item.Tag as string;
+                        if(captureInputPath!=null&&!string.Equals(sourcePath,captureInputPath,StringComparison.OrdinalIgnoreCase))continue;
                         MediaProbeInfo sourceInfo;
                         if (string.IsNullOrEmpty(sourcePath) || !mediaProbeCache.TryGetValue(sourcePath, out sourceInfo))
                         { error = UiText("无法读取源视频帧率，不能解析插帧目标帧率。", "Cannot read source frame rate to resolve interpolation target."); return null; }
@@ -176,7 +179,6 @@ namespace FilmGrainStudioPreview
             snapshot.Av1GrainTable = selectedAv1GrainTable;
             snapshot.ProceduralStrength = proceduralStrength;
             snapshot.FgsimPresetIndex = fgsimPresetIndex;
-            snapshot.FgsimQuality = IsHevcFgsim() ? fgsimRcChoice : "VBR";
             snapshot.GrainRoot = config.Get("GRAIN_ROOT");
             snapshot.GrainPlatePath = selectedGrainPlatePath;
             snapshot.ScannedGrainStrengthPercent = scannedGrainStrengthPercent;
@@ -186,12 +188,12 @@ namespace FilmGrainStudioPreview
         private BridgeEnvironmentSnapshot CaptureNoReencodeEnvironmentSnapshot(out string error)
         {
             error = "";
-            if (listFiles == null || listFiles.Items.Count != 1)
+            if (listFiles == null || (captureInputPath==null && listFiles.Items.Count != 1))
             {
                 error = lang.T("error.no_reencode_single");
                 return null;
             }
-            string path = listFiles.Items[0].Tag as string;
+            string path = captureInputPath ?? listFiles.Items[0].Tag as string;
             MediaProbeInfo info;
             if (string.IsNullOrEmpty(path) || !mediaProbeCache.TryGetValue(path, out info) || !IsAv1Media(info))
             {
@@ -252,7 +254,219 @@ namespace FilmGrainStudioPreview
             snapshot.TempCustomDir = config.Get("TEMP_CUSTOM_DIR");
             snapshot.OutputMode = config.Get("OUTPUT_MODE");
             snapshot.OutputCustomDir = config.Get("OUTPUT_CUSTOM_DIR");
-            snapshot.Subtitle = subtitleState;
+            snapshot.Subtitle = subtitleState.Copy();
         }
     }
+
+    internal sealed partial class MainForm
+    {
+        // Editor-only memento. Runtime state is always produced by BuildBridgeEnvironment.
+        // Explicit allowlists exclude preview images, media caches, capabilities and UI theme.
+        private sealed class FileEditorSettings
+        {
+            internal Dictionary<string,string> Config;
+            internal Dictionary<string,object> Fields=new Dictionary<string,object>();
+            internal Dictionary<string,string> Controls=new Dictionary<string,string>();
+            internal string[] Bitrates;
+            internal bool[] Automatic;
+            internal SubtitleState Subtitle;
+            internal FileEditorSettings Copy()
+            {
+                return new FileEditorSettings { Config=new Dictionary<string,string>(Config,StringComparer.OrdinalIgnoreCase),
+                    Fields=new Dictionary<string,object>(Fields), Controls=new Dictionary<string,string>(Controls),
+                    Bitrates=(string[])Bitrates.Clone(),Automatic=(bool[])Automatic.Clone(),Subtitle=Subtitle.Copy() };
+            }
+        }
+        private const string FileEditorFields="ordinaryGrainEnabled av1GrainModeIndex pixelGrainModeIndex av1FormatIndex av1StockIndex av1IsoValue av1ChromaEnabled selectedAv1GrainTable proceduralStrength fgsimPresetIndex selectedGrainPlatePath scannedGrainStrengthPercent selectedLutPath selectedLutSource colorCorrectionEnabled colorContrast colorBrightness colorSaturation colorGamma colorBlackWhite";
+        private const string FileEditorControls="cmbCodec cmbContainer cmbSpeed chkSfe cmbBitrate chkBitrateAuto chkHighMotion cmbFps chkInterpolation cmbInterpolationMode cmbInterpolationFps cmbDeint cmbDeintMethod chkCinematic cmbFrameMode chkGrainEnabled chkLut trackLutStrength";
+        private readonly Dictionary<string,FileEditorSettings> fileSettings=new Dictionary<string,FileEditorSettings>(StringComparer.OrdinalIgnoreCase);
+        private FileEditorSettings sharedEditor;
+        private string editingFile, captureInputPath;
+        private bool independentFiles, restoringFileEditor, changingFileSelection;
+        private CheckBox fileSettingsMode;
+        private ToolStripMenuItem fileCopyFastMenu,fileCopyVerifyMenu;
+        private System.Reflection.FieldInfo EditorField(string name)
+        {
+            var field=typeof(MainForm).GetField(name,System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic);
+            if(field==null)throw new InvalidOperationException("Missing task editor field: "+name);
+            return field;
+        }
+        private FileEditorSettings CaptureFileEditor()
+        {
+            // Retain only the user's manual value. AUTO's displayed media recommendation is not a setting.
+            if(cmbCodec.SelectedIndex>=0&&cmbCodec.SelectedIndex<4&&!chkBitrateAuto.Checked) {
+                long n;if(long.TryParse(cmbBitrate.Text,out n)&&n>10)modeBitrate[cmbCodec.SelectedIndex]=cmbBitrate.Text;
+            }
+            var result=new FileEditorSettings { Config=config.CaptureTaskValues(),Bitrates=(string[])modeBitrate.Clone(),Automatic=(bool[])modeBitrateAuto.Clone(),Subtitle=subtitleState.Copy() };
+            foreach(string name in FileEditorFields.Split(' ')) {
+                object value=EditorField(name).GetValue(this);
+                if(value!=null&&!value.GetType().IsValueType&&!(value is string))throw new InvalidOperationException("Mutable editor field: "+name);
+                result.Fields[name]=value;
+            }
+            foreach(string name in FileEditorControls.Split(' ')) {
+                object control=EditorField(name).GetValue(this);
+                var combo=control as ComboBox;var check=control as CheckBox;var track=control as TrackBar;var text=control as MaskedTextBox;
+                if(combo!=null) result.Controls[name]=combo.DropDownStyle==ComboBoxStyle.DropDownList?combo.SelectedIndex.ToString(CultureInfo.InvariantCulture):combo.Text;
+                else if(check!=null)result.Controls[name]=check.Checked?"1":"0";
+                else if(track!=null)result.Controls[name]=track.Value.ToString(CultureInfo.InvariantCulture);
+                else if(text!=null)result.Controls[name]=text.Text;
+                else if(control!=null)throw new InvalidOperationException("Unsupported editor control: "+name);
+            }
+            string[] placeholders={"5000","6000","7500","7500"};
+            for(int i=0;i<result.Automatic.Length;i++)if(result.Automatic[i])result.Bitrates[i]=placeholders[i];
+            if(cmbCodec.SelectedIndex>=0&&cmbCodec.SelectedIndex<4&&result.Automatic[cmbCodec.SelectedIndex])result.Controls["cmbBitrate"]=placeholders[cmbCodec.SelectedIndex];
+            return result;
+        }
+        private void ApplyFileEditor(FileEditorSettings source, bool taskOverlay)
+        {
+            FileEditorSettings value=source.Copy();restoringFileEditor=true;SuspendLayout();
+            try {
+                config.UseTaskValues(taskOverlay?value.Config:null);
+                if(fileCopyFastMenu!=null)fileCopyFastMenu.Checked=config.Get("AV1_COPY_FAST")!="false";
+                if(fileCopyVerifyMenu!=null)fileCopyVerifyMenu.Checked=config.GetBool("AV1_COPY_FULL_VERIFY");
+                foreach(var pair in value.Fields)EditorField(pair.Key).SetValue(this,pair.Value);
+                Array.Copy(value.Bitrates,modeBitrate,modeBitrate.Length);Array.Copy(value.Automatic,modeBitrateAuto,modeBitrateAuto.Length);
+                if(int.Parse(value.Controls["cmbCodec"],CultureInfo.InvariantCulture)==4&&cmbCodec.Items.Count<5)cmbCodec.Items.Add(lang.T("codec.no_reencode"));
+                cmbCodec.SelectedIndex=int.Parse(value.Controls["cmbCodec"],CultureInfo.InvariantCulture);
+                lastCodecIndex=Math.Max(0,Math.Min(3,cmbCodec.SelectedIndex));
+                UpdateSpeedChoices();UpdateGrainForCodec();
+                foreach(var pair in value.Controls) {
+                    object control=EditorField(pair.Key).GetValue(this);
+                    var combo=control as ComboBox;var check=control as CheckBox;var track=control as TrackBar;var text=control as MaskedTextBox;
+                    if(combo!=null) {
+                        if(combo.DropDownStyle==ComboBoxStyle.DropDownList) {int index=int.Parse(pair.Value,CultureInfo.InvariantCulture);if(index>=-1&&index<combo.Items.Count)combo.SelectedIndex=index;}
+                        else combo.Text=pair.Value;
+                    }
+                    else if(check!=null)check.Checked=pair.Value=="1";
+                    else if(track!=null)track.Value=int.Parse(pair.Value,CultureInfo.InvariantCulture);
+                    else if(text!=null)text.Text=pair.Value;
+                }
+                foreach(var field in typeof(SubtitleState).GetFields(System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic))field.SetValue(subtitleState,field.GetValue(value.Subtitle));
+                // Media-derived text is refreshed below, never stored as a task configuration.
+                UpdateNoReencodeUi();UpdateSfeUi();UpdateMediaDrivenUi(GetBitrateMediaContext());UpdateGrainEnableUi();UpdateCinematicCropLabels();RefreshSubtitleButton();UpdateColorCorrectionUi();UpdateLutUi();lblLutStrength.Text=GetLutStrength().ToString(CultureInfo.InvariantCulture)+"%";
+            } finally {restoringFileEditor=false;ResumeLayout(true);}
+            UpdateBitrateDisplays();
+        }
+        private void SaveEditingFile()
+        {
+            if(independentFiles&&editingFile!=null)fileSettings[editingFile]=CaptureFileEditor();
+        }
+        private void SelectFileEditor()
+        {
+            if(!independentFiles||restoringFileEditor||changingFileSelection||listFiles.SelectedItems.Count!=1)return;
+            string path=listFiles.SelectedItems[0].Tag as string;
+            if(path==null||path==editingFile)return;
+            SaveEditingFile();editingFile=path;
+            FileEditorSettings value;if(!fileSettings.TryGetValue(path,out value))fileSettings[path]=value=sharedEditor.Copy();
+            ApplyFileEditor(value,true);UpdateFileSettingsLabels();
+        }
+        private void ChangeFileSettingsMode()
+        {
+            if(restoringFileEditor)return;
+            bool enabled=fileSettingsMode.Checked;
+            if(enabled==independentFiles)return;
+            if(enabled) {
+                sharedEditor=CaptureFileEditor();independentFiles=true;editingFile=null;
+                foreach(ListViewItem item in listFiles.Items) {
+                    string path=item.Tag as string;if(path!=null&&!fileSettings.ContainsKey(path))fileSettings[path]=sharedEditor.Copy();
+                }
+                changingFileSelection=true;
+                try {while(listFiles.SelectedItems.Count>1)listFiles.SelectedItems[listFiles.SelectedItems.Count-1].Selected=false;listFiles.MultiSelect=false;}
+                finally {changingFileSelection=false;}
+                if(listFiles.SelectedItems.Count==0&&listFiles.Items.Count>0)listFiles.Items[0].Selected=true;
+                SelectFileEditor();
+                if(editingFile==null)config.UseTaskValues(sharedEditor.Config);
+            } else {
+                SaveEditingFile();independentFiles=false;editingFile=null;listFiles.MultiSelect=true;
+                ApplyFileEditor(sharedEditor,false);
+            }
+            UpdateNoReencodeAvailability();UpdateFileSettingsLabels();
+        }
+        private Control BuildFileSettingsBar()
+        {
+            var panel=new FlowLayoutPanel { Dock=DockStyle.Fill,WrapContents=false };
+            fileSettingsMode=new ThemeCheckBox { Text=UiText("独立配置","Per-file settings"),AutoSize=true,Checked=false,Margin=new Padding(4,5,8,0) };
+            fileSettingsMode.CheckedChanged+=delegate {ChangeFileSettingsMode();};
+            panel.Controls.Add(fileSettingsMode);
+            return panel;
+        }
+        private void UpdateFileSettingsLabels()
+        {
+            foreach(ListViewItem item in listFiles.Items) {
+                string path=item.Tag as string;if(path==null)continue;
+                item.Text=(independentFiles?UiText("[独立] ","[File] "):"")+Path.GetFileName(path);
+                item.ToolTipText=path+(!independentFiles&&fileSettings.ContainsKey(path)?UiText("\r\n已保留独立配置；统一模式暂不应用。","\r\nPer-file settings retained; inactive in shared mode."):"");
+            }
+        }
+        private readonly HashSet<string> displayedQueueFiles=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private ListViewItem QueueFileItem(BridgeTaskRequest task)
+        {
+            if(task==null||task.ExecutionRequest==null||task.ExecutionRequest.InputFiles==null||task.ExecutionRequest.InputFiles.Count==0)return null;
+            string input=task.ExecutionRequest.InputFiles[0];
+            foreach(ListViewItem item in listFiles.Items)if(string.Equals(item.Tag as string,input,StringComparison.OrdinalIgnoreCase))return item;
+            return null;
+        }
+        private void UpdateQueueFileState(BridgeTaskStateChangedEventArgs e)
+        {
+            if(e.State==BridgeTaskState.Idle) {
+                foreach(ListViewItem item in listFiles.Items)
+                    if(displayedQueueFiles.Contains(item.Tag as string)&&item.SubItems[2].Text==UiText("等待","Waiting"))item.SubItems[2].Text=UiText("未执行","Not run");
+                return;
+            }
+            var active=QueueFileItem(e.Task);if(active==null)return;
+            if(e.State==BridgeTaskState.Cancelling){active.SubItems[2].Text=UiText("取消中","Cancelling");return;}
+            if(e.Task.QueueIndex<=1) {
+                displayedQueueFiles.Clear();
+                foreach(ListViewItem item in listFiles.Items)if(e.Task.QueueTotal>1||item==active) {
+                    displayedQueueFiles.Add((string)item.Tag);item.SubItems[2].Text=UiText("等待","Waiting");
+                }
+            }
+            active.SubItems[2].Text=UiText("处理中","Processing");
+            changingFileSelection=true;
+            try {foreach(ListViewItem item in listFiles.Items)item.Selected=false;active.Selected=true;active.Focused=true;active.EnsureVisible();}
+            finally {changingFileSelection=false;}
+            SelectFileEditor();UpdateSelectedInfo();listFiles.Focus();
+        }
+        private void OnQueueItemCompleted(object sender,BridgeTaskItemCompletedEventArgs e)
+        {
+            if(IsDisposed||Disposing||!IsHandleCreated)return;
+            try {BeginInvoke((MethodInvoker)delegate {
+                if(IsDisposed||Disposing)return;
+                var item=QueueFileItem(e.Task);if(item==null)return;
+                item.SubItems[2].Text=e.Result.Cancelled?UiText("已取消","Cancelled"):
+                    e.Result.ExitCode==0&&e.Result.Exception==null?UiText("结束","Finished"):UiText("失败","Failed");
+            });}catch(InvalidOperationException){}
+        }
+        private void StartIndependentQueue()
+        {
+            SaveEditingFile();
+            var states=new Dictionary<string,SortedDictionary<string,string>>(StringComparer.OrdinalIgnoreCase);
+            var inputs=new List<string>();
+            FileEditorSettings restore=CaptureFileEditor();
+            try {
+                foreach(ListViewItem item in listFiles.Items) {
+                    string input=item.Tag as string;if(string.IsNullOrEmpty(input))continue;
+                    FileEditorSettings editor;if(!fileSettings.TryGetValue(input,out editor))fileSettings[input]=editor=sharedEditor.Copy();
+                    captureInputPath=input;ApplyFileEditor(editor,true);
+                    if(!ValidateHardwareForSelectedCodec())return;
+                    string error;var state=BuildBridgeEnvironment(out error);
+                    if(state==null)throw new InvalidOperationException(input+" : "+error);
+                    if(chkEncodePreview.Checked) {
+                        double start;if(!numPreviewDuration.ValidateInput()||!SharedEncodePreviewCore.TryParseStart(txtPreviewStart.Text,out start))throw new InvalidOperationException("Invalid preview range: "+input);
+                        state["FG_ENCODE_PREVIEW"]="1";state["FG_PREVIEW_START"]=txtPreviewStart.Text;state["FG_PREVIEW_SECONDS"]=numPreviewDuration.Value.ToString(CultureInfo.InvariantCulture);
+                    }
+                    MediaProbeInfo media;mediaProbeCache.TryGetValue(input,out media);
+                    state["FG_QUEUE_OUTPUT_FPS"]=GetRecommendedOutputFps(media).ToString(CultureInfo.InvariantCulture);
+                    state["FG_QUEUE_NO_REENCODE"]=cmbCodec.SelectedIndex==4?"1":"0";
+                    states[input]=new SortedDictionary<string,string>(state,StringComparer.OrdinalIgnoreCase);inputs.Add(input);
+                }
+            } catch(Exception ex) {MessageBox.Show(this,ex.Message,Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);return;}
+            finally {captureInputPath=null;ApplyFileEditor(restore,true);}
+            if(inputs.Count==0)return;
+            if(taskLog!=null)taskLog.Dispose();taskLog=new FullLogFileCore(appRoot,"Task",GetLogEntryLimit());fullLogErrorReported=false;
+            AppendTaskLog("[Queue] mode=per-file frozen="+inputs.Count+Environment.NewLine);
+            StartSharedQueue(inputs,states[inputs[0]],states[inputs[0]]["FG_QUEUE_NO_REENCODE"]=="1",states);
+        }
+    }
+
 }

@@ -113,9 +113,7 @@ namespace FilmGrainStudioPreview
 
             string mpegTsVideoOffset = "";
 
-            string quality = Get(state, "FG_FGSIM_QUALITY").ToUpperInvariant();
 
-            if (fgsimMode && quality != "VBR" && quality != "STANDARD" && quality != "HIGH") { reason = "unsupported FGSIM quality"; return false; }
 
             string aqSetting = Get(state, "FG_HEVC_SPATIAL_AQ");
 
@@ -258,7 +256,6 @@ namespace FilmGrainStudioPreview
 
             string speedSuffix = speed == "STANDARD" ? "STD" : "FAST";
 
-            string rcSuffix = fgsimMode && quality == "STANDARD" ? "_CQ27" : fgsimMode && quality == "HIGH" ? "_CQ23" : "";
 
             string grainInput = "";
 
@@ -330,7 +327,7 @@ namespace FilmGrainStudioPreview
             string grainFileName = !grainEnabled ? "" : plateMode ? "_FG_" + grainTag + "_STR" + plateStrengthPercent.ToString(CultureInfo.InvariantCulture) : fgsimMode ? "_FG_FGSIM_" + fgsimTag : "_FG_DG" + procStrength.ToString(CultureInfo.InvariantCulture);
 
             if (grainEnabled && pixelPercent != 100) grainFileName += "_GS" + pixelPercent.ToString(CultureInfo.InvariantCulture);
-            string output = Path.Combine(outDir, Path.GetFileNameWithoutExtension(input) + (h264?"_H264_NVENC_":"_HEVC_") + speedSuffix + "_" + bitrate.ToString(CultureInfo.InvariantCulture) + "k" + rcSuffix + fpsSuffix + deinterlaceSuffix + frame.FileSuffix + grainFileName + colorSuffix + lutNamingSuffix + (hdrToSdr ? "_SDR_" + tonemapLabel : "") + subSuffix + (mkv ? ".mkv" : ".mp4"));
+            string output = Path.Combine(outDir, Path.GetFileNameWithoutExtension(input) + (h264?"_H264_NVENC_":"_HEVC_") + speedSuffix + "_" + bitrate.ToString(CultureInfo.InvariantCulture) + "k" + fpsSuffix + deinterlaceSuffix + frame.FileSuffix + grainFileName + colorSuffix + lutNamingSuffix + (hdrToSdr ? "_SDR_" + tonemapLabel : "") + subSuffix + (mkv ? ".mkv" : ".mp4"));
 
             if (File.Exists(output)) { reason = "native output already exists: " + output; return false; }
 
@@ -340,7 +337,6 @@ namespace FilmGrainStudioPreview
                 if (mpegTsSvp && !preserveSvpTransportTimeline && !TryGetMpegTsVideoOffset(ffprobe,input,out mpegTsVideoOffset,out reason))return false;
                 if(fgsimMode) {
                     if(!TryPrepareFgsimHook(appRoot,ffmpeg,fgsimHook,Get(state,"FG_FGSIM_PRESET").ToUpperInvariant(),out reason))return false;
-                    if(hdrPreserve&&!ValidateFgsimHdrHook(ffmpeg,fgsimHook,out reason))return false;
                 }
 
             string lutCompatPath = "", lutCompatName = "", lutOpacity = "";
@@ -584,7 +580,7 @@ namespace FilmGrainStudioPreview
 
                 }
 
-                    List<string> hevcArgs = BuildHevcArgs(encodeInput, grainInput, filter, output, preset, highMotion, bitrate, max, buf, fps, duration, plateMode, mkv, caps, state, quality, hdrPreserve ? info : null, fruc, info);
+                    List<string> hevcArgs = BuildHevcArgs(encodeInput, grainInput, filter, output, preset, highMotion, bitrate, max, buf, fps, duration, plateMode, mkv, caps, state, hdrPreserve ? info : null, fruc, info);
 
                     if (svp) {
                         ConvertToPipeInput(hevcArgs, encodeInput, mpegTsSvp && !preserveSvpTransportTimeline ? mpegTsVideoOffset : null);
@@ -626,6 +622,7 @@ namespace FilmGrainStudioPreview
                     foreach (BridgeExecutionStage stage in request.DirectStages)
                         if (stage.FrucArguments != null) stage.FrucProbePath = ffprobe;
                 if(info.IsHdr && info.IsInterlaced && !deinterlace)request.ExecutionNotice="[Native .NET] 反交错 OFF：沿用不反交错的逐帧处理，不启用 bob/光流或双倍场率；不保证隔行编码标记。 / Deinterlace OFF: frame processing without bob/interpolation; no interlaced-encoding flags are added.";
+            if (fgsimMode) FgsimTextureCore.AttachVerifiedDevice(request, fgsimHook, hdrPreserve);
             prepared = new BridgePreparedExecution(request, false, ffmpeg, requestInputs);
 
                 lutCompatPath = "";
@@ -840,7 +837,7 @@ namespace FilmGrainStudioPreview
 
         }
 
-        private static List<string> BuildHevcArgs(string input, string grainInput, string filter, string output, string preset, bool highMotion, long bitrate, long max, long buf, string fps, string duration, bool plateMode, bool mkv, HardwareCapabilitySnapshot caps, IDictionary<string,string> state, string quality, MediaProbeInfo hdrInfo, bool fruc, MediaProbeInfo audioInfo)
+        private static List<string> BuildHevcArgs(string input, string grainInput, string filter, string output, string preset, bool highMotion, long bitrate, long max, long buf, string fps, string duration, bool plateMode, bool mkv, HardwareCapabilitySnapshot caps, IDictionary<string,string> state, MediaProbeInfo hdrInfo, bool fruc, MediaProbeInfo audioInfo)
 
         {
 
@@ -868,9 +865,7 @@ namespace FilmGrainStudioPreview
 
             a.Add("-preset"); a.Add(preset); a.Add("-tune"); a.Add("hq"); a.Add("-rc"); a.Add("vbr");
 
-            if (quality == "STANDARD" && filter.Contains("libplacebo=")) { a.Add("-cq"); a.Add("27"); a.Add("-qmin"); a.Add("18"); a.Add("-qmax"); a.Add("26"); }
 
-            if (quality == "HIGH" && filter.Contains("libplacebo=")) { a.Add("-cq"); a.Add("23"); a.Add("-qmin"); a.Add("18"); a.Add("-qmax"); a.Add("24"); }
 
             a.Add("-b:v"); a.Add(bitrate.ToString(CultureInfo.InvariantCulture) + "k");
 
@@ -939,73 +934,7 @@ namespace FilmGrainStudioPreview
 
         }
 
-        private static bool ValidateFgsimHdrHook(string ffmpeg, string hook, out string reason)
 
-        {
-
-            reason = "";
-
-            try
-
-            {
-
-                string filter = "hwupload,libplacebo=format=yuv420p10le:custom_shader_path=" + EscapeFgsimShaderPath(hook) + ",hwdownload,format=yuv420p10le";
-
-                List<string> ffmpegArgs = new List<string>{"-hide_banner","-loglevel","warning","-init_hw_device","vulkan=vk:0","-filter_hw_device","vk",
-
-                    "-f","lavfi","-i","color=c=gray:s=32x32:d=0.04,format=yuv420p10le","-vf",filter,"-frames:v","1","-f","null","NUL"};
-
-                ProcessStartInfo psi = new ProcessStartInfo(ffmpeg, JoinArgs(ffmpegArgs));
-
-                psi.UseShellExecute = false; psi.CreateNoWindow = true;
-
-                psi.RedirectStandardOutput = true; psi.RedirectStandardError = true;
-
-                using (Process process = new Process())
-
-                {
-
-                    StringBuilder stdout = new StringBuilder();
-
-                    StringBuilder stderr = new StringBuilder();
-
-                    process.StartInfo = psi;
-
-                    process.OutputDataReceived += delegate(object sender, DataReceivedEventArgs eventArgs) { if (eventArgs.Data != null) stdout.AppendLine(eventArgs.Data); };
-
-                    process.ErrorDataReceived += delegate(object sender, DataReceivedEventArgs eventArgs) { if (eventArgs.Data != null) stderr.AppendLine(eventArgs.Data); };
-
-                    process.Start();
-
-                    process.BeginOutputReadLine();
-
-                    process.BeginErrorReadLine();
-
-                    if (!process.WaitForExit(15000)) { try { process.Kill(); } catch { } reason = "10-bit FGSIM shader preflight timed out"; return false; }
-
-                    process.WaitForExit();
-
-                    if (process.ExitCode != 0)
-
-                    {
-
-                        string detail = FirstLine(string.IsNullOrWhiteSpace(stderr.ToString()) ? stdout.ToString() : stderr.ToString());
-
-                        reason = "10-bit FGSIM shader preflight failed" + (string.IsNullOrWhiteSpace(detail) ? "" : ": " + detail);
-
-                        return false;
-
-                    }
-
-                }
-
-                return true;
-
-            }
-
-            catch (Exception ex) { reason = "10-bit FGSIM shader preflight failed: " + ex.Message; return false; }
-
-        }
 
         internal static bool HasFrucFilter(string ffmpeg)
         {

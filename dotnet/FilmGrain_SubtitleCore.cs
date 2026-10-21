@@ -22,6 +22,8 @@ namespace FilmGrainStudioPreview
         internal int MarginV = 5;
         internal string Label = "";
 
+        internal SubtitleState Copy() { return (SubtitleState)MemberwiseClone(); }
+
         internal void WriteEnvironment(SortedDictionary<string, string> state)
         {
             state["FG_SUBTITLE"] = Enabled ? "1" : "0";

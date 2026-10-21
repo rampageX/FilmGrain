@@ -33,6 +33,25 @@ namespace FilmGrainStudioPreview
             new KeyValuePair<string, string[]>("ColorCorrection", new string[] { "COLOR_CORRECTION_ENABLED", "COLOR_CONTRAST", "COLOR_BRIGHTNESS", "COLOR_SATURATION", "COLOR_GAMMA", "COLOR_BLACK_WHITE" })
         };
 
+        // Task editor overlay: Load/Save keep application settings on disk and task settings in memory.
+        private Dictionary<string,string> taskValues;
+        internal static bool IsTaskKey(string key)
+        {
+            if(key=="COLOR_PREVIEW_LARGE_UI")return false;
+            foreach (var section in Sections)
+                if (section.Key.StartsWith("Advanced.") || section.Key == "ColorCorrection")
+                    foreach (string name in section.Value) if (name.Equals(key,StringComparison.OrdinalIgnoreCase)) return true;
+            return key == "GRAIN_ENABLED" || key == "AV1_GRAIN_STRENGTH" || key == "AV1_COPY_FAST" || key == "AV1_COPY_FULL_VERIFY";
+        }
+        internal Dictionary<string,string> CaptureTaskValues()
+        {
+            var result=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
+            foreach(string key in defaults.Keys) if(IsTaskKey(key)) result[key]=Get(key);
+            return result;
+        }
+        internal void UseTaskValues(IDictionary<string,string> source)
+        { taskValues=source==null?null:new Dictionary<string,string>(source,StringComparer.OrdinalIgnoreCase); }
+
         public string ConfigPath { get { return configPath; } }
 
         public FgsConfig(string appRoot, string overridePath)
@@ -187,6 +206,7 @@ namespace FilmGrainStudioPreview
         public string Get(string key)
         {
             string value;
+            if (taskValues != null && taskValues.TryGetValue(key,out value)) return value;
             if (values.TryGetValue(key, out value)) return value;
             if (defaults.TryGetValue(key, out value)) return value;
             return "";
@@ -233,6 +253,16 @@ namespace FilmGrainStudioPreview
 
         public void Save(IDictionary<string, string> updates)
         {
+            if(taskValues!=null) {
+                var global=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
+                foreach(var pair in updates) {
+                    string key=(pair.Key??"").Trim().ToUpperInvariant();
+                    if(IsTaskKey(key)) taskValues[key]=Normalize(key,pair.Value??"");
+                    else global[key]=pair.Value;
+                }
+                if(global.Count==0)return;
+                updates=global;
+            }
             Load();
             foreach (KeyValuePair<string, string> pair in updates)
             {
@@ -245,7 +275,7 @@ namespace FilmGrainStudioPreview
             foreach (KeyValuePair<string, string[]> section in Sections)
             {
                 lines.Add("[" + section.Key + "]");
-                foreach (string key in section.Value) lines.Add(key + "=" + Get(key));
+                foreach (string key in section.Value) lines.Add(key + "=" + (taskValues!=null && IsTaskKey(key) ? values[key] : Get(key)));
                 lines.Add("");
             }
 

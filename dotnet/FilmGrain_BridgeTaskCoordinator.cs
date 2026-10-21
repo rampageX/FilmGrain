@@ -32,6 +32,13 @@ namespace FilmGrainStudioPreview
         }
     }
 
+    internal sealed class BridgeTaskItemCompletedEventArgs : EventArgs
+    {
+        public BridgeTaskRequest Task { get; private set; }
+        public BridgeExecutionResult Result { get; private set; }
+        public BridgeTaskItemCompletedEventArgs(BridgeTaskRequest task,BridgeExecutionResult result){Task=task;Result=result;}
+    }
+
     // Phase 3.5.4 task-lifecycle coordinator.
     // Owns the validated BridgeExecutionCore and keeps execution state out of MainForm.
     // Process launching, progress parsing, cancellation and cleanup remain in BridgeExecutionCore.
@@ -48,6 +55,7 @@ namespace FilmGrainStudioPreview
         public event EventHandler<BridgeLogLineEventArgs> LogLine;
         public event EventHandler<BridgeProgressEventArgs> ProgressChanged;
         public event EventHandler<BridgeExecutionCompletedEventArgs> Completed;
+        public event EventHandler<BridgeTaskItemCompletedEventArgs> ItemCompleted;
 
         public BridgeTaskCoordinator()
         {
@@ -107,8 +115,9 @@ namespace FilmGrainStudioPreview
                     executionCore.Start(task.ExecutionRequest);
                 }
             }
-            catch
+            catch(Exception ex)
             {
+                RaiseItemCompleted(task,new BridgeExecutionResult(-1,false,ex));
                 lock (sync)
                 {
                     if (object.ReferenceEquals(activeTask, task)) activeTask = null;
@@ -194,6 +203,7 @@ namespace FilmGrainStudioPreview
                         " exit=" + result.ExitCode + " cancelled=" + result.Cancelled));
                 if (state == BridgeTaskState.Cancelling && !result.Cancelled)
                     result = new BridgeExecutionResult(-1, true, result.Exception);
+                RaiseItemCompleted(task,result);
                 if (!disposed && !result.Cancelled && result.Exception == null && result.ExitCode == 0 && pending.Count > 0)
                 {
                     activeTask = pending.Dequeue();
@@ -204,6 +214,7 @@ namespace FilmGrainStudioPreview
                         {
                             BridgeExecutionCore.CleanupTemporaryFiles(activeTask == null ? null : activeTask.ExecutionRequest);
                             result = new BridgeExecutionResult(-1, true, null);
+                            RaiseItemCompleted(activeTask,result);
                         }
                         else { executionCore.Start(activeTask.ExecutionRequest); return; }
                     }
@@ -211,6 +222,7 @@ namespace FilmGrainStudioPreview
                     {
                         BridgeExecutionCore.CleanupTemporaryFiles(activeTask.ExecutionRequest);
                         result = new BridgeExecutionResult(-1, false, ex);
+                        RaiseItemCompleted(activeTask,result);
                     }
                 }
                 if (task != null && task.QueueTotal > 1)
@@ -223,6 +235,11 @@ namespace FilmGrainStudioPreview
             RaiseStateChanged(BridgeTaskState.Idle, task);
             EventHandler<BridgeExecutionCompletedEventArgs> handler = Completed;
             if (handler != null) handler(this, new BridgeExecutionCompletedEventArgs(result));
+        }
+
+        private void RaiseItemCompleted(BridgeTaskRequest task,BridgeExecutionResult result)
+        {
+            var handler=ItemCompleted;if(task!=null&&handler!=null)handler(this,new BridgeTaskItemCompletedEventArgs(task,result));
         }
 
         private void RaiseStateChanged(BridgeTaskState newState, BridgeTaskRequest task)
