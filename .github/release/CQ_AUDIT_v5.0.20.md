@@ -147,3 +147,14 @@ R6 default entry Tests_CQ_N7V4PK\Run_CQ_N7V4PK_R6_B4T8NZ.cmd rebuilds, compares 
 R6 Windows return Return_CQ_N7V4PK_R6_B4T8NZ_20261021_202112_422.zip: PASS 184, 0 failures. Native tooltip Popup/Draw, multiline layout and dark/light/dark theme switching passed; ordinary maximum-bitrate text fields align and save/reload. Original/current VBR signatures match. No real encodes repeated in R6; R5 PASS276 provides hardware evidence. User explicitly confirmed manual acceptance. Earlier R6-pending statements describe the state before this final return.
 
 v5.0.20 preparation changes only metadata, documentation and cleanup/release layout. No feature code changed after R6 acceptance. Final formal Windows Dry Run and publication are maintainer actions; no commit/tag/push/release performed here.
+
+
+## Post-acceptance tooltip positioning correction — Q7M3VN R2_H6P8TC
+
+After the original R6 acceptance, ThemeToolTip gained cursor-monitor work-area positioning for abnormally distant native popups. Both the draw guard and the hover audit now recognize native and WinForms tooltip class names. No encoding or queue feature code changed in this increment.
+
+Windows return Return_Hint_Q7M3VN_R2_H6P8TC_20261022_071235_538.zip: RESULT PASS checks=354; 32 CASE_START, 32 CASE_PASS, zero CASE_FAIL, 32 screenshots. Each of H264_LOOKAHEAD, HEVC_LOOKAHEAD, SVP_TUNING and H264_BFRAMES passed eight combinations across two monitors, DARK/LIGHT, normal/corner. Assertions used the real main/advanced windows, actual pointer hits and native popup rectangles, screen bounds, wrapping and theme pixels. Representative saved screenshots were visually inspected. R1's early stop was not counted as coverage.
+
+Local class/geometry checks: 63 passed; production Framework API audit: 2304 resolved, zero failures. Both candidate EXEs match SHA256 6ee87aa6b5dc76951e2ec9bbeeb697685a55035349405e821d83d02544783203. Product/file versions remain 5.0.20 / 5.0.20.0. Actual Windows mixed-DPI cases were not exhaustively covered; geometry covers 96/144/192 DPI. No video encodes repeated; R5 hardware and prior stated limits remain applicable.
+
+Release documentation updated after this return. No test cleanup, commit, tag, push or publication performed. All new test artifacts reside under Tests_Tooltip_Q7M3VN, excluded by release layout. Formal Windows release dry-run remains the maintainer's next step.

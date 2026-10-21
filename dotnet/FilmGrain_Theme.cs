@@ -521,6 +521,54 @@ namespace FilmGrainStudioPreview
     // Shared by every explicit tooltip and ToolStrip hint. Resolve theme at display time.
     internal sealed class ThemeToolTip : ToolTip
     {
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern IntPtr WindowFromDC(IntPtr dc);
+        [System.Runtime.InteropServices.DllImport("user32.dll",CharSet=System.Runtime.InteropServices.CharSet.Unicode)]
+        private static extern int GetClassName(IntPtr window,System.Text.StringBuilder name,int count);
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool GetWindowRect(IntPtr window,out NativeRect rect);
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool SetWindowPos(IntPtr window,IntPtr after,int x,int y,int width,int height,uint flags);
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        private struct NativeRect {public int Left,Top,Right,Bottom;}
+        internal static Point NearPointer(Point pointer,Size size,Rectangle workingArea,float dpi)
+        {
+            int dx=Math.Max(12,(int)Math.Ceiling(12*dpi/96f));
+            int dy=Math.Max(20,(int)Math.Ceiling(20*dpi/96f));
+            int x=pointer.X+dx,y=pointer.Y+dy;
+            if(x+size.Width>workingArea.Right)x=pointer.X-size.Width-dx;
+            if(y+size.Height>workingArea.Bottom)y=pointer.Y-size.Height-dy;
+            return new Point(Math.Max(workingArea.Left,Math.Min(x,workingArea.Right-size.Width)),
+                Math.Max(workingArea.Top,Math.Min(y,workingArea.Bottom-size.Height)));
+        }
+        internal static bool NeedsCorrection(Point pointer,Rectangle popup,Rectangle area,float dpi)
+        {
+            Point expected=NearPointer(pointer,popup.Size,area,dpi);
+            int tolerance=Math.Max(32,(int)Math.Ceiling(32*dpi/96f));
+            return !area.Contains(popup)||Math.Abs(popup.Left-expected.X)>tolerance||Math.Abs(popup.Top-expected.Y)>tolerance;
+        }
+        internal static bool IsTooltipWindowClass(string name)
+        {
+            return string.Equals(name,"tooltips_class32",StringComparison.OrdinalIgnoreCase)||
+                (name!=null&&name.StartsWith("WindowsForms10.tooltips_class32.app.",StringComparison.OrdinalIgnoreCase));
+        }
+        private static void PositionNativePopup(Graphics graphics)
+        {
+            if(Environment.OSVersion.Platform!=PlatformID.Win32NT)return;
+            IntPtr dc=graphics.GetHdc(),window;
+            try {window=WindowFromDC(dc);}finally {graphics.ReleaseHdc(dc);}
+            // Only move this draw event's tooltip, never its associated form or another popup.
+            var name=new System.Text.StringBuilder(64);
+            if(window==IntPtr.Zero||GetClassName(window,name,name.Capacity)==0||!IsTooltipWindowClass(name.ToString()))return;
+            NativeRect rect;if(!GetWindowRect(window,out rect))return;
+            Point pointer=Cursor.Position;
+            Rectangle popup=Rectangle.FromLTRB(rect.Left,rect.Top,rect.Right,rect.Bottom);
+            Rectangle area=Screen.FromPoint(pointer).WorkingArea;
+            if(!NeedsCorrection(pointer,popup,area,graphics.DpiX))return;
+            Point origin=NearPointer(pointer,popup.Size,area,graphics.DpiX);
+            if(rect.Left!=origin.X||rect.Top!=origin.Y)
+                SetWindowPos(window,IntPtr.Zero,origin.X,origin.Y,0,0,0x0001|0x0004|0x0010); // no size / z-order / activation change
+        }
         internal static bool UsesDark(Control control)
         {
             if(control==null)return false;
@@ -547,9 +595,10 @@ namespace FilmGrainStudioPreview
             Popup+=delegate(object sender,PopupEventArgs e) {
                 Control c=e.AssociatedControl;Font font=c!=null?c.Font:SystemFonts.MessageBoxFont;
                 using(Graphics graphics=c!=null?c.CreateGraphics():Graphics.FromHwnd(IntPtr.Zero))
-                    e.ToolTipSize=Measure(graphics,c!=null?GetToolTip(c):"",font,(c!=null?Screen.FromControl(c):Screen.PrimaryScreen).WorkingArea.Width);
+                    e.ToolTipSize=Measure(graphics,c!=null?GetToolTip(c):"",font,Screen.FromPoint(Cursor.Position).WorkingArea.Width);
             };
             Draw+=delegate(object sender,DrawToolTipEventArgs e) {
+                PositionNativePopup(e.Graphics);
                 Render(e.Graphics,e.Bounds,e.ToolTipText,e.AssociatedControl!=null?e.AssociatedControl.Font:SystemFonts.MessageBoxFont,UsesDark(e.AssociatedControl));
             };
         }

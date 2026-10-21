@@ -1,7 +1,7 @@
 Film Grain Studio - 文件与发布说明
 ================================
 
-当前产品版本：v5.0.20；构建 Stable。
+当前产品版本：v5.0.21；构建 Stable。
 
 正式运行入口：FilmGrain_Studio.exe。
 同源构建入口：dotnet\build\FilmGrain_Studio_NET_Preview.exe；两处成品必须一致。

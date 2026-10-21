@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.0.20 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.21 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
 
@@ -1313,7 +1313,7 @@ ffmpeg -hide_banner -h decoder=libdav1d
 
 统一主题覆盖主界面、网络代理、AV1 颗粒烘焙、路径配置、高级设置、依赖向导、工具任务、字幕设置、颗粒预览、裁剪、调色及 LUT 图库。已打开与随后打开的应用窗口、应用右键菜单随主题更新，窗体统一使用 FGS 图标。视频、缩略图、颗粒纹理及字幕色块保持实际内容。
 
-工具提示跟随当前窗口的深浅主题，长文本自动换行并限制宽度。主窗口、设置、字幕、LUT 图库、资源监控、工具栏与文件列表共用提示绘制。
+工具提示跟随当前窗口的深浅主题，长文本自动换行并限制宽度。主窗口、设置、字幕、LUT 图库、资源监控、工具栏与文件列表共用提示绘制。提示在鼠标附近显示，靠近屏幕边缘时自动调整到当前显示器工作区内；包括高级设置中的 Lookahead 与 OpenSVPFlow 调教预设。
 
 系统文件、颜色、字体和消息对话框、系统菜单及标题栏采用 Windows 自身外观，部分原生控件边缘与焦点显示受 Windows 版本影响。完整日志通过系统关联程序打开，外部程序外观由其自身决定。
 
