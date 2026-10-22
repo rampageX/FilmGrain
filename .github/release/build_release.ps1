@@ -385,6 +385,21 @@ $RuntimeFiles = @(
 )
 $RuntimeDirectories = @('Lang', '_AV1_Grain_Tables', '_OpenSVPFlow')
 
+function Get-RuntimeRelativeFiles {
+    param([string]$Directory, [string]$Prefix = '')
+    foreach ($item in Get-ChildItem -LiteralPath $Directory -Force -ErrorAction Stop) {
+        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw ('Unexpected reparse point in runtime stage: ' + $item.FullName)
+        }
+        $relative = $Prefix + $item.Name
+        if ($item.PSIsContainer) {
+            Get-RuntimeRelativeFiles -Directory $item.FullName -Prefix ($relative + '/')
+        } else {
+            $relative
+        }
+    }
+}
+
 function New-RuntimeStage {
     param([string]$Source, [string]$Destination)
     New-Item -ItemType Directory -Path $Destination -Force | Out-Null
@@ -409,9 +424,9 @@ function New-RuntimeStage {
     [IO.File]::WriteAllText($readmePath, $readme, $Utf8NoBom)
     foreach ($relative in $RuntimeFiles) { Assert-File -Root $Destination -RelativePath $relative }
     foreach ($relative in $RuntimeDirectories) { Assert-Directory -Root $Destination -RelativePath $relative }
-    $script:RuntimeExpectedEntries = @(Get-ChildItem -LiteralPath $Destination -Recurse -File -Force | ForEach-Object {
-        $_.FullName.Substring(($Destination.TrimEnd('\')).Length).TrimStart('\').Replace('\', '/')
-    } | Sort-Object)
+    # Build relative paths from names, not from absolute path string lengths.
+    # TEMP may contain RUNNER~1 while enumeration expands it to runneradmin.
+    $script:RuntimeExpectedEntries = @(Get-RuntimeRelativeFiles -Directory $Destination | Sort-Object)
 }
 
 function Test-ZipContent {
@@ -419,7 +434,14 @@ function Test-ZipContent {
     $archive = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
     try {
         $entries = @($archive.Entries | Where-Object { $_.Name } | ForEach-Object { $_.FullName.Replace('\', '/') } | Sort-Object)
-        if (@(Compare-Object $script:RuntimeExpectedEntries $entries).Count) { throw 'Runtime ZIP does not match the runtime stage.' }
+        $difference = @(Compare-Object $script:RuntimeExpectedEntries $entries)
+        if ($difference.Count) {
+            $details = @($difference | Select-Object -First 20 | ForEach-Object {
+                $kind = if ($_.SideIndicator -eq '<=') { 'Missing from ZIP' } else { 'Unexpected in ZIP' }
+                $kind + ': ' + $_.InputObject
+            }) -join '; '
+            throw ('Runtime ZIP does not match the runtime stage. ' + $details)
+        }
         if (@($entries | Where-Object { $_ -match '^(dotnet|Legacy|images|benchmark|[.]github)/' }).Count) { throw 'Developer content found in runtime ZIP.' }
         foreach ($entry in $archive.Entries) {
             if (-not $entry.Name) { continue }
