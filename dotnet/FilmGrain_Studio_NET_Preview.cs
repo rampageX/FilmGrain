@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -106,8 +106,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.23";
-        internal const string FileReleaseVersion = "5.0.23.0";
+        internal const string ReleaseVersion = "5.0.24";
+        internal const string FileReleaseVersion = "5.0.24.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -2604,8 +2604,8 @@ namespace FilmGrainStudioPreview
 
         private string FrucUiReason()
         {
-            if ((hardwareDetectionInProgress && !hardwareCapsReady) || hardwareCaps == null || !hardwareCaps.FrucReady) return FrucUiSummary();
-            return FrucUiSummary() + Environment.NewLine + hardwareCaps.FrucReason + Environment.NewLine + hardwareCaps.FrucFfmpegPath;
+            // Normal UI uses the concise reason. Full probe output stays in the diagnostic log.
+            return FrucToolTipText();
         }
 
         private string FrucToolTipText()

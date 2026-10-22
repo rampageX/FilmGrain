@@ -75,7 +75,50 @@ namespace FilmGrainStudioPreview
             catch (DllNotFoundException) { }
             catch (EntryPointNotFoundException) { }
         }
-        private readonly ThemeToolTip stripTip=new ThemeToolTip();
+        private readonly ThemeToolTip stripTip=new ThemeToolTip { ShowAlways=true };
+        private readonly Timer statusTipDelay=new Timer();
+        private ToolStripItem pendingStatusTip;
+        private ToolStrip pendingStatusOwner;
+        internal UiTheme()
+        {
+            statusTipDelay.Interval=450;
+            statusTipDelay.Tick+=ShowStatusTip;
+        }
+        private void HideStatusTip()
+        {
+            statusTipDelay.Stop();
+            if(pendingStatusOwner!=null && !pendingStatusOwner.IsDisposed) {
+                stripTip.Hide(pendingStatusOwner);
+                stripTip.SetToolTip(pendingStatusOwner, "");
+            }
+            pendingStatusTip=null;pendingStatusOwner=null;
+        }
+        private void QueueStatusTip(object sender,EventArgs e)
+        {
+            ToolStripItem item=sender as ToolStripItem;
+            ToolStrip owner=item==null ? null : item.GetCurrentParent();
+            if(!(owner is StatusStrip))return;
+            if(item==pendingStatusTip)return;
+            HideStatusTip();
+            if(item.IsDisposed || string.IsNullOrEmpty(item.ToolTipText))return;
+            pendingStatusTip=item;pendingStatusOwner=owner;
+            statusTipDelay.Start();
+        }
+        private void StatusItemMouseMove(object sender,MouseEventArgs e) { QueueStatusTip(sender,e); }
+        private void StatusItemMouseLeave(object sender,EventArgs e)
+        {
+            if(sender==pendingStatusTip)HideStatusTip();
+        }
+        private void ShowStatusTip(object sender,EventArgs e)
+        {
+            statusTipDelay.Stop();
+            ToolStripItem item=pendingStatusTip;ToolStrip owner=pendingStatusOwner;
+            if(item==null || item.IsDisposed || owner==null || owner.IsDisposed || !owner.Visible)return;
+            Point pointer=owner.PointToClient(Cursor.Position);
+            if(owner.GetItemAt(pointer)!=item || string.IsNullOrEmpty(item.ToolTipText)) {HideStatusTip();return;}
+            stripTip.SetToolTip(owner,item.ToolTipText);
+            stripTip.Show(item.ToolTipText,owner,pointer.X+12,pointer.Y+22,20000);
+        }
         private readonly ToolStripRenderer darkRenderer = new ToolStripProfessionalRenderer(new ThemeTable());
         private readonly Dictionary<Control, Snapshot> controls = new Dictionary<Control, Snapshot>();
         private readonly Dictionary<ToolStripItem, Color> items = new Dictionary<ToolStripItem, Color>();
@@ -158,11 +201,21 @@ namespace FilmGrainStudioPreview
         }
         private void StripMouseMove(object sender,MouseEventArgs e)
         {
-            var strip=(ToolStrip)sender;var item=strip.GetItemAt(e.Location);
+            var strip=(ToolStrip)sender;
+            // StatusStrip routes pointer events through its items; those have a delayed explicit tooltip.
+            if(strip is StatusStrip)return;
+            var item=strip.GetItemAt(e.Location);
             string text=item==null?"":item.ToolTipText;
             if(stripTip.GetToolTip(strip)!=text)stripTip.SetToolTip(strip,text);
         }
-        private void StripMouseLeave(object sender,EventArgs e) {stripTip.SetToolTip((Control)sender,"");}
+        private void StripMouseLeave(object sender,EventArgs e)
+        {
+            if(sender is StatusStrip) {
+                var strip=(StatusStrip)sender;
+                if(!strip.ClientRectangle.Contains(strip.PointToClient(Cursor.Position)))HideStatusTip();
+            }
+            else stripTip.SetToolTip((Control)sender,"");
+        }
         private void StripItemAdded(object sender, ToolStripItemEventArgs e)
         {
             RegisterItem(e.Item);
@@ -183,6 +236,7 @@ namespace FilmGrainStudioPreview
         {
             if (items.ContainsKey(i)) return;
             items.Add(i, LocalItemFore(i)); i.ForeColorChanged += ItemForeChanged; i.Disposed += ItemDisposed;
+            i.MouseEnter+=QueueStatusTip;i.MouseMove+=StatusItemMouseMove;i.MouseLeave+=StatusItemMouseLeave;
             ToolStripDropDownItem d = i as ToolStripDropDownItem;
             if (d != null) foreach (ToolStripItem child in d.DropDownItems) RegisterItem(child);
             if (dark) PaintItem(i);
@@ -190,6 +244,8 @@ namespace FilmGrainStudioPreview
         private void ItemDisposed(object sender, EventArgs e)
         {
             ToolStripItem item = (ToolStripItem)sender;
+            item.MouseEnter-=QueueStatusTip;item.MouseMove-=StatusItemMouseMove;item.MouseLeave-=StatusItemMouseLeave;
+            if(item==pendingStatusTip)HideStatusTip();
             item.ForeColorChanged -= ItemForeChanged; item.Disposed -= ItemDisposed; items.Remove(item);
         }
         private void PaintControl(Control c)
@@ -306,6 +362,7 @@ namespace FilmGrainStudioPreview
             foreach (Control c in new List<Control>(nativeScrollControls)) RemoveNativeScrollbars(c);
             foreach (Control c in new List<Control>(controls.Keys)) Unregister(c);
             foreach (ToolStripItem i in new List<ToolStripItem>(items.Keys)) ItemDisposed(i, EventArgs.Empty);
+            HideStatusTip();statusTipDelay.Dispose();
             items.Clear();stripTip.Dispose();
         }
         private sealed class ThemeTable : ProfessionalColorTable
@@ -709,9 +766,12 @@ namespace FilmGrainStudioPreview
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         private static extern int ReleaseDC(IntPtr window, IntPtr dc);
         [System.Runtime.InteropServices.DllImport("user32.dll")]
-        private static extern bool RedrawWindow(IntPtr window, IntPtr rect, IntPtr region, uint flags);
+        private static extern bool RedrawWindow(IntPtr window,IntPtr rect,IntPtr region,uint flags);
+        [System.Runtime.InteropServices.DllImport("uxtheme.dll", CharSet=System.Runtime.InteropServices.CharSet.Unicode)]
+        private static extern int SetWindowTheme(IntPtr window,string appName,string idList);
         private bool dark, hover;
         private BorderStyle originalBorder;
+        private bool OwnsBorder { get { return dark && !Multiline && BorderStyle != BorderStyle.None; } }
         public bool DarkTheme
         {
             get { return dark; }
@@ -719,28 +779,36 @@ namespace FilmGrainStudioPreview
                 if (dark == value) return;
                 if (value) originalBorder = BorderStyle;
                 dark = value;
-                // Keep native edit metrics: no border-style or height change for dark mode.
+                // Preserve native edit metrics, caret and selection.
                 if (!dark) BorderStyle = originalBorder;
-                RefreshBorder();
+                ApplyEditTheme();
+                if(IsHandleCreated && !IsDisposed && !Disposing) {
+                    Invalidate();
+                    RedrawWindow(Handle,IntPtr.Zero,IntPtr.Zero,0x401);
+                }
             }
         }
-        private void RefreshBorder()
+        private void ApplyEditTheme()
         {
-            if (IsDisposed || Disposing || !IsHandleCreated) return;
-            Invalidate();
-            try { RedrawWindow(Handle,IntPtr.Zero,IntPtr.Zero,0x401); }
-            catch (DllNotFoundException) { }
-            catch (EntryPointNotFoundException) { }
+            if(!IsHandleCreated || IsDisposed || Disposing || Multiline)return;
+            // Disable only this edit's native hover animation while its frame is ours.
+            // NULL/NULL restores native Windows rendering in light mode.
+            try { SetWindowTheme(Handle,dark ? "" : null,dark ? "" : null); }
+            catch(DllNotFoundException) { }
+            catch(EntryPointNotFoundException) { }
         }
-        protected override void WndProc(ref Message m)
+        protected override void OnHandleCreated(EventArgs e)
         {
-            base.WndProc(ref m);
-            if (!dark || Multiline || BorderStyle == BorderStyle.None || IsDisposed || Disposing || !IsHandleCreated ||
-                (m.Msg != 0x85 && m.Msg != 0xF)) return;
-            IntPtr dc = IntPtr.Zero;
+            base.OnHandleCreated(e);
+            ApplyEditTheme();
+        }
+        private bool PaintBorder()
+        {
+            if(!OwnsBorder || IsDisposed || Disposing || !IsHandleCreated)return false;
+            IntPtr dc=IntPtr.Zero;
             try {
                 dc=GetWindowDC(Handle);
-                if(dc==IntPtr.Zero)return;
+                if(dc==IntPtr.Zero)return false;
                 using(Graphics g=Graphics.FromHdc(dc))
                 using(Pen pen=new Pen(!Enabled ? UiTheme.Border : Focused ? UiTheme.FieldFocusBorder : hover ? UiTheme.FieldHoverBorder : UiTheme.Border)) {
                     g.DrawRectangle(pen,0,0,Math.Max(0,Width-1),Math.Max(0,Height-1));
@@ -749,15 +817,23 @@ namespace FilmGrainStudioPreview
                             g.DrawRectangle(inner,1,1,Math.Max(0,Width-3),Math.Max(0,Height-3));
                     }
                 }
-            } catch (DllNotFoundException) { }
-              catch (EntryPointNotFoundException) { }
+                return true;
+            } catch(DllNotFoundException) { return false; }
+              catch(EntryPointNotFoundException) { return false; }
             finally { if(dc!=IntPtr.Zero)ReleaseDC(Handle,dc); }
         }
-        protected override void OnMouseEnter(EventArgs e) { base.OnMouseEnter(e); hover=true; RefreshBorder(); }
-        protected override void OnMouseLeave(EventArgs e) { base.OnMouseLeave(e); hover=false; RefreshBorder(); }
-        protected override void OnGotFocus(EventArgs e) { base.OnGotFocus(e); RefreshBorder(); }
-        protected override void OnLostFocus(EventArgs e) { base.OnLostFocus(e); RefreshBorder(); }
-        protected override void OnEnabledChanged(EventArgs e) { base.OnEnabledChanged(e); RefreshBorder(); }
+        protected override void WndProc(ref Message m)
+        {
+            // Do not draw a native light frame before covering it with our dark frame.
+            if(m.Msg==0x85 && PaintBorder()) { m.Result=IntPtr.Zero; return; }
+            base.WndProc(ref m);
+            if(m.Msg==0xF)PaintBorder();
+        }
+        protected override void OnMouseEnter(EventArgs e) { hover=true; base.OnMouseEnter(e); PaintBorder(); }
+        protected override void OnMouseLeave(EventArgs e) { hover=false; base.OnMouseLeave(e); PaintBorder(); }
+        protected override void OnGotFocus(EventArgs e) { base.OnGotFocus(e); PaintBorder(); }
+        protected override void OnLostFocus(EventArgs e) { base.OnLostFocus(e); PaintBorder(); }
+        protected override void OnEnabledChanged(EventArgs e) { base.OnEnabledChanged(e); PaintBorder(); }
     }
     // Paint a client-area frame; never paint over native scrollbars or the RichEdit NC area.
     internal sealed class ThemeLogFrame : Panel, IThemeSurface
@@ -1034,6 +1110,7 @@ namespace FilmGrainStudioPreview
         }
         protected override void OnHandleCreated(EventArgs e) {
             base.OnHandleCreated(e);
+            ApplyComboTheme();
             if(DropDownStyle==ComboBoxStyle.DropDown) {
                 ComboInfo info=new ComboInfo();info.Size=System.Runtime.InteropServices.Marshal.SizeOf(typeof(ComboInfo));
                 if(GetComboBoxInfo(Handle,ref info) && info.Edit!=IntPtr.Zero)editWindow=new InactiveEditWindow(this,info.Edit);
@@ -1062,11 +1139,20 @@ namespace FilmGrainStudioPreview
             base.OnHandleDestroyed(e);
         }
 
-        protected override void OnMouseEnter(EventArgs e) { pointerOver = true; base.OnMouseEnter(e); if (DarkTheme) Invalidate(); }
-        protected override void OnMouseLeave(EventArgs e) { pointerOver = false; base.OnMouseLeave(e); if (DarkTheme) Invalidate(); }
-        protected override void OnGotFocus(EventArgs e) { base.OnGotFocus(e); if (DarkTheme) Invalidate(); }
-        protected override void OnLostFocus(EventArgs e) { base.OnLostFocus(e); ClearInactiveSelection(); if (DarkTheme) Invalidate(); }
-        protected override void OnDropDownClosed(EventArgs e) { base.OnDropDownClosed(e); if (DarkTheme) Invalidate(); }
+        [System.Runtime.InteropServices.DllImport("uxtheme.dll", CharSet=System.Runtime.InteropServices.CharSet.Unicode)]
+        private static extern int SetWindowTheme(IntPtr window,string appName,string idList);
+        private void ApplyComboTheme()
+        {
+            if(!IsHandleCreated || IsDisposed || Disposing)return;
+            try { SetWindowTheme(Handle,DarkTheme ? "" : null,DarkTheme ? "" : null); }
+            catch(DllNotFoundException) { }
+            catch(EntryPointNotFoundException) { }
+        }
+        protected override void OnMouseEnter(EventArgs e) { pointerOver=true; base.OnMouseEnter(e); PaintDarkChrome(); }
+        protected override void OnMouseLeave(EventArgs e) { pointerOver=false; base.OnMouseLeave(e); PaintDarkChrome(); }
+        protected override void OnGotFocus(EventArgs e) { base.OnGotFocus(e); PaintDarkChrome(); }
+        protected override void OnLostFocus(EventArgs e) { base.OnLostFocus(e); ClearInactiveSelection(); PaintDarkChrome(); }
+        protected override void OnDropDownClosed(EventArgs e) { base.OnDropDownClosed(e); PaintDarkChrome(); }
         [System.Runtime.InteropServices.DllImport("gdi32.dll")]
         private static extern IntPtr CreateSolidBrush(int color);
         [System.Runtime.InteropServices.DllImport("gdi32.dll")]
@@ -1087,8 +1173,9 @@ namespace FilmGrainStudioPreview
                 darkTheme = value;
                 // Editable combos have a native inner edit rim. Flat mode removes it
                 // through WinForms rather than painting over the child edit/caret.
-                if (DropDownStyle == ComboBoxStyle.DropDown)
+                if (DropDownStyle != ComboBoxStyle.Simple)
                     FlatStyle = value ? FlatStyle.Flat : lightFlatStyle;
+                ApplyComboTheme();
                 Invalidate();
             }
         }
@@ -1115,8 +1202,11 @@ namespace FilmGrainStudioPreview
             if(message==0x0047 || message==0x0005)QueueResizeRepair();
             // Native frame/background painting can overwrite the editable arrow during resize.
             // Restore only the same established overlay; preserve child edit and native popup.
-            if (!DarkTheme || (message!=0x000F && message!=0x0085 && message!=0x0014) ||
-                DropDownStyle == ComboBoxStyle.Simple || IsDisposed || Disposing || !IsHandleCreated) return;
+            if(message==0x000F || message==0x0085 || message==0x0014)PaintDarkChrome();
+        }
+        private void PaintDarkChrome()
+        {
+            if(!DarkTheme || DropDownStyle==ComboBoxStyle.Simple || IsDisposed || Disposing || !IsHandleCreated)return;
             using (Graphics g = Graphics.FromHwnd(Handle)) {
                 int width = SystemInformation.VerticalScrollBarWidth;
                 Rectangle arrow = new Rectangle(Math.Max(1,ClientSize.Width-width-1),1,width,Math.Max(0,ClientSize.Height-2));
@@ -1198,26 +1288,166 @@ namespace FilmGrainStudioPreview
 {
     internal sealed class ThemeNumericUpDown : NumericUpDown, IThemeSurface
     {
-        public bool DarkTheme { get; set; }
+        private bool darkTheme, pointerOver, focusWithin;
+        private Control arrowButtons;
+        private ArrowPaintWindow arrowWindow;
+        // Intercept only drawing. Native mouse capture, repeat timer and value changes remain untouched.
+        private sealed class ArrowPaintWindow : NativeWindow, IDisposable
+        {
+            [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+            private struct PaintRect { internal int Left,Top,Right,Bottom; }
+            [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+            private struct PaintInfo {
+                internal IntPtr DC; internal int Erase; internal PaintRect Rect;
+                internal int Restore,IncUpdate;
+                internal int R0,R1,R2,R3,R4,R5,R6,R7;
+            }
+            [System.Runtime.InteropServices.DllImport("user32.dll")]
+            private static extern IntPtr BeginPaint(IntPtr window,out PaintInfo info);
+            [System.Runtime.InteropServices.DllImport("user32.dll")]
+            private static extern bool EndPaint(IntPtr window,ref PaintInfo info);
+            private readonly ThemeNumericUpDown owner;
+            private readonly Control buttons;
+            internal ArrowPaintWindow(ThemeNumericUpDown owner,Control buttons)
+            {
+                this.owner=owner;this.buttons=buttons;
+                buttons.HandleCreated+=Created;buttons.HandleDestroyed+=Destroyed;
+                if(buttons.IsHandleCreated)AssignHandle(buttons.Handle);
+            }
+            private void Created(object sender,EventArgs e) {AssignHandle(buttons.Handle);}
+            private void Destroyed(object sender,EventArgs e) {ReleaseHandle();}
+            protected override void WndProc(ref Message m)
+            {
+                if(owner.DarkTheme && !owner.IsDisposed && !owner.Disposing) {
+                    if(m.Msg==0x0014) {m.Result=new IntPtr(1);return;} // no visible background erase
+                    if(m.Msg==0x000F) {
+                        PaintInfo info;
+                        IntPtr dc=BeginPaint(Handle,out info);
+                        if(dc!=IntPtr.Zero) {
+                            try {
+                                int width=buttons.ClientSize.Width,height=buttons.ClientSize.Height;
+                                if(width>0 && height>0) {
+                                    using(Bitmap buffer=new Bitmap(width,height)) {
+                                        using(Graphics g=Graphics.FromImage(buffer))owner.DrawArrows(g,new Rectangle(0,0,width,height));
+                                        using(Graphics target=Graphics.FromHdc(dc))target.DrawImageUnscaled(buffer,0,0);
+                                    }
+                                }
+                            } finally {EndPaint(Handle,ref info);}
+                            m.Result=IntPtr.Zero;return;
+                        }
+                    }
+                    if(m.Msg==0x0318 && m.WParam!=IntPtr.Zero) {
+                        using(Graphics g=Graphics.FromHdc(m.WParam))owner.DrawArrows(g,buttons.ClientRectangle);
+                        m.Result=IntPtr.Zero;return;
+                    }
+                }
+                base.WndProc(ref m);
+            }
+            public void Dispose()
+            {
+                buttons.HandleCreated-=Created;buttons.HandleDestroyed-=Destroyed;
+                ReleaseHandle();
+            }
+        }
+        public bool DarkTheme {
+            get { return darkTheme; }
+            set {
+                if(darkTheme==value)return;
+                darkTheme=value;focusWithin=ContainsFocus;
+                Invalidate();
+                foreach(Control child in Controls)child.Invalidate();
+            }
+        }
+        private Color BorderColor {
+            get { return !Enabled ? UiTheme.Border : focusWithin ? UiTheme.FieldFocusBorder : pointerOver ? UiTheme.FieldHoverBorder : UiTheme.Border; }
+        }
+        private void DrawOuterBorder(Graphics g)
+        {
+            // UpDownBase is Opaque: replacing its OnPaint also owns the exposed
+            // gap between the native edit and spin buttons (normally one pixel).
+            // Exclude child bounds so we never cover edit text, selection or caret.
+            using(Region exposed=new Region(ClientRectangle))
+            using(Brush background=new SolidBrush(UiTheme.Input)) {
+                foreach(Control child in Controls)if(child.Visible)exposed.Exclude(child.Bounds);
+                g.FillRegion(background,exposed);
+            }
+            if(BorderStyle==BorderStyle.None)return;
+            int w=ClientSize.Width,h=ClientSize.Height;
+            if(w<3 || h<3)return;
+            using(Pen inner=new Pen(UiTheme.Input))
+                g.DrawRectangle(inner,1,1,w-3,h-3);
+            using(Pen edge=new Pen(BorderColor))
+                g.DrawRectangle(edge,0,0,w-1,h-1);
+        }
+        private void RefreshOuterBorder()
+        {
+            if(!DarkTheme || !IsHandleCreated || IsDisposed || Disposing)return;
+            using(Graphics g=Graphics.FromHwnd(Handle))DrawOuterBorder(g);
+        }
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            if(!DarkTheme) {base.OnPaint(e);return;}
+            // UpDownBase paints its native bright frame in OnPaint; own only this frame.
+            DrawOuterBorder(e.Graphics);
+        }
         protected override void OnControlAdded(ControlEventArgs e)
         {
             base.OnControlAdded(e);
-            if (!(e.Control is TextBoxBase)) { e.Control.Paint -= PaintArrows; e.Control.Paint += PaintArrows; }
-        }
-        private void PaintArrows(object sender, PaintEventArgs e)
-        {
-            if (!DarkTheme) return;
-            Control buttons = (Control)sender;
-            int w = buttons.ClientSize.Width, h = buttons.ClientSize.Height;
-            using (Brush b = new SolidBrush(UiTheme.Input)) e.Graphics.FillRectangle(b,buttons.ClientRectangle);
-            using (Pen p = new Pen(UiTheme.Border)) {
-                e.Graphics.DrawRectangle(p,0,0,Math.Max(0,w-1),Math.Max(0,h-1));
-                e.Graphics.DrawLine(p,0,h/2,w,h/2);
+            e.Control.MouseEnter+=ChildMouseEnter;
+            e.Control.MouseLeave+=ChildMouseLeave;
+            if (!(e.Control is TextBoxBase)) {
+                if(arrowWindow!=null)arrowWindow.Dispose();
+                arrowButtons=e.Control;arrowWindow=new ArrowPaintWindow(this,e.Control);
             }
-            int x = w/2, top = h/4, bottom = h*3/4;
+        }
+        protected override void OnControlRemoved(ControlEventArgs e)
+        {
+            e.Control.MouseEnter-=ChildMouseEnter;
+            e.Control.MouseLeave-=ChildMouseLeave;
+            if(e.Control==arrowButtons) {
+                if(arrowWindow!=null)arrowWindow.Dispose();
+                arrowWindow=null;arrowButtons=null;
+            }
+            base.OnControlRemoved(e);
+        }
+        private void ChildMouseEnter(object sender,EventArgs e) {pointerOver=true;RefreshOuterBorder();}
+        private void ChildMouseLeave(object sender,EventArgs e) {UpdatePointer();}
+        private void UpdatePointer()
+        {
+            pointerOver=IsHandleCreated && RectangleToScreen(ClientRectangle).Contains(Cursor.Position);
+            RefreshOuterBorder();
+        }
+        protected override void OnMouseEnter(EventArgs e) {pointerOver=true;base.OnMouseEnter(e);RefreshOuterBorder();}
+        protected override void OnMouseLeave(EventArgs e) {base.OnMouseLeave(e);UpdatePointer();}
+        protected override void OnEnter(EventArgs e) {focusWithin=true;base.OnEnter(e);RefreshOuterBorder();}
+        protected override void OnLeave(EventArgs e) {focusWithin=false;base.OnLeave(e);RefreshOuterBorder();}
+        protected override void OnEnabledChanged(EventArgs e)
+        {
+            base.OnEnabledChanged(e);RefreshOuterBorder();
+            if(DarkTheme)foreach(Control child in Controls)child.Invalidate();
+        }
+        protected override void Dispose(bool disposing)
+        {
+            if(disposing && arrowWindow!=null) {arrowWindow.Dispose();arrowWindow=null;arrowButtons=null;}
+            base.Dispose(disposing);
+        }
+        private void DrawArrows(Graphics graphics,Rectangle bounds)
+        {
+            int w=bounds.Width,h=bounds.Height;
+            using (Brush b = new SolidBrush(UiTheme.Input)) graphics.FillRectangle(b,bounds);
+            using (Pen p = new Pen(UiTheme.Border)) {
+                graphics.DrawRectangle(p,0,0,Math.Max(0,w-1),Math.Max(0,h-1));
+                graphics.DrawLine(p,0,h/2,w,h/2);
+            }
+            int rows=Math.Min(4,Math.Min(w/2,h/2));
+            int upper=(h/2-rows)/2, lower=h/2+(h-h/2-rows)/2;
             using (Brush b = new SolidBrush(Enabled ? UiTheme.TextColor : UiTheme.Muted)) {
-                e.Graphics.FillPolygon(b,new Point[]{new Point(x-3,top+1),new Point(x+3,top+1),new Point(x,top-2)});
-                e.Graphics.FillPolygon(b,new Point[]{new Point(x-3,bottom-1),new Point(x+3,bottom-1),new Point(x,bottom+2)});
+                // Identical integer-pixel glyphs, mirrored vertically (1/3/5/7 and 7/5/3/1).
+                for(int row=0;row<rows;row++) {
+                    int upWidth=1+row*2, downWidth=1+(rows-1-row)*2;
+                    graphics.FillRectangle(b,w/2-upWidth/2,upper+row,upWidth,1);
+                    graphics.FillRectangle(b,w/2-downWidth/2,lower+row,downWidth,1);
+                }
             }
         }
     }
