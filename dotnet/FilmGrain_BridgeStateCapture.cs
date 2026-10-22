@@ -391,11 +391,35 @@ namespace FilmGrainStudioPreview
         }
         private Control BuildFileSettingsBar()
         {
-            var panel=new FlowLayoutPanel { Dock=DockStyle.Fill,WrapContents=false };
-            fileSettingsMode=new ThemeCheckBox { Text=UiText("独立配置","Per-file settings"),AutoSize=true,Checked=false,Margin=new Padding(4,5,8,0) };
+            var panel=new Panel {Dock=DockStyle.Fill,Margin=Padding.Empty};
+            fileSettingsMode=new ThemeCheckBox {Text=UiText("独立配置","Per-file"),AutoSize=true,Checked=false,Margin=Padding.Empty};
             fileSettingsMode.CheckedChanged+=delegate {ChangeFileSettingsMode();};
-            panel.Controls.Add(fileSettingsMode);
-            AddPresetControls(panel);
+            panel.Controls.Add(fileSettingsMode);AddPresetControls(panel);
+            bool aligning=false;FlowLayoutPanel above=null;
+            Action align=delegate {
+                if(aligning||above==null||above.IsDisposed||above.Controls.Count<4||panel.IsDisposed)return;
+                aligning=true;
+                try {
+                    Control add=above.Controls[0],remove=above.Controls[1],clear=above.Controls[2],bake=above.Controls[3];
+                    // Both rows share the same TableLayoutPanel. Include each row's
+                    // actual offset, so margins, resizing and DPI do not drift.
+                    int offset=above.Left-panel.Left;
+                    System.Drawing.Size caption=fileSettingsMode.GetPreferredSize(System.Drawing.Size.Empty);
+                    fileSettingsMode.SetBounds(offset+add.Left,Math.Max(0,(panel.ClientSize.Height-caption.Height)/2),caption.Width,caption.Height);
+                    Control manager=panel.Controls[1];
+                    manager.SetBounds(offset+remove.Left,Math.Max(0,(panel.ClientSize.Height-remove.Height)/2),remove.Width,remove.Height);
+                    presetSelector.SetBounds(offset+clear.Left,Math.Max(0,(panel.ClientSize.Height-presetSelector.Height)/2),Math.Max(1,bake.Right-clear.Left),presetSelector.Height);
+                } finally {aligning=false;}
+            };
+            LayoutEventHandler onAboveLayout=delegate{align();};
+            panel.ParentChanged+=delegate {
+                if(above!=null)above.Layout-=onAboveLayout;
+                var rows=panel.Parent as TableLayoutPanel;above=rows==null?null:rows.GetControlFromPosition(0,0) as FlowLayoutPanel;
+                if(above!=null)above.Layout+=onAboveLayout;
+                align();
+            };
+            panel.Layout+=delegate{align();};
+            panel.Disposed+=delegate{if(above!=null)above.Layout-=onAboveLayout;};
             return panel;
         }
         private void UpdateFileSettingsLabels()

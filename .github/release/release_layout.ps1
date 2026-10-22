@@ -145,6 +145,7 @@ $ReleaseSourceItems = @(
     'release.bat',
     'Clean_Preset_Tests.cmd',
     '.github/release/clean_preset_tests.ps1',
+    '.github/release/ACCEPTANCE_v5.0.26.md',
     '.github/release/ACCEPTANCE_v5.0.25.md',
     'Clean_Queue_Tests.cmd',
     'Clean_CQ_Tests.cmd',

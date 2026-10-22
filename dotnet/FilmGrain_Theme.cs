@@ -853,10 +853,10 @@ namespace FilmGrainStudioPreview
     // Paint a client-area frame; never paint over native scrollbars or the RichEdit NC area.
     internal sealed class ThemeLogFrame : Panel, IThemeSurface
     {
-        private readonly RichTextBox edit;
+        private readonly TextBoxBase edit;
         private readonly BorderStyle originalBorder;
         private bool dark;
-        internal ThemeLogFrame(RichTextBox control)
+        internal ThemeLogFrame(TextBoxBase control)
         {
             edit=control; originalBorder=control.BorderStyle;
             Dock=DockStyle.Fill; Margin=Padding.Empty;
@@ -975,6 +975,17 @@ namespace FilmGrainStudioPreview
     internal sealed class ThemeCheckBox : CheckBox, IThemeSurface
     {
         private bool dark;
+        private bool SingleLineText {get{return AutoSize&&Text.IndexOf('\n')<0&&Text.IndexOf('\r')<0;}}
+        public override Size GetPreferredSize(Size proposedSize)
+        {
+            Size native=base.GetPreferredSize(proposedSize);
+            if(!dark||!SingleLineText||Appearance!=Appearance.Normal||CheckAlign!=ContentAlignment.MiddleLeft||RightToLeft==RightToLeft.Yes||Image!=null||ImageList!=null)return native;
+            int glyph=Math.Max(9,(int)Math.Round(13.0*DeviceDpi/96.0));
+            Size text=TextRenderer.MeasureText(Text,Font,new Size(int.MaxValue,int.MaxValue),TextFormatFlags.SingleLine|TextFormatFlags.NoPrefix);
+            // Match the custom glyph, gap and native text overhang; the framework's
+            // flat-checkbox preferred width assumes a smaller native text gap.
+            return new Size(Math.Max(native.Width,Padding.Horizontal+glyph+4+text.Width+2),Math.Max(native.Height,Padding.Vertical+Math.Max(glyph,text.Height)));
+        }
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
@@ -1006,7 +1017,9 @@ namespace FilmGrainStudioPreview
                 }
             }
             Rectangle r = new Rectangle(Padding.Left+box+4,Padding.Top,Math.Max(0,Width-Padding.Horizontal-box-4),Math.Max(0,Height-Padding.Vertical));
-            ThemeDrawing.DrawNativeText(e.Graphics,Text,Font,r,Enabled?ForeColor:UiTheme.Muted,BackColor,ThemeDrawing.TextFlags(TextAlign,AutoEllipsis) | (UseMnemonic ? (ShowKeyboardCues ? 0 : TextFormatFlags.HidePrefix) : TextFormatFlags.NoPrefix));
+            TextFormatFlags flags=ThemeDrawing.TextFlags(TextAlign,AutoEllipsis);
+            if(SingleLineText)flags=(flags&~TextFormatFlags.WordBreak)|TextFormatFlags.SingleLine;
+            ThemeDrawing.DrawNativeText(e.Graphics,Text,Font,r,Enabled?ForeColor:UiTheme.Muted,BackColor,flags | (UseMnemonic ? (ShowKeyboardCues ? 0 : TextFormatFlags.HidePrefix) : TextFormatFlags.NoPrefix));
             if(Enabled&&Focused&&ShowFocusCues&&r.Width>2&&r.Height>2)ControlPaint.DrawFocusRectangle(e.Graphics,Rectangle.Inflate(r,-1,-1),ForeColor,BackColor);
         }
         private FlatStyle originalStyle;

@@ -168,15 +168,15 @@ namespace FilmGrainStudioPreview
         {
             if(presetSelector==null)return;loadingPresets=true;try{presetSelector.Items.Clear();presetSelector.SelectedIndex=-1;foreach(var p in Presets().Items){int i=presetSelector.Items.Add(p);if(p.Id==lastAppliedPresetId)presetSelector.SelectedIndex=i;}}finally{loadingPresets=false;}
         }
-        private void AddPresetControls(FlowLayoutPanel panel)
+        private void AddPresetControls(Panel panel)
         {
-            presetSelector=new PresetComboBox {Width=116,DropDownStyle=ComboBoxStyle.DropDownList,Margin=new Padding(0,2,4,0)};
+            presetSelector=new PresetComboBox {Width=116,DropDownStyle=ComboBoxStyle.DropDownList,Anchor=AnchorStyles.Top|AnchorStyles.Left,Margin=Padding.Empty};
             ((PresetComboBox)presetSelector).Details=PresetQuickDetails;
             presetSelector.SelectionChangeCommitted+=delegate{if(!loadingPresets&&presetSelector.SelectedItem!=null)PresetAction(delegate{try{ApplyPreset((FgsPreset)presetSelector.SelectedItem);}finally{RefreshPresetSelector();}});};
-            var button=new ThemeButton {Text="预设管理",Size=new Size(76,27),Margin=new Padding(0,1,0,0)};
+            var button=new ThemeButton {Text="预设管理",Size=new Size(82,29),Margin=Padding.Empty};
             button.Click+=delegate{PresetAction(ShowPresetManager);};
             var quick=new ContextMenuStrip();quick.Closed+=delegate{PresetHoverCard.HideCard();};quick.Opening+=delegate{quick.Items.Clear();for(int i=0;i<5;i++){int slot=i;var p=Presets().Find(Presets().Quick[i]);var item=new ToolStripMenuItem((i+1)+". "+(p==null?"未绑定":p.Name)){Enabled=p!=null,AutoToolTip=false,ToolTipText=""};if(p!=null)AttachQuickPresetTip(item,quick,PresetQuickDetails(p));item.Click+=delegate{PresetAction(delegate{var target=Presets().Find(Presets().Quick[slot]);if(target==null)throw new InvalidOperationException("快捷位置未绑定");ApplyPreset(target);});};quick.Items.Add(item);}};
-            button.ContextMenuStrip=quick;panel.Controls.Add(presetSelector);panel.Controls.Add(button);
+            button.ContextMenuStrip=quick;panel.Controls.Add(button);panel.Controls.Add(presetSelector);
             presetTips=new ThemeToolTip();presetTips.SetToolTip(button,"左键：管理预设；右键：五个快捷位置。选择器选择后应用到当前统一设置或明确的独立文件。");
             button.Disposed+=delegate{presetTips.Dispose();quick.Dispose();};
             // Load only on first interaction; file I/O is not added to the first-paint path.
@@ -245,11 +245,12 @@ namespace FilmGrainStudioPreview
             using(var dialog=new Form {Font=owner.Font,AutoScaleMode=AutoScaleMode.Dpi,Text=title,Size=new Size(540,385),MinimumSize=new Size(480,350),StartPosition=FormStartPosition.CenterParent,ShowInTaskbar=false}) {
                 var grid=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=1,RowCount=7,Padding=new Padding(12)};
                 grid.RowStyles.Add(new RowStyle(SizeType.Absolute,24));grid.RowStyles.Add(new RowStyle(SizeType.Absolute,30));grid.RowStyles.Add(new RowStyle(SizeType.Absolute,28));grid.RowStyles.Add(new RowStyle(SizeType.Percent,100));grid.RowStyles.Add(new RowStyle(SizeType.Absolute,30));grid.RowStyles.Add(new RowStyle(SizeType.Absolute,46));grid.RowStyles.Add(new RowStyle(SizeType.Absolute,34));
-                var name=new ThemeTextBox {Text=p.Name,Dock=DockStyle.Fill,MaxLength=48};var description=new ThemeTextBox {Text=p.Description,Multiline=true,Dock=DockStyle.Fill,MaxLength=4000};
+                var name=new ThemeTextBox {Text=p.Name,Dock=DockStyle.Fill,MaxLength=48};var description=new TextBox {Text=p.Description,Multiline=true,Dock=DockStyle.Fill,MaxLength=4000,ScrollBars=ScrollBars.Vertical,Margin=Padding.Empty};
+                var descriptionFrame=new ThemeLogFrame(description) {Margin=new Padding(3,0,3,3)};
                 var kind=new ThemeComboBox {DropDownStyle=ComboBoxStyle.DropDownList,Dock=DockStyle.Fill};kind.Items.AddRange(new object[]{"简单预设","完整预设"});kind.SelectedIndex=p.Kind=="Full"?1:0;
                 var scope=new ThemeLabel {Dock=DockStyle.Fill};Action update=delegate{scope.Text=kind.SelectedIndex==0?"主界面流程、HDR/音频策略、裁剪及字幕样式；未包含的高级参数保持当前设置。":"包括编码、插帧、HDR、音频高级参数；不含机器环境、界面偏好和字幕文件绑定。";};kind.SelectedIndexChanged+=delegate{update();};update();
                 var ok=new ThemeButton {Text="保存",DialogResult=DialogResult.OK,Width=90};var cancel=new ThemeButton {Text="取消",DialogResult=DialogResult.Cancel,Width=90};var buttons=new FlowLayoutPanel {Dock=DockStyle.Fill};buttons.Controls.Add(ok);buttons.Controls.Add(cancel);
-                grid.Controls.Add(new ThemeLabel {Text="短名称",Dock=DockStyle.Fill});grid.Controls.Add(name);grid.Controls.Add(new ThemeLabel {Text="用途说明",Dock=DockStyle.Fill});grid.Controls.Add(description);grid.Controls.Add(kind);grid.Controls.Add(scope);grid.Controls.Add(buttons);dialog.Controls.Add(grid);dialog.AcceptButton=ok;dialog.CancelButton=cancel;AttachOwnedTheme(dialog,owner);
+                grid.Controls.Add(new ThemeLabel {Text="短名称",Dock=DockStyle.Fill,TextAlign=ContentAlignment.BottomLeft,Margin=new Padding(3,0,3,2)});grid.Controls.Add(name);grid.Controls.Add(new ThemeLabel {Text="用途说明",Dock=DockStyle.Fill,TextAlign=ContentAlignment.BottomLeft,Margin=new Padding(3,0,3,2)});grid.Controls.Add(descriptionFrame);grid.Controls.Add(kind);grid.Controls.Add(scope);grid.Controls.Add(buttons);dialog.Controls.Add(grid);dialog.AcceptButton=ok;dialog.CancelButton=cancel;AttachOwnedTheme(dialog,owner,description);
                 if(dialog.ShowDialog(owner)!=DialogResult.OK)return false;p.Name=name.Text.Trim();p.Description=description.Text;p.Kind=kind.SelectedIndex==0?"Simple":"Full";return true;
             }
         }
