@@ -373,61 +373,103 @@ function Test-PackageContent {
         }
 }
 
+# Runtime packaging is independent of repository source staging.
+$RuntimeFiles = @(
+    'FilmGrain_Studio.exe', 'FilmGrain_Config.default.ini',
+    'CHANGELOG.md', 'LICENSE', 'README_FilmGrain_Studio.txt',
+    'Utils/FGS.ico',
+    'Utils/_FilmGrainSimplified/FilmGrainSimplified.hook.template',
+    'Utils/_FilmGrainSimplified/NoiseFallback_512x512_RGBA8.rgba',
+    'Utils/_FilmGrainSimplified/THIRD_PARTY_LICENSE_FilmGrainSimplified.txt',
+    '_LUT_Tools/LUT_Reference_Default.jpg'
+)
+$RuntimeDirectories = @('Lang', '_AV1_Grain_Tables', '_OpenSVPFlow')
+
+function New-RuntimeStage {
+    param([string]$Source, [string]$Destination)
+    New-Item -ItemType Directory -Path $Destination -Force | Out-Null
+    foreach ($relative in $RuntimeFiles) {
+        Assert-File -Root $Source -RelativePath $relative
+        $target = Join-Path $Destination $relative
+        [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($target)) | Out-Null
+        Copy-Item -LiteralPath (Join-Path $Source $relative) -Destination $target -Force
+    }
+    foreach ($relative in $RuntimeDirectories) {
+        Assert-Directory -Root $Source -RelativePath $relative
+        Copy-Item -LiteralPath (Join-Path $Source $relative) -Destination (Join-Path $Destination $relative) -Recurse -Force
+    }
+    # Only sanitize the disposable runtime copy, never the developer defaults.
+    $configPath = Join-Path $Destination 'FilmGrain_Config.default.ini'
+    $config = [IO.File]::ReadAllText($configPath)
+    $config = [regex]::Replace($config, '(?m)^(FFMPEG_DIR|GRAV1SYNTH|GRAIN_ROOT|LUT_ROOT|FRUC_FFMPEG_PATH|FRUC_FFMPEG_SAME_AS_MAIN)=[^\r\n]*', '$1=')
+    [IO.File]::WriteAllText($configPath, $config, (New-Object Text.UTF8Encoding($true)))
+    $readmePath = Join-Path $Destination 'README_FilmGrain_Studio.txt'
+    $readme = [IO.File]::ReadAllText($readmePath)
+    $readme = $readme.Replace('README.md', 'https://github.com/rampageX/FilmGrain#readme')
+    [IO.File]::WriteAllText($readmePath, $readme, $Utf8NoBom)
+    foreach ($relative in $RuntimeFiles) { Assert-File -Root $Destination -RelativePath $relative }
+    foreach ($relative in $RuntimeDirectories) { Assert-Directory -Root $Destination -RelativePath $relative }
+    $script:RuntimeExpectedEntries = @(Get-ChildItem -LiteralPath $Destination -Recurse -File -Force | ForEach-Object {
+        $_.FullName.Substring(($Destination.TrimEnd('\')).Length).TrimStart('\').Replace('\', '/')
+    } | Sort-Object)
+}
+
 function Test-ZipContent {
     param([Parameter(Mandatory = $true)][string]$ZipPath)
-
-    Add-Type -AssemblyName System.IO.Compression.FileSystem
     $archive = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
     try {
-        $entries = @($archive.Entries | ForEach-Object { $_.FullName.Replace('\', '/') })
-
-        foreach ($relative in @($RequiredPackageFiles) + @('dotnet\build\FilmGrain_Studio_NET_Preview.exe', 'FilmGrain_Studio.exe')) {
-            $entry = $relative.Replace('\', '/')
-            if ($entries -notcontains $entry) {
-                throw "Required ZIP entry missing: $entry"
-            }
+        $entries = @($archive.Entries | Where-Object { $_.Name } | ForEach-Object { $_.FullName.Replace('\', '/') } | Sort-Object)
+        if (@(Compare-Object $script:RuntimeExpectedEntries $entries).Count) { throw 'Runtime ZIP does not match the runtime stage.' }
+        if (@($entries | Where-Object { $_ -match '^(dotnet|Legacy|images|benchmark|[.]github)/' }).Count) { throw 'Developer content found in runtime ZIP.' }
+        foreach ($entry in $archive.Entries) {
+            if (-not $entry.Name) { continue }
+            $stream = $entry.Open()
+            try { $stream.CopyTo([IO.Stream]::Null) } finally { $stream.Dispose() }
         }
+    } finally { $archive.Dispose() }
+}
 
-        foreach ($relative in $RequiredPackageDirectories) {
-            $prefix = $relative.Replace('\', '/').TrimEnd('/') + '/'
-            $directoryEntries = @(
-                $entries | Where-Object {
-                    $_.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)
-                }
-            )
-            if ($directoryEntries.Count -eq 0) {
-                throw "Required ZIP directory missing: $prefix"
-            }
+function New-ReleaseSourceArchive {
+    param([string]$CommittedArchive, [string]$Destination, [string]$Commit, [string]$ReleaseVersion, [string]$RuntimeExeHash)
+    $inputZip = [IO.Compression.ZipFile]::OpenRead($CommittedArchive)
+    $outputZip = $null
+    try {
+        $outputZip = [IO.Compression.ZipFile]::Open($Destination, [IO.Compression.ZipArchiveMode]::Create)
+        $expected = @()
+        foreach ($entry in $inputZip.Entries) {
+            if (-not $entry.Name) { continue }
+            $relative = $entry.FullName.Replace('\', '/')
+            if (Test-ExcludedSourcePath $relative) { continue }
+            if ($relative -eq 'SOURCE_BUILD_INFO.txt') { throw 'Reserved source build metadata already exists in committed source.' }
+            $target = $outputZip.CreateEntry($relative, [IO.Compression.CompressionLevel]::Optimal)
+            $target.LastWriteTime = $entry.LastWriteTime
+            $sourceStream = $entry.Open()
+            $targetStream = $target.Open()
+            try { $sourceStream.CopyTo($targetStream) } finally { $targetStream.Dispose(); $sourceStream.Dispose() }
+            $expected += $relative
         }
-
-        foreach ($relative in $ExcludedPackagePaths) {
-            $entry = $relative.Replace('\', '/').Trim('/')
-            $found = @(
-                $entries | Where-Object {
-                    $_ -eq $entry -or $_.StartsWith($entry + '/', [System.StringComparison]::OrdinalIgnoreCase)
-                }
-            )
-            if ($found.Count) {
-                throw "Excluded path found in final ZIP: $entry"
-            }
+        foreach ($relative in @($RequiredPackageFiles) + @('release.bat', '.github/release/build_release.ps1', '.github/release/release_layout.ps1', '.github/workflows/release.yml')) {
+            if ($expected -notcontains $relative.Replace('\', '/')) { throw ('Source ZIP required entry missing: ' + $relative) }
         }
-
-        foreach ($pattern in $ExcludedRootDeliveryPatterns) {
-            if (@($entries | Where-Object { $_ -notmatch '/' -and $_ -like $pattern }).Count) {
-                throw "Delivery-only file found in final ZIP: $pattern"
-            }
-        }
-
-        foreach ($dirName in $ExcludedRecursiveDirectoryNames) {
-            $escaped = [regex]::Escape($dirName)
-            if (@($entries | Where-Object { $_ -match ('(^|/)' + $escaped + '(/|$)') }).Count) {
-                throw "Excluded runtime directory found in final ZIP: $dirName"
-            }
-        }
+        $info = 'Version=v' + $ReleaseVersion + $CrLf + 'Commit=' + $Commit + $CrLf + 'RuntimeExecutableSHA256=' + $RuntimeExeHash + $CrLf + 'Source=committed HEAD used for the Stable build' + $CrLf
+        $metadata = $outputZip.CreateEntry('SOURCE_BUILD_INFO.txt')
+        $writer = New-Object IO.StreamWriter($metadata.Open(), $Utf8NoBom)
+        try { $writer.Write($info) } finally { $writer.Dispose() }
+        $outputZip.Dispose(); $outputZip = $null
+    } finally {
+        if ($outputZip) { $outputZip.Dispose() }
+        $inputZip.Dispose()
     }
-    finally {
-        $archive.Dispose()
-    }
+    $check = [IO.Compression.ZipFile]::OpenRead($Destination)
+    try {
+        $actual = @($check.Entries | Where-Object { $_.Name } | ForEach-Object { $_.FullName.Replace('\', '/') })
+        if (@(Compare-Object (@($expected) + @('SOURCE_BUILD_INFO.txt')) $actual).Count) { throw 'Source ZIP entry set mismatch.' }
+        foreach ($entry in $check.Entries) {
+            if (-not $entry.Name) { continue }
+            $stream = $entry.Open()
+            try { $stream.CopyTo([IO.Stream]::Null) } finally { $stream.Dispose() }
+        }
+    } finally { $check.Dispose() }
 }
 
 $RepositoryRoot = Get-NormalizedFullPath -Path $RepositoryRoot
@@ -462,7 +504,13 @@ if (-not (Test-Path -LiteralPath $OutputDirectory -PathType Container)) {
 $name = "FilmGrain_Studio_v${Version}_Stable"
 $zipPath = Join-Path $OutputDirectory ($name + '.zip')
 $shaPath = $zipPath + '.sha256'
+$sourceZipPath = Join-Path $OutputDirectory ("FilmGrain_Studio_v${Version}_Source.zip")
+$sourceShaPath = $sourceZipPath + '.sha256'
+$sourceZipPending = Join-Path $env:TEMP ('FGS_SourceOutput_' + [guid]::NewGuid().ToString('N') + '.zip')
+$sourceCommit = (& git -C $RepositoryRoot rev-parse HEAD).Trim()
+if ($LASTEXITCODE -ne 0 -or $sourceCommit -notmatch '^[0-9a-f]{40,64}$') { throw 'Could not identify source HEAD.' }
 $stageRoot = Join-Path $env:TEMP ('FGS_Release_' + [guid]::NewGuid().ToString('N'))
+$runtimeRoot = Join-Path $env:TEMP ('FGS_Runtime_' + [guid]::NewGuid().ToString('N'))
 $sourceArchive = Join-Path $env:TEMP ('FGS_Source_' + [guid]::NewGuid().ToString('N') + '.zip')
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -484,6 +532,7 @@ try {
     Normalize-PackageTextFiles -StageRoot $stageRoot
     Build-DotNetPreview -StageRoot $stageRoot -ReleaseVersion $Version
     Test-PackageContent -StageRoot $stageRoot -ReleaseVersion $Version
+    New-RuntimeStage -Source $stageRoot -Destination $runtimeRoot
 
     if (Test-Path -LiteralPath $zipPath) {
         Remove-Item -LiteralPath $zipPath -Force
@@ -493,7 +542,7 @@ try {
     }
 
     [System.IO.Compression.ZipFile]::CreateFromDirectory(
-        $stageRoot,
+        $runtimeRoot,
         $zipPath,
         [System.IO.Compression.CompressionLevel]::Optimal,
         $false
@@ -508,12 +557,27 @@ try {
         $Utf8NoBom
     )
 
+    $runtimeExeHash = (Get-FileHash -LiteralPath (Join-Path $runtimeRoot 'FilmGrain_Studio.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
+    New-ReleaseSourceArchive -CommittedArchive $sourceArchive -Destination $sourceZipPending -Commit $sourceCommit -ReleaseVersion $Version -RuntimeExeHash $runtimeExeHash
+    $sourceHash = (Get-FileHash -LiteralPath $sourceZipPending -Algorithm SHA256).Hash.ToLowerInvariant()
+    Move-Item -LiteralPath $sourceZipPending -Destination $sourceZipPath -Force
+    [IO.File]::WriteAllText($sourceShaPath, ($sourceHash + '  ' + [IO.Path]::GetFileName($sourceZipPath) + $CrLf), $Utf8NoBom)
+    Write-Host "[FGS] Source ZIP    : $sourceZipPath"
+    Write-Host "[FGS] Source SHA256 : $sourceShaPath"
+    Write-Host "[FGS] Source commit : $sourceCommit"
+
     Write-Host "[FGS] Shared release build passed."
     Write-Host "[FGS] ZIP    : $zipPath"
     Write-Host "[FGS] SHA256 : $shaPath"
     Write-Host "[FGS] Digest : $hash"
 }
 finally {
+    if (Test-Path -LiteralPath $sourceZipPending) {
+        Remove-Item -LiteralPath $sourceZipPending -Force -ErrorAction SilentlyContinue
+    }
+    if (Test-Path -LiteralPath $runtimeRoot) {
+        Remove-Item -LiteralPath $runtimeRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
     if (Test-Path -LiteralPath $stageRoot) {
         Remove-Item -LiteralPath $stageRoot -Recurse -Force -ErrorAction SilentlyContinue
     }

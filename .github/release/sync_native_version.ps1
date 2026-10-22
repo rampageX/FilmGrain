@@ -85,10 +85,12 @@ if ($previous -eq $Version) {
 }
 $baseline = @(
     'Film Grain Studio formal stable baseline', '', 'Baseline:', ('v' + $Version), 'Supersedes:', ('v' + $supersedes), '',
-    'Formal release:', ('FilmGrain_Studio_v' + $Version + '_Stable.zip'), '',
-    'Application runtime: .NET Native-only. Legacy tools archived and independent.',
+    'GitHub Release asset:', ('FilmGrain_Studio_v' + $Version + '_Stable.zip'), '',
+    'Local source archive and workflow artifact:', ('FilmGrain_Studio_v' + $Version + '_Source.zip'), '',
+    'Application runtime: .NET Native-only. Stable contains runtime files only; Legacy is retained in Source.',
     'Acceptance applies only to explicitly tested combinations, not every container/timestamp/clip/hardware combination.',
-    'Root and compatible executables are rebuilt from the same committed C# source with Stable label.',
+    'Root and compatible executables are rebuilt from the same committed C# source with Stable label; only the root EXE enters Stable.',
+    'Source uses the same committed archive and records the commit and runtime EXE SHA256 in SOURCE_BUILD_INFO.txt.',
     'Shared Lang, SVP vpy/plugins, FGSIM template/texture and original grain tables remain in their shared locations.',
     'Exclude local configuration, caches, private environments, downloads, generated hooks, logs, Tests_Shared and test-delivery markers.',
     'Local release and Windows runner use the same build_release.ps1 and release_layout.ps1.',

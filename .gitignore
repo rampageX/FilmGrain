@@ -24,3 +24,10 @@
 /Utils/_HardwareCaps_Startup.json
 /Utils/_HardwareCaps_Startup.json.*.tmp
 
+
+# Local working source export
+/Export_Working_Source.cmd
+/_Working_Source_Exports/
+
+# Local working source export
+/Export_Working_Source*.cmd

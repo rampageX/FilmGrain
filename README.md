@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.0.21 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.22 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
 
@@ -136,6 +136,16 @@ FGSIM 在任务执行前以实际 shader 检查 GPU 输出像素，优先选择�
 
 ---
 
+## 下载与包的区别
+
+从 [Releases](https://github.com/rampageX/FilmGrain/releases) 下载 `FilmGrain_Studio_v版本_Stable.zip`，解压后启动根目录的 EXE，首次运行按提示指定或安装依赖。对应 `.zip.sha256` 用于校验下载文件。
+
+Stable 不附带开发源码、Legacy 历史实现或项目截图，也不预装完整外部依赖环境。请将开发目录和日常运行副本分开；升级运行副本时保留个人配置及已安装依赖。
+
+维护者执行 `release.bat 版本号` 后，当前开发目录会生成 Stable、Source 及各自 SHA256。Source 包含源码、构建与发布工具、项目图片及运行资源，不含编译后的 EXE；它保留在本地和 Windows runner 的工作流 Artifact 中，不作为额外附件上传到 Release 页面。GitHub 自带的 Source code 下载入口仍指向版本 Tag。
+
+Source 与 Stable 来自同一次已提交源码归档，`SOURCE_BUILD_INFO.txt` 记录源码 commit 和对应运行 EXE 的 SHA256。当前磁盘状态的 `Working_Source_日期时间.zip` 用于开发交接，按导出规则包含未提交修改和新文件，不会自动上传为 Release 附件。
+
 ## 快速开始
 
 ### 首次运行与依赖准备
@@ -156,7 +166,7 @@ FilmGrain_Studio.exe
 
 支持将一个或多个视频拖到 EXE，或通过快捷方式 / 命令行传入文件；相对路径按启动工作目录解析，重复输入保留首个位置。启动只导入列表，不自动编码。请保持完整应用目录，不要只复制 EXE。
 
-同源构建入口 `dotnet\build\FilmGrain_Studio_NET_Preview.exe` 使用同一界面和配置；与根 EXE 内容一致。
+源码包本地构建后，`dotnet\build\FilmGrain_Studio_NET_Preview.exe` 与根 EXE 内容一致；正式 Stable 运行包只保留根 EXE。
 
 启动重复 GUI 时提示切换到现有窗口。同一 Windows 会话中的根 EXE、兼容 EXE 和不同目录副本共用单实例限制，内部检测子进程不受影响。
 
@@ -215,7 +225,7 @@ AV1、HEVC、x264、H.264 NVENC 共用 .NET 串行队列。每个输入分别探
 
 Native 支持按具体组合判断。隔行 HDR 的 AUTO/OFF、HDR 保留/转换及已有输出复用沿用累计实现；隔行 OpenSVPFlow 按规则绕过光流、AUTO 输出 2x 场率，HDR 保留的渐进 HEVC/AV1 绕过 8-bit SVP。x264 HDR Preserve、隔行 FRUC 等原本不支持的组合显示原因并停止，不尝试 BAT。未知准备失败也停止并保留诊断。
 
-AV1 不重编码添加 / 替换颗粒由 .NET 执行独立的视频 stream-copy 工作流。Legacy GUI、CLI 归档在 Legacy 目录，与根 EXE 独立；可移走 Legacy，不要移动共享资源和实际算法依赖。随包提供 `dotnet\` C# 源码及 `build_NET_Preview.bat`；Windows 构建会同时更新两处 EXE。
+AV1 不重编码添加 / 替换颗粒由 .NET 执行独立的视频 stream-copy 工作流。Legacy GUI、CLI 保留在源码包的 Legacy 目录，与根 EXE 独立，不进入 Stable 运行包。Source 包提供 `dotnet\` C# 源码及 `build_NET_Preview.bat`；Windows 构建会同时更新两处 EXE。运行资源和实际算法依赖应保持原位置。
 
 ### 从命令行导入视频
 

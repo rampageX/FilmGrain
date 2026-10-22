@@ -41,6 +41,8 @@ jobs:
           $name = 'FilmGrain_Studio_v' + $version + '_Stable'
           $zip = Join-Path $env:GITHUB_WORKSPACE ($name + '.zip')
           $shaFile = $zip + '.sha256'
+          $sourceZip = Join-Path $env:GITHUB_WORKSPACE ('FilmGrain_Studio_v' + $version + '_Source.zip')
+          $sourceSha = $sourceZip + '.sha256'
 
           & '.\.github\release\build_release.ps1' `
             -RepositoryRoot $env:GITHUB_WORKSPACE `
@@ -54,6 +56,13 @@ jobs:
             throw "Shared release core did not create: $shaFile"
           }
 
+          foreach ($file in @($sourceZip, $sourceSha)) {
+            if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "Shared release core did not create: $file" }
+          }
+          "FGS_SOURCE_ZIP=$sourceZip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "FGS_SOURCE_SHA=$sourceSha" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "source_zip_name=$([IO.Path]::GetFileName($sourceZip))" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "source_sha_name=$([IO.Path]::GetFileName($sourceSha))" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "FGS_RELEASE_TAG=v$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "FGS_RELEASE_ZIP=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "FGS_RELEASE_SHA=$shaFile" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
@@ -76,6 +85,8 @@ jobs:
           path: |
             ${{ steps.build.outputs.zip_name }}
             ${{ steps.build.outputs.sha_name }}
+            ${{ steps.build.outputs.source_zip_name }}
+            ${{ steps.build.outputs.source_sha_name }}
           if-no-files-found: error
 
       - name: Delete merged release branch
