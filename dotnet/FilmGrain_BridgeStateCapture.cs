@@ -395,6 +395,7 @@ namespace FilmGrainStudioPreview
             fileSettingsMode=new ThemeCheckBox { Text=UiText("独立配置","Per-file settings"),AutoSize=true,Checked=false,Margin=new Padding(4,5,8,0) };
             fileSettingsMode.CheckedChanged+=delegate {ChangeFileSettingsMode();};
             panel.Controls.Add(fileSettingsMode);
+            AddPresetControls(panel);
             return panel;
         }
         private void UpdateFileSettingsLabels()

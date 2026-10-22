@@ -106,8 +106,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.24";
-        internal const string FileReleaseVersion = "5.0.24.0";
+        internal const string ReleaseVersion = "5.0.25";
+        internal const string FileReleaseVersion = "5.0.25.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -1435,7 +1435,7 @@ namespace FilmGrainStudioPreview
             {
                 BuildUnifiedGrainSlider(t, 0, "DIGITAL");
                 Label note = MutedLabel(lang.T("digital_grain.tip"));
-                t.Controls.Add(note, 0, 1); t.SetColumnSpan(note, 2);
+                t.Controls.Add(note, 0, 1); t.SetColumnSpan(note, 2); t.SetRowSpan(note, 3);
             }
             else
             {

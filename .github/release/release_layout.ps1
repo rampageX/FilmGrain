@@ -4,6 +4,11 @@ $RequiredPackageFiles = @(
     '.gitattributes',
     'CHANGELOG.md',
     'FilmGrain_Config.default.ini',
+    'Presets/Initial/01.fgspreset.json',
+    'Presets/Initial/02.fgspreset.json',
+    'Presets/Initial/03.fgspreset.json',
+    'Presets/Initial/04.fgspreset.json',
+    'Presets/Initial/05.fgspreset.json',
     'LICENSE',
     'README.md',
     'README_FilmGrain_Studio.txt',
@@ -36,6 +41,8 @@ $RequiredPackageFiles = @(
     'dotnet\FilmGrain_BridgeExecutionCore.cs',
     'dotnet\FilmGrain_BridgeRequestPreparationCore.cs',
     'dotnet\FilmGrain_BridgeStateCapture.cs',
+    'dotnet\FilmGrain_PresetCore.cs',
+    'dotnet\FilmGrain_PresetUI.cs',
     'dotnet\FilmGrain_BridgeTaskCoordinator.cs',
     'dotnet\FilmGrain_ConfigCore.cs',
     'dotnet\FilmGrain_ConfigUtility.cs',
@@ -125,12 +132,20 @@ $ReleaseSourceItems = @(
     '.gitignore',
     'CHANGELOG.md',
     'FilmGrain_Config.default.ini',
+    'Presets/Initial/01.fgspreset.json',
+    'Presets/Initial/02.fgspreset.json',
+    'Presets/Initial/03.fgspreset.json',
+    'Presets/Initial/04.fgspreset.json',
+    'Presets/Initial/05.fgspreset.json',
     'LICENSE',
     'README.md',
     'README_FilmGrain_Studio.txt',
     'README_Toolkit.txt',
     'STABLE_BASELINE.txt',
     'release.bat',
+    'Clean_Preset_Tests.cmd',
+    '.github/release/clean_preset_tests.ps1',
+    '.github/release/ACCEPTANCE_v5.0.25.md',
     'Clean_Queue_Tests.cmd',
     'Clean_CQ_Tests.cmd',
     '.github/release/clean_queue_tests.ps1',
@@ -184,6 +199,8 @@ $RetiredSourceFiles = @(
     'dotnet/Setup_Dependencies.ps1'
 )
 $ExcludedSourcePaths = @(
+    'Tests_Presets_R8M3VN',
+    'Tests_Cleanup_Presets_R8M3VN',
     'FilmGrain_Config.ini',
     'Utils/_HardwareCaps.json',
     'Utils/_HardwareCaps_NET.json',
@@ -214,6 +231,9 @@ $ExcludedSourcePaths = @(
     'FilmGrain_Studio.exe'
 )
 $ExcludedPackagePaths = @(
+    'Clean_Preset_Tests.cmd',
+    'Tests_Presets_R8M3VN',
+    'Tests_Cleanup_Presets_R8M3VN',
     '.github',
     '.gitignore',
     'release.bat',
@@ -247,11 +267,13 @@ $ExcludedPackagePaths = @(
     'Legacy/Utils/_HardwareCaps_NET.json'
 )
 $ExcludedRecursiveDirectoryNames = @(
+    'UserPresets',
     '.env',
     '.venv',
     '__pycache__'
 )
 $ExcludedRootDeliveryPatterns = @(
+    'Return_Presets_R8M3VN_*.zip',
     'Return_CQ_N7V4PK_*.zip',
     'Return_Queue_Q8M4VN_*.zip',
     'Return_Black_V7K3MN_*.zip',
@@ -317,6 +339,8 @@ function Get-ReleaseTrackedPaths {
 function Test-ExcludedSourcePath {
     param([string]$RelativePath)
     $n = $RelativePath.Replace('\', '/').Trim('/')
+    if ($n -match '(^|/)UserPresets(?:\.seed\.[^/]+)?(/|$)') { return $true }
+    if ($n.StartsWith('Presets/', [StringComparison]::OrdinalIgnoreCase) -and $RequiredPackageFiles -notcontains $n) { return $true }
     foreach ($p in $ExcludedSourcePaths) {
         if ($n -eq $p -or $n.StartsWith($p + '/', [StringComparison]::OrdinalIgnoreCase)) { return $true }
     }

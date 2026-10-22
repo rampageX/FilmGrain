@@ -1,5 +1,7 @@
 # FGS local/runtime generated files
 /FilmGrain_Config.ini
+/UserPresets/
+/UserPresets.seed.*/
 /Utils/_HardwareCaps.json
 /Utils/_FilmGrainSimplified/Generated/
 /Logs/
@@ -31,3 +33,6 @@
 
 # Local working source export
 /Export_Working_Source*.cmd
+
+# Preset test return archives
+/Return_Presets_R8M3VN_*.zip

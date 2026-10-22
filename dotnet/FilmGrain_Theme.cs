@@ -685,6 +685,21 @@ namespace FilmGrainStudioPreview
                 } finally { graphics.Restore(saved); }
             }
         }
+        // Match the native enabled controls' GDI text metrics. Never acquire an HDC
+        // from parent-backed/buffered paint graphics: rasterize on an opaque bitmap,
+        // then copy it through GDI+, preserving the existing flicker-free paint path.
+        internal static void DrawNativeText(Graphics graphics,string text,Font font,Rectangle bounds,Color color,Color background,TextFormatFlags flags)
+        {
+            if(string.IsNullOrEmpty(text)||bounds.Width<=0||bounds.Height<=0)return;
+            using(var bitmap=new Bitmap(bounds.Width,bounds.Height)) {
+                bitmap.SetResolution(graphics.DpiX,graphics.DpiY);
+                using(var buffer=Graphics.FromImage(bitmap)) {
+                    buffer.Clear(background);
+                    TextRenderer.DrawText(buffer,text,font,new Rectangle(Point.Empty,bounds.Size),color,background,flags);
+                }
+                graphics.DrawImageUnscaled(bitmap,bounds.Location);
+            }
+        }
         internal static TextFormatFlags TextFlags(ContentAlignment align, bool ellipsis)
         {
             TextFormatFlags f = TextFormatFlags.WordBreak;
@@ -905,7 +920,7 @@ namespace FilmGrainStudioPreview
         {
             if (!DarkTheme || Enabled || Image != null) { base.OnPaint(e); return; }
             Rectangle r = new Rectangle(Padding.Left, Padding.Top, Math.Max(0,ClientSize.Width-Padding.Horizontal),Math.Max(0,ClientSize.Height-Padding.Vertical));
-            ThemeDrawing.DrawText(e.Graphics,Text,Font,r,UiTheme.Muted,ThemeDrawing.TextFlags(TextAlign,AutoEllipsis) | (UseMnemonic ? 0 : TextFormatFlags.NoPrefix));
+            ThemeDrawing.DrawNativeText(e.Graphics,Text,Font,r,UiTheme.Muted,BackColor,ThemeDrawing.TextFlags(TextAlign,AutoEllipsis) | (UseMnemonic ? (ShowKeyboardCues ? 0 : TextFormatFlags.HidePrefix) : TextFormatFlags.NoPrefix));
         }
     }
     internal sealed class ThemeGroupBox : GroupBox, IThemeSurface
@@ -933,23 +948,40 @@ namespace FilmGrainStudioPreview
     internal sealed class ThemeButton : Button, IThemeSurface
     {
         public bool DarkTheme { get; set; }
+        private bool keyboardPressed;
+        protected override void OnKeyDown(KeyEventArgs e){if(e.KeyCode==Keys.Space)keyboardPressed=true;base.OnKeyDown(e);Invalidate();}
+        protected override void OnKeyUp(KeyEventArgs e){if(e.KeyCode==Keys.Space)keyboardPressed=false;base.OnKeyUp(e);Invalidate();}
+        protected override void OnLostFocus(EventArgs e){keyboardPressed=false;base.OnLostFocus(e);Invalidate();}
+        protected override void OnEnabledChanged(EventArgs e){keyboardPressed=false;base.OnEnabledChanged(e);Invalidate();}
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
-            if (!DarkTheme || Enabled) return;
-            using (Brush b = new SolidBrush(UiTheme.Input)) e.Graphics.FillRectangle(b,ClientRectangle);
-            using (Pen p = new Pen(UiTheme.Border)) e.Graphics.DrawRectangle(p,0,0,Math.Max(0,Width-1),Math.Max(0,Height-1));
-            ThemeDrawing.DrawText(e.Graphics,Text,Font,Rectangle.Inflate(ClientRectangle,-3,-2),UiTheme.Muted,ThemeDrawing.TextFlags(TextAlign,AutoEllipsis));
+            if(!DarkTheme||Image!=null||ImageList!=null)return;
+            // Keep the framework border and interaction; both text states share
+            // the same rectangle, padding, renderer and mnemonic flags.
+            bool hover=ClientRectangle.Contains(PointToClient(Cursor.Position));
+            bool pressed=Enabled&&(keyboardPressed||(Capture&&hover&&(MouseButtons&MouseButtons.Left)!=0));
+            Color background=!Enabled?UiTheme.Input:pressed?FlatAppearance.MouseDownBackColor:hover?FlatAppearance.MouseOverBackColor:BackColor;
+            if(background.IsEmpty)background=BackColor;
+            Rectangle interior=Rectangle.Inflate(ClientRectangle,-1,-1);
+            using(Brush brush=new SolidBrush(background))e.Graphics.FillRectangle(brush,interior);
+            if(!Enabled)using(Pen pen=new Pen(UiTheme.Border))e.Graphics.DrawRectangle(pen,0,0,Math.Max(0,Width-1),Math.Max(0,Height-1));
+            Rectangle text=Rectangle.FromLTRB(3+Padding.Left,2+Padding.Top,Math.Max(3+Padding.Left,Width-3-Padding.Right),Math.Max(2+Padding.Top,Height-2-Padding.Bottom));
+            ThemeDrawing.DrawNativeText(e.Graphics,Text,Font,text,Enabled?ForeColor:UiTheme.Muted,background,ThemeDrawing.TextFlags(TextAlign,AutoEllipsis) | (UseMnemonic?(ShowKeyboardCues?0:TextFormatFlags.HidePrefix):TextFormatFlags.NoPrefix));
+            if(Enabled&&Focused&&ShowFocusCues)ControlPaint.DrawFocusRectangle(e.Graphics,Rectangle.Inflate(ClientRectangle,-4,-4),ForeColor,background);
         }
     }
-    // Keep framework interaction/text rendering; replace only the dark checkbox glyph.
+    // Keep framework interaction; use one dark glyph/text layout for both enabled states.
     internal sealed class ThemeCheckBox : CheckBox, IThemeSurface
     {
         private bool dark;
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
-            if (!dark || Appearance != Appearance.Normal || CheckAlign != ContentAlignment.MiddleLeft || RightToLeft == RightToLeft.Yes) return;
+            if (!dark || Appearance != Appearance.Normal || CheckAlign != ContentAlignment.MiddleLeft || RightToLeft == RightToLeft.Yes || Image!=null || ImageList!=null) return;
+            // Remove the native glyph and text together so no fragments of the
+            // enabled text survive beside the common custom text rectangle.
+            using(Brush background=new SolidBrush(BackColor))e.Graphics.FillRectangle(background,ClientRectangle);
             // The flat adapter uses a pale disabled fill. Keep both states dark and
             // draw the mark explicitly so Checked and Indeterminate remain legible.
             int box = Math.Max(9, (int)Math.Round(13.0 * e.Graphics.DpiX / 96.0));
@@ -973,11 +1005,9 @@ namespace FilmGrainStudioPreview
                     }
                 }
             }
-            if (Enabled) return;
-            int glyph = CheckBoxRenderer.GetGlyphSize(e.Graphics,System.Windows.Forms.VisualStyles.CheckBoxState.UncheckedDisabled).Width;
-            Rectangle r = new Rectangle(Padding.Left+glyph+4,Padding.Top,Math.Max(0,Width-Padding.Horizontal-glyph-4),Math.Max(0,Height-Padding.Vertical));
-            using (Brush brush = new SolidBrush(BackColor)) e.Graphics.FillRectangle(brush,r);
-            ThemeDrawing.DrawText(e.Graphics,Text,Font,r,UiTheme.Muted,ThemeDrawing.TextFlags(TextAlign,AutoEllipsis));
+            Rectangle r = new Rectangle(Padding.Left+box+4,Padding.Top,Math.Max(0,Width-Padding.Horizontal-box-4),Math.Max(0,Height-Padding.Vertical));
+            ThemeDrawing.DrawNativeText(e.Graphics,Text,Font,r,Enabled?ForeColor:UiTheme.Muted,BackColor,ThemeDrawing.TextFlags(TextAlign,AutoEllipsis) | (UseMnemonic ? (ShowKeyboardCues ? 0 : TextFormatFlags.HidePrefix) : TextFormatFlags.NoPrefix));
+            if(Enabled&&Focused&&ShowFocusCues&&r.Width>2&&r.Height>2)ControlPaint.DrawFocusRectangle(e.Graphics,Rectangle.Inflate(r,-1,-1),ForeColor,BackColor);
         }
         private FlatStyle originalStyle;
         private Color originalBorder, originalChecked, originalHover, originalDown;
@@ -1202,7 +1232,7 @@ namespace FilmGrainStudioPreview
             if(message==0x0047 || message==0x0005)QueueResizeRepair();
             // Native frame/background painting can overwrite the editable arrow during resize.
             // Restore only the same established overlay; preserve child edit and native popup.
-            if(message==0x000F || message==0x0085 || message==0x0014)PaintDarkChrome();
+            if(message==0x000F || message==0x0085 || message==0x0014 || message==0x000A)PaintDarkChrome();
         }
         private void PaintDarkChrome()
         {
@@ -1210,27 +1240,33 @@ namespace FilmGrainStudioPreview
             using (Graphics g = Graphics.FromHwnd(Handle)) {
                 int width = SystemInformation.VerticalScrollBarWidth;
                 Rectangle arrow = new Rectangle(Math.Max(1,ClientSize.Width-width-1),1,width,Math.Max(0,ClientSize.Height-2));
-                if (!Enabled) {
+                // Owner-drawn list combos already paint both states in DrawCombo.
+                // A second disabled overlay changed the font and text rectangle.
+                if (!Enabled && !(DropDownStyle==ComboBoxStyle.DropDownList&&DrawMode!=DrawMode.Normal)) {
                     Rectangle text = new Rectangle(2,1,Math.Max(0,arrow.Left-3),Math.Max(0,ClientSize.Height-2));
                     using (Brush b = new SolidBrush(UiTheme.Input)) g.FillRectangle(b,text);
-                    ThemeDrawing.DrawText(g,Text,Font,text,UiTheme.Muted,TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+                    ThemeDrawing.DrawNativeText(g,Text,Font,text,UiTheme.Muted,UiTheme.Input,TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
                 }
                 using (Brush b = new SolidBrush(UiTheme.Input)) {
                     g.FillRectangle(b,arrow);
                     // Include the native separator immediately to the left of the arrow.
                     g.FillRectangle(b,Math.Max(1,arrow.Left-2),2,2,Math.Max(0,ClientSize.Height-4));
                 }
-                // Cover both native edge pixels; the old single outline left a bright inner rim.
-                // Confine this to the border, preserving the editable child and popup behavior.
-                if (ClientSize.Width > 3 && ClientSize.Height > 3) {
-                    // Preserve DrawRectangle's inclusive right/bottom pixels without stroking.
-                    using (Brush inner = new SolidBrush(UiTheme.Input)) {
-                        g.FillRectangle(inner,1,1,ClientSize.Width-2,1);
-                        g.FillRectangle(inner,1,ClientSize.Height-2,ClientSize.Width-2,1);
-                        if (ClientSize.Height > 4) {
-                            g.FillRectangle(inner,1,2,1,ClientSize.Height-4);
-                            g.FillRectangle(inner,ClientSize.Width-2,2,1,ClientSize.Height-4);
-                        }
+                // The native inner rim may occupy more than one pixel (DPI/theme).
+                // Clear the chrome outside rcItem, preserving the owner-drawn text
+                // and the editable child's area instead of covering the text again.
+                if(ClientSize.Width>3&&ClientSize.Height>3) {
+                    var info=new ComboInfo {Size=System.Runtime.InteropServices.Marshal.SizeOf(typeof(ComboInfo))};
+                    bool known=GetComboBoxInfo(Handle,ref info);
+                    int left=known?info.Item.Left:2,top=known?info.Item.Top:2;
+                    int right=known?info.Item.Right:arrow.Left,bottom=known?info.Item.Bottom:ClientSize.Height-2;
+                    left=Math.Max(1,Math.Min(ClientSize.Width-1,left));right=Math.Max(left,Math.Min(ClientSize.Width-1,right));
+                    top=Math.Max(1,Math.Min(ClientSize.Height-1,top));bottom=Math.Max(top,Math.Min(ClientSize.Height-1,bottom));
+                    using(var inner=new SolidBrush(UiTheme.Input)) {
+                        g.FillRectangle(inner,1,1,ClientSize.Width-2,top-1);
+                        g.FillRectangle(inner,1,bottom,ClientSize.Width-2,ClientSize.Height-1-bottom);
+                        g.FillRectangle(inner,1,top,left-1,bottom-top);
+                        g.FillRectangle(inner,right,top,ClientSize.Width-1-right,bottom-top);
                     }
                 }
                 Color edge = !Enabled ? UiTheme.Border : ContainsFocus || DroppedDown ? UiTheme.FieldFocusBorder : pointerOver ? UiTheme.FieldHoverBorder : UiTheme.Border;
