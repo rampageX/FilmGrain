@@ -106,8 +106,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.29";
-        internal const string FileReleaseVersion = "5.0.29.0";
+        internal const string ReleaseVersion = "5.0.30";
+        internal const string FileReleaseVersion = "5.0.30.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -720,7 +720,7 @@ namespace FilmGrainStudioPreview
             Button clear = new ThemeButton(); clear.Text = lang.T("button.clear"); clear.Size = new Size(62, 29);
             add.Click += delegate { AddFilesWithDialog(); };
             remove.Click += delegate { RemoveSelected(); };
-            clear.Click += delegate { editingFile=null;fileSettings.Clear();listFiles.Items.Clear(); UpdateSelectedInfo(); UpdateStatusCount(); };
+            clear.Click += delegate { ClearInputFiles(); };
             buttons.Controls.Add(add); buttons.Controls.Add(remove); buttons.Controls.Add(clear);
             var bake = new ThemeButton { Text = UiText("AV1 烘焙...", "AV1 Bake..."), Size = new Size(106,29) };
             bake.Click += delegate { ShowAv1BakeDialog(); }; buttons.Controls.Add(bake);
@@ -1761,13 +1761,14 @@ namespace FilmGrainStudioPreview
             strip.Items.Add(statusHardware);
             statusFfmpeg = new ToolStripStatusLabel("FFmpeg ?"); statusFfmpeg.ForeColor = ColorMuted;
             strip.Items.Add(statusFfmpeg);
-            foreach (string name in new string[]{"AV1", "UHQ", "HEVC", "H.264", "x264", "High10", "SVP", "FRUC"})
+            foreach (string name in new string[]{"AV1", "UHQ", "HEVC", "H.264", "x264", "High10", "SVT-HDR", "SVP", "FRUC"})
             {
                 ToolStripStatusLabel item = new ToolStripStatusLabel(name + " ?");
                 item.ForeColor = ColorMuted; item.Margin = new Padding(3, 0, 3, 0);
                 statusCapabilities[name] = item; strip.Items.Add(item);
             }
             statusCapabilities["FRUC"].Click += delegate { BeginHardwareDetection(true); };
+            statusCapabilities["SVT-HDR"].Click += delegate { BeginHardwareDetection(true); };
             BuildThemeMenu(strip);
             strip.Items.Add(version); return strip;
         }
@@ -1877,16 +1878,23 @@ namespace FilmGrainStudioPreview
                 listFiles.Items.Add(item);
                 existing.Add(path);
             }
+            QueueMissingMediaProbes(true);
             UpdateStatusCount();
             if (listFiles.Items.Count > 0 && listFiles.SelectedItems.Count == 0) listFiles.Items[0].Selected = true;
             UpdateNoReencodeAvailability();
             UpdateFileSettingsLabels();
         }
 
+        private void ClearInputFiles()
+        {
+            editingFile=null;fileSettings.Clear();initializedFileSettings.Clear();completedQueueFiles.Clear();submittedQueueFiles.Clear();
+            listFiles.Items.Clear();UpdateSelectedInfo();UpdateStatusCount();
+        }
+
         private void RemoveSelected()
         {
             changingFileSelection=true;
-            try {while(listFiles.SelectedItems.Count>0) {var item=listFiles.SelectedItems[0];string path=item.Tag as string;if(path!=null)fileSettings.Remove(path);if(path==editingFile)editingFile=null;listFiles.Items.Remove(item);}}
+            try {while(listFiles.SelectedItems.Count>0) {var item=listFiles.SelectedItems[0];string path=item.Tag as string;if(path!=null){fileSettings.Remove(path);initializedFileSettings.Remove(path);completedQueueFiles.Remove(path);submittedQueueFiles.Remove(path);mediaProbeFailures.Remove(path);}if(path==editingFile)editingFile=null;listFiles.Items.Remove(item);}}
             finally {changingFileSelection=false;}
             UpdateSelectedInfo();
             UpdateStatusCount();
@@ -1894,7 +1902,7 @@ namespace FilmGrainStudioPreview
 
         private void UpdateSelectedInfo()
         {
-            if (mediaProbeCore != null) mediaProbeCore.Cancel();
+            QueueMissingMediaProbes();
             StopAv1GrainInspect();
             RefreshAv1GrainTableForMedia();
             UpdateNoReencodeAvailability();
@@ -1947,7 +1955,76 @@ namespace FilmGrainStudioPreview
             }
 
             SetMediaInfoText(lang.T("media.reading"), true);
-            mediaProbeCore.Start(path, ffprobe);
+            string failure;
+            if(TryGetMediaProbeFailure(path,out failure))SetMediaInfoText(LF("media.read_failed",failure),true);
+        }
+
+        private readonly MediaProbeQueuePlan mediaProbeQueue=new MediaProbeQueuePlan();
+        private bool waitingForQueueMedia;
+        private readonly Dictionary<string,MediaProbeResult> mediaProbeFailures=new Dictionary<string,MediaProbeResult>(StringComparer.OrdinalIgnoreCase);
+        private bool IsInputListed(string path)
+        {
+            foreach(ListViewItem item in listFiles.Items)if(string.Equals(item.Tag as string,path,StringComparison.OrdinalIgnoreCase))return true;
+            return false;
+        }
+        private bool TryGetMediaProbeFailure(string path,out string detail)
+        {
+            detail="";MediaProbeResult result;
+            if(!mediaProbeFailures.TryGetValue(path,out result))return false;
+            string probe=Path.Combine(config.Get("FFMPEG_DIR"),"ffprobe.exe");
+            if(result.Identity!=null && !result.Identity.IsCurrent(path,probe)){mediaProbeFailures.Remove(path);return false;}
+            detail=result.FailureMessage;
+            if(string.IsNullOrEmpty(detail))detail=FirstLine(result.StandardError);
+            if(string.IsNullOrEmpty(detail))detail=LF("media.ffprobe_code",result.ExitCode);
+            return true;
+        }
+        private void QueueMissingMediaProbes(bool allInputs = false)
+        {
+            if(mediaProbeCore==null || IsDisposed || Disposing)return;
+            if(listFiles.Items.Count==0) {
+                mediaProbeCore.Cancel();mediaProbeQueue.Reset();mediaProbeFailures.Clear();
+                if(waitingForQueueMedia && lblRunStage!=null)lblRunStage.Text=UiText("队列已清空","Queue cleared");
+                waitingForQueueMedia=false;return;
+            }
+            foreach(ListViewItem item in listFiles.Items) {
+                if(!allInputs && !item.Selected)continue;
+                string path=item.Tag as string;MediaProbeInfo info;string failure;
+                if(!string.IsNullOrEmpty(path) && !mediaProbeCache.TryGetValue(path,out info) && !TryGetMediaProbeFailure(path,out failure))mediaProbeQueue.Enqueue(path);
+            }
+            PumpMediaProbeQueue();
+        }
+        private void PumpMediaProbeQueue()
+        {
+            if(mediaProbeQueue.Active!=null)return;
+            string path;
+            while((path=mediaProbeQueue.TakeNext())!=null) {
+                MediaProbeInfo cached;string failure;
+                if(!IsInputListed(path) || mediaProbeCache.TryGetValue(path,out cached) || TryGetMediaProbeFailure(path,out failure)) {mediaProbeQueue.Complete(path);continue;}
+                string probe=Path.Combine(config.Get("FFMPEG_DIR"),"ffprobe.exe");
+                if(!File.Exists(probe)) {mediaProbeQueue.Reset();SetMediaInfoText(LF("media.ffprobe_missing",probe),true);return;}
+                AppendLog("[Media probe] start remaining="+mediaProbeQueue.Count+" input="+path+Environment.NewLine);
+                mediaProbeCore.Start(path,probe);return;
+            }
+        }
+        private bool QueueMediaReadyForStart()
+        {
+            QueueMissingMediaProbes(true);
+            int missing=0;var failures=new List<string>();
+            foreach(ListViewItem item in listFiles.Items) {
+                string path=item.Tag as string;MediaProbeInfo info;string detail;
+                if(!IsPendingQueueFile(path) || mediaProbeCache.TryGetValue(path,out info))continue;
+                missing++;
+                if(TryGetMediaProbeFailure(path,out detail))failures.Add(Path.GetFileName(path)+": "+detail);
+            }
+            if(missing==0){waitingForQueueMedia=false;return true;}
+            if(failures.Count>0)MessageBox.Show(this,UiText("以下文件的媒体信息读取失败，队列尚未启动：","Media probing failed; queue has not started:")+Environment.NewLine+string.Join(Environment.NewLine,failures.ToArray()),Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);
+            else {
+                waitingForQueueMedia=true;
+                string message=UiText("正在读取队列媒体信息，剩余 ","Reading queue metadata; remaining ")+missing+UiText(" 个。完成后请再次点击开始。",". Click Start again when ready.");
+                if(lblRunStage!=null)lblRunStage.Text=message;
+                SetMediaInfoText(message,true);
+            }
+            return false;
         }
 
         private void OnMediaProbeCompleted(MediaProbeResult result)
@@ -1958,17 +2035,27 @@ namespace FilmGrainStudioPreview
                 BeginInvoke((MethodInvoker)delegate
                 {
                     if (result == null || IsDisposed || Disposing || !mediaProbeCore.IsCurrentResult(result)) return;
-                    if (listFiles.SelectedItems.Count != 1) return;
-                    string currentPath = listFiles.SelectedItems[0].Tag as string;
-                    if (!string.Equals(currentPath, result.PathValue, StringComparison.OrdinalIgnoreCase)) return;
-
-                    if(result.Identity!=null && !result.Identity.IsCurrent(result.PathValue,mediaProbeCache.ProbePath()))
-                    { SetMediaInfoText("Input or FFprobe changed; reselect and probe again.",true); return; }
+                    if(!mediaProbeQueue.Complete(result.PathValue))return;
+                    bool listed=IsInputListed(result.PathValue);
+                    bool current=result.Identity!=null && result.Identity.IsCurrent(result.PathValue,mediaProbeCache.ProbePath());
+                    if(listed && (current || result.Identity==null)) {
+                        if(result.Info!=null && result.Info.Identity!=null) {mediaProbeCache[result.PathValue]=result.Info;mediaProbeFailures.Remove(result.PathValue);}
+                        else mediaProbeFailures[result.PathValue]=result;
+                    }
+                    AppendLog("[Media probe] complete valid="+current+" success="+(result.Info!=null)+" input="+result.PathValue+Environment.NewLine);
+                    // Cache every completed input, even after selection changes or multi-selection.
+                    QueueMissingMediaProbes();
+                    if(waitingForQueueMedia && lblRunStage!=null) {
+                        if(mediaProbeQueue.Count>0)lblRunStage.Text=UiText("正在读取队列媒体信息，剩余 ","Reading queue metadata; remaining ")+mediaProbeQueue.Count;
+                        else {waitingForQueueMedia=false;lblRunStage.Text=mediaProbeFailures.Count==0?UiText("媒体信息已就绪，请点击开始。","Queue metadata ready; click Start."):UiText("部分文件读取失败，请检查文件后再开始。","Some inputs failed probing; check them before starting.");}
+                    }
+                    if(listFiles.SelectedItems.Count!=1)return;
+                    string currentPath=listFiles.SelectedItems[0].Tag as string;
+                    if(!string.Equals(currentPath,result.PathValue,StringComparison.OrdinalIgnoreCase))return;
+                    if(!current && result.Identity!=null){SetMediaInfoText("Input or FFprobe changed; probing current input again.",true);return;}
 
                     if (result.Info != null)
                     {
-                        if(result.Info.Identity==null || !result.Info.Identity.IsCurrent(result.PathValue,mediaProbeCache.ProbePath())) { SetMediaInfoText("Input or FFprobe changed; reselect and probe again.",true); return; }
-                        mediaProbeCache[result.PathValue] = result.Info;
                         string summary = new MediaSummaryCore(lang).FormatMediaSummary(result.Info);
                         SetMediaInfoText(summary, false);
                         UpdateMediaDrivenUi(result.Info);
@@ -2465,6 +2552,7 @@ namespace FilmGrainStudioPreview
             if(hardwareCaps!=null && (hardwareFrucAppliedKey!=requestedFrucKey || !HardwareCapabilityCore.CanCacheFruc(hardwareCaps))) {
                 hardwareCaps=hardwareCaps.Clone();hardwareCaps.FrucReady=false;hardwareCaps.FrucAvailable=false;
                 if(statusCapabilities.ContainsKey("FRUC")) {statusCapabilities["FRUC"].Text="FRUC ?";statusCapabilities["FRUC"].ForeColor=ColorMuted;}
+                if(statusCapabilities.ContainsKey("SVT-HDR")) {statusCapabilities["SVT-HDR"].Text="SVT-HDR ?";statusCapabilities["SVT-HDR"].ForeColor=ColorMuted;}
             }
             UpdateFrucAvailabilityUi();
             if (!hardwareCapsReady) SetCapabilityStatusPending();
@@ -2520,6 +2608,7 @@ namespace FilmGrainStudioPreview
                     }
                     UpdateFrucAvailabilityUi();
                     UpdateFrucStatus();
+                    if(caps!=null)AppendDiagnosticLog("[Hardware SVT-HDR] available="+caps.SvtHdrAvailable+" path="+caps.FrucFfmpegPath+" reason="+caps.SvtHdrReason+Environment.NewLine);
                     if (caps != null) AppendDiagnosticLog("[Hardware FRUC] available=" + caps.FrucAvailable + " kind=" + caps.FrucFailureKind + " path=" + caps.FrucFfmpegPath + " reason=" + caps.FrucReason + Environment.NewLine);
                     if (btnStart != null && (bridgeTaskCoordinator == null || !bridgeTaskCoordinator.IsActive)) btnStart.Enabled = hardwareCapsReady;
                     StartupTiming.Mark("hardware.applied", "ready=" + hardwareCapsReady + " native=" + hardwareCapabilityCore.NativeRuns + " fruc=" + hardwareCapabilityCore.FrucRuns + " children=" + hardwareCapabilityCore.ChildProcesses);
@@ -2543,8 +2632,7 @@ namespace FilmGrainStudioPreview
                     " · FFmpeg " + SafeHardwareText(hardwareCaps.FfmpegVersion) + " · " + SafeHardwareText(cacheText);
                 statusHardware.ToolTipText = details;
                 statusFfmpeg.ToolTipText = details;
-                Match shortVersion = Regex.Match(hardwareCaps.FfmpegVersion ?? "", @"\d+\.\d+(?:\.\d+)?(?:-[A-Za-z0-9]+)?");
-                statusFfmpeg.Text = "FFmpeg " + (shortVersion.Success ? shortVersion.Value : "…");
+                statusFfmpeg.Text = "FFmpeg " + SafeHardwareText(hardwareCaps.FfmpegVersion);
             }
             SetCapabilityStatus("AV1", hardwareCaps.Av1Available);
             SetCapabilityStatus("UHQ", hardwareCaps.Av1UhqAvailable);
@@ -2552,6 +2640,8 @@ namespace FilmGrainStudioPreview
             SetCapabilityStatus("H.264",hardwareCaps.H264Available);
             SetCapabilityStatus("x264", hardwareCaps.X264Available);
             SetCapabilityStatus("High10", hardwareCaps.X264Available && hardwareCaps.X264High10Available);
+            SetCapabilityStatus("SVT-HDR",hardwareCaps.SvtHdrAvailable);
+            if(statusCapabilities.ContainsKey("SVT-HDR"))statusCapabilities["SVT-HDR"].ToolTipText="SVT-AV1-HDR · "+hardwareCaps.FrucFfmpegPath+"\r\n"+hardwareCaps.SvtHdrReason;
             SetCapabilityStatus("SVP", hardwareCaps.OpenSvpGpuAvailable);
             UpdateFrucAvailabilityUi(); UpdateFrucStatus();
 
@@ -2773,6 +2863,8 @@ namespace FilmGrainStudioPreview
                 MessageBox.Show(this, UiText("颗粒列表正在加载；完成后请重试。", "Loading the grain catalog; retry when ready."));
                 return;
             }
+            if(PendingQueueInputs().Count==0){MessageBox.Show(this,UiText("当前列表已全部完成；如需重新处理，请移除后重新添加文件。","All listed files are complete. Remove and re-add a file to process it again."),Text);return;}
+            if(!QueueMediaReadyForStart())return;
             if(independentFiles) {StartIndependentQueue();return;}
             if (!ValidateHardwareForSelectedCodec()) return;
 
@@ -2803,7 +2895,7 @@ namespace FilmGrainStudioPreview
             foreach (ListViewItem item in listFiles.Items)
             {
                 string path = item.Tag as string;
-                if (!string.IsNullOrWhiteSpace(path)) inputs.Add(path);
+                if (IsPendingQueueFile(path)) inputs.Add(path);
             }
 
             if(inputs.Count==0){MessageBox.Show(this,lang.T("info.add_video"),Text,MessageBoxButtons.OK,MessageBoxIcon.Information);return;}
@@ -2886,6 +2978,7 @@ namespace FilmGrainStudioPreview
             try
             {
                 ScrollLogToEnd();
+                submittedQueueFiles.Clear();foreach(string input in inputs)submittedQueueFiles.Add(input);
                 bridgeTaskCoordinator.Start(taskRequest);
             }
             catch (Exception ex)
@@ -2957,6 +3050,9 @@ namespace FilmGrainStudioPreview
                     prepared = null;
                     AppendTaskLog("[Queue] prepared " + tasks.Count + "/" + inputs.Count + " backend=Native" + " input=" + input + Environment.NewLine);
                 }
+                submittedQueueFiles.Clear();foreach(string input in inputs)submittedQueueFiles.Add(input);
+                bridgeTaskCoordinator.SkipFailedFiles=config.GetBool("QUEUE_SKIP_FAILED");
+                AppendTaskLog("[Queue] skip_failed="+bridgeTaskCoordinator.SkipFailedFiles+" (frozen at start)"+Environment.NewLine);
                 bridgeTaskCoordinator.StartQueue(tasks);
             }
             catch (Exception ex)

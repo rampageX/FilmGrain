@@ -143,7 +143,7 @@ namespace FilmGrainStudioPreview
             try {
                 // An overlay prevents change events from persisting partial state.
                 ApplyFileEditor(next,true);
-                if(independentFiles)fileSettings[editingFile]=CaptureFileEditor().Copy();
+                if(independentFiles){fileSettings[editingFile]=CaptureFileEditor().Copy();initializedFileSettings.Add(editingFile);}
                 else {var newShared=next.Copy();config.UseTaskValues(null);config.Save(next.Config);sharedEditor=newShared;}
             } catch {if(!independentFiles){config.UseTaskValues(null);config.Load();}ApplyFileEditor(before,true);if(!independentFiles)config.UseTaskValues(null);throw;}
             UpdateFileSettingsLabels();
@@ -174,6 +174,7 @@ namespace FilmGrainStudioPreview
             try {
                 if(refresh)ApplyFileEditor(staged[editingFile].Copy(),true);
                 foreach(string path in paths)fileSettings[path]=staged[path];
+                foreach(string path in paths)initializedFileSettings.Add(path);
             }catch{
                 foreach(string path in paths){if(previous[path]==null)fileSettings.Remove(path);else fileSettings[path]=previous[path];}
                 if(refresh)ApplyFileEditor(before,true);throw;

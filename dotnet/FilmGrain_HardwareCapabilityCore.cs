@@ -27,6 +27,10 @@ namespace FilmGrainStudioPreview
     internal sealed class HardwareCapabilitySnapshot
     {
         internal HardwareCapabilitySnapshot Clone() { return (HardwareCapabilitySnapshot)MemberwiseClone(); }
+        public bool SvtHdrReady { get; set; }
+        public bool SvtHdrAvailable { get; set; }
+        public string SvtHdrReason { get; set; }
+        public string SvtHdrStamp { get; set; }
         public bool FrucReady { get; set; }
         public bool FrucAvailable { get; set; }
         public string FrucFailureKind { get; set; }
@@ -135,13 +139,13 @@ namespace FilmGrainStudioPreview
         }
         internal static string NativeKey(HardwareCapabilityRequest r)
         {
-            var b = new StringBuilder(ToolBundleStamp(r.FfmpegPath)).Append('|').Append(ToolStamp(r.Grav1synthPath)).Append('|').Append(ToolStamp(r.NvencQueryPath));
+            var b = new StringBuilder("full-version-v1|"+ToolBundleStamp(r.FfmpegPath)).Append('|').Append(ToolStamp(r.Grav1synthPath)).Append('|').Append(ToolStamp(r.NvencQueryPath));
             foreach (string p in new string[] {".venv/Scripts/vspipe.exe", "Plugins/svpflow1_vs.dll", "Plugins/svpflow2_vs.dll", "Check_OpenSVPFlow.vpy", ".venv/pyvenv.cfg", "_UserConfig/vapoursynth/vapoursynth.toml"})
                 b.Append('|').Append(ToolStamp(Path.Combine(r.AppRoot, "_OpenSVPFlow", p)));
             return b.ToString();
         }
         internal static string FrucKey(HardwareCapabilityRequest r)
-        { return ToolBundleStamp(r.FrucFfmpegPath) + "|" + r.FrucPerf + "|" + r.FrucGrid + "|grid-policy-largest-v1"; }
+        { return ToolBundleStamp(r.FrucFfmpegPath) + "|" + r.FrucPerf + "|" + r.FrucGrid + "|grid-policy-largest-v1|svt-hdr-probe-v1"; }
         internal static string RequestKey(HardwareCapabilityRequest r) { return NativeKey(r) + "|FRUC|" + FrucKey(r); }
         private static HardwareCapabilitySnapshot Copy(HardwareCapabilitySnapshot s)
         { return s.Clone(); }
@@ -150,6 +154,8 @@ namespace FilmGrainStudioPreview
             b.FrucReady=a.FrucReady; b.FrucAvailable=a.FrucAvailable; b.FrucFailureKind=a.FrucFailureKind;
             b.FrucReason=a.FrucReason; b.FrucFfmpegPath=a.FrucFfmpegPath; b.FrucPerf=a.FrucPerf; b.FrucGrid=a.FrucGrid;
             b.FrucVersion=a.FrucVersion; b.FrucEvidence=a.FrucEvidence;
+            b.SvtHdrReady=a.SvtHdrReady;b.SvtHdrAvailable=a.SvtHdrAvailable;b.SvtHdrReason=a.SvtHdrReason;b.SvtHdrStamp=a.SvtHdrStamp;
+            SvtHdrCapabilityDetection.Restore(b);
         }
 
         private bool PersistentEnabled { get { return IsolatedPersistentCacheTest || (NativeTest == null && FrucTest == null); } }
@@ -274,6 +280,7 @@ namespace FilmGrainStudioPreview
         }
         private static string NativeUiSignature(HardwareCapabilitySnapshot value) {
             var copy=value.Clone();copy.CacheState=null;copy.Diagnostics=null;copy.Error=null;
+            copy.SvtHdrReady=false;copy.SvtHdrAvailable=false;copy.SvtHdrReason=null;copy.SvtHdrStamp=null;
             copy.FrucReady=false;copy.FrucAvailable=false;copy.FrucFailureKind=null;copy.FrucReason=null;copy.FrucFfmpegPath=null;copy.FrucPerf=null;copy.FrucGrid=null;copy.FrucVersion=null;copy.FrucEvidence=null;
             return new JavaScriptSerializer().Serialize(copy);
         }
@@ -536,15 +543,14 @@ namespace FilmGrainStudioPreview
         {
             if (string.IsNullOrWhiteSpace(line)) return "";
             Match token = Regex.Match(line, @"^ffmpeg version\s+([^\s]+)", RegexOptions.IgnoreCase);
-            if (token.Success) return ShortFfmpegVersionToken(token.Groups[1].Value);
+            if (token.Success) return token.Groups[1].Value;
             return FirstToken(line);
         }
 
         internal static string ShortFfmpegVersionToken(string value)
         {
             if (string.IsNullOrWhiteSpace(value)) return "";
-            Match git = Regex.Match(value, @"^(\d{4}-\d{2}-\d{2}-git)(?:-|$)", RegexOptions.IgnoreCase);
-            return git.Success ? git.Groups[1].Value : value;
+            return value;
         }
 
         internal static string ShortFfmpegVersionLine(string line)
@@ -606,6 +612,7 @@ namespace FilmGrainStudioPreview
         internal static void Detect(HardwareCapabilityRequest request, HardwareCapabilitySnapshot snapshot, SharedFrucCore.ProbeRunner runner = null)
         {
             if (runner == null) runner = SharedFrucCore.Run;
+            SvtHdrCapabilityDetection.Detect(request.FrucFfmpegPath,snapshot,runner,request.ForceDetection);
             SharedFrucCore.InvalidatePreflightCache();
             snapshot.FrucFfmpegPath = request.FrucFfmpegPath ?? "";
             snapshot.FrucPerf = request.FrucPerf ?? "medium";
@@ -1031,5 +1038,44 @@ namespace FilmGrainStudioPreview
         }
         internal static HardwareCapabilitySnapshot Detect(HardwareCapabilityRequest request, NativeProbeRunner runner)
         { return new NativeHardwareProbe(request,runner).Detect(); }
+    }
+}
+
+namespace FilmGrainStudioPreview
+{
+    // Shared by capability refresh and the special-FFmpeg path check. No media inputs/files.
+    internal static class SvtHdrCapabilityDetection
+    {
+        private static readonly Dictionary<string,HardwareCapabilitySnapshot> cache=new Dictionary<string,HardwareCapabilitySnapshot>();
+        internal static void Restore(HardwareCapabilitySnapshot value)
+        {
+            if(value.SvtHdrReady&&!string.IsNullOrEmpty(value.SvtHdrStamp))lock(cache)cache[value.SvtHdrStamp]=value.Clone();
+        }
+        internal static void Detect(string tool,HardwareCapabilitySnapshot target,SharedFrucCore.ProbeRunner runner=null,bool force=false)
+        {
+            if(runner==null)runner=SharedFrucCore.Run;
+            string stamp=HardwareCapabilityCore.ToolBundleStamp(tool)+"|svt-hdr-probe-v1";
+            lock(cache){
+                HardwareCapabilitySnapshot saved;
+                if(!force&&cache.TryGetValue(stamp,out saved)){
+                    target.SvtHdrReady=saved.SvtHdrReady;target.SvtHdrAvailable=saved.SvtHdrAvailable;target.SvtHdrReason=saved.SvtHdrReason;target.SvtHdrStamp=stamp;return;
+                }
+                target.SvtHdrReady=true;target.SvtHdrAvailable=false;target.SvtHdrStamp=stamp;
+                if(!File.Exists(tool)){target.SvtHdrReason="Special FFmpeg executable is missing: "+tool;return;}
+                string output,reason;
+                // The HDR fork's tune=6 and hbd-mds are required by FGS's grain tuning.
+                string args="-hide_banner -nostdin -v info -f lavfi -i color=size=64x64:rate=1:duration=1 -frames:v 1 -an -pix_fmt yuv420p10le -c:v libsvtav1 -preset 12 -svtav1-params hbd-mds=1:film-grain=0:tune=6 -f null -";
+                bool ok;
+                try {ok=runner(tool,args,30000,out output,out reason);}
+                catch(OperationCanceledException){throw;}
+                catch(Exception ex){target.SvtHdrReason="SVT probe execution failed: "+ex.Message;return;}
+                bool rejected=Regex.IsMatch(output??"",@"(?i)(error parsing|failed to set|unrecognized|unknown)\s+(?:option|parameter)|(?:invalid|unsupported)\s+(?:parameter|tune)");
+                target.SvtHdrAvailable=ok&&!rejected;
+                target.SvtHdrReason=target.SvtHdrAvailable?"10-bit SVT encode with hbd-mds=1, film-grain=0 and tune=6 passed; HDR metadata preservation is not tested.":"SVT-AV1-HDR probe failed: "+(reason??"")+"\r\n"+(output??"");
+                // Do not cache transient timeouts or execution failures; capability snapshots
+                // retain the report under the existing hardware cache lifetime.
+                if(ok)cache[stamp]=target.Clone();
+            }
+        }
     }
 }

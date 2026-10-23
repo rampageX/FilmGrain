@@ -40,7 +40,7 @@ namespace FilmGrainStudioPreview
         {
             if(bridgeTaskCoordinator==null||bridgeTaskCoordinator.IsActive)return;
             var inputs=new List<string>();
-            foreach(ListViewItem item in listFiles.Items){string path=item.Tag as string;if(!string.IsNullOrWhiteSpace(path))inputs.Add(path);}
+            foreach(ListViewItem item in listFiles.Items){string path=item.Tag as string;if(IsPendingQueueFile(path))inputs.Add(path);}
             if(inputs.Count==0){MessageBox.Show(this,lang.T("info.add_video"),Text);return;}
             foreach(string input in inputs){MediaProbeInfo info;if(!mediaProbeCache.TryGetValue(input,out info)){MessageBox.Show(this,UiText("请等待输入媒体探测完成。", "Wait for input media probing."),Text);return;}}
             using(var dlg=new Form())
@@ -79,6 +79,8 @@ namespace FilmGrainStudioPreview
                     AppendTaskLog("[Task log] "+taskLog.FilePath+Environment.NewLine+"[AV1 Bake] build="+TestBuild+Environment.NewLine);
                     foreach(string input in inputs)AppendTaskLog("[AV1 Bake input] "+input+Environment.NewLine);
                     activeRunNativeBackend=true;activeRunCodecName="AV1 Bake";
+                    submittedQueueFiles.Clear();foreach(string input in inputs)submittedQueueFiles.Add(input);
+                    bridgeTaskCoordinator.SkipFailedFiles=config.GetBool("QUEUE_SKIP_FAILED");
                     bridgeTaskCoordinator.StartQueue(tasks);
                 }
                 catch(Exception ex){foreach(var task in tasks)BridgeExecutionCore.CleanupTemporaryFiles(task.ExecutionRequest);MessageBox.Show(this,ex.Message,dlg.Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);}
@@ -382,7 +384,7 @@ namespace FilmGrainStudioPreview
                 table.Controls.Add(ConfigLabel(lang.T("config.ffmpeg_dir")), 0, 0);
                 table.Controls.Add(txtFfmpeg, 1, 0); table.Controls.Add(btnFfmpeg, 2, 0); table.Controls.Add(refreshFfmpeg, 3, 0);
                 table.Controls.Add(statusFfmpeg, 1, 1); table.SetColumnSpan(statusFfmpeg, 3);
-                table.Controls.Add(ConfigLabel("FRUC Vulkan FFmpeg"), 0, 2);
+                table.Controls.Add(ConfigLabel(UiText("特殊版 FFmpeg","Special FFmpeg")), 0, 2);
                 table.Controls.Add(frucPanel, 1, 2); table.Controls.Add(btnFruc, 2, 2); table.Controls.Add(refreshFruc, 3, 2);
                 table.Controls.Add(statusFruc, 1, 3); table.SetColumnSpan(statusFruc, 3);
                 table.Controls.Add(ConfigLabel("grav1synth"), 0, 4);
@@ -482,15 +484,17 @@ namespace FilmGrainStudioPreview
                     string fp = GetToolVersion(Path.Combine(dir, "ffprobe.exe"), "-version", out fpOk);
                     statusFfmpeg.Text = "ffmpeg.exe   " + (ffOk ? "✔ " : "✘ ") + ff + Environment.NewLine + "ffprobe.exe  " + (fpOk ? "✔ " : "✘ ") + fp;
                 };
-                Action updateFruc = delegate
+                Action<bool> updateFruc = delegate(bool force)
                 {
                     string ff = Path.Combine(txtFruc.Text.Trim().TrimEnd('\\'), "ffmpeg.exe");
                     statusFruc.Text = lang.T("config.detect.ffmpeg"); Application.DoEvents();
                     bool ok;
                     string version = GetToolVersion(ff, "-version", out ok);
                     bool filter = ok && NativeHevcCore.HasFrucFilter(ff);
+                    var svt=new HardwareCapabilitySnapshot();SvtHdrCapabilityDetection.Detect(ff,svt,null,force);
+                    configTip.SetToolTip(statusFruc,svt.SvtHdrReason);
                     statusFruc.Text = "ffmpeg.exe  " + (ok ? "✔ " : "✘ ") + version +
-                        "    fruc_vulkan " + (filter ? "✔" : "✘");
+                        Environment.NewLine+"fruc_vulkan " + (filter ? "✔" : "✘")+"    SVT-AV1-HDR "+(svt.SvtHdrAvailable?"✔":"✘");
                 };
                 Action updateGrav = delegate
                 {
@@ -551,12 +555,12 @@ namespace FilmGrainStudioPreview
                 };
 
                 refreshFfmpeg.Click += delegate { updateFfmpeg(); };
-                refreshFruc.Click += delegate { updateFruc(); };
+                refreshFruc.Click += delegate { updateFruc(true); };
                 refreshGrav.Click += delegate { updateGrav(); };
                 refreshGrain.Click += delegate { updateGrain(); };
                 refreshLut.Click += delegate { updateLut(); };
                 btnFfmpeg.Click += delegate { if (PickFolder(dlg, txtFfmpeg, lang.T("dialog.ffmpeg_folder"), false)) updateFfmpeg(); };
-                btnFruc.Click += delegate { if (PickFolder(dlg, txtFruc, lang.T("dialog.ffmpeg_folder"), false)) updateFruc(); };
+                btnFruc.Click += delegate { if (PickFolder(dlg, txtFruc, lang.T("dialog.ffmpeg_folder"), false)) updateFruc(false); };
                 btnGrav.Click += delegate { if (PickExe(dlg, txtGrav, lang.T("dialog.grav_exe"), "grav1synth.exe")) updateGrav(); };
                 btnGrain.Click += delegate { if (PickFolder(dlg, txtGrain, lang.T("dialog.grain_root"), false)) updateGrain(); };
                 btnLut.Click += delegate { if (PickFolder(dlg, txtLut, lang.T("dialog.lut_root"), false)) updateLut(); };
@@ -713,9 +717,13 @@ namespace FilmGrainStudioPreview
                 TabPage h264Page = new TabPage("H264");
                 TabPage audioPage = new TabPage(UiText("音频", "Audio"));
                 TabPage interp = new TabPage(lang.T("advanced.tab.interp"));
+                TabPage otherPage=new TabPage(UiText("其它","Other"));otherPage.Name="OTHER_PAGE";
+                var skipQueueFailed=new ThemeCheckBox {Name="QUEUE_SKIP_FAILED",Text=UiText("跳过队列中失败的文件","Skip failed files in queue"),Checked=config.GetBool("QUEUE_SKIP_FAILED"),AutoSize=true,Location=new Point(24,28)};
+                otherPage.Controls.Add(skipQueueFailed);
+                otherPage.Controls.Add(new ThemeLabel {Text=UiText("勾选后，处理失败会保留失败状态并继续下一项。\n取消任务仍会停止整个队列；队列结束会报告失败。\n再次开始仅处理未完成项；移除后重新添加可重做已完成文件。","Continue after processing failures; retain failed status.\nCancellation stops the queue. Final result still reports failures.\nStart retries unfinished items; remove/re-add completed files to rerun."),Location=new Point(24,70),Size=new Size(670,95)});
                 TabPage hdr = new TabPage("HDR");
                 tabs.Name="ADVANCED_TABS";enc.Name="ENCODER_AV1";hevcPage.Name="ENCODER_HEVC";h264Page.Name="ENCODER_H264";audioPage.Name="AUDIO_PAGE";
-                tabs.TabPages.Add(enc); tabs.TabPages.Add(hevcPage); tabs.TabPages.Add(h264Page); tabs.TabPages.Add(interp); tabs.TabPages.Add(hdr);tabs.TabPages.Add(audioPage); dlg.Controls.Add(tabs);
+                tabs.TabPages.Add(enc); tabs.TabPages.Add(hevcPage); tabs.TabPages.Add(h264Page); tabs.TabPages.Add(interp); tabs.TabPages.Add(hdr);tabs.TabPages.Add(audioPage);tabs.TabPages.Add(otherPage); dlg.Controls.Add(tabs);
                 tabs.SelectedIndex = Math.Max(0, Math.Min(tabs.TabCount - 1, initialTab));
 
                 var encodingTip=new ThemeToolTip();dlg.Disposed+=delegate{encodingTip.Dispose();};
@@ -869,6 +877,7 @@ namespace FilmGrainStudioPreview
                     catch(Exception ex){MessageBox.Show(dlg,ex.Message,Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);return;}
                     updates["AUDIO_MODE"]=audioModes[audioMode.SelectedIndex];updates["AUDIO_BITRATE"]=audioRates[audioRate.SelectedIndex];
 
+                    updates["QUEUE_SKIP_FAILED"]=skipQueueFailed.Checked?"true":"false";
                     updates["SVP_ALGO"] = Convert.ToString(algo.SelectedItem, CultureInfo.InvariantCulture);
                     updates["SVP_ANALYSE"] = analyse.SelectedIndex == 1 ? "BASE" : "ENCODEGUI";
                     updates["SVP_MASK_AREA"] = ((int)mask.Value).ToString(CultureInfo.InvariantCulture);

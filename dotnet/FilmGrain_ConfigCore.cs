@@ -30,7 +30,7 @@ namespace FilmGrainStudioPreview
             new KeyValuePair<string, string[]>("Advanced.Encoding", new string[] { "CPU_CODEC", "CPU_SVT_TUNING", "CPU_SVT_GRAIN_TUNE", "CPU_X265_GRAIN_TUNE", "X264_GRAIN_TUNE", "CPU_SVT_PRESET", "CPU_X265_PRESET", "CPU_X265_THREADED_ME", "CPU_SVT_RATE_CONTROL", "CPU_SVT_CQ", "CPU_SVT_CQ_AUTO", "CPU_X265_RATE_CONTROL", "CPU_X265_CQ", "CPU_X265_CQ_AUTO", "H264_HIGH10", "X264_RATE_MODE", "X264_PRESET", "NVENC_SPATIAL_AQ", "NVENC_TEMPORAL_AQ", "AUDIO_MODE", "AUDIO_BITRATE", "AV1_MULTIPASS", "HEVC_MULTIPASS", "H264_MULTIPASS", "HEVC_BFRAMES", "H264_BFRAMES", "HEVC_BREF_MODE", "H264_BREF_MODE", "HEVC_LOOKAHEAD", "H264_LOOKAHEAD" }),
             new KeyValuePair<string, string[]>("Advanced.Interpolation", new string[] { "SVP_ALGO", "SVP_ANALYSE", "SVP_MASK_AREA", "SVP_SPEED", "SVP_TUNING", "SVP_BLOCK_SIZE", "SVP_DEDUP", "SVP_STILL", "SVP_STILL_LIMIT", "SVP_STILL_EDGE", "SVP_STILL_TOLERANCE", "SVP_PEEL", "SVP_PEEL_LIMIT", "FRUC_PERF", "FRUC_GRID", "INTERPOLATION_TARGET_FPS" }),
             new KeyValuePair<string, string[]>("Advanced.HDR", new string[] { "HDR_POLICY", "TONE_MAP_ALGO" }),
-            new KeyValuePair<string, string[]>("Advanced.Other", new string[] { "CINEMATIC_CROP_PER_SIDE", "CINEMATIC_CROP_HORIZONTAL", "CINEMATIC_NO_CROP", "COLOR_PREVIEW_LARGE_UI" }),
+            new KeyValuePair<string, string[]>("Advanced.Other", new string[] { "QUEUE_SKIP_FAILED", "CINEMATIC_CROP_PER_SIDE", "CINEMATIC_CROP_HORIZONTAL", "CINEMATIC_NO_CROP", "COLOR_PREVIEW_LARGE_UI" }),
             new KeyValuePair<string, string[]>("ColorCorrection", new string[] { "COLOR_CORRECTION_ENABLED", "COLOR_CONTRAST", "COLOR_BRIGHTNESS", "COLOR_SATURATION", "COLOR_GAMMA", "COLOR_BLACK_WHITE" })
         };
 
@@ -38,7 +38,7 @@ namespace FilmGrainStudioPreview
         private Dictionary<string,string> taskValues;
         internal static bool IsTaskKey(string key)
         {
-            if(key=="COLOR_PREVIEW_LARGE_UI")return false;
+            if(key=="COLOR_PREVIEW_LARGE_UI"||key=="QUEUE_SKIP_FAILED")return false;
             foreach (var section in Sections)
                 if (section.Key.StartsWith("Advanced.") || section.Key == "ColorCorrection")
                     foreach (string name in section.Value) if (name.Equals(key,StringComparison.OrdinalIgnoreCase)) return true;
@@ -86,6 +86,7 @@ namespace FilmGrainStudioPreview
             defaults["NETWORK_PROXY_MODE"] = "SYSTEM";
             defaults["NETWORK_PROXY_URL"] = "";
             defaults["LOG_ENTRY_LIMIT"] = "100";
+            defaults["QUEUE_SKIP_FAILED"]="false";
             defaults["FRUC_FFMPEG_PATH"] = "";
             // Empty means infer from an older configuration: a saved FRUC path implies custom mode.
             defaults["FRUC_FFMPEG_SAME_AS_MAIN"] = "";

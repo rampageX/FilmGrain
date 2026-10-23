@@ -143,7 +143,7 @@ $ReleaseSourceItems = @(
     'README_Toolkit.txt',
     'STABLE_BASELINE.txt',
     'release.bat',
-    '.github/release/ACCEPTANCE_v5.0.29.md',
+    '.github/release/ACCEPTANCE_v5.0.30.md',
     'dotnet/*.cs',
     'dotnet/BuildTools',
     'dotnet/BUILD_NET_FRAMEWORK.md',
@@ -189,6 +189,10 @@ $RetiredSourceFiles = @(
     'dotnet/Setup_Dependencies.ps1'
 )
 $ExcludedSourcePaths = @(
+    'Tests_MediaQueue_Q6M8VN',
+    'Tests_MediaQueue_R8K3WP',
+    'Tests_MediaQueue_V9N4QK',
+    'Tests_MediaQueue_P7X4MN',
     'Tests_Timeline_T7M4QX',
     'WORKING_SOURCE_INFO.txt',
     'Tests_UserPresetPath_P2M8VN',
@@ -230,6 +234,10 @@ $ExcludedSourcePaths = @(
     'FilmGrain_Studio.exe'
 )
 $ExcludedPackagePaths = @(
+    'Tests_MediaQueue_Q6M8VN',
+    'Tests_MediaQueue_R8K3WP',
+    'Tests_MediaQueue_V9N4QK',
+    'Tests_MediaQueue_P7X4MN',
     'Tests_Timeline_T7M4QX',
     'WORKING_SOURCE_INFO.txt',
     'Tests_UserPresetPath_P2M8VN',
@@ -280,6 +288,12 @@ $ExcludedRecursiveDirectoryNames = @(
     '__pycache__'
 )
 $ExcludedRootDeliveryPatterns = @(
+    'Test_MediaQueue_*.bat',
+    'Return_MediaQueue_*.zip',
+    '__FGS_MediaQueue_Audit_*.exe',
+    'FGS_v5.0.29_*FIX_*.zip',
+    'FGS_v5.0.30_ReleasePrep_*.zip',
+    'Clean_ReleasePrep_*.ps1',
     'Test_Timeline_T7M4QX*.bat',
     'Test_ProductionTimeline_R2_Q4N8VK.bat',
     'Return_Timeline_T7M4QX_*.zip',

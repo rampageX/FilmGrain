@@ -64,3 +64,13 @@
 /FGS_v5.0.29_ReleasePrep_*.zip
 /Clean_Timeline_ReleasePrep_*.ps1
 /WORKING_SOURCE_INFO.txt
+
+# Local batch media-probe verification
+
+
+/Test_MediaQueue_*.bat
+/Tests_MediaQueue_*/
+/Return_MediaQueue_*.zip
+/__FGS_MediaQueue_Audit_*.exe
+/FGS_v5.0.30_ReleasePrep_*.zip
+/Clean_ReleasePrep_*.ps1

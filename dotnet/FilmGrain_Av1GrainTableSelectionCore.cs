@@ -143,7 +143,30 @@ namespace FilmGrainStudioPreview
             events = Regex.Matches(text, @"(?m)^E\s").Count;
             if (events == 0 || curves == 0) throw new InvalidDataException("No grain events/scaling curves found.");
             // E (time/seed/enabled/update), p and AR coefficients are deliberately untouched.
-            return result;
+            return NormalizeInactiveChromaCoefficients(result);
+        }
+
+        // inspect can emit one zero for a disabled chroma plane, while older
+        // grav1synth table parsers require 2*lag*(lag+1)+1 coefficients even then.
+        // Only pad an explicitly inactive plane with zeroes; active AR is untouched.
+        internal static string NormalizeInactiveChromaCoefficients(string text)
+        {
+            return Regex.Replace(text,@"(?ms)^E[^\r\n]*(?:\r?\n)(?:(?!^E[ \t]).)*",delegate(Match block){
+                string body=block.Value;
+                Match p=Regex.Match(body,@"(?m)^[ \t]*p[ \t]+([^\r\n]+)");
+                if(!p.Success)return body;
+                string[] fields=p.Groups[1].Value.Split((char[])null,StringSplitOptions.RemoveEmptyEntries);
+                int lag,fromLuma;
+                if(fields.Length!=12||!int.TryParse(fields[0],out lag)||lag<1||lag>3||!int.TryParse(fields[4],out fromLuma)||fromLuma!=0)return body;
+                int expected=2*lag*(lag+1)+1;
+                foreach(string plane in new[]{"Cb","Cr"}) {
+                    if(!Regex.IsMatch(body,@"(?m)^[ \t]*s"+plane+@"[ \t]+0[ \t]*\r?$"))continue;
+                    body=Regex.Replace(body,@"(?m)^([ \t]*c"+plane+@")[ \t]+0[ \t]*(?=\r?$)",delegate(Match coefficients){
+                        return coefficients.Groups[1].Value+" "+new string('0',expected).Replace("0","0 ").TrimEnd();
+                    });
+                }
+                return body;
+            });
         }
 
         internal static string ShiftTable(string text, double seconds)
@@ -197,7 +220,7 @@ namespace FilmGrainStudioPreview
             apply.BeforeRunPreparation = delegate {
                 File.WriteAllText(scaled, ScaleTable(File.ReadAllText(original), percent), new System.Text.UTF8Encoding(false));
                 apply.DirectArguments = Command("apply", input(), "-o", output, "--grain", scaled, "--replace", "-y");
-                return "[Grain strength] " + percent.ToString(CultureInfo.InvariantCulture) + "% of selected model; timestamps, seeds and AR coefficients preserved.";
+                return "[Grain strength] " + percent.ToString(CultureInfo.InvariantCulture) + "% of selected model; timestamps, seeds and active AR coefficients preserved; inactive chroma zero coefficients padded for table parser compatibility.";
             };
             return new List<BridgeExecutionStage> { inspect, apply };
         }

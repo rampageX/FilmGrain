@@ -49,6 +49,10 @@ namespace FilmGrainStudioPreview
         private BridgeTaskState state = BridgeTaskState.Idle;
         private BridgeTaskRequest activeTask;
         private bool disposed;
+        public bool SkipFailedFiles { get; set; }
+        private bool skipFailedFiles;
+        private BridgeExecutionResult queueFailure;
+        private int queueFailed;
         private Queue<BridgeTaskRequest> pending = new Queue<BridgeTaskRequest>();
 
         public event EventHandler<BridgeTaskStateChangedEventArgs> StateChanged;
@@ -96,6 +100,7 @@ namespace FilmGrainStudioPreview
                 if (disposed) throw new ObjectDisposedException("BridgeTaskCoordinator");
                 if (state != BridgeTaskState.Idle || executionCore == null || executionCore.IsRunning)
                     throw new InvalidOperationException("A Bridge task is already running.");
+                if(task.QueueIndex==0){queueFailure=null;queueFailed=0;skipFailedFiles=false;}
                 activeTask = task;
                 state = BridgeTaskState.Running;
             }
@@ -117,18 +122,12 @@ namespace FilmGrainStudioPreview
             }
             catch(Exception ex)
             {
-                RaiseItemCompleted(task,new BridgeExecutionResult(-1,false,ex));
-                lock (sync)
-                {
-                    if (object.ReferenceEquals(activeTask, task)) activeTask = null;
-                    state = BridgeTaskState.Idle;
-                }
-                RaiseStateChanged(BridgeTaskState.Idle, task);
-                throw;
+                BridgeExecutionCore.CleanupTemporaryFiles(task.ExecutionRequest);
+                OnExecutionCompleted(this,new BridgeExecutionCompletedEventArgs(new BridgeExecutionResult(-1,false,ex)));
             }
         }
 
-        // Requests are prepared independently. Fail fast; successful previous outputs remain.
+        // Requests are prepared independently. Freeze failure policy for this run.
         public void StartQueue(IList<BridgeTaskRequest> tasks)
         {
             if (tasks == null || tasks.Count == 0) throw new ArgumentException("Queue is empty.");
@@ -137,7 +136,7 @@ namespace FilmGrainStudioPreview
             {
                 if (disposed || state != BridgeTaskState.Idle || executionCore.IsRunning)
                     throw new InvalidOperationException("A task is already active.");
-                pending.Clear();
+                pending.Clear();skipFailedFiles=SkipFailedFiles;queueFailure=null;queueFailed=0;
                 for (int i = 0; i < tasks.Count; i++)
                 {
                     tasks[i].QueueIndex = i + 1; tasks[i].QueueTotal = tasks.Count;
@@ -203,31 +202,28 @@ namespace FilmGrainStudioPreview
                         " exit=" + result.ExitCode + " cancelled=" + result.Cancelled));
                 if (state == BridgeTaskState.Cancelling && !result.Cancelled)
                     result = new BridgeExecutionResult(-1, true, result.Exception);
-                RaiseItemCompleted(task,result);
-                if (!disposed && !result.Cancelled && result.Exception == null && result.ExitCode == 0 && pending.Count > 0)
-                {
-                    activeTask = pending.Dequeue();
-                    RaiseStateChanged(BridgeTaskState.Running, activeTask);
-                    try
-                    {
-                        if (disposed || state == BridgeTaskState.Cancelling)
-                        {
-                            BridgeExecutionCore.CleanupTemporaryFiles(activeTask == null ? null : activeTask.ExecutionRequest);
-                            result = new BridgeExecutionResult(-1, true, null);
-                            RaiseItemCompleted(activeTask,result);
-                        }
-                        else { executionCore.Start(activeTask.ExecutionRequest); return; }
-                    }
-                    catch (Exception ex)
-                    {
-                        BridgeExecutionCore.CleanupTemporaryFiles(activeTask.ExecutionRequest);
-                        result = new BridgeExecutionResult(-1, false, ex);
-                        RaiseItemCompleted(activeTask,result);
+                while(true) {
+                    RaiseItemCompleted(task,result);
+                    bool failed=!result.Cancelled&&(result.Exception!=null||result.ExitCode!=0);
+                    if(failed){queueFailed++;if(queueFailure==null)queueFailure=result;}
+                    if(disposed||result.Cancelled||state==BridgeTaskState.Cancelling||pending.Count==0||failed&&!skipFailedFiles)break;
+                    if(failed)OnExecutionLogLine(this,new BridgeLogLineEventArgs(BridgeLogStream.System,"[Queue] failed item retained; continuing by frozen skip-failed policy"));
+                    activeTask=pending.Dequeue();task=activeTask;
+                    RaiseStateChanged(BridgeTaskState.Running,task);
+                    try {
+                        if(disposed||state==BridgeTaskState.Cancelling){
+                            BridgeExecutionCore.CleanupTemporaryFiles(task.ExecutionRequest);
+                            result=new BridgeExecutionResult(-1,true,null);
+                        } else {executionCore.Start(task.ExecutionRequest);return;}
+                    } catch(Exception ex){
+                        BridgeExecutionCore.CleanupTemporaryFiles(task.ExecutionRequest);
+                        result=new BridgeExecutionResult(-1,false,ex);
                     }
                 }
-                if (task != null && task.QueueTotal > 1)
-                    OnExecutionLogLine(this, new BridgeLogLineEventArgs(BridgeLogStream.System,
-                        "[Queue] terminal: skipped=" + pending.Count + " total=" + task.QueueTotal));
+                if(task!=null&&task.QueueTotal>1)
+                    OnExecutionLogLine(this,new BridgeLogLineEventArgs(BridgeLogStream.System,"[Queue] terminal: not_run="+pending.Count+" failed="+queueFailed+" total="+task.QueueTotal));
+                if(state==BridgeTaskState.Cancelling&&!result.Cancelled)result=new BridgeExecutionResult(-1,true,result.Exception);
+                if(!result.Cancelled&&queueFailure!=null)result=queueFailure;
                 CleanupPending();
                 activeTask = null;
                 state = BridgeTaskState.Idle;

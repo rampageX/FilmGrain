@@ -292,7 +292,7 @@ namespace FilmGrainStudioPreview
         private readonly Dictionary<string,FileEditorSettings> fileSettings=new Dictionary<string,FileEditorSettings>(StringComparer.OrdinalIgnoreCase);
         private FileEditorSettings sharedEditor;
         private string editingFile, captureInputPath;
-        private bool independentFiles, restoringFileEditor, changingFileSelection;
+        private bool independentFiles, restoringFileEditor, changingFileSelection, selectingQueueFile;
         private CheckBox fileSettingsMode;
         private ToolStripMenuItem fileCopyFastMenu,fileCopyVerifyMenu;
         private System.Reflection.FieldInfo EditorField(string name)
@@ -357,17 +357,24 @@ namespace FilmGrainStudioPreview
             } finally {restoringFileEditor=false;ResumeLayout(true);}
             SyncCodecPicker();LoadBitrateStateForCodec();UpdateBitrateDisplays();
         }
+        private readonly HashSet<string> initializedFileSettings = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private void SaveEditingFile()
         {
-            if(independentFiles&&editingFile!=null)fileSettings[editingFile]=CaptureFileEditor();
+            if(independentFiles&&editingFile!=null){fileSettings[editingFile]=CaptureFileEditor();initializedFileSettings.Add(editingFile);}
         }
         private void SelectFileEditor()
         {
             if(!independentFiles||restoringFileEditor||changingFileSelection||listFiles.SelectedItems.Count!=1)return;
             string path=listFiles.SelectedItems[0].Tag as string;
             if(path==null||path==editingFile)return;
+            // Capture before switching: untouched files inherit the current processing flow.
+            // Queue-driven selection only displays the already frozen per-file configuration.
+            bool inherit=!selectingQueueFile&&!initializedFileSettings.Contains(path)&&(bridgeTaskCoordinator==null||!bridgeTaskCoordinator.IsActive);
+            FileEditorSettings current=inherit?CaptureFileEditor():null;
             SaveEditingFile();editingFile=path;
             FileEditorSettings value;if(!fileSettings.TryGetValue(path,out value))fileSettings[path]=value=sharedEditor.Copy();
+            if(inherit){current.Subtitle=value.Subtitle.Copy();fileSettings[path]=value=current;}
+            initializedFileSettings.Add(path);
             ApplyFileEditor(value,true);UpdateFileSettingsLabels();
         }
         private void ChangeFileSettingsMode()
@@ -433,6 +440,11 @@ namespace FilmGrainStudioPreview
                 item.ToolTipText=path+(!independentFiles&&fileSettings.ContainsKey(path)?UiText("\r\n已保留独立配置；统一模式暂不应用。","\r\nPer-file settings retained; inactive in shared mode."):"");
             }
         }
+        // Membership is scoped to the current list; remove/re-add explicitly requests a rerun.
+        private readonly HashSet<string> completedQueueFiles=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> submittedQueueFiles=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private bool IsPendingQueueFile(string path){return !string.IsNullOrEmpty(path)&&!completedQueueFiles.Contains(path);}
+        private List<string> PendingQueueInputs(){var paths=new List<string>();foreach(ListViewItem item in listFiles.Items){string path=item.Tag as string;if(IsPendingQueueFile(path))paths.Add(path);}return paths;}
         private readonly HashSet<string> displayedQueueFiles=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private ListViewItem QueueFileItem(BridgeTaskRequest task)
         {
@@ -452,7 +464,7 @@ namespace FilmGrainStudioPreview
             if(e.State==BridgeTaskState.Cancelling){active.SubItems[2].Text=UiText("取消中","Cancelling");return;}
             if(e.Task.QueueIndex<=1) {
                 displayedQueueFiles.Clear();
-                foreach(ListViewItem item in listFiles.Items)if(e.Task.QueueTotal>1||item==active) {
+                foreach(ListViewItem item in listFiles.Items)if(submittedQueueFiles.Contains(item.Tag as string)) {
                     displayedQueueFiles.Add((string)item.Tag);item.SubItems[2].Text=UiText("等待","Waiting");
                 }
             }
@@ -460,7 +472,7 @@ namespace FilmGrainStudioPreview
             changingFileSelection=true;
             try {foreach(ListViewItem item in listFiles.Items)item.Selected=false;active.Selected=true;active.Focused=true;active.EnsureVisible();}
             finally {changingFileSelection=false;}
-            SelectFileEditor();UpdateSelectedInfo();listFiles.Focus();
+            selectingQueueFile=true;try{SelectFileEditor();}finally{selectingQueueFile=false;}UpdateSelectedInfo();listFiles.Focus();
         }
         private void OnQueueItemCompleted(object sender,BridgeTaskItemCompletedEventArgs e)
         {
@@ -468,6 +480,8 @@ namespace FilmGrainStudioPreview
             try {BeginInvoke((MethodInvoker)delegate {
                 if(IsDisposed||Disposing)return;
                 var item=QueueFileItem(e.Task);if(item==null)return;
+                string path=item.Tag as string;
+                if(!e.Result.Cancelled&&e.Result.ExitCode==0&&e.Result.Exception==null)completedQueueFiles.Add(path);
                 item.SubItems[2].Text=e.Result.Cancelled?UiText("已取消","Cancelled"):
                     e.Result.ExitCode==0&&e.Result.Exception==null?UiText("结束","Finished"):UiText("失败","Failed");
             });}catch(InvalidOperationException){}
@@ -480,7 +494,7 @@ namespace FilmGrainStudioPreview
             FileEditorSettings restore=CaptureFileEditor();
             try {
                 foreach(ListViewItem item in listFiles.Items) {
-                    string input=item.Tag as string;if(string.IsNullOrEmpty(input))continue;
+                    string input=item.Tag as string;if(!IsPendingQueueFile(input))continue;
                     FileEditorSettings editor;if(!fileSettings.TryGetValue(input,out editor))fileSettings[input]=editor=sharedEditor.Copy();
                     captureInputPath=input;ApplyFileEditor(editor,true);
                     if(!ValidateHardwareForSelectedCodec())return;

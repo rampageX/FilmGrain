@@ -362,6 +362,31 @@ namespace FilmGrainStudioPreview
         public bool StartReturnedFalse;
     }
 
+    // UI-thread scheduler: one active probe, stable FIFO order, no selection-driven cancellation.
+    internal sealed class MediaProbeQueuePlan
+    {
+        private readonly Queue<string> waiting=new Queue<string>();
+        private readonly HashSet<string> scheduled=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        internal string Active { get; private set; }
+        internal int Count { get { return waiting.Count+(Active==null?0:1); } }
+        internal bool Enqueue(string path)
+        {
+            if(string.IsNullOrWhiteSpace(path) || !scheduled.Add(path))return false;
+            waiting.Enqueue(path);return true;
+        }
+        internal string TakeNext()
+        {
+            if(Active!=null || waiting.Count==0)return null;
+            Active=waiting.Dequeue();return Active;
+        }
+        internal bool Complete(string path)
+        {
+            if(!string.Equals(Active,path,StringComparison.OrdinalIgnoreCase))return false;
+            scheduled.Remove(Active);Active=null;return true;
+        }
+        internal void Reset() { waiting.Clear();scheduled.Clear();Active=null; }
+    }
+
     internal sealed class MediaProbeCore : IDisposable
     {
         private readonly object sync = new object();
@@ -447,10 +472,14 @@ namespace FilmGrainStudioPreview
                 }
                 else
                 {
-                    json = process.StandardOutput.ReadToEnd();
-                    error = process.StandardError.ReadToEnd();
-                    process.WaitForExit();
-                    exitCode = process.ExitCode;
+                    var stdout=process.StandardOutput.ReadToEndAsync();
+                    var stderr=process.StandardError.ReadToEndAsync();
+                    if(!process.WaitForExit(30000)) {
+                        try {process.Kill();process.WaitForExit(1000);}catch{}
+                        failureMessage="媒体信息探测超时（30秒） / Media probe timed out (30 s)";
+                    } else {
+                        json=stdout.Result;error=stderr.Result;exitCode=process.ExitCode;
+                    }
                 }
             }
             catch (Exception ex)
