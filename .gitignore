@@ -74,3 +74,10 @@
 /__FGS_MediaQueue_Audit_*.exe
 /FGS_v5.0.30_ReleasePrep_*.zip
 /Clean_ReleasePrep_*.ps1
+
+
+/Test_LutGallery_*.bat
+/Tests_LutGallery_*/
+/Return_LutGallery_*.zip
+/__FGS_LutGallery_Audit_*.exe
+/FGS_v5.0.31_ReleasePrep_*.zip

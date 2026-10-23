@@ -106,8 +106,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.30";
-        internal const string FileReleaseVersion = "5.0.30.0";
+        internal const string ReleaseVersion = "5.0.31";
+        internal const string FileReleaseVersion = "5.0.31.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -1756,7 +1756,7 @@ namespace FilmGrainStudioPreview
         {
             StatusStrip strip = new StatusStrip(); strip.Dock = DockStyle.Fill; strip.SizingGrip = false; strip.BackColor = ColorSubtle; strip.Padding = new Padding(8, 1, 8, 1);
             statusHardware = new ToolStripStatusLabel(); statusHardware.AutoSize = false; statusHardware.Width = 1; statusHardware.Spring = true; statusHardware.TextAlign = ContentAlignment.MiddleLeft; statusHardware.ForeColor = ColorMuted; statusHardware.Text = lang.T("hardware.detecting");
-            ToolStripStatusLabel version = new ToolStripStatusLabel(); version.Spring = false; version.TextAlign = ContentAlignment.MiddleRight; version.ForeColor = ColorMuted; version.Text = "v" + Program.ReleaseVersion; version.Margin = new Padding(12, 0, 0, 0);
+            ToolStripStatusLabel version = CreateProjectVersionLink(this);
             strip.ShowItemToolTips = true;
             strip.Items.Add(statusHardware);
             statusFfmpeg = new ToolStripStatusLabel("FFmpeg ?"); statusFfmpeg.ForeColor = ColorMuted;

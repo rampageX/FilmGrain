@@ -1184,12 +1184,22 @@ namespace FilmGrainStudioPreview
 
         [System.Runtime.InteropServices.DllImport("uxtheme.dll", CharSet=System.Runtime.InteropServices.CharSet.Unicode)]
         private static extern int SetWindowTheme(IntPtr window,string appName,string idList);
+        internal bool ThemePopupScrollbars {get;set;}
+        private void ApplyPopupTheme()
+        {
+            if(!ThemePopupScrollbars||!IsHandleCreated||IsDisposed||Disposing)return;
+            var info=new ComboInfo{Size=System.Runtime.InteropServices.Marshal.SizeOf(typeof(ComboInfo))};
+            if(GetComboBoxInfo(Handle,ref info)&&info.List!=IntPtr.Zero)
+                try{SetWindowTheme(info.List,DarkTheme?"DarkMode_Explorer":null,null);}catch(DllNotFoundException){}catch(EntryPointNotFoundException){}
+        }
+        protected override void OnDropDown(EventArgs e){ApplyPopupTheme();base.OnDropDown(e);}
         private void ApplyComboTheme()
         {
             if(!IsHandleCreated || IsDisposed || Disposing)return;
             try { SetWindowTheme(Handle,DarkTheme ? "" : null,DarkTheme ? "" : null); }
             catch(DllNotFoundException) { }
             catch(EntryPointNotFoundException) { }
+            ApplyPopupTheme();
         }
         protected override void OnMouseEnter(EventArgs e) { pointerOver=true; base.OnMouseEnter(e); PaintDarkChrome(); }
         protected override void OnMouseLeave(EventArgs e) { pointerOver=false; base.OnMouseLeave(e); PaintDarkChrome(); }
@@ -1229,10 +1239,10 @@ namespace FilmGrainStudioPreview
         }
         protected override void WndProc(ref Message m)
         {
-            if (DarkTheme && !Enabled && (m.Msg == 0x0138 || m.Msg == 0x0133)) {
+            if (DarkTheme && ((ThemePopupScrollbars && m.Msg==0x0134) || !Enabled && (m.Msg == 0x0138 || m.Msg == 0x0133))) {
                 if (disabledBrush == IntPtr.Zero) disabledBrush = CreateSolidBrush(ColorRef(UiTheme.Input));
                 if (disabledBrush != IntPtr.Zero) {
-                    SetTextColor(m.WParam, ColorRef(UiTheme.Muted));
+                    SetTextColor(m.WParam, ColorRef(Enabled?UiTheme.TextColor:UiTheme.Muted));
                     SetBkColor(m.WParam, ColorRef(UiTheme.Input));
                     m.Result = disabledBrush; return;
                 }

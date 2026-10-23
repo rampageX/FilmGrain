@@ -157,36 +157,33 @@ namespace FilmGrainStudioPreview
             return l;
         }
 
-        private Control ConfigLabelWithReadme(string text, string fragment, Form owner)
+        internal const string ProjectHomeUrl="https://github.com/rampageX/FilmGrain";
+        internal const string StableFfmpegDownloadUrl="https://www.gyan.dev/ffmpeg/builds/";
+        internal const string SpecialFfmpegDownloadUrl="https://github.com/QuickFatHedgehog/FFmpeg-Builds-SVT-AV1-HDR";
+        private Control ConfigLabelWithReadme(string text,string fragment,Form owner)
+        {return ConfigLabelWithWebLink(text,ProjectHomeUrl+"/blob/master/README.md#"+fragment,"README",owner);}
+        private Control ConfigLabelWithWebLink(string text,string url,string description,Form owner)
         {
-            TableLayoutPanel panel = new TableLayoutPanel();
-            panel.Dock = DockStyle.Fill;
-            panel.Margin = Padding.Empty;
-            panel.ColumnCount = 2;
-            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 32));
-            panel.Controls.Add(ConfigLabel(text), 0, 0);
-            LinkLabel help = new LinkLabel();
-            help.Text = "[?]"; help.AutoSize = false; help.Dock = DockStyle.Fill;
-            help.TextAlign = ContentAlignment.MiddleCenter;
-            help.LinkClicked += delegate { OpenReadmeLink(owner, fragment); };
-            panel.Controls.Add(help, 1, 0);
-            return panel;
+            var panel=new TableLayoutPanel {Dock=DockStyle.Fill,Margin=Padding.Empty,ColumnCount=2};
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,32));
+            panel.Controls.Add(ConfigLabel(text),0,0);panel.Controls.Add(CreateWebHelpLink(url,description,owner),1,0);return panel;
         }
-
-        private void OpenReadmeLink(Form owner, string fragment)
+        internal static LinkLabel CreateWebHelpLink(string url,string description,Form owner)
         {
-            try
-            {
-                ProcessStartInfo psi = new ProcessStartInfo();
-                psi.FileName = "https://github.com/rampageX/FilmGrain/blob/master/README.md#" + fragment;
-                psi.UseShellExecute = true;
-                Process.Start(psi);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(owner, ex.Message);
-            }
+            var help=new LinkLabel {Text="[?]",AutoSize=false,Dock=DockStyle.Fill,TextAlign=ContentAlignment.MiddleCenter,Tag=url,AccessibleName=description};
+            var tip=new ThemeToolTip();tip.SetToolTip(help,description+Environment.NewLine+url);
+            help.Disposed+=delegate{tip.Dispose();};help.LinkClicked+=delegate{OpenWebLink(owner,url);};return help;
+        }
+        private static void OpenWebLink(IWin32Window owner,string url)
+        {
+            try {Process.Start(new ProcessStartInfo(url){UseShellExecute=true});}
+            catch(Exception ex){MessageBox.Show(owner,ex.Message,"Film Grain Studio",MessageBoxButtons.OK,MessageBoxIcon.Warning);}
+        }
+        internal static ToolStripStatusLabel CreateProjectVersionLink(Form owner)
+        {
+            var version=new ToolStripStatusLabel {Name="PROJECT_HOME_LINK",Text="v"+Program.ReleaseVersion,Spring=false,TextAlign=ContentAlignment.MiddleRight,
+                Margin=new Padding(12,0,0,0),IsLink=true,LinkBehavior=LinkBehavior.HoverUnderline,LinkColor=Color.FromArgb(0,170,126),ActiveLinkColor=Color.FromArgb(0,195,145),Tag=ProjectHomeUrl,ToolTipText=ProjectHomeUrl};
+            version.Click+=delegate{OpenWebLink(owner,ProjectHomeUrl);};return version;
         }
 
         private TextBox ConfigTextBox(string value)
@@ -381,10 +378,10 @@ namespace FilmGrainStudioPreview
                 configTip.SetToolTip(buildCache, lang.T("config.tip.cache"));
                 configTip.SetToolTip(buildThumbs, lang.T("config.tip.thumbs"));
 
-                table.Controls.Add(ConfigLabel(lang.T("config.ffmpeg_dir")), 0, 0);
+                table.Controls.Add(ConfigLabelWithWebLink(lang.T("config.ffmpeg_dir"),StableFfmpegDownloadUrl,UiText("推荐下载：Windows 稳定版","Recommended download: Windows Stable"),dlg), 0, 0);
                 table.Controls.Add(txtFfmpeg, 1, 0); table.Controls.Add(btnFfmpeg, 2, 0); table.Controls.Add(refreshFfmpeg, 3, 0);
                 table.Controls.Add(statusFfmpeg, 1, 1); table.SetColumnSpan(statusFfmpeg, 3);
-                table.Controls.Add(ConfigLabel(UiText("特殊版 FFmpeg","Special FFmpeg")), 0, 2);
+                table.Controls.Add(ConfigLabelWithWebLink(UiText("特殊版 FFmpeg","Special FFmpeg"),SpecialFfmpegDownloadUrl,UiText("推荐下载：FRUC / SVT-AV1-HDR 特别版","Recommended download: FRUC / SVT-AV1-HDR"),dlg), 0, 2);
                 table.Controls.Add(frucPanel, 1, 2); table.Controls.Add(btnFruc, 2, 2); table.Controls.Add(refreshFruc, 3, 2);
                 table.Controls.Add(statusFruc, 1, 3); table.SetColumnSpan(statusFruc, 3);
                 table.Controls.Add(ConfigLabel("grav1synth"), 0, 4);

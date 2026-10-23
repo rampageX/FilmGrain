@@ -25,7 +25,7 @@ namespace FilmGrainStudioPreview
             new KeyValuePair<string, string[]>("Advanced.EncoderAQ", new[] { "HEVC_SPATIAL_AQ", "HEVC_TEMPORAL_AQ", "H264_SPATIAL_AQ", "H264_TEMPORAL_AQ" }),
             new KeyValuePair<string, string[]>("Paths", new string[] { "FFMPEG_DIR", "FRUC_FFMPEG_SAME_AS_MAIN", "FRUC_FFMPEG_PATH", "GRAV1SYNTH", "GRAIN_ROOT", "LUT_ROOT", "TEMP_MODE", "TEMP_CUSTOM_DIR", "OUTPUT_MODE", "OUTPUT_CUSTOM_DIR" }),
             new KeyValuePair<string, string[]>("General", new string[] { "LANGUAGE", "UI_THEME", "MAIN_WINDOW", "SETUP_VERSION", "NETWORK_PROXY_MODE", "NETWORK_PROXY_URL", "LOG_ENTRY_LIMIT", "GRAIN_ENABLED", "AV1_GRAIN_STRENGTH", "AV1_COPY_FAST", "AV1_COPY_FULL_VERIFY" }),
-            new KeyValuePair<string, string[]>("LUTGallery", new string[] { "SMART_FILTER_ENABLED", "LUT_GALLERY_SIZE", "LUT_GALLERY_FIXED" }),
+            new KeyValuePair<string, string[]>("LUTGallery", new string[] { "SMART_FILTER_ENABLED", "LUT_GALLERY_SIZE", "LUT_GALLERY_CLIENT_SIZE", "LUT_GALLERY_FIXED" }),
             new KeyValuePair<string, string[]>("Advanced.RateControl", new[] { "NVENC_AV1_RATE_CONTROL", "NVENC_AV1_CQ", "NVENC_HEVC_RATE_CONTROL", "NVENC_HEVC_CQ", "NVENC_H264_RATE_CONTROL", "NVENC_H264_CQ", "NVENC_AV1_CQ_LIMIT_ENABLED", "NVENC_AV1_CQ_MAXRATE", "NVENC_HEVC_CQ_LIMIT_ENABLED", "NVENC_HEVC_CQ_MAXRATE", "NVENC_H264_CQ_LIMIT_ENABLED", "NVENC_H264_CQ_MAXRATE", "NVENC_AV1_CQ_AUTO", "NVENC_HEVC_CQ_AUTO", "NVENC_H264_CQ_AUTO" }),
             new KeyValuePair<string, string[]>("Advanced.Encoding", new string[] { "CPU_CODEC", "CPU_SVT_TUNING", "CPU_SVT_GRAIN_TUNE", "CPU_X265_GRAIN_TUNE", "X264_GRAIN_TUNE", "CPU_SVT_PRESET", "CPU_X265_PRESET", "CPU_X265_THREADED_ME", "CPU_SVT_RATE_CONTROL", "CPU_SVT_CQ", "CPU_SVT_CQ_AUTO", "CPU_X265_RATE_CONTROL", "CPU_X265_CQ", "CPU_X265_CQ_AUTO", "H264_HIGH10", "X264_RATE_MODE", "X264_PRESET", "NVENC_SPATIAL_AQ", "NVENC_TEMPORAL_AQ", "AUDIO_MODE", "AUDIO_BITRATE", "AV1_MULTIPASS", "HEVC_MULTIPASS", "H264_MULTIPASS", "HEVC_BFRAMES", "H264_BFRAMES", "HEVC_BREF_MODE", "H264_BREF_MODE", "HEVC_LOOKAHEAD", "H264_LOOKAHEAD" }),
             new KeyValuePair<string, string[]>("Advanced.Interpolation", new string[] { "SVP_ALGO", "SVP_ANALYSE", "SVP_MASK_AREA", "SVP_SPEED", "SVP_TUNING", "SVP_BLOCK_SIZE", "SVP_DEDUP", "SVP_STILL", "SVP_STILL_LIMIT", "SVP_STILL_EDGE", "SVP_STILL_TOLERANCE", "SVP_PEEL", "SVP_PEEL_LIMIT", "FRUC_PERF", "FRUC_GRID", "INTERPOLATION_TARGET_FPS" }),
@@ -69,6 +69,7 @@ namespace FilmGrainStudioPreview
             defaults["GRAV1SYNTH"] = @"E:\EnCoder\FFMpeg\grav1synth\grav1synth.exe";
             defaults["MAIN_WINDOW"] = "";
             defaults["LUT_GALLERY_SIZE"] = "";
+            defaults["LUT_GALLERY_CLIENT_SIZE"] = "";
             defaults["LUT_GALLERY_FIXED"] = "false";
             defaults["GRAIN_ENABLED"] = "true";
             defaults["AV1_GRAIN_STRENGTH"] = "100";

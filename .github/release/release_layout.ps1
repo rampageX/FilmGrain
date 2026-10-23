@@ -143,7 +143,7 @@ $ReleaseSourceItems = @(
     'README_Toolkit.txt',
     'STABLE_BASELINE.txt',
     'release.bat',
-    '.github/release/ACCEPTANCE_v5.0.30.md',
+    '.github/release/ACCEPTANCE_v5.0.31.md',
     'dotnet/*.cs',
     'dotnet/BuildTools',
     'dotnet/BUILD_NET_FRAMEWORK.md',
@@ -189,6 +189,8 @@ $RetiredSourceFiles = @(
     'dotnet/Setup_Dependencies.ps1'
 )
 $ExcludedSourcePaths = @(
+    'Tests_LutGallery_M8Q4VP',
+    'Tests_LutGallery_C6R9WN',
     'Tests_MediaQueue_Q6M8VN',
     'Tests_MediaQueue_R8K3WP',
     'Tests_MediaQueue_V9N4QK',
@@ -234,6 +236,8 @@ $ExcludedSourcePaths = @(
     'FilmGrain_Studio.exe'
 )
 $ExcludedPackagePaths = @(
+    'Tests_LutGallery_M8Q4VP',
+    'Tests_LutGallery_C6R9WN',
     'Tests_MediaQueue_Q6M8VN',
     'Tests_MediaQueue_R8K3WP',
     'Tests_MediaQueue_V9N4QK',
@@ -288,6 +292,11 @@ $ExcludedRecursiveDirectoryNames = @(
     '__pycache__'
 )
 $ExcludedRootDeliveryPatterns = @(
+    'Test_LutGallery_*.bat',
+    'Return_LutGallery_*.zip',
+    '__FGS_LutGallery_Audit_*.exe',
+    'FGS_v5.0.30_Lut*FIX_*.zip',
+    'FGS_v5.0.31_ReleasePrep_*.zip',
     'Test_MediaQueue_*.bat',
     'Return_MediaQueue_*.zip',
     '__FGS_MediaQueue_Audit_*.exe',

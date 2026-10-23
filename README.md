@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.0.30 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.31 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
 
@@ -1430,3 +1430,11 @@ FRUC 与 CPU SVT 共用特殊版 FFmpeg 路径。配置中的刷新按钮分别�
 
 AV1 颗粒百分比处理兼容 grav1synth inspect 对无色度颗粒平面输出的短零系数：仅补齐不参与渲染的色度零系数，保持事件时间、随机种子和有效 AR 系数；100% 仍走原路线。
 
+
+### 图库固定模式与收藏位置
+固定界面按当前卡片尺寸与实际可用区域判断整页容量，不以 1610×950 等固定外框尺寸为门槛。固定状态下滚轮继续循环翻页；最小化及布局调整的短暂尺寸变化不解除固定。关闭后保存内容区域尺寸，重新打开时恢复；旧外框尺寸仍兼容。
+
+普通目录和最近使用中，点击星标仅更新收藏状态，保留目录、搜索、页码与当前卡片；在“我的最爱”取消收藏后仍停留当前页，末页为空时退到最后一个有效页。目录弹出列表与滚动条跟随深浅主题。
+
+
+收藏后星标显示黄色实心星，取消收藏恢复空心星。主界面右下角版本号可点击打开项目 GitHub 主页。配置页主 FFmpeg 与特殊版 FFmpeg 标签旁的 `[?]` 分别打开 Windows Stable 和 FRUC / SVT-AV1-HDR 推荐下载页面，悬停可查看网址。
