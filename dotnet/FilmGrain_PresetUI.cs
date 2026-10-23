@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Globalization;
@@ -148,8 +148,60 @@ namespace FilmGrainStudioPreview
             } catch {if(!independentFiles){config.UseTaskValues(null);config.Load();}ApplyFileEditor(before,true);if(!independentFiles)config.UseTaskValues(null);throw;}
             UpdateFileSettingsLabels();
         }
+        private List<string> PresetTargets()
+        {
+            if(bridgeTaskCoordinator!=null&&bridgeTaskCoordinator.IsActive)throw new InvalidOperationException("任务执行中，不能修改处理配置。");
+            var paths=new List<string>();
+            if(independentFiles){foreach(ListViewItem item in listFiles.SelectedItems){string path=item.Tag as string;if(!string.IsNullOrEmpty(path))paths.Add(path);}if(paths.Count==0)throw new InvalidOperationException("请先选择目标文件；支持 Shift 连选、Ctrl 加选。");}
+            return paths;
+        }
+        private FileEditorSettings TargetEditor(string path)
+        {
+            if(string.Equals(path,editingFile,StringComparison.OrdinalIgnoreCase))return CaptureFileEditor().Copy();
+            FileEditorSettings value;return (fileSettings.TryGetValue(path,out value)?value:sharedEditor).Copy();
+        }
+        private void ApplyToSelected(Func<FileEditorSettings,FileEditorSettings> prepare)
+        {
+            var paths=PresetTargets();
+            if(!independentFiles){CommitPresetEditor(prepare(CaptureFileEditor().Copy()));return;}
+            // Prepare every target before touching any stored editor. Each merge starts
+            // from that file, retaining its omitted advanced values and subtitle binding.
+            var staged=new Dictionary<string,FileEditorSettings>(StringComparer.OrdinalIgnoreCase);
+            foreach(string path in paths){try{staged[path]=prepare(TargetEditor(path)).Copy();}catch(Exception ex){throw new InvalidOperationException(Path.GetFileName(path)+": "+ex.Message,ex);}}
+            var previous=new Dictionary<string,FileEditorSettings>(StringComparer.OrdinalIgnoreCase);
+            foreach(string path in paths){FileEditorSettings old;previous[path]=fileSettings.TryGetValue(path,out old)?old:null;}
+            var before=CaptureFileEditor().Copy();bool refresh=editingFile!=null&&staged.ContainsKey(editingFile);
+            try {
+                if(refresh)ApplyFileEditor(staged[editingFile].Copy(),true);
+                foreach(string path in paths)fileSettings[path]=staged[path];
+            }catch{
+                foreach(string path in paths){if(previous[path]==null)fileSettings.Remove(path);else fileSettings[path]=previous[path];}
+                if(refresh)ApplyFileEditor(before,true);throw;
+            }
+            UpdateFileSettingsLabels();
+        }
+        private void PasteSelectedConfiguration()
+        {
+            PresetTargets();if(!independentFiles)throw new InvalidOperationException("请先启用独立配置。");
+            if(copiedFileSettings==null)throw new InvalidOperationException("尚未复制配置");
+            var source=copiedFileSettings.Copy();
+            ApplyToSelected(delegate(FileEditorSettings target){
+                var next=source.Copy();
+                if(next.Subtitle.Mode=="EXTERNAL"||next.Subtitle.Mode=="EMBEDDED"){
+                    var style=next.Subtitle;next.Subtitle=target.Subtitle.Copy();
+                    foreach(string key in PresetCore.Styles.Split(' ')){var field=typeof(SubtitleState).GetField(key,BindingFlags.Instance|BindingFlags.NonPublic);field.SetValue(next.Subtitle,field.GetValue(style));}
+                }
+                ValidateEditorResources(next);ValidatePresetHardware(next);return next;
+            });
+        }
+        private string PresetTargetDescription()
+        {
+            var paths=PresetTargets();if(!independentFiles)return "统一设置（随后应用到全部队列文件）";
+            var names=new List<string>();foreach(string path in paths)names.Add(Path.GetFileName(path));
+            return "选中的 "+paths.Count+" 个文件: "+string.Join("、",names.ToArray());
+        }
         private void ApplyPreset(FgsPreset p)
-        {PresetHoverCard.HideCard();PresetEditable();var next=MergePreset(p,CaptureFileEditor(),true);CommitPresetEditor(next);lastAppliedPresetId=p.Id;RefreshPresetSelector();}
+        {PresetHoverCard.HideCard();ApplyToSelected(delegate(FileEditorSettings target){return MergePreset(p,target,true);});lastAppliedPresetId=p.Id;RefreshPresetSelector();}
         private string PresetDetails(FgsPreset p)
         {
             string text=PresetCore.Details(p);foreach(string k in new[]{"selectedLutPath","selectedAv1GrainTable","selectedGrainPlatePath"})try{ResolveResource(p.Fields[k],false);}catch(Exception ex){text+=Environment.NewLine+ex.Message;}
@@ -225,9 +277,11 @@ namespace FilmGrainStudioPreview
         private void UpdatePresetQueueMenu(ContextMenuStrip menu)
         {
             bool fileTarget=independentFiles&&listFiles.SelectedItems.Count==1;
-            menu.Items[0].Enabled=fileTarget;menu.Items[1].Enabled=fileTarget&&copiedFileSettings!=null;
+            menu.Items[0].Enabled=fileTarget;menu.Items[1].Enabled=independentFiles&&listFiles.SelectedItems.Count>0&&copiedFileSettings!=null;
+            menu.Items[1].Text=independentFiles?"粘贴配置到选中的 "+listFiles.SelectedItems.Count+" 个文件":"粘贴配置";
+            menu.Items[2].Enabled=!independentFiles||fileTarget;
             menu.Items[2].Text=independentFiles?"从该文件配置保存预设":"从当前统一配置保存预设";
-            menu.Items[3].Text=independentFiles?"打开预设管理器，为该文件应用预设":"打开预设管理器，为统一设置应用预设";
+            menu.Items[3].Text=independentFiles?"打开预设管理器，为选中的 "+listFiles.SelectedItems.Count+" 个文件应用预设":"打开预设管理器，为统一设置应用预设";
         }
         private void InstallPresetQueueMenu()
         {
@@ -235,9 +289,9 @@ namespace FilmGrainStudioPreview
             var menu=new ContextMenuStrip();listFiles.ContextMenuStrip=menu;
             Action requireTarget=delegate{if(listFiles.SelectedItems.Count!=1)throw new InvalidOperationException("请选择一个文件。复制与粘贴每次只作用于一个明确的文件，且需要独立配置模式。");if(!independentFiles)throw new InvalidOperationException("请先启用独立配置。");SelectFileEditor();PresetEditable();};
             var copy=new ToolStripMenuItem("复制配置");copy.Click+=delegate{PresetAction(delegate{requireTarget();copiedFileSettings=CaptureFileEditor().Copy();});};menu.Items.Add(copy);
-            var paste=new ToolStripMenuItem("粘贴配置");paste.Click+=delegate{PresetAction(delegate{requireTarget();if(copiedFileSettings==null)throw new InvalidOperationException("尚未复制配置");var next=copiedFileSettings.Copy();if(next.Subtitle.Mode=="EXTERNAL"||next.Subtitle.Mode=="EMBEDDED"){var style=next.Subtitle;next.Subtitle=subtitleState.Copy();foreach(string key in PresetCore.Styles.Split(' ')){var field=typeof(SubtitleState).GetField(key,BindingFlags.Instance|BindingFlags.NonPublic);field.SetValue(next.Subtitle,field.GetValue(style));}}ValidateEditorResources(next);ValidatePresetHardware(next);CommitPresetEditor(next);});};menu.Items.Add(paste);
+            var paste=new ToolStripMenuItem("粘贴配置");paste.Click+=delegate{PresetAction(PasteSelectedConfiguration);};menu.Items.Add(paste);
             var savePreset=new ToolStripMenuItem("从该文件配置保存预设");savePreset.Click+=delegate{PresetAction(delegate{PrepareQueuePresetTarget();var p=new FgsPreset {Name="新预设",Description="",Kind="Simple"};if(EditPresetMetadata(this,p,independentFiles?"从当前文件保存预设: "+Path.GetFileName(editingFile):"从当前统一设置保存预设")){var captured=CapturePreset(p.Kind,p.Name,p.Description);Presets().Save(captured);RefreshPresetSelector();}});};menu.Items.Add(savePreset);
-            var applyPreset=new ToolStripMenuItem("打开预设管理器，为该文件应用预设");applyPreset.Click+=delegate{PresetAction(delegate{PrepareQueuePresetTarget();ShowPresetManager();});};menu.Items.Add(applyPreset);
+            var applyPreset=new ToolStripMenuItem("打开预设管理器，为该文件应用预设");applyPreset.Click+=delegate{PresetAction(delegate{PresetTargets();ShowPresetManager();});};menu.Items.Add(applyPreset);
             menu.Opening+=delegate{UpdatePresetQueueMenu(menu);};UpdatePresetQueueMenu(menu);
         }
         private bool EditPresetMetadata(Form owner,FgsPreset p,string title)
@@ -279,8 +333,8 @@ namespace FilmGrainStudioPreview
         }
         private void ShowPresetManager()
         {
-            PresetHoverCard.HideCard();PresetEditable();string target=independentFiles?editingFile:"统一设置（随后应用到全部队列文件）";
-            using(var dialog=new Form {Font=Font,AutoScaleMode=AutoScaleMode.Dpi,Text="预设管理器 · "+target,Size=new Size(1080,720),MinimumSize=new Size(800,560),StartPosition=FormStartPosition.CenterParent,ShowInTaskbar=false}) {
+            PresetHoverCard.HideCard();string target=PresetTargetDescription();bool multiple=independentFiles&&listFiles.SelectedItems.Count>1;
+            using(var dialog=new Form {Font=Font,AutoScaleMode=AutoScaleMode.Dpi,Text="预设管理器 · "+(multiple?"选中的 "+listFiles.SelectedItems.Count+" 个文件":target),Size=new Size(1080,720),MinimumSize=new Size(800,560),StartPosition=FormStartPosition.CenterParent,ShowInTaskbar=false}) {
                 var grid=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=2,RowCount=2,Padding=new Padding(10)};grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,44));grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,56));grid.RowStyles.Add(new RowStyle(SizeType.Percent,100));grid.RowStyles.Add(new RowStyle(SizeType.Absolute,108));
                 var list=new ThemeListView {View=View.Details,FullRowSelect=true,MultiSelect=false,Dock=DockStyle.Fill,ShowItemToolTips=false};list.Columns.Add("短名称",130);list.Columns.Add("类型",70);list.Columns.Add("流程摘要",330);
                 var detail=new RichTextBox {ReadOnly=true,WordWrap=true,DetectUrls=false,ScrollBars=RichTextBoxScrollBars.Vertical,Dock=DockStyle.Fill};
@@ -291,7 +345,7 @@ namespace FilmGrainStudioPreview
                 Func<FgsPreset> selected=delegate{if(list.SelectedItems.Count!=1)throw new InvalidOperationException("请先选择一份预设");return (FgsPreset)list.SelectedItems[0].Tag;};
                 Action<string> refresh=delegate(string id){list.Items.Clear();foreach(var p in Presets().Items){var item=new ListViewItem(p.Name){Tag=p,ToolTipText=""};item.SubItems.Add(p.Kind=="Full"?"完整":"简单");item.SubItems.Add(PresetCore.Summary(p));list.Items.Add(item);if(p.Id==id)item.Selected=true;}detail.Text="目标: "+target+Environment.NewLine+"浏览列表不会应用。选择预设后点击应用。";RefreshPresetSelector();updateBindings();};
                 list.SelectedIndexChanged+=delegate{if(list.SelectedItems.Count==1)detail.Text="目标: "+target+Environment.NewLine+PresetDetails(selected());};
-                Action<string,Action> add=delegate(string text,Action action){var b=new ThemeButton {Text=text,AutoSize=true,Height=28};b.Click+=delegate{PresetAction(action);};buttons.Controls.Add(b);};
+                Action<string,Action> add=delegate(string text,Action action){var b=new ThemeButton {Text=text,AutoSize=true,Height=28};b.Click+=delegate{PresetAction(action);};if(multiple&&(text=="新建（从当前设置）"||text=="更新保存"||text=="另存为"))b.Enabled=false;buttons.Controls.Add(b);};
                 add("新建（从当前设置）",delegate{var p=new FgsPreset {Name="新预设",Description="",Kind="Simple"};if(EditPresetMetadata(dialog,p,"从当前目标保存预设")){var saved=CapturePreset(p.Kind,p.Name,p.Description);Presets().Save(saved);refresh(saved.Id);}});
                 add("应用",delegate{var p=selected();ApplyPreset(p);dialog.Close();});
                 add("名称 / 说明",delegate{var p=PresetCore.Copy(selected());string original=p.Kind;if(EditPresetMetadata(dialog,p,"编辑名称和说明（不捕获当前配置）")){if(p.Kind!=original)throw new InvalidOperationException("更改保存范围请使用更新保存或另存为。");Presets().Save(p);refresh(p.Id);}});

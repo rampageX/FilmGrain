@@ -25,8 +25,8 @@ function Remove-OwnedNode([IO.FileSystemInfo]$item) {
 }
 function Get-Candidates([string]$root) {
     foreach($entry in ([IO.DirectoryInfo]$root).GetFileSystemInfos()) {
-        if($entry.Name -in @('Tests_Presets_R8M3VN','Tests_Cleanup_Presets_R8M3VN')){$entry;continue}
-        if(($entry.Attributes -band [IO.FileAttributes]::Directory) -eq 0 -and ($entry.Name -like 'Return_Presets_R8M3VN_*.zip')){$entry}
+        if($entry.Name -in @('Tests_Presets_R8M3VN','Tests_Cleanup_Presets_R8M3VN','Tests_HDRFRUC_H7M4QX')){$entry;continue}
+        if(($entry.Attributes -band [IO.FileAttributes]::Directory) -eq 0 -and (($entry.Name -like 'Return_Presets_R8M3VN_*.zip') -or ($entry.Name -like 'Return_HDRFRUC_H7M4QX_*.zip'))){$entry}
     }
 
 }
@@ -58,6 +58,9 @@ function Test-Cleanup {
     [void][IO.Directory]::CreateDirectory((Join-Path $owned '样本 空格'' [甲],;&%'))
     [IO.File]::WriteAllText((Join-Path $owned '样本 空格'' [甲],;&%\test.txt'),'owned')
     [IO.File]::WriteAllText((Join-Path $fixture 'Return_Presets_R8M3VN_fixture.zip'),'owned')
+    [void][IO.Directory]::CreateDirectory((Join-Path $fixture 'Tests_HDRFRUC_H7M4QX'))
+    [IO.File]::WriteAllText((Join-Path $fixture 'Tests_HDRFRUC_H7M4QX\generated.yuv'),'owned HDR sample')
+    [IO.File]::WriteAllText((Join-Path $fixture 'Return_HDRFRUC_H7M4QX_fixture.zip'),'owned')
     if(-not ('FgsPresetCleanupJunction' -as [type])) {
         Add-Type -TypeDefinition @'
 using System;

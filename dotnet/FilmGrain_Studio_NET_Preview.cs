@@ -106,8 +106,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.26";
-        internal const string FileReleaseVersion = "5.0.26.0";
+        internal const string ReleaseVersion = "5.0.27";
+        internal const string FileReleaseVersion = "5.0.27.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -3316,7 +3316,7 @@ namespace FilmGrainStudioPreview
                 else if (policy == "PRESERVE")
                 {
                     bool av1FgsimPreserveReady = av1;
-                    if (x264 || fruc)
+                    if (x264)
                     {
                         unsupported = true;
                         detail = x264
@@ -3345,12 +3345,7 @@ namespace FilmGrainStudioPreview
                 else
                 {
                     bool autoToSdr = x264 || lut || color || (interpolate && !fruc) || fgsim;
-                    if (fruc && !autoToSdr)
-                    {
-                        unsupported = true;
-                        detail = lang.T("input.hdr_route_detail_fruc");
-                    }
-                    else if (autoToSdr)
+                    if (autoToSdr)
                     {
                         toSdr = true;
                         detail = LF("input.hdr_route_detail_auto_sdr", toneLabel);
@@ -3362,9 +3357,16 @@ namespace FilmGrainStudioPreview
                     }
                 }
 
+                if(preserve && fruc)
+                    detail += " " + UiText("FRUC 使用 P010 10-bit 路线；执行前验证当前工具及设备的高位深能力，不降为 8bit。", "FRUC uses the P010 10-bit path; tool/device precision is validated before execution, without 8-bit fallback.");
+                if(fruc && info.IsInterlaced)
+                {
+                    unsupported = true;
+                    detail = UiText("隔行输入当前不支持 FRUC 插帧。", "FRUC interpolation currently requires progressive input.");
+                }
                 text = unsupported ? lang.T("input.hdr_route_unsupported") :
                     (toSdr ? LF("input.hdr_route_tosdr", toneLabel) : lang.T("input.hdr_route_passthrough"));
-                bool hasPreserveBypass = hevc ? (lut || interpolate) : (lut || color || interpolate);
+                bool hasPreserveBypass = hevc ? (lut || (interpolate && !fruc)) : (lut || color || (interpolate && !fruc));
                 if (preserve && !noReencode && hasPreserveBypass)
                     text += " " + lang.T("input.hdr_route_bypass_short");
             }

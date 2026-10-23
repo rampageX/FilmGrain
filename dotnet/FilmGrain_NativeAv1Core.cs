@@ -60,7 +60,7 @@ namespace FilmGrainStudioPreview
                  (Eq(state, "FG_HDR_POLICY", "AUTO") &&
                   (Get(state, "FG_COLOR_ENABLED") == "1" || !string.IsNullOrWhiteSpace(Get(state, "FG_LUT_PATH")) || svp)));
             bool hdrPreserve = info.IsHdr && !hdrToSdr;
-            if (fruc && hdrPreserve) { reason = "AV1 FRUC uses an 8-bit SDR route; choose HDR to SDR explicitly for HDR sources"; return false; }
+
 
             string tonemap = Get(state, "FG_TONEMAP_ALGO").ToLowerInvariant();
             if (tonemap != "mobius" && tonemap != "reinhard" && tonemap != "gamma" && tonemap != "linear" && tonemap != "clip") tonemap = "hable";
@@ -182,6 +182,7 @@ namespace FilmGrainStudioPreview
             string frucPerf = Get(state, "FG_FRUC_PERF").ToLowerInvariant();
             string frucGrid = Get(state, "FG_FRUC_GRID").ToLowerInvariant();
             if (fruc && !SharedFrucCore.TryPreflight(frucFfmpeg, frucPerf, frucGrid, out reason)) return false;
+            if (fruc && hdrPreserve && !SharedFrucCore.TryPreflight10(frucFfmpeg, frucPerf, frucGrid, out reason)) return false;
             if (interpolate)
             {
                 string encoderHelp;
@@ -357,8 +358,9 @@ namespace FilmGrainStudioPreview
             if (fruc)
             {
                 BridgeExecutionStage preprocess = SharedFrucCore.CreateVideoPreprocess(frucFfmpeg, ffprobe, frucInput, frucWorkfile,
-                    tempRoot, fpsText, frucPerf, frucGrid, duration, needsHdrWorkfile ? 2 : 1, totalStages);
+                    tempRoot, fpsText, frucPerf, frucGrid, duration, needsHdrWorkfile ? 2 : 1, totalStages, hdrPreserve);
                 preprocess.FrucTimelineReferenceInput = input;
+                if(hdrPreserve) request.ExecutionNotice = SharedFrucCore.HdrNotice;
                 if(mergedFrucHdr)SharedHdrPreprocessCore.AttachMergedFruc(preprocess,input,info,tonemap,caps.GpuName);
                 directStages.Add(preprocess);
             }
@@ -714,7 +716,7 @@ namespace FilmGrainStudioPreview
         {
             try
             {
-                ProcessStartInfo psi = new ProcessStartInfo(ffprobe, "-v error -select_streams v:0 -show_entries stream=color_range,color_primaries,color_transfer,color_space -of default=noprint_wrappers=1 " + Quote(output));
+                ProcessStartInfo psi = new ProcessStartInfo(ffprobe, "-v error -select_streams v:0 -show_entries stream=pix_fmt,color_range,color_primaries,color_transfer,color_space -of default=noprint_wrappers=1 " + Quote(output));
                 psi.UseShellExecute = false; psi.CreateNoWindow = true; psi.RedirectStandardOutput = true;
                 using (Process process = new Process())
                 {
@@ -726,7 +728,7 @@ namespace FilmGrainStudioPreview
                     foreach (string line in data.Split(new char[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
                     { int pos = line.IndexOf('='); if (pos > 0) actual[line.Substring(0, pos)] = line.Substring(pos + 1).Trim(); }
                     string value;
-                    if (!actual.TryGetValue("color_range", out value) || value != HdrRange(info) || !actual.TryGetValue("color_primaries", out value) || value != HdrPrimaries(info) || !actual.TryGetValue("color_transfer", out value) || value != info.ColorTransfer || !actual.TryGetValue("color_space", out value) || value != HdrSpace(info))
+                    if (!actual.TryGetValue("pix_fmt", out value) || (value != "yuv420p10le" && value != "p010le") || !actual.TryGetValue("color_range", out value) || value != HdrRange(info) || !actual.TryGetValue("color_primaries", out value) || value != HdrPrimaries(info) || !actual.TryGetValue("color_transfer", out value) || value != info.ColorTransfer || !actual.TryGetValue("color_space", out value) || value != HdrSpace(info))
                         return "HDR signaling mismatch: " + data.Trim().Replace(Environment.NewLine, " / ");
                     return "";
                 }

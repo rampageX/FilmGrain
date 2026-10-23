@@ -366,15 +366,68 @@ namespace FilmGrainStudioPreview
             return command.ToString();
         }
 
+        internal const string HdrNotice = "[FRUC HDR] P010 10-bit interpolation; no SDR conversion. HDR color signaling retained. Static mastering/CLL and dynamic HDR metadata preservation is not guaranteed by this encoding route.";
+        internal static string InputFilter(string fps,string perf,string grid,bool highDepth)
+        {
+            string format=highDepth?"p010le":"nv12";
+            return "setpts=PTS-STARTPTS,format="+format+",hwupload,fruc_vulkan=fps="+fps+":perf="+perf+":grid="+grid+",hwdownload,format="+format+",";
+        }
+        private static readonly HashSet<string> depthCache = new HashSet<string>();
+        internal static bool Validate10BitSamples(byte[] bytes,out string reason)
+        {
+            reason=""; const int width=1024,height=128,frameBytes=width*height*3;
+            if(bytes==null || bytes.Length!=frameBytes*3){reason="P010 probe did not produce three complete 10-bit frames";return false;}
+            // A smooth ramp is not a pixel-identity oracle: small optical-flow displacements
+            // legitimately change its code values. Wide constant plateaus isolate precision.
+            // Inspect originals everywhere; inspect the generated frame only in tile interiors.
+            // Each tile is 64 pixels wide. A 24-pixel margin isolates the shader's <=20px
+            // static-guard transition. Test low two-bit residues as well as the coarse level.
+            for(int f=0;f<3;f++)for(int y=0;y<height;y++)for(int x=0;x<width;x++) {
+                if(f==1 && (x%64<24 || x%64>=40))continue;
+                int tile=x/64,expected=64+52*tile+tile%4;
+                int offset=f*frameBytes+(y*width+x)*2,value=bytes[offset]|bytes[offset+1]<<8;
+                if(Math.Abs(value-expected)>1){reason="P010 plateau precision mismatch at frame="+f+" x="+x+" y="+y+" expected="+expected+" actual="+value;return false;}
+            }
+            for(int f=0;f<3;f++)for(int i=width*height*2;i<frameBytes;i+=2){
+                int offset=f*frameBytes+i,value=bytes[offset]|bytes[offset+1]<<8;
+                if(Math.Abs(value-512)>1){reason="P010 neutral chroma precision mismatch at frame="+f;return false;}
+            }
+            return true;
+        }
+        internal static bool TryPreflight10(string ffmpeg,string perf,string grid,out string reason,string diagnosticDirectory = null)
+        {
+            reason="";CapabilityReport report;
+            if(!TryInspect(ffmpeg,perf,grid,out report,out reason))return false;
+            string resolved=grid=="auto"?LargestGrid(report.Evidence):grid;
+            string key=Path.GetFullPath(ffmpeg)+"|"+new FileInfo(ffmpeg).Length+"|"+File.GetLastWriteTimeUtc(ffmpeg).Ticks+"|"+perf+"|"+resolved;
+            lock(depthCache)if(depthCache.Contains(key))return true;
+            string path=Path.Combine(Path.GetTempPath(),"FGS_P010_"+Guid.NewGuid().ToString("N")+".yuv");
+            try {
+                var args=new List<string>{"-hide_banner","-v","error","-nostdin","-y","-init_hw_device","vulkan=vk:0","-filter_hw_device","vk",
+                    "-f","lavfi","-i","nullsrc=size=1024x128:rate=24:duration=0.125,format=yuv420p10le,geq=lum='64+52*floor(X/64)+mod(floor(X/64),4)':cb=512:cr=512",
+                    "-vf",InputFilter("48",perf,resolved,true)+"format=yuv420p10le","-frames:v","3","-an","-c:v","rawvideo","-pix_fmt","yuv420p10le","-f","rawvideo",path};
+                string output,error;
+                bool completed=Run(ffmpeg,JoinArguments(args),30000,out output,out error);
+                if(!string.IsNullOrEmpty(diagnosticDirectory)) {
+                    Directory.CreateDirectory(diagnosticDirectory);
+                    File.WriteAllText(Path.Combine(diagnosticDirectory,"P010_probe.txt"),report.Version+Environment.NewLine+JoinArguments(args)+Environment.NewLine+output+Environment.NewLine+error);
+                    if(File.Exists(path))File.Copy(path,Path.Combine(diagnosticDirectory,"P010_precision.yuv"),true);
+                }
+                if(!completed) {reason="FRUC P010/HDR validation failed; no 8-bit fallback. "+error+" "+output;return false;}
+                if(!Validate10BitSamples(File.ReadAllBytes(path),out reason)){reason="FRUC P010/HDR validation failed; "+reason;return false;}
+                lock(depthCache)depthCache.Add(key);return true;
+            } catch(Exception ex){reason="FRUC P010/HDR validation failed: "+ex.Message;return false;}
+            finally {try{File.Delete(path);}catch{}}
+        }
+
         internal static BridgeExecutionStage CreateVideoPreprocess(string ffmpeg, string ffprobe, string source,
-            string output, string cwd, string fps, string perf, string grid, double duration, int index, int total)
+            string output, string cwd, string fps, string perf, string grid, double duration, int index, int total, bool highDepth = false)
         {
             List<string> args = new List<string>{"-hide_banner", "-stats", "-progress", "pipe:2", "-stats_period", "0.5", "-y",
                 "-init_hw_device", "vulkan=vk:0", "-filter_hw_device", "vk", "-i", source,
-                "-filter_complex", "[0:v:0]setpts=PTS-STARTPTS,format=nv12,hwupload,fruc_vulkan=fps=" + fps +
-                    ":perf=" + perf + ":grid=" + grid + ",hwdownload,format=nv12,format=yuv420p[vout]",
+                "-filter_complex", "[0:v:0]" + InputFilter(fps,perf,grid,highDepth) + "format=" + (highDepth ? "yuv420p10le" : "yuv420p") + "[vout]",
                 "-map", "[vout]", "-an", "-sn", "-dn", "-map_metadata", "0", "-c:v", "ffv1", "-level", "3",
-                "-pix_fmt", "yuv420p", "-fps_mode", "passthrough", output};
+                "-pix_fmt", highDepth ? "yuv420p10le" : "yuv420p", "-fps_mode", "passthrough", output};
             return new BridgeExecutionStage { ToolPath = ffmpeg, WorkingDirectory = cwd, DirectArguments = JoinArguments(args),
                 FrucArguments = args, FrucProbePath = ffprobe, ProgressDurationSeconds = duration,
                 StageCurrent = index, StageTotal = total, StageText = "FRUC Vulkan shared video preprocessing" };

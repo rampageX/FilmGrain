@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -378,7 +378,7 @@ namespace FilmGrainStudioPreview
                     string path=item.Tag as string;if(path!=null&&!fileSettings.ContainsKey(path))fileSettings[path]=sharedEditor.Copy();
                 }
                 changingFileSelection=true;
-                try {while(listFiles.SelectedItems.Count>1)listFiles.SelectedItems[listFiles.SelectedItems.Count-1].Selected=false;listFiles.MultiSelect=false;}
+                try {listFiles.MultiSelect=true;}
                 finally {changingFileSelection=false;}
                 if(listFiles.SelectedItems.Count==0&&listFiles.Items.Count>0)listFiles.Items[0].Selected=true;
                 SelectFileEditor();

@@ -105,7 +105,7 @@ namespace FilmGrainStudioPreview
 
             if (fruc && info.IsInterlaced) { reason = "interlaced FRUC is not supported"; return false; }
 
-            if (interpolate && hdrPreserve) { reason = "HDR source bypasses 8-bit interpolation on legacy backend"; return false; }
+            if (svp && hdrPreserve) { reason = "OpenSVPFlow HDR preservation is not supported; choose FRUC for validated P010 interpolation."; return false; }
 
             bool mpegTsSvp = svp && !hdrToSdr && IsMpegTsInput(input);
             // No-grain SVP keeps the original audio lead on the common clock.
@@ -334,6 +334,7 @@ namespace FilmGrainStudioPreview
 
                             if (plateMode && !File.Exists(Get(state,"FG_HEVC_GRAIN_PATH"))) { reason="selected Grain Plate is missing";return false; }
                 if (fruc && !SharedFrucCore.TryPreflight(ffmpeg,Get(state,"FG_FRUC_PERF").ToLowerInvariant(),Get(state,"FG_FRUC_GRID").ToLowerInvariant(),out reason))return false;
+                if(fruc && hdrPreserve && !SharedFrucCore.TryPreflight10(ffmpeg,Get(state,"FG_FRUC_PERF").ToLowerInvariant(),Get(state,"FG_FRUC_GRID").ToLowerInvariant(),out reason))return false;
                 if (svp && (!File.Exists(vspipe)||!File.Exists(vpy)||!File.Exists(Path.Combine(svpPlugins,"svpflow1_vs.dll"))||!File.Exists(Path.Combine(svpPlugins,"svpflow2_vs.dll")))) { reason="OpenSVPFlow dependencies are missing";return false; }
                 if (mpegTsSvp && !preserveSvpTransportTimeline && !TryGetMpegTsVideoOffset(ffprobe,input,out mpegTsVideoOffset,out reason))return false;
                 if(fgsimMode) {
@@ -511,7 +512,8 @@ namespace FilmGrainStudioPreview
 
                     if (grid != "auto" && grid != "1" && grid != "2" && grid != "4" && grid != "8") { reason = "unsupported FRUC grid setting"; return false; }
 
-                    filter = filter.Replace("[0:v:0]", "[0:v:0]setpts=PTS-STARTPTS,format=nv12,hwupload,fruc_vulkan=fps=" + fps + ":perf=" + perf + ":grid=" + grid + ",hwdownload,format=nv12,");
+                    filter = filter.Replace("[0:v:0]", "[0:v:0]" + SharedFrucCore.InputFilter(fps,perf,grid,hdrPreserve));
+
 
                 }
 
@@ -526,6 +528,7 @@ namespace FilmGrainStudioPreview
                 List<string> requestInputs = new List<string>(); requestInputs.Add(input); if (plateMode) requestInputs.Add(grainInput);
 
                 BridgeExecutionRequest request = new BridgeExecutionRequest();
+                if(fruc && hdrPreserve) request.ExecutionNotice = SharedFrucCore.HdrNotice;
 
                 request.PixelGrainHdr = hdrPreserve;
                 request.PixelGrainFullFilter = pixelFull;
@@ -782,7 +785,7 @@ namespace FilmGrainStudioPreview
 
             {
 
-                ProcessStartInfo psi = new ProcessStartInfo(ffprobe, "-v error -select_streams v:0 -show_entries stream=color_range,color_primaries,color_transfer,color_space -of default=noprint_wrappers=1 " + Quote(output));
+                ProcessStartInfo psi = new ProcessStartInfo(ffprobe, "-v error -select_streams v:0 -show_entries stream=pix_fmt,color_range,color_primaries,color_transfer,color_space -of default=noprint_wrappers=1 " + Quote(output));
 
                 psi.UseShellExecute = false;
 
@@ -818,7 +821,7 @@ namespace FilmGrainStudioPreview
 
                     string value;
 
-                    if (!actual.TryGetValue("color_range", out value) || value != HdrRange(info) ||
+                    if (!actual.TryGetValue("pix_fmt", out value) || (value != "yuv420p10le" && value != "p010le") || !actual.TryGetValue("color_range", out value) || value != HdrRange(info) ||
 
                         !actual.TryGetValue("color_primaries", out value) || value != HdrPrimaries(info) ||
 
