@@ -17,7 +17,7 @@ namespace FilmGrainStudioPreview
             var args=new List<string>();
             Add(args,"-hide_banner","-stats","-progress","pipe:2","-stats_period","0.5","-y","-c:v","libdav1d","-filmgrain","1","-i",input,"-map","0:v:0","-map","0:a:0?","-map_metadata","0");
             if(nvenc){Add(args,"-vf","format=nv12");SharedBakeH264Core.AddNvenc(args);}
-            else{Add(args,"-vf","format=yuv420p","-c:v","libx264","-profile:v","high","-pix_fmt","yuv420p","-preset",preset);SharedGrainCore.AddX264Tune(args,true);}
+            else{Add(args,"-vf","format=yuv420p","-c:v","libx264","-profile:v","high","-pix_fmt","yuv420p","-preset",preset);SharedGrainCore.AddX264Tune(args,SharedGrainCore.GrainTune(state,"FG_X264_GRAIN_TUNE",true));}
             Add(args,"-b:v",bitrate.ToString(CultureInfo.InvariantCulture)+"k","-maxrate",(bitrate*3L).ToString(CultureInfo.InvariantCulture)+"k","-bufsize",(bitrate*6L).ToString(CultureInfo.InvariantCulture)+"k","-c:a","aac","-b:a","256k","-ac","2","-ar","48000","-movflags","+faststart",output);
             AudioOutputCore.Apply(args,state,info,false,true,true);
             return SharedHdrPreprocessCore.BuildBakeTimeline(args,false);

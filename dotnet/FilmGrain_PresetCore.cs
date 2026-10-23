@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -31,7 +31,7 @@ namespace FilmGrainStudioPreview
         internal const string Styles="FontName FontSize PrimaryHex BorderHex Outline Shadow MarginV";
         internal const string BasicKeys="GRAIN_ENABLED AV1_GRAIN_STRENGTH HDR_POLICY AUDIO_MODE AUDIO_BITRATE INTERPOLATION_TARGET_FPS CINEMATIC_CROP_PER_SIDE CINEMATIC_CROP_HORIZONTAL CINEMATIC_NO_CROP COLOR_CORRECTION_ENABLED COLOR_CONTRAST COLOR_BRIGHTNESS COLOR_SATURATION COLOR_GAMMA COLOR_BLACK_WHITE NVENC_AV1_RATE_CONTROL NVENC_AV1_CQ NVENC_AV1_CQ_AUTO NVENC_HEVC_RATE_CONTROL NVENC_HEVC_CQ NVENC_HEVC_CQ_AUTO NVENC_H264_RATE_CONTROL NVENC_H264_CQ NVENC_H264_CQ_AUTO";
         internal static bool Contains(string list,string key) {return Array.IndexOf(list.Split(' '),key)>=0;}
-        internal static bool Includes(string kind,string key) {return FgsConfig.IsTaskKey(key)&&(kind=="Full"||Contains(BasicKeys,key));}
+        internal static bool Includes(string kind,string key) {return FgsConfig.IsTaskKey(key)&&(kind=="Full"||key=="CPU_CODEC"||Contains("CPU_SVT_CQ CPU_SVT_CQ_AUTO",key)||key=="CPU_SVT_RATE_CONTROL"||Contains("CPU_X265_CQ CPU_X265_CQ_AUTO",key)||key=="CPU_X265_RATE_CONTROL"||Contains(BasicKeys,key));}
         internal static JavaScriptSerializer Serializer() {return new JavaScriptSerializer {MaxJsonLength=262144,RecursionLimit=16};}
         internal static FgsPreset Copy(FgsPreset p) {return Serializer().Deserialize<FgsPreset>(Serializer().Serialize(p));}
         internal static void Require(bool valid,string error) {if(!valid)throw new InvalidDataException(error);}
@@ -47,7 +47,7 @@ namespace FilmGrainStudioPreview
             SafeText(v,k,128);
             if(k.EndsWith("_CQ_AUTO")){Choice(v," true false",k);return;}
             if(k.EndsWith("_RATE_CONTROL")){Choice(v,"VBR CQ",k);return;}
-            if(k.EndsWith("_CQ")){if(v!="AUTO")Number(v,1,k.Contains("AV1")?63:51,k);return;}
+            if(k.EndsWith("_CQ")){if(v!="AUTO")Number(v,1,k.Contains("AV1")||k.Contains("SVT")?63:51,k);return;}
             if(k.EndsWith("_CQ_MAXRATE")){Number(v,1,1000,k);return;}
             if(k.EndsWith("_CQ_LIMIT_ENABLED")||k.EndsWith("TEMPORAL_AQ")||Contains("GRAIN_ENABLED H264_HIGH10 AV1_COPY_FAST AV1_COPY_FULL_VERIFY SVP_STILL SVP_PEEL COLOR_CORRECTION_ENABLED COLOR_BLACK_WHITE",k)){Choice(v,"true false",k);return;}
             if(k.EndsWith("SPATIAL_AQ")){Choice(v,"0 4 8 10 12 15",k);return;}
@@ -58,6 +58,12 @@ namespace FilmGrainStudioPreview
             switch(k) {
             case "AUDIO_MODE":Choice(v,"FGS SMART COPY AAC",k);return;
             case "AUDIO_BITRATE":Choice(v,"SOURCE 128 160 192 256 320",k);return;
+            case "CPU_SVT_GRAIN_TUNE":case "CPU_X265_GRAIN_TUNE":case "X264_GRAIN_TUNE":Choice(v,"AUTO ON OFF",k);return;
+            case "CPU_SVT_TUNING":Choice(v,"FGS HANDBRAKE",k);return;
+            case "CPU_CODEC":Choice(v,"SVT X265 X264",k);return;
+            case "CPU_SVT_PRESET":Integer(v,0,13,k);return;
+            case "CPU_X265_PRESET":Choice(v,"ultrafast superfast veryfast faster fast medium slow slower veryslow placebo",k);return;
+            case "CPU_X265_THREADED_ME":Choice(v,"true false",k);return;
             case "X264_RATE_MODE":Choice(v,"VBR1 2PASS 3PASS",k);return;
             case "X264_PRESET":Choice(v,"ultrafast superfast veryfast faster fast medium slow slower veryslow placebo",k);return;
             case "HDR_POLICY":Choice(v,"AUTO PRESERVE SDR",k);return;
@@ -114,10 +120,12 @@ namespace FilmGrainStudioPreview
                 else Integer(v,0,k=="cmbCodec"?4:k=="cmbSpeed"||k=="cmbInterpolationMode"||k=="cmbDeintMethod"?2:k=="trackLutStrength"?4:1,k);
             }
             int codec=int.Parse(p.Controls["cmbCodec"],CultureInfo.InvariantCulture);
-            if(codec==0||codec==1||codec==3) {
-                string prefix="NVENC_"+(codec==0?"AV1":codec==1?"HEVC":"H264");bool cq=p.Config[prefix+"_RATE_CONTROL"]=="CQ";
+            bool cpu=codec==2&&p.Config.ContainsKey("CPU_CODEC")&&p.Config["CPU_CODEC"]!="X264";
+            if(cpu)foreach(string suffix in new[]{"RATE_CONTROL","CQ","CQ_AUTO"})Require(p.Config.ContainsKey("CPU_"+p.Config["CPU_CODEC"]+"_"+suffix),"CPU 预设缺少参数: "+suffix);
+            if(codec==0||codec==1||codec==3||cpu) {
+                string prefix=cpu?"CPU_"+p.Config["CPU_CODEC"]:"NVENC_"+(codec==0?"AV1":codec==1?"HEVC":"H264");bool cq=p.Config[prefix+"_RATE_CONTROL"]=="CQ";
                 Require((p.Controls["chkCq"]=="1")==cq,"CQ 控件与配置状态不一致");
-                if(cq){bool automatic=p.Config[prefix+"_CQ_AUTO"]==""?p.Config[prefix+"_CQ"]=="AUTO":p.Config[prefix+"_CQ_AUTO"]=="true";Require((p.Controls["chkBitrateAuto"]=="1")==automatic,"CQ 自动状态不一致");if(!automatic){Number(p.Controls["cmbBitrate"],1,codec==0?63:51,"手动 CQ");Require(p.Controls["cmbBitrate"]==p.Config[prefix+"_CQ"],"手动 CQ 数值不一致");}}
+                if(cq){bool automatic=p.Config[prefix+"_CQ_AUTO"]==""?p.Config[prefix+"_CQ"]=="AUTO":p.Config[prefix+"_CQ_AUTO"]=="true";Require((p.Controls["chkBitrateAuto"]=="1")==automatic,"CQ 自动状态不一致");if(!automatic){Number(p.Controls["cmbBitrate"],1,codec==0||cpu&&p.Config["CPU_CODEC"]=="SVT"?63:51,"手动 CQ");Require(p.Controls["cmbBitrate"]==p.Config[prefix+"_CQ"],"手动 CQ 数值不一致");}}
             }
             Require(p.Bitrates!=null&&p.Bitrates.Length==4&&p.Automatic!=null&&p.Automatic.Length==4,"无效码率状态");
             foreach(string b in p.Bitrates)Integer(b,11,500000000,"码率");
@@ -151,8 +159,9 @@ namespace FilmGrainStudioPreview
         internal static string Summary(FgsPreset p)
         {
             string[] codecs={"AV1 NVENC","HEVC NVENC","x264","H.264 NVENC","AV1 不重编码"};
+            if(p.Config.ContainsKey("CPU_CODEC"))codecs[2]=p.Config["CPU_CODEC"]=="SVT"?"AV1 SVT-AV1-HDR":p.Config["CPU_CODEC"]=="X265"?"HEVC x265":"H.264 x264";
             int c=int.Parse(p.Controls["cmbCodec"],CultureInfo.InvariantCulture);
-            return codecs[c]+" · "+(p.Controls["chkCq"]=="1"?"CQ":p.Automatic[Math.Min(3,c)]?"自动码率":"手动码率")+
+            return codecs[c]+" · "+(p.Controls["chkCq"]=="1"?(c==2?"CRF":"CQ"):p.Automatic[Math.Min(3,c)]?"自动码率":"手动码率")+
                 (p.Controls["chkInterpolation"]=="1"?" → 插帧":"")+(p.Controls["chkGrainEnabled"]=="1"?" → 颗粒":"")+(p.Controls["chkLut"]=="1"?" → LUT":"");
         }
         internal static string ShortText(string value,int limit)
@@ -164,10 +173,12 @@ namespace FilmGrainStudioPreview
         internal static string BriefDetails(FgsPreset p)
         {
             string[] codecs={"AV1 NVENC","HEVC NVENC","x264","H.264 NVENC","AV1 不重编码"};
+            if(p.Config.ContainsKey("CPU_CODEC"))codecs[2]=p.Config["CPU_CODEC"]=="SVT"?"AV1 SVT-AV1-HDR":p.Config["CPU_CODEC"]=="X265"?"HEVC x265":"H.264 x264";
             int c=int.Parse(p.Controls["cmbCodec"],CultureInfo.InvariantCulture);
             var lines=new List<string>();lines.Add(p.Name+" · "+(p.Kind=="Full"?"完整预设":"简单预设"));
             if(!string.IsNullOrWhiteSpace(p.Description))lines.Add(ShortText(p.Description,54));
             string rate=c==4?"":p.Controls["chkCq"]=="1"?(p.Controls["chkBitrateAuto"]=="1"?"自动 CQ":"CQ "+p.Controls["cmbBitrate"]):p.Automatic[Math.Min(3,c)]?"自动码率":p.Bitrates[Math.Min(3,c)]+" kbps";
+            if(c==2)rate=rate.Replace("CQ","CRF");
             lines.Add(codecs[c]+(rate==""?"":" · "+rate)+" · "+(p.Controls["cmbContainer"]=="1"?"MKV":"MP4"));
             var effects=new List<string>();
             if(p.Controls["chkInterpolation"]=="1")effects.Add((p.Controls["cmbInterpolationMode"]=="2"?"FRUC":"OpenSVPFlow")+" → "+p.Controls["cmbInterpolationFps"]+" fps");
@@ -215,7 +226,8 @@ namespace FilmGrainStudioPreview
             }
             if(key=="TONE_MAP_ALGO")return p.Config["HDR_POLICY"]=="SDR";
             if(key.StartsWith("AV1_COPY_"))return codec==4;
-            if(key.StartsWith("X264_")||key=="H264_HIGH10")return codec==2;
+            if(key.StartsWith("CPU_"))return codec==2;
+            if(key.StartsWith("X264_")||key=="H264_HIGH10")return codec==2&&(!p.Config.ContainsKey("CPU_CODEC")||p.Config["CPU_CODEC"]=="X264");
             string family=codec==0?"AV1":codec==1?"HEVC":codec==3?"H264":"";
             if(key.StartsWith("NVENC_")||key.StartsWith("AV1_")||key.StartsWith("HEVC_")||key.StartsWith("H264_")){
                 if(family==""||!(key.StartsWith("NVENC_"+family+"_")||key.StartsWith(family+"_")))return false;
@@ -233,9 +245,10 @@ namespace FilmGrainStudioPreview
             if(!string.IsNullOrWhiteSpace(p.Description))s.AppendLine("用途："+p.Description);
             s.AppendLine(p.Kind=="Simple"?"范围：主界面处理流程；未包含的高级参数保持当前设置。不同高级设置可能产生不同输出。":"范围：主界面流程及明确包含的高级处理参数；未包含的字段保持当前设置。");
             string[] codecs={"AV1 NVENC","HEVC NVENC","x264","H.264 NVENC","AV1 不重编码"};
+            if(p.Config.ContainsKey("CPU_CODEC"))codecs[2]=p.Config["CPU_CODEC"]=="SVT"?"AV1 SVT-AV1-HDR":p.Config["CPU_CODEC"]=="X265"?"HEVC x265":"H.264 x264";
             s.AppendLine("编码器："+codecs[codec]+"；容器："+(p.Controls["cmbContainer"]=="1"?"MKV":"MP4"));
             if(codec!=4){s.AppendLine("码率／质量："+(p.Controls["chkCq"]=="1"?(p.Controls["chkBitrateAuto"]=="1"?"自动 CQ（执行时计算）":"手动 CQ "+p.Controls["cmbBitrate"]):p.Automatic[codec]?"自动码率（执行时计算）":"手动码率 "+p.Bitrates[codec]+" kbps"));
-                s.AppendLine("编码速度："+new[]{"快速","标准","UHQ"}[int.Parse(p.Controls["cmbSpeed"])]+"；输出帧率："+(p.Controls["cmbFps"]=="0"?"自动":"源帧率"));
+                s.AppendLine("编码速度："+(codec==2?"CPU preset（见已包含参数；简单预设保留目标高级设置）":new[]{"快速","标准","UHQ"}[int.Parse(p.Controls["cmbSpeed"])])+"；输出帧率："+(p.Controls["cmbFps"]=="0"?"自动":"源帧率"));
                 s.AppendLine("高动态策略："+(p.Controls["chkHighMotion"]=="1"?"开启":"关闭")+"；分割编码："+(p.Controls["chkSfe"]=="1"?"开启":"关闭"));}
             s.AppendLine("颗粒："+(p.Controls["chkGrainEnabled"]=="1"?"开启":"关闭"));
             if(p.Controls["chkGrainEnabled"]=="1"){
@@ -286,7 +299,7 @@ namespace FilmGrainStudioPreview
                     {"av1StockIndex","胶片 [0 Eterna250D / 1 Eterna500T / 2 Vision3 250D / 3 Vision3 200T]"},{"av1IsoValue","ISO"},{"av1ChromaEnabled","彩色颗粒"},
                     {"proceduralStrength","Digital Grain 强度"},{"fgsimPresetIndex","FGSIM [0 light / 1 normal / 2 medium / 3 heavy]"},{"scannedGrainStrengthPercent","扫描颗粒强度 (%)"},
                     {"colorCorrectionEnabled","调色开关"},{"colorContrast","对比度"},{"colorBrightness","亮度"},{"colorSaturation","饱和度"},{"colorGamma","Gamma"},{"colorBlackWhite","黑白"},
-                    {"H264_HIGH10","x264 High10"},{"X264_RATE_MODE","x264 遍数"},{"X264_PRESET","x264 速度"},{"TONE_MAP_ALGO","HDR 色调映射"},{"GRAIN_ENABLED","颗粒总开关"},{"AV1_GRAIN_STRENGTH","AV1 相对强度 (%)"},
+                    {"CPU_SVT_TUNING","SVT 调校方案"},{"CPU_SVT_GRAIN_TUNE","SVT Grain 调优（AUTO/ON/OFF）"},{"CPU_X265_GRAIN_TUNE","x265 Grain 调优（AUTO/ON/OFF）"},{"X264_GRAIN_TUNE","x264 Grain 调优（AUTO/ON/OFF）"},{"H264_HIGH10","x264 High10"},{"X264_RATE_MODE","x264 遍数"},{"X264_PRESET","x264 速度"},{"TONE_MAP_ALGO","HDR 色调映射"},{"GRAIN_ENABLED","颗粒总开关"},{"AV1_GRAIN_STRENGTH","AV1 相对强度 (%)"},
                     {"AV1_COPY_FAST","不重编码快速路径"},{"AV1_COPY_FULL_VERIFY","不重编码完整验证"},{"CINEMATIC_CROP_PER_SIDE","纵向单侧裁剪"},{"CINEMATIC_CROP_HORIZONTAL","横向单侧裁剪"},{"CINEMATIC_NO_CROP","恢复完整画幅"},
                     {"INTERPOLATION_TARGET_FPS","插帧目标帧率"},{"FRUC_PERF","FRUC 性能档位"},{"FRUC_GRID","FRUC 网格（auto=最大可用）"},
                     {"SVP_ALGO","SVP 算法"},{"SVP_ANALYSE","SVP 分析配置"},{"SVP_MASK_AREA","SVP 遮罩区域"},{"SVP_SPEED","SVP 速度"},{"SVP_TUNING","SVP 调校"},{"SVP_BLOCK_SIZE","SVP 分块大小"},{"SVP_DEDUP","SVP 重复帧阈值"},
@@ -313,6 +326,28 @@ namespace FilmGrainStudioPreview
         internal readonly List<FgsPreset> Items=new List<FgsPreset>();
         internal string[] Quick=new string[5];
         internal PresetStore(string root){Root=root;}
+        internal static string ResolveUserRoot(string appRoot)
+        {
+            string legacy=Path.Combine(appRoot,"UserPresets"),parent=Path.Combine(appRoot,"Presets"),target=Path.Combine(parent,"User");
+            foreach(string path in new[]{parent,target,legacy}){
+                if(File.Exists(path))throw new IOException("预设目录被同名文件占用: "+path);
+                if(Directory.Exists(path)&&(File.GetAttributes(path)&FileAttributes.ReparsePoint)!=0)throw new IOException("预设迁移不跟随目录链接: "+path);
+            }
+            if(!Directory.Exists(legacy)){Directory.CreateDirectory(parent);return target;}
+            bool emptyTarget=Directory.Exists(target)&&Directory.GetFileSystemEntries(target).Length==0;
+            if(Directory.Exists(target)&&!emptyTarget){
+                if(Directory.GetFileSystemEntries(legacy).Length==0){Directory.Delete(legacy);return target;}
+                throw new IOException("发现两处用户预设目录，已停止预设操作以避免覆盖。请先备份并移开其中一处目录，重新打开预设管理器后再导入需要合并的预设。\r\n旧目录: "+legacy+"\r\n新目录: "+target);
+            }
+            // Same-volume rename preserves all bytes, IDs and quick.json together.
+            // Validate before moving: damaged/unsupported presets remain in the old location.
+            var check=new PresetStore(legacy);check.Load();
+            Directory.CreateDirectory(parent);
+            if(emptyTarget)Directory.Delete(target);
+            try{Directory.Move(legacy,target);}
+            catch{if(emptyTarget&&!Directory.Exists(target))Directory.CreateDirectory(target);throw;}
+            return target;
+        }
         private string FileFor(string id){Guid g;PresetCore.Require(Guid.TryParse(id,out g),"无效 ID");return Path.Combine(Root,g.ToString("D")+".fgspreset.json");}
         internal FgsPreset Find(string id){return Items.Find(delegate(FgsPreset p){return p.Id==id;});}
         internal void Load()

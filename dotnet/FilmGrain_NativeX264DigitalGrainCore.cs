@@ -16,7 +16,7 @@ namespace FilmGrainStudioPreview
             prepared = null;
             reason = "";
             if (state == null || info == null) { reason = "missing state/media probe"; return false; }
-            if (!Eq(state, "FG_MODE", "X264")) { reason = "codec is not x264"; return false; }
+            if (!Eq(state, "FG_MODE", "X264") && !CpuEncoderCore.IsNewCpu(state)) { reason = "codec is not x264"; return false; }
             IDictionary<string,string> normalized; string bypassNotice;
             if (!SharedInterpolationBypassCore.TryResolve(info,state,out normalized,out bypassNotice,out reason)) return false;
             if (normalized != null)
@@ -37,10 +37,11 @@ namespace FilmGrainStudioPreview
         {
             prepared = null;
             reason = "";
+            bool newCpu=CpuEncoderCore.IsNewCpu(state);
             bool grainEnabled = SharedGrainCore.IsEnabled(state);
             if (!SharedGrainCore.ValidateHdr(info,state,out reason)) return false;
             bool fgsimMode = SharedGrainCore.Engine(state) == "FGSIM";
-            string passMode = Get(state, "FG_X264_PASS_MODE").ToUpperInvariant();
+            string passMode = newCpu ? "VBR1" : Get(state, "FG_X264_PASS_MODE").ToUpperInvariant();
             if (passMode != "VBR1" && passMode != "2PASS" && passMode != "3PASS") { reason = "unsupported x264 pass mode"; return false; }
             bool mkv = Eq(state, "FG_CONTAINER", "MKV");
             if (!mkv && !Eq(state, "FG_CONTAINER", "MP4")) { reason = "unsupported native x264 container"; return false; }
@@ -56,7 +57,7 @@ namespace FilmGrainStudioPreview
             if (fruc && info.IsInterlaced) { reason = "interlaced FRUC is not supported"; return false; }
             bool transportSvp = svp && !info.IsHdr && IsTransportInput(input);
             bool hdrToSdr = info.IsHdr && !Eq(state, "FG_HDR_POLICY", "PRESERVE");
-            if (info.IsHdr && !hdrToSdr) { reason = "HDR preservation is unavailable for x264"; return false; }
+            if (info.IsHdr && !hdrToSdr) { reason = newCpu ? "当前 CPU 路线暂未开放 HDR 保留；请选择 AUTO/转 SDR。" : "HDR preservation is unavailable for x264"; return false; }
             string tonemap = Get(state, "FG_TONEMAP_ALGO").ToLowerInvariant();
             if (tonemap != "mobius" && tonemap != "reinhard" && tonemap != "gamma" && tonemap != "linear" && tonemap != "clip") tonemap = "hable";
             string tonemapLabel = char.ToUpperInvariant(tonemap[0]) + tonemap.Substring(1);
@@ -69,11 +70,12 @@ namespace FilmGrainStudioPreview
             bool bwdifCuda = deinterlace && Eq(state, "FG_DEINT_METHOD", "BWDIF_CUDA");
             bool bwdifVulkan = deinterlace && Eq(state, "FG_DEINT_METHOD", "BWDIF_VULKAN");
             if (info.IsInterlaced && Eq(state, "FG_DEINTERLACE", "AUTO") && (!Eq(state, "FG_DEINT_METHOD", "W3FDIF") && !bwdifCuda && !bwdifVulkan)) { reason = "unsupported x264 deinterlace method"; return false; }
-            bool high10 = Get(state, "FG_H264_HIGH10") == "1";
+            bool high10 = newCpu || Get(state, "FG_H264_HIGH10") == "1";
             if (info.Width <= 0 || info.Height <= 0) { reason = "invalid dimensions"; return false; }
 
             long bitrate;
-            if (!long.TryParse(Get(state, "FG_BITRATE"), NumberStyles.Integer, CultureInfo.InvariantCulture, out bitrate) || bitrate <= 0) { reason = "invalid bitrate"; return false; }
+            if (newCpu && CpuEncoderCore.IsCrf(state)) bitrate=1;
+            else if (!long.TryParse(Get(state, "FG_BITRATE"), NumberStyles.Integer, CultureInfo.InvariantCulture, out bitrate) || bitrate <= 0) { reason = "invalid bitrate"; return false; }
             string fps = info.AvgFrameRate;
             if (string.IsNullOrWhiteSpace(fps) || fps == "0/0") { reason = "invalid source FPS"; return false; }
             string fpsFilter = "", fpsSuffix = "";
@@ -123,15 +125,16 @@ namespace FilmGrainStudioPreview
                 fgsimHook = Path.Combine(appRoot, "Utils", "_FilmGrainSimplified", "Generated", "FilmGrainSimplified_" + fgsimPreset + ".hook");
                 if (!TryPrepareFgsimHook(appRoot, fgsimHook, fgsimPreset, out reason)) return false;
             }
-            if (high10 && !SupportsHigh10(ffmpeg)) { reason = "this libx264 build does not advertise yuv420p10le"; return false; }
+            if (newCpu && !CpuEncoderCore.TryPreflight(ffmpeg,state,out reason)) return false;
+            if (!newCpu && high10 && !SupportsHigh10(ffmpeg)) { reason = "this libx264 build does not advertise yuv420p10le"; return false; }
 
             CinematicFramePlan frame;
             if (!CinematicFrameCore.TryBuild(info, state, out frame, out reason)) return false;
             bool highMotion = Get(state, "FG_HIGH_MOTION") == "1";
-            if (Eq(state, "FG_BITRATE_MODE", "AUTO"))
+            if (!(newCpu&&CpuEncoderCore.IsCrf(state)) && Eq(state, "FG_BITRATE_MODE", "AUTO"))
             {
                 double rateFps = ParseFps(fps);
-                bitrate = BitrateRecommendationCore.GetRecommendedBitrate(2, frame.ActiveWidth, frame.ActiveHeight, rateFps, highMotion);
+                bitrate = BitrateRecommendationCore.GetRecommendedBitrate(newCpu?(Eq(state,"FG_MODE","SVT")?0:1):2, frame.ActiveWidth, frame.ActiveHeight, rateFps, highMotion);
             }
 
             string colorFilter, colorSuffix;
@@ -139,7 +142,7 @@ namespace FilmGrainStudioPreview
             string lutNamingSuffix = BuildLutNamingSuffix(state);
             string preset = Get(state, "FG_X264_PRESET").ToLowerInvariant();
             if (preset != "medium" && preset != "slow") preset = "faster";
-            string x264Suffix = BuildX264FileSuffix(preset, passMode);
+            string x264Suffix = newCpu ? "_P"+CpuEncoderCore.Preset(state) : BuildX264FileSuffix(preset, passMode);
 
             string grainInput = "";
             bool grainScale = false;
@@ -180,7 +183,7 @@ namespace FilmGrainStudioPreview
             int pixelPercent = grainEnabled ? PixelGrainStrengthCore.Read(state) : 100;
             string grainFileName = !grainEnabled ? "" : plateMode ? "_FG_" + grainTag + "_STR" + plateStrengthPercent.ToString(CultureInfo.InvariantCulture) : fgsimMode ? "_FG_FGSIM_" + fgsimTag : "_FG_DG" + procStrength.ToString(CultureInfo.InvariantCulture);
             if (grainEnabled && pixelPercent != 100) grainFileName += "_GS" + pixelPercent.ToString(CultureInfo.InvariantCulture);
-            string output = Path.Combine(outDir, Path.GetFileNameWithoutExtension(input) + "_X264" + x264Suffix + "_" + bitrate.ToString(CultureInfo.InvariantCulture) + "k" + (high10 ? "_HIGH10" : "") + fpsSuffix + deinterlaceSuffix + frame.FileSuffix + grainFileName + colorSuffix + lutNamingSuffix + (hdrToSdr ? "_SDR_" + tonemapLabel : "") + subSuffix + (mkv ? ".mkv" : ".mp4"));
+            string output = Path.Combine(outDir, Path.GetFileNameWithoutExtension(input) + "_" + (newCpu?Get(state,"FG_MODE"):"X264") + x264Suffix + "_" + (newCpu&&CpuEncoderCore.IsCrf(state)?"CRF"+Get(state,"FG_NVENC_CQ"):bitrate.ToString(CultureInfo.InvariantCulture)+"k") + (high10 ? "_HIGH10" : "") + fpsSuffix + deinterlaceSuffix + frame.FileSuffix + grainFileName + colorSuffix + lutNamingSuffix + (hdrToSdr ? "_SDR_" + tonemapLabel : "") + subSuffix + (mkv ? ".mkv" : ".mp4"));
             if (File.Exists(output)) { reason = "native output already exists: " + output; return false; }
 
             string lutCompatPath = "", lutCompatName = "", lutOpacity = "";
@@ -318,7 +321,7 @@ namespace FilmGrainStudioPreview
                     request.PixelGrainEncodeArguments = args;
                     if (hdrToSdr || separateDeint || svp || fruc || !grainEnabled)
                     {
-                        stages.Add(MakeStage(ffmpeg, workingDirectory, args, durationSeconds, stageOffset + 1, stageTotal, "x264 final encode"));
+                        stages.Add(MakeStage(ffmpeg, workingDirectory, args, durationSeconds, stageOffset + 1, stageTotal, newCpu?Get(state,"FG_MODE")+" CPU final encode":"x264 final encode"));
                         request.DirectStages = stages;
                     }
                     else request.DirectArguments = JoinArgs(args);
@@ -367,6 +370,7 @@ namespace FilmGrainStudioPreview
                 else if (!grainEnabled && !interpolate && !(fieldWorkfile || separateDeint || hdrOffSdr))
                     for (int i=stageOffset;i<stages.Count;i++)SharedOrdinaryTimelineCore.Attach(stages[i],ffprobe,encodeInput);
                 if(info.IsHdr && info.IsInterlaced && !deinterlace)request.ExecutionNotice="[Native .NET] 反交错 OFF：沿用不反交错的逐帧处理，不启用 bob/光流或双倍场率；不保证隔行编码标记。 / Deinterlace OFF: frame processing without bob/interpolation; no interlaced-encoding flags are added.";
+            if(newCpu)request.ExecutionNotice=(request.ExecutionNotice??"")+Environment.NewLine+"[CPU] "+Get(state,"FG_MODE")+" "+(CpuEncoderCore.IsCrf(state)?"CRF "+Get(state,"FG_NVENC_CQ"):"VBR")+" preset="+CpuEncoderCore.Preset(state)+"; pixel grain baked before encoding; GPU preprocessing may still be used.";
             if (fgsimMode) FgsimTextureCore.AttachVerifiedDevice(request, fgsimHook, false);
             prepared = new BridgePreparedExecution(request, false, ffmpeg, requestInputs);
                 lutCompatPath = "";
@@ -473,8 +477,10 @@ namespace FilmGrainStudioPreview
                 a.Add("-map_metadata"); a.Add("0"); a.Add("-map_chapters"); a.Add("0");
             }
             else a.Add("-an");
+            if(CpuEncoderCore.IsNewCpu(audioState))CpuEncoderCore.AddEncoderArgs(a,audioState,grainEnabled,bitrate,max,buf,mkv,fps);
+            else {
             a.Add("-c:v"); a.Add("libx264"); a.Add("-profile:v"); a.Add(high10 ? "high10" : "high"); a.Add("-pix_fmt"); a.Add(high10 ? "yuv420p10le" : "yuv420p");
-            a.Add("-preset"); a.Add(preset); SharedGrainCore.AddX264Tune(a,grainEnabled);
+            a.Add("-preset"); a.Add(preset); SharedGrainCore.AddX264Tune(a,SharedGrainCore.GrainTune(audioState,"FG_X264_GRAIN_TUNE",grainEnabled));
             if (highMotion) { a.Add("-b_strategy"); a.Add("2"); }
             a.Add("-b:v"); a.Add(bitrate.ToString(CultureInfo.InvariantCulture) + "k");
             a.Add("-maxrate"); a.Add(max.ToString(CultureInfo.InvariantCulture) + "k");
@@ -483,6 +489,7 @@ namespace FilmGrainStudioPreview
             {
                 a.Add("-pass"); a.Add(passNumber.ToString(CultureInfo.InvariantCulture));
                 a.Add("-passlogfile"); a.Add(passlog);
+            }
             }
             if (!filter.Contains("fruc_vulkan=") && (autoFps || deinterlace || plateMode || passNumber > 0)) { a.Add("-r"); a.Add(fps); }
             a.Add("-fps_mode:v"); a.Add(filter.Contains("fruc_vulkan=") ? "passthrough" : "cfr");
@@ -726,5 +733,81 @@ namespace FilmGrainStudioPreview
         }
         private static void TryDelete(string path) { try { if (!string.IsNullOrWhiteSpace(path) && File.Exists(path)) File.Delete(path); } catch { } }
         private static string FirstLine(string value) { if (string.IsNullOrWhiteSpace(value)) return ""; using (StringReader r = new StringReader(value.Trim())) return r.ReadLine() ?? ""; }
+    }
+}
+
+namespace FilmGrainStudioPreview
+{
+    // Final encoder boundary shared by GUI and frozen command-line requests.
+    internal static class CpuEncoderCore
+    {
+        private static readonly Dictionary<string,string> cache=new Dictionary<string,string>();
+        internal static bool IsNewCpu(IDictionary<string,string> s) {string m=Get(s,"FG_MODE","");return m=="SVT"||m=="X265";}
+        private static string Get(IDictionary<string,string> s,string k,string d) {string v;return s!=null&&s.TryGetValue(k,out v)?v:d;}
+        internal static bool IsCrf(IDictionary<string,string> s) {return Get(s,"FG_NVENC_RATE_CONTROL","VBR")=="CQ";}
+        internal static string Preset(IDictionary<string,string> s)
+        {
+            bool svt=Get(s,"FG_MODE","")=="SVT";string p=Get(s,svt?"FG_CPU_SVT_PRESET":"FG_CPU_X265_PRESET",svt?"6":"medium");
+            int n;if(svt?(!int.TryParse(p,out n)||n<0||n>13):Array.IndexOf("ultrafast superfast veryfast faster fast medium slow slower veryslow placebo".Split(' '),p)<0)throw new InvalidDataException("Invalid CPU preset: "+p);
+            return p;
+        }
+        internal const string HandBrakeParameters="enable-variance-boost=1:enable-qm=1:ac-bias=1:tf-strength=1:qp-scale-compress-strength=1:sharpness=1";
+        internal static string SvtParameters(string scheme,bool grain)
+        {
+            if(scheme!="FGS"&&scheme!="HANDBRAKE")throw new InvalidDataException("Invalid SVT tuning scheme: "+scheme);
+            return "hbd-mds=1:film-grain=0:tune="+(grain?"6":"0")+(scheme=="HANDBRAKE"?":"+HandBrakeParameters:"");
+        }
+        internal static void AddEncoderArgs(List<string> a,IDictionary<string,string> s,bool grain,long bitrate,long max,long buf,bool mkv,string fps="24")
+        {
+            bool svt=Get(s,"FG_MODE","")=="SVT";
+            string rc=Get(s,"FG_NVENC_RATE_CONTROL","VBR");if(rc!="CQ"&&rc!="VBR")throw new InvalidDataException("Invalid CPU rate control: "+rc);
+            string threaded=Get(s,"FG_CPU_X265_THREADED_ME","false");if(threaded!="true"&&threaded!="false")throw new InvalidDataException("Invalid threaded-me value");
+            bool me=!svt&&threaded=="true";
+            // x265 disables ThreadedME with VBV, and with fewer than 32 logical CPUs.
+            if(me&&(!IsCrf(s)||Environment.ProcessorCount<32))throw new InvalidDataException("x265 threaded-me 需要 CRF 且至少 32 个逻辑处理器；当前组合会被 x265 自动关闭，请明确关闭此选项。");
+            a.AddRange(new[]{"-c:v",svt?"libsvtav1":"libx265","-pix_fmt","yuv420p10le","-preset",Preset(s)});
+            grain=SharedGrainCore.GrainTune(s,svt?"FG_CPU_SVT_GRAIN_TUNE":"FG_CPU_X265_GRAIN_TUNE",grain);
+            if(svt)a.AddRange(new[]{"-svtav1-params",SvtParameters(Get(s,"FG_CPU_SVT_TUNING","FGS"),grain)});
+            else {if(grain)a.AddRange(new[]{"-tune","grain"});if(me)a.AddRange(new[]{"-x265-params","threaded-me=1"});if(!mkv)a.AddRange(new[]{"-tag:v","hvc1"});}
+            if(svt&&Get(s,"FG_CPU_SVT_TUNING","FGS")=="HANDBRAKE"){
+                string[] rate=fps.Split('/');double numerator,denominator=1;
+                if(rate.Length>2||!double.TryParse(rate[0],NumberStyles.Float,CultureInfo.InvariantCulture,out numerator)||(rate.Length==2&&!double.TryParse(rate[1],NumberStyles.Float,CultureInfo.InvariantCulture,out denominator))||numerator<=0||denominator<=0||double.IsNaN(numerator)||double.IsInfinity(numerator)||double.IsNaN(denominator)||double.IsInfinity(denominator)||numerator/denominator>1000)throw new InvalidDataException("Invalid SVT output frame rate: "+fps);
+                a.AddRange(new[]{"-g",Math.Max(1,(int)Math.Round(numerator/denominator*10)).ToString(CultureInfo.InvariantCulture)});
+            }
+            if(IsCrf(s)){
+                string q=Get(s,"FG_NVENC_CQ","");double quality;
+                if(!NvencRateControlCore.TryQuality(svt?"AV1":"HEVC",q,out quality))throw new InvalidDataException("Invalid CPU CRF: "+q);
+                a.AddRange(new[]{"-crf",q});
+            } else {if(bitrate<=0)throw new InvalidDataException("Invalid CPU bitrate");a.AddRange(new[]{"-b:v",bitrate.ToString(CultureInfo.InvariantCulture)+"k"});}
+        }
+        internal static bool TryPreflight(string ffmpeg,IDictionary<string,string> s,out string reason)
+        {
+            reason="";
+            try {
+                var file=new FileInfo(ffmpeg);
+                bool grain=SharedGrainCore.IsEnabled(s);var args=new List<string>{"-hide_banner","-nostdin","-f","lavfi","-i","testsrc2=size=64x64:rate=24","-frames:v","2","-an"};
+                AddEncoderArgs(args,s,grain,1000,1500,3000,true);args.AddRange(new[]{"-f","null","-"});
+                string key=file.FullName+"|"+file.Length+"|"+file.LastWriteTimeUtc.Ticks+"|"+string.Join(" ",args.ToArray());
+                lock(cache){string cached;if(cache.TryGetValue(key,out cached)){reason=cached;return reason.Length==0;}}
+                string output;bool success=Probe(ffmpeg,args,out output);
+                if(!success)reason="CPU 编码器实测失败："+output;
+                else if(Get(s,"FG_MODE","")=="SVT"&&output.IndexOf("SVT-AV1-HDR",StringComparison.OrdinalIgnoreCase)<0)reason="当前 FFmpeg 未检测到 SVT-AV1-HDR。请使用对应构建，不自动替换为标准 SVT-AV1。";
+                else if(output.IndexOf("Unknown option",StringComparison.OrdinalIgnoreCase)>=0||output.IndexOf("Error parsing option",StringComparison.OrdinalIgnoreCase)>=0)reason="CPU 参数未被当前构建接受："+output;
+                lock(cache){cache[key]=reason;}return reason.Length==0;
+            } catch(Exception ex){reason=ex.Message;return false;}
+        }
+        private static bool Probe(string tool,List<string> args,out string output)
+        {
+            var text=new StringBuilder();object gate=new object();
+            using(var p=new Process()){
+                p.StartInfo=new ProcessStartInfo(tool,Join(args)){UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true};
+                DataReceivedEventHandler receive=delegate(object sender,DataReceivedEventArgs e){if(e.Data!=null)lock(gate){if(text.Length<32000)text.AppendLine(e.Data);}};
+                p.OutputDataReceived+=receive;p.ErrorDataReceived+=receive;p.Start();p.BeginOutputReadLine();p.BeginErrorReadLine();
+                if(!p.WaitForExit(30000)){try{p.Kill();p.WaitForExit();}catch{}output="CPU probe timed out (30 s)";return false;}
+                p.WaitForExit();lock(gate){output=text.ToString();}return p.ExitCode==0;
+            }
+        }
+        private static string Join(List<string> args)
+        {var a=new List<string>();foreach(string value in args)a.Add(SharedEncodePreviewCore.Quote(value));return string.Join(" ",a.ToArray());}
     }
 }

@@ -143,19 +143,7 @@ $ReleaseSourceItems = @(
     'README_Toolkit.txt',
     'STABLE_BASELINE.txt',
     'release.bat',
-    'Clean_Preset_Tests.cmd',
-    '.github/release/clean_preset_tests.ps1',
-    '.github/release/ACCEPTANCE_v5.0.27.md',
-    '.github/release/ACCEPTANCE_v5.0.26.md',
-    '.github/release/ACCEPTANCE_v5.0.25.md',
-    'Clean_Queue_Tests.cmd',
-    'Clean_CQ_Tests.cmd',
-    '.github/release/clean_queue_tests.ps1',
-    '.github/release/clean_cq_tests.ps1',
-    '.github/release/ACCEPTANCE_v5.0.21.md',
-    '.github/release/ACCEPTANCE_v5.0.20.md',
-    '.github/release/CQ_AUDIT_v5.0.20.md',
-    '.github/release/ACCEPTANCE_v5.0.19.md',
+    '.github/release/ACCEPTANCE_v5.0.28.md',
     'dotnet/*.cs',
     'dotnet/BuildTools',
     'dotnet/BUILD_NET_FRAMEWORK.md',
@@ -201,6 +189,13 @@ $RetiredSourceFiles = @(
     'dotnet/Setup_Dependencies.ps1'
 )
 $ExcludedSourcePaths = @(
+    'Tests_UserPresetPath_P2M8VN',
+    'Test_UserPresetPath_P2M8VN.cmd',
+    'Tests_Cleanup_CPU_Encoder',
+    'Tests_EncoderUI_C4M8VN',
+    'Test_Encoder_UI_C4M8VN.cmd',
+    'Tests_CPU_C7M4VN',
+    'Test_CPU_C7M4VN.cmd',
     'Tests_Presets_R8M3VN',
     'Tests_Cleanup_Presets_R8M3VN',
     'FilmGrain_Config.ini',
@@ -233,6 +228,12 @@ $ExcludedSourcePaths = @(
     'FilmGrain_Studio.exe'
 )
 $ExcludedPackagePaths = @(
+    'Tests_UserPresetPath_P2M8VN',
+    'Test_UserPresetPath_P2M8VN.cmd',
+    'Tests_EncoderUI_C4M8VN',
+    'Test_Encoder_UI_C4M8VN.cmd',
+    'Tests_CPU_C7M4VN',
+    'Test_CPU_C7M4VN.cmd',
     'Clean_Preset_Tests.cmd',
     'Tests_Presets_R8M3VN',
     'Tests_Cleanup_Presets_R8M3VN',
@@ -275,6 +276,9 @@ $ExcludedRecursiveDirectoryNames = @(
     '__pycache__'
 )
 $ExcludedRootDeliveryPatterns = @(
+    'Return_UserPresetPath_P2M8VN_*.zip',
+    'Return_CPU_C7M4VN_*.zip',
+    'Return_EncoderUI_C4M8VN_*.zip',
     'Return_Presets_R8M3VN_*.zip',
     'Return_CQ_N7V4PK_*.zip',
     'Return_Queue_Q8M4VN_*.zip',
@@ -341,6 +345,7 @@ function Get-ReleaseTrackedPaths {
 function Test-ExcludedSourcePath {
     param([string]$RelativePath)
     $n = $RelativePath.Replace('\', '/').Trim('/')
+    if ($n -match '(^|/)Presets/User(?:\.seed\.[^/]+)?(/|$)') { return $true }
     if ($n -match '(^|/)UserPresets(?:\.seed\.[^/]+)?(/|$)') { return $true }
     if ($n.StartsWith('Presets/', [StringComparison]::OrdinalIgnoreCase) -and $RequiredPackageFiles -notcontains $n) { return $true }
     foreach ($p in $ExcludedSourcePaths) {

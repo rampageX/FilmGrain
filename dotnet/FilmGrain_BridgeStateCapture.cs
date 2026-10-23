@@ -51,7 +51,7 @@ namespace FilmGrainStudioPreview
                 if (!File.Exists(selectedLutPath)) { error = LF("error.selected_lut_missing", selectedLutPath); return null; }
             }
 
-            string mode = cmbCodec.SelectedIndex == 0 ? "AV1" : (cmbCodec.SelectedIndex == 1 ? "HEVC" : cmbCodec.SelectedIndex == 3 ? "H264" : "X264");
+            string mode = cmbCodec.SelectedIndex == 2 ? CpuCodec() : cmbCodec.SelectedIndex == 0 ? "AV1" : (cmbCodec.SelectedIndex == 1 ? "HEVC" : cmbCodec.SelectedIndex == 3 ? "H264" : "X264");
             bool av1 = mode == "AV1";
             int grainMode = cmbGrainMode == null ? 0 : Math.Max(0, cmbGrainMode.SelectedIndex);
             if (IsGrainEnabled() && av1 && grainMode == 2)
@@ -96,7 +96,7 @@ namespace FilmGrainStudioPreview
             if(IsCqSelected()&&IsCqAutomatic())snapshot.NvencCq=RecommendedCq();
             snapshot.NvencCqLimitEnabled=config.GetBool(RateControlKey("CQ_LIMIT_ENABLED"));
             snapshot.NvencCqMaxrate=config.Get(RateControlKey("CQ_MAXRATE"));
-            if(IsCqSelected()) { double quality; if(!NvencRateControlCore.TryQuality(mode,snapshot.NvencCq,out quality)) { error="CQ: 请输入至少 1 且不超过 "+(mode=="AV1"?"63":"51")+" 的数值 / Invalid CQ target";return null; } }
+            if(IsCqSelected()) { double quality; if(!NvencRateControlCore.TryQuality(mode=="SVT"?"AV1":mode,snapshot.NvencCq,out quality)) { error="CQ: 请输入至少 1 且不超过 "+(mode=="AV1"?"63":"51")+" 的数值 / Invalid CQ target";return null; } }
             snapshot.BitrateMode = modeBitrateAuto[Math.Max(0, Math.Min(3, cmbCodec.SelectedIndex))] ? "AUTO" : "MANUAL";
             snapshot.Bitrate = bitrate;
             snapshot.HighMotion = chkHighMotion != null && chkHighMotion.Checked;
@@ -246,6 +246,9 @@ namespace FilmGrainStudioPreview
 
         private void CaptureCommonEnvironmentState(BridgeEnvironmentSnapshot snapshot)
         {
+            snapshot.CpuSvtTuning=config.Get("CPU_SVT_TUNING");
+            snapshot.CpuSvtGrainTune=config.Get("CPU_SVT_GRAIN_TUNE");snapshot.CpuX265GrainTune=config.Get("CPU_X265_GRAIN_TUNE");snapshot.X264GrainTune=config.Get("X264_GRAIN_TUNE");
+            snapshot.CpuSvtPreset=config.Get("CPU_SVT_PRESET");snapshot.CpuX265Preset=config.Get("CPU_X265_PRESET");snapshot.CpuX265ThreadedMe=config.Get("CPU_X265_THREADED_ME");
             snapshot.AudioMode = config.Get("AUDIO_MODE");
             snapshot.AudioBitrate = config.Get("AUDIO_BITRATE");
             snapshot.Av1Multipass = config.Get("AV1_MULTIPASS");
@@ -352,7 +355,7 @@ namespace FilmGrainStudioPreview
                 // Media-derived text is refreshed below, never stored as a task configuration.
                 UpdateNoReencodeUi();UpdateSfeUi();UpdateMediaDrivenUi(GetBitrateMediaContext());UpdateGrainEnableUi();UpdateCinematicCropLabels();RefreshSubtitleButton();UpdateColorCorrectionUi();UpdateLutUi();lblLutStrength.Text=GetLutStrength().ToString(CultureInfo.InvariantCulture)+"%";
             } finally {restoringFileEditor=false;ResumeLayout(true);}
-            LoadBitrateStateForCodec();UpdateBitrateDisplays();
+            SyncCodecPicker();LoadBitrateStateForCodec();UpdateBitrateDisplays();
         }
         private void SaveEditingFile()
         {

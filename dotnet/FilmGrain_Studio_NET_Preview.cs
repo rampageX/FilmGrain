@@ -106,8 +106,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.27";
-        internal const string FileReleaseVersion = "5.0.27.0";
+        internal const string ReleaseVersion = "5.0.28";
+        internal const string FileReleaseVersion = "5.0.28.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -827,9 +827,10 @@ namespace FilmGrainStudioPreview
                 }
             };
             shortcut.Cursor = Cursors.Hand;
+            if(tabIndex==0)shortcut.Name="ENCODER_SPEED_SHORTCUT";
             shortcut.AccessibleName = UiText("打开高级设置：", "Open advanced settings: ") + page;
             lutToolTip.SetToolTip(shortcut, shortcut.AccessibleName);
-            shortcut.Click += delegate { if(tabIndex<0)OpenCinematicCrop();else ShowAdvancedSettingsDialog(tabIndex==0?(cmbCodec.SelectedIndex==2||cmbCodec.SelectedIndex==3?1:0):tabIndex+1); };
+            shortcut.Click += delegate { if(tabIndex==0)ShowEncoderQuickSettings();else if(tabIndex<0)OpenCinematicCrop();else ShowAdvancedSettingsDialog(tabIndex+2); };
             row.Controls.Add(content, 0, 0); row.Controls.Add(shortcut, 1, 0);
             return row;
         }
@@ -938,19 +939,19 @@ namespace FilmGrainStudioPreview
 
             lblFrameHelp = new ThemeLabel(); lblFrameHelp.Dock = DockStyle.Fill; lblFrameHelp.AutoEllipsis = true; lblFrameHelp.ForeColor = ColorMuted; lblFrameHelp.TextAlign = ContentAlignment.TopLeft; lblFrameHelp.Padding = new Padding(8, 6, 8, 0); lblFrameHelp.Text = lang.T("encode.frame_help");
 
-            AddLabeledRow(t, 0, lang.T("encode.method"), cmbCodec);
+            AddLabeledRow(t, 0, lang.T("encode.method"), BuildCodecPicker());
             AddLabeledRow(t, 1, lang.T("encode.container"), cmbContainer);
             Button speedShortcut;
             AddLabeledRow(t, 2, lang.T("encode.speed"), WithAdvancedShortcut(cmbSpeed, 0, lang.T("advanced.tab.encode"), out speedShortcut));
-            speedShortcut.Visible = cmbCodec.SelectedIndex == 1 || cmbCodec.SelectedIndex == 2 || cmbCodec.SelectedIndex == 3;
-            cmbCodec.SelectedIndexChanged += delegate { speedShortcut.Visible = cmbCodec.SelectedIndex == 1 || cmbCodec.SelectedIndex == 2 || cmbCodec.SelectedIndex == 3; };
+            speedShortcut.Visible = cmbCodec.SelectedIndex >= 0 && cmbCodec.SelectedIndex <= 3;
+            cmbCodec.SelectedIndexChanged += delegate { speedShortcut.Visible = cmbCodec.SelectedIndex >= 0 && cmbCodec.SelectedIndex <= 3; };
             var rateModes = new FlowLayoutPanel { Dock=DockStyle.Fill, Margin=Padding.Empty, WrapContents=false };
             chkSfe.Dock=DockStyle.None;chkSfe.AutoSize=true;
             chkCq=Check(UiText("CQ 模式", "CQ mode"),false);chkCq.AutoSize=true;
             rateModes.Controls.Add(chkSfe);rateModes.Controls.Add(chkCq);t.Controls.Add(rateModes,1,3);
             chkCq.CheckedChanged += delegate {
                 if(restoringFileEditor||updatingBitrateUi)return;
-                int index=cmbCodec.SelectedIndex;if(index!=0&&index!=1&&index!=3)return;
+                int index=cmbCodec.SelectedIndex;if(index!=0&&index!=1&&index!=3&&!NewCpuSelected())return;
                 config.SaveValue(RateControlKey("RATE_CONTROL"),chkCq.Checked?"CQ":"VBR");
                 LoadBitrateStateForCodec();UpdateBitrateDisplays();
             };
@@ -1565,7 +1566,7 @@ namespace FilmGrainStudioPreview
                 {
                     cmbGrainMode.Items.AddRange(new object[] { lang.T("grain.mode.digital"), UiText("扫描颗粒文件", "Scanned Grain Plate"), lang.T("grain.mode.fgsim") });
                     cmbGrainMode.SelectedIndex = Math.Max(0, Math.Min(2, pixelGrainModeIndex));
-                    grpGrain.Text = cmbCodec.SelectedIndex == 1 ? lang.T("grain.hevc") : cmbCodec.SelectedIndex == 3 ? UiText("H.264 像素颗粒", "H.264 pixel grain") : lang.T("grain.x264");
+                    grpGrain.Text = NewCpuSelected()?CpuCodec()+" 像素颗粒":cmbCodec.SelectedIndex == 1 ? lang.T("grain.hevc") : cmbCodec.SelectedIndex == 3 ? UiText("H.264 像素颗粒", "H.264 pixel grain") : lang.T("grain.x264");
                 }
             }
             finally { updatingGrainUi = false; }
@@ -2030,8 +2031,15 @@ namespace FilmGrainStudioPreview
             }
         }
 
+        private bool GrainTuneSelected()
+        {
+            string key=CpuCodec()=="SVT"?"CPU_SVT_GRAIN_TUNE":CpuCodec()=="X265"?"CPU_X265_GRAIN_TUNE":"X264_GRAIN_TUNE";
+            string value=config.Get(key);return value=="ON"||(value=="AUTO"&&IsGrainEnabled());
+        }
+
         private string GetX264SettingsLabel()
         {
+            if(NewCpuSelected())return CpuCodec()+" · preset "+config.Get(CpuCodec()=="SVT"?"CPU_SVT_PRESET":"CPU_X265_PRESET")+(GrainTuneSelected()?(CpuCodec()=="SVT"?" / tune 6":" / tune grain"):"");
             string presetValue = config.Get("X264_PRESET");
             string presetLabel = string.Equals(presetValue, "medium", StringComparison.OrdinalIgnoreCase) ? "Medium" :
                 (string.Equals(presetValue, "slow", StringComparison.OrdinalIgnoreCase) ? "Slow" : "Faster");
@@ -2039,7 +2047,7 @@ namespace FilmGrainStudioPreview
             string passLabel = string.Equals(rateValue, "3PASS", StringComparison.OrdinalIgnoreCase) ? lang.T("advanced.vbr3") :
                 (string.Equals(rateValue, "2PASS", StringComparison.OrdinalIgnoreCase) ? lang.T("advanced.vbr2") : lang.T("speed.vbr1"));
 
-            return "x264 · " + presetLabel + (IsGrainEnabled() ? " / tune grain / " : " / 颗粒：关闭 / ") + passLabel;
+            return "x264 · " + presetLabel + (GrainTuneSelected() ? " / tune grain / " : " / tune：关闭 / ") + passLabel;
         }
 
         private void UpdateSpeedChoices()
@@ -2306,9 +2314,9 @@ namespace FilmGrainStudioPreview
         }
 
         private string RateControlKey(string option)
-        { return "NVENC_"+(cmbCodec.SelectedIndex==0?"AV1":cmbCodec.SelectedIndex==3?"H264":"HEVC")+"_"+option; }
+        { return NewCpuSelected()?"CPU_"+CpuCodec()+"_"+option:"NVENC_"+(cmbCodec.SelectedIndex==0?"AV1":cmbCodec.SelectedIndex==3?"H264":"HEVC")+"_"+option; }
         private bool IsCqSelected()
-        { return cmbCodec!=null&&(cmbCodec.SelectedIndex==0||cmbCodec.SelectedIndex==1||cmbCodec.SelectedIndex==3)&&config.Get(RateControlKey("RATE_CONTROL"))=="CQ"; }
+        { return cmbCodec!=null&&(cmbCodec.SelectedIndex==0||cmbCodec.SelectedIndex==1||cmbCodec.SelectedIndex==3||NewCpuSelected())&&config.Get(RateControlKey("RATE_CONTROL"))=="CQ"; }
 
         private bool IsCqAutomatic()
         {
@@ -2316,9 +2324,9 @@ namespace FilmGrainStudioPreview
             return saved.Length==0?config.Get(RateControlKey("CQ"))=="AUTO":saved.Equals("true",StringComparison.OrdinalIgnoreCase);
         }
         private string ManualCq()
-        {double value;string text=config.Get(RateControlKey("CQ"));return NvencRateControlCore.TryQuality(cmbCodec.SelectedIndex==0?"AV1":"HEVC",text,out value)?text:"23";}
+        {double value;string text=config.Get(RateControlKey("CQ"));return NvencRateControlCore.TryQuality((cmbCodec.SelectedIndex==0||NewCpuSelected()&&CpuCodec()=="SVT")?"AV1":"HEVC",text,out value)?text:"23";}
         private string RecommendedCq()
-        {return NvencRateControlCore.Recommend(cmbCodec.SelectedIndex==0?"AV1":cmbCodec.SelectedIndex==3?"H264":"HEVC",chkHighMotion.Checked,IsGrainEnabled());}
+        {if(NewCpuSelected())return CpuCodec()=="SVT"?"30":"22";return NvencRateControlCore.Recommend(cmbCodec.SelectedIndex==0?"AV1":cmbCodec.SelectedIndex==3?"H264":"HEVC",chkHighMotion.Checked,IsGrainEnabled());}
         private void SaveManualCq()
         {
             if(restoringFileEditor||updatingBitrateUi||!IsCqSelected())return;
@@ -2333,15 +2341,17 @@ namespace FilmGrainStudioPreview
             try
             {
                 bool cq=IsCqSelected();
-                chkCq.Enabled=cmbCodec.SelectedIndex==0||cmbCodec.SelectedIndex==1||cmbCodec.SelectedIndex==3;chkCq.Checked=cq;
+                chkCq.Text=NewCpuSelected()?"CRF 模式":UiText("CQ 模式","CQ mode");
+                chkCq.Enabled=cmbCodec.SelectedIndex==0||cmbCodec.SelectedIndex==1||cmbCodec.SelectedIndex==3||NewCpuSelected();chkCq.Checked=cq;
                 cmbBitrate.Items.Clear();
-                if(cq)cmbBitrate.Items.AddRange(index==0?new object[]{"20","22","24","25","26","28","30"}:index==1?new object[]{"18","20","21","22","23","24","26"}:new object[]{"16","18","19","20","21","22","24"});
+                if(cq)cmbBitrate.Items.AddRange(NewCpuSelected()?(CpuCodec()=="SVT"?new object[]{"20","25","30","35","40"}:new object[]{"18","20","22","24","26"}):index==0?new object[]{"20","22","24","25","26","28","30"}:index==1?new object[]{"18","20","21","22","23","24","26"}:new object[]{"16","18","19","20","21","22","24"});
                 else cmbBitrate.Items.AddRange(bitrateChoices);
                 chkBitrateAuto.Enabled=cmbCodec.SelectedIndex!=4;
                 chkBitrateAuto.Checked=cq?IsCqAutomatic():modeBitrateAuto[index];
                 cmbBitrate.Text=cq?(IsCqAutomatic()?RecommendedCq():ManualCq()):modeBitrate[index];
-                if(rateControlLabel!=null)rateControlLabel.Text=cq?UiText("目标质量 CQ", "Target quality CQ"):lang.T("encode.bitrate");
+                if(rateControlLabel!=null)rateControlLabel.Text=cq?(NewCpuSelected()?"目标质量 CRF":UiText("目标质量 CQ", "Target quality CQ")):lang.T("encode.bitrate");
                 string help=UiText("CQ 数值越小质量越高，输出码率和体积不固定。勾选自动时使用 FGS 推荐：AV1 25 / HEVC 22 / H.264 20；高动态、启用颗粒各降低 1。手动数值不受影响。预置值由高画质到小体积，仅供起点参考，不保证视觉无损。0 是驱动自动，不能等同 FGS 自动推荐。", "Lower CQ targets higher quality; bitrate and size vary. Automatic: FGS starting targets AV1 25 / HEVC 22 / H.264 20; subtract 1 each for high motion and enabled grain. Manual values stay unchanged. Presets span quality to size, without a visual-lossless guarantee. Zero means driver automatic, not FGS AUTO.");
+                if(NewCpuSelected())help="CPU CRF：数值越小质量越高，体积不固定。SVT 默认 30、x265 默认 22；数值不能与 NVENC CQ 横向比较。Grain 调优可在高级设置独立选择。";
                 lutToolTip.SetToolTip(chkCq,help);lutToolTip.SetToolTip(cmbBitrate,cq?help:UiText("视频码率，单位 kbps。", "Video bitrate in kbps."));
             }
             finally { updatingBitrateUi = false; }
@@ -2350,7 +2360,8 @@ namespace FilmGrainStudioPreview
         private void UpdateBitrateDisplays()
         {
             if (cmbCodec == null || cmbBitrate == null || chkBitrateAuto == null) return;
-            if(chkCq!=null)chkCq.Enabled=cmbCodec.SelectedIndex==0||cmbCodec.SelectedIndex==1||cmbCodec.SelectedIndex==3;
+            if(chkCq!=null)chkCq.Text=NewCpuSelected()?"CRF 模式":UiText("CQ 模式","CQ mode");
+                chkCq.Enabled=cmbCodec.SelectedIndex==0||cmbCodec.SelectedIndex==1||cmbCodec.SelectedIndex==3||NewCpuSelected();
             if (cmbCodec.SelectedIndex == 4) return;
             if(IsCqSelected()) {
                 if(IsCqAutomatic()) {updatingBitrateUi=true;try {cmbBitrate.Text=RecommendedCq();chkBitrateAuto.Checked=true;}finally {updatingBitrateUi=false;}}
@@ -2365,7 +2376,7 @@ namespace FilmGrainStudioPreview
 
             if (fps > 0.0 && modeBitrateAuto[codecIndex])
             {
-                int recommended = BitrateRecommendationCore.GetRecommendedBitrate(codecIndex, width, height, fps, highMotion);
+                int recommended = BitrateRecommendationCore.GetRecommendedBitrate(NewCpuSelected()?(CpuCodec()=="SVT"?0:1):codecIndex, width, height, fps, highMotion);
                 modeBitrate[codecIndex] = recommended.ToString(CultureInfo.InvariantCulture);
                 updatingBitrateUi = true;
                 try
@@ -2555,13 +2566,13 @@ namespace FilmGrainStudioPreview
                     cmbCodec.Items[2] = hardwareCaps.X264Available ? lang.T("codec.x264_default") : lang.T("codec.x264_unavailable");
                     cmbCodec.Items[3] = hardwareCaps.H264Available ? "H.264 · NVENC" : UiText("H.264 · 不可用", "H.264 · unavailable");
                     if (!independentFiles && cmbCodec.SelectedIndex == 0 && !hardwareCaps.Av1Available)
-                        cmbCodec.SelectedIndex = hardwareCaps.HevcAvailable ? 1 : (hardwareCaps.X264Available ? 2 : 1);
+                        {if(!hardwareCaps.HevcAvailable&&hardwareCaps.X264Available)config.SaveValue("CPU_CODEC","X264");cmbCodec.SelectedIndex = hardwareCaps.HevcAvailable ? 1 : (hardwareCaps.X264Available ? 2 : 1);}
                     else if (!independentFiles && cmbCodec.SelectedIndex == 1 && !hardwareCaps.HevcAvailable)
                     {
                         if (hardwareCaps.Av1Available) cmbCodec.SelectedIndex = 0;
-                        else if (hardwareCaps.X264Available) cmbCodec.SelectedIndex = 2;
+                        else if (hardwareCaps.X264Available) {config.SaveValue("CPU_CODEC","X264");cmbCodec.SelectedIndex = 2;}
                     }
-                    else if (!independentFiles && cmbCodec.SelectedIndex == 2 && !hardwareCaps.X264Available)
+                    else if (!independentFiles && cmbCodec.SelectedIndex == 2 && !NewCpuSelected() && !hardwareCaps.X264Available)
                     {
                         if (hardwareCaps.HevcAvailable) cmbCodec.SelectedIndex = 1;
                         else if (hardwareCaps.Av1Available) cmbCodec.SelectedIndex = 0;
@@ -2569,7 +2580,7 @@ namespace FilmGrainStudioPreview
                 }
                 finally { changingCodecForHardware = false; }
             }
-            UpdateSpeedChoices();
+            SyncCodecPicker();UpdateSpeedChoices();
             UpdateSfeUi();
             UpdateHardwareDependentControls();
         }
@@ -2659,7 +2670,7 @@ namespace FilmGrainStudioPreview
                 cmbCodec.Items[2] = lang.T("codec.x264_default");
                 cmbCodec.Items[3] = "H.264 · NVENC";
             }
-            UpdateSpeedChoices();
+            SyncCodecPicker();UpdateSpeedChoices();
             UpdateSfeUi();
             UpdateHardwareDependentControls();
         }
@@ -2679,7 +2690,7 @@ namespace FilmGrainStudioPreview
                 if (fallback >= 0)
                 {
                     changingCodecForHardware = true;
-                    try { cmbCodec.SelectedIndex = fallback; }
+                    try { if(fallback==2)config.SaveValue("CPU_CODEC","X264");cmbCodec.SelectedIndex = fallback; }
                     finally { changingCodecForHardware = false; }
                 }
                 MessageBox.Show(this, fallback < 0 ? lang.T("error.av1_unavailable") : lang.T(fallback == 1 ? "message.av1_fallback_hevc" : "message.av1_fallback_x264"), Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -2691,20 +2702,20 @@ namespace FilmGrainStudioPreview
                 if (fallback >= 0)
                 {
                     changingCodecForHardware = true;
-                    try { cmbCodec.SelectedIndex = fallback; }
+                    try { if(fallback==2)config.SaveValue("CPU_CODEC","X264");cmbCodec.SelectedIndex = fallback; }
                     finally { changingCodecForHardware = false; }
                 }
                 MessageBox.Show(this, lang.T("error.hevc_unavailable"), Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return true;
             }
             if(selected==3&&!hardwareCaps.H264Available) { MessageBox.Show(this,UiText("当前 GPU/FFmpeg 不支持 H.264 NVENC。","H.264 NVENC is unavailable."),Text);changingCodecForHardware=true;try{cmbCodec.SelectedIndex=hardwareCaps.HevcAvailable?1:hardwareCaps.X264Available?2:0;}finally{changingCodecForHardware=false;}return true;}
-            if (selected == 2 && !hardwareCaps.X264Available)
+            if (selected == 2 && !NewCpuSelected() && !hardwareCaps.X264Available)
             {
                 int fallback = hardwareCaps.HevcAvailable ? 1 : (hardwareCaps.Av1Available ? 0 : -1);
                 if (fallback >= 0)
                 {
                     changingCodecForHardware = true;
-                    try { cmbCodec.SelectedIndex = fallback; }
+                    try { if(fallback==2)config.SaveValue("CPU_CODEC","X264");cmbCodec.SelectedIndex = fallback; }
                     finally { changingCodecForHardware = false; }
                     MessageBox.Show(this, lang.T(fallback == 1 ? "message.x264_fallback_hevc" : "message.x264_fallback_av1"), Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
@@ -2736,7 +2747,7 @@ namespace FilmGrainStudioPreview
                 return false;
             }
             if(cmbCodec.SelectedIndex==3&&!hardwareCaps.H264Available){MessageBox.Show(this,UiText("H.264 NVENC 不可用。","H.264 NVENC is unavailable."),Text);return false;}
-            if (cmbCodec.SelectedIndex == 2 && !hardwareCaps.X264Available)
+            if (cmbCodec.SelectedIndex == 2 && !NewCpuSelected() && !hardwareCaps.X264Available)
             {
                 MessageBox.Show(this, lang.T("error.x264_unavailable"), Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return false;
@@ -2852,7 +2863,7 @@ namespace FilmGrainStudioPreview
             string runCodecMode;
             if (!state.TryGetValue("FG_MODE", out runCodecMode))
                 runCodecMode = noReencode ? "AV1" : "";
-            activeRunCodecName = string.Equals(runCodecMode, "HEVC", StringComparison.OrdinalIgnoreCase) ? "HEVC" :
+            activeRunCodecName = CpuEncoderCore.IsNewCpu(state)?runCodecMode:string.Equals(runCodecMode, "HEVC", StringComparison.OrdinalIgnoreCase) ? "HEVC" :
                 string.Equals(runCodecMode, "AV1", StringComparison.OrdinalIgnoreCase) ? "AV1" : "x264";
             if (log != null)
             {
@@ -2863,7 +2874,7 @@ namespace FilmGrainStudioPreview
                     ? UiText("[Native .NET AV1] AV1 原生执行", "[Native .NET AV1] Native AV1 execution")
                     : string.Equals(state["FG_MODE"],"HEVC",StringComparison.OrdinalIgnoreCase)
                     ? UiText("[Native .NET HEVC] HEVC 原生执行", "[Native .NET HEVC] Native HEVC execution")
-                    : UiText("[Native .NET x264] x264 原生执行", "[Native .NET x264] Native x264 execution"))+Environment.NewLine);
+                    : CpuEncoderCore.IsNewCpu(state)?"[Native .NET CPU] "+state["FG_MODE"]+" CPU 原生执行": UiText("[Native .NET x264] x264 原生执行", "[Native .NET x264] Native x264 execution"))+Environment.NewLine);
                 AppendTaskLog(UiText("输入文件数：", "Input files: ") + prepared.InputFiles.Count.ToString(CultureInfo.InvariantCulture) + Environment.NewLine);
                 if (!noReencode) AppendTaskLog(UiText("推荐输出 FPS：", "Recommended output FPS: ") + outputFps.ToString("0.###", CultureInfo.InvariantCulture) + Environment.NewLine);
                 AppendTaskLog(UiText("Native 执行工具：", "Native execution tool: ") + prepared.ToolPath + Environment.NewLine);
@@ -3320,7 +3331,7 @@ namespace FilmGrainStudioPreview
                     {
                         unsupported = true;
                         detail = x264
-                            ? (codec==3?UiText("H.264 NVENC 本线输出8bit，不能保留HDR10；请选择AUTO或转SDR。","This H.264 NVENC path outputs 8-bit and cannot preserve HDR10; select AUTO or SDR."):lang.T("input.hdr_route_detail_x264"))
+                            ? (codec==3?UiText("H.264 NVENC 本线输出8bit，不能保留HDR10；请选择AUTO或转SDR。","This H.264 NVENC path outputs 8-bit and cannot preserve HDR10; select AUTO or SDR."):(NewCpuSelected()?"当前 CPU 路线支持 SDR / HDR 转 SDR；HDR 保留尚未开放，显式保留会停止。":lang.T("input.hdr_route_detail_x264")))
 : lang.T("input.hdr_route_detail_fruc");
                     }
                     else if (fgsim && !hevc && !av1FgsimPreserveReady)
@@ -4007,5 +4018,48 @@ namespace FilmGrainStudioPreview
             if (Ready) Value = value;
             return true;
         }
+    }
+}
+
+
+namespace FilmGrainStudioPreview
+{
+    internal sealed partial class MainForm
+    {
+        // Keep established preset control IDs and codec slot numbers stable.
+        // Slot 2 owns the existing CPU pixel editor; CPU_CODEC selects its final encoder.
+        private ComboBox cmbCodecFamily;
+        private CheckBox chkCpuEncoder;
+        private bool syncingCodecPicker;
+        private string CpuCodec() {string c=config.Get("CPU_CODEC");return c=="SVT"||c=="X265"?c:"X264";}
+        private bool NewCpuSelected() {return cmbCodec!=null&&cmbCodec.SelectedIndex==2&&CpuCodec()!="X264";}
+        private Control BuildCodecPicker()
+        {
+            var panel=new TableLayoutPanel{Dock=DockStyle.Fill,Margin=Padding.Empty,ColumnCount=2,RowCount=1};
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,120));
+            cmbCodecFamily=Combo(new[]{"AV1","HEVC","H264"},0);chkCpuEncoder=Check("CPU · SVT",false);
+            panel.Controls.Add(cmbCodecFamily,0,0);panel.Controls.Add(chkCpuEncoder,1,0);
+            cmbCodecFamily.SelectionChangeCommitted+=delegate{CommitCodecPicker();};
+            chkCpuEncoder.CheckedChanged+=delegate{if(!syncingCodecPicker)CommitCodecPicker();};
+            cmbCodec.SelectedIndexChanged+=delegate{SyncCodecPicker();};SyncCodecPicker();return panel;
+        }
+        private void CommitCodecPicker()
+        {
+            if(syncingCodecPicker||restoringFileEditor)return;
+            int family=Math.Max(0,cmbCodecFamily.SelectedIndex);bool cpu=chkCpuEncoder.Checked;
+            if(cpu)config.SaveValue("CPU_CODEC",family==0?"SVT":family==1?"X265":"X264");
+            cmbCodec.SelectedIndex=cpu?2:family==0?0:family==1?1:3;
+            SyncCodecPicker();UpdateSpeedChoices();UpdateGrainForCodec();LoadBitrateStateForCodec();UpdateBitrateDisplays();UpdateSfeUi();UpdateMediaDrivenUi(GetSelectedMediaInfo());
+        }
+        private void SyncCodecPicker()
+        {
+            if(cmbCodecFamily==null||chkCpuEncoder==null)return;syncingCodecPicker=true;
+            try {bool cpu=cmbCodec.SelectedIndex==2;string codec=CpuCodec();
+                cmbCodecFamily.SelectedIndex=cpu?(codec=="SVT"?0:codec=="X265"?1:2):cmbCodec.SelectedIndex==1?1:cmbCodec.SelectedIndex==3?2:0;
+                chkCpuEncoder.Checked=cpu;chkCpuEncoder.Text="CPU · "+(cmbCodecFamily.SelectedIndex==0?"SVT":cmbCodecFamily.SelectedIndex==1?"x265":"x264");
+                cmbCodecFamily.Enabled=cmbCodec.SelectedIndex!=4;chkCpuEncoder.Enabled=cmbCodec.SelectedIndex!=4;
+            }finally{syncingCodecPicker=false;}
+        }
+
     }
 }

@@ -19,13 +19,13 @@ namespace FilmGrainStudioPreview
         private string lastAppliedPresetId;
         private PresetStore Presets()
         {
-            if(presetStore==null){presetStore=new PresetStore(Path.Combine(appRoot,"UserPresets"));try{SeedInitialPresets();presetStore.Load();}catch(Exception ex){MessageBox.Show(this,ex.Message,"预设文件错误（损坏文件未修改）");}}
+            if(presetStore==null){var store=new PresetStore(PresetStore.ResolveUserRoot(appRoot));SeedInitialPresets(store);store.Load();presetStore=store;}
             return presetStore;
         }
-        private void SeedInitialPresets()
+        private void SeedInitialPresets(PresetStore targetStore)
         {
-            if(Directory.Exists(presetStore.Root))return;
-            string stage=presetStore.Root+".seed."+Guid.NewGuid().ToString("N");
+            if(Directory.Exists(targetStore.Root))return;
+            string stage=targetStore.Root+".seed."+Guid.NewGuid().ToString("N");
             try {
                 var store=new PresetStore(stage);
                 for(int i=1;i<=5;i++) {
@@ -33,7 +33,7 @@ namespace FilmGrainStudioPreview
                     if(!File.Exists(path))throw new FileNotFoundException("缺少随附初始预设",path);
                     var p=PresetCore.Read(path);store.Save(p);store.Bind(i-1,p.Id);
                 }
-                Directory.Move(stage,presetStore.Root);
+                Directory.Move(stage,targetStore.Root);
             } finally {if(Directory.Exists(stage))Directory.Delete(stage,true);}
         }
         private bool PresetEditable()
@@ -78,7 +78,7 @@ namespace FilmGrainStudioPreview
         }
         private FileEditorSettings MergePreset(FgsPreset p,FileEditorSettings target,bool relocate)
         {
-            p=PresetCore.CoherentCopy(p);var value=target.Copy();foreach(var x in p.Config)value.Config[x.Key]=x.Value;
+            p=PresetCore.CoherentCopy(p);var value=target.Copy();value.Config["CPU_CODEC"]=p.Config.ContainsKey("CPU_CODEC")?p.Config["CPU_CODEC"]:"X264";foreach(var x in p.Config)value.Config[x.Key]=x.Value;
             foreach(var x in p.Controls)value.Controls[x.Key]=x.Value;
             value.Bitrates=(string[])p.Bitrates.Clone();value.Automatic=(bool[])p.Automatic.Clone();
             foreach(var x in p.Fields) {
@@ -112,7 +112,7 @@ namespace FilmGrainStudioPreview
         {
             int c=int.Parse(p.Controls["cmbCodec"],CultureInfo.InvariantCulture);var caps=hardwareCaps;
             if(!hardwareCapsReady||caps==null)throw new InvalidOperationException("硬件能力缓存尚未就绪，请等待现有检测完成后应用。");
-            if(c==0&&!caps.Av1Available||c==1&&!caps.HevcAvailable||c==2&&!caps.X264Available||c==3&&!caps.H264Available)throw new InvalidOperationException("当前机器不支持预设编码器。");
+            if(c==0&&!caps.Av1Available||c==1&&!caps.HevcAvailable||c==2&&p.Config["CPU_CODEC"]=="X264"&&!caps.X264Available||c==3&&!caps.H264Available)throw new InvalidOperationException("当前机器不支持预设编码器。");
             if(p.Controls["chkInterpolation"]=="1") {
                 if(p.Controls["cmbInterpolationMode"]=="2") {
                     if(!caps.FrucReady||!caps.FrucAvailable)throw new InvalidOperationException("当前能力缓存未确认 FRUC Vulkan 可用；预设没有更换算法。");
@@ -120,7 +120,7 @@ namespace FilmGrainStudioPreview
                     if(grid!="auto"&&Array.IndexOf(supported.Split(','),grid)<0)throw new InvalidOperationException("FRUC 网格不兼容: "+grid+"；缓存支持: "+supported);
                 } else if(!caps.OpenSvpGpuAvailable)throw new InvalidOperationException("当前机器未确认 OpenSVPFlow 可用。");
             }
-            if(c==2&&p.Config["H264_HIGH10"]=="true"&&!caps.X264High10Available)throw new InvalidOperationException("当前 x264 不支持 High10。");
+            if(c==2&&p.Config["CPU_CODEC"]=="X264"&&p.Config["H264_HIGH10"]=="true"&&!caps.X264High10Available)throw new InvalidOperationException("当前 x264 不支持 High10。");
             if(c==0&&p.Controls["cmbSpeed"]=="2"&&!caps.Av1UhqAvailable)throw new InvalidOperationException("当前 AV1 不支持 UHQ。");
             if(c==0&&p.Controls["chkSfe"]=="1"&&p.Controls["chkGrainEnabled"]=="1"&&!caps.Grav1synthSfeCompatible)throw new InvalidOperationException("当前 Grav1synth 不支持颗粒与分割编码组合");
             if(p.Controls["chkSfe"]=="1"&&((c==0&&caps.Av1SplitEncodeMaxEngines<2)||(c==1&&caps.HevcSplitEncodeMaxEngines<2)||c==2||c==3))throw new InvalidOperationException("当前编码器不支持所选分割编码。");
@@ -227,12 +227,12 @@ namespace FilmGrainStudioPreview
             presetSelector.SelectionChangeCommitted+=delegate{if(!loadingPresets&&presetSelector.SelectedItem!=null)PresetAction(delegate{try{ApplyPreset((FgsPreset)presetSelector.SelectedItem);}finally{RefreshPresetSelector();}});};
             var button=new ThemeButton {Text="预设管理",Size=new Size(82,29),Margin=Padding.Empty};
             button.Click+=delegate{PresetAction(ShowPresetManager);};
-            var quick=new ContextMenuStrip();quick.Closed+=delegate{PresetHoverCard.HideCard();};quick.Opening+=delegate{quick.Items.Clear();for(int i=0;i<5;i++){int slot=i;var p=Presets().Find(Presets().Quick[i]);var item=new ToolStripMenuItem((i+1)+". "+(p==null?"未绑定":p.Name)){Enabled=p!=null,AutoToolTip=false,ToolTipText=""};if(p!=null)AttachQuickPresetTip(item,quick,PresetQuickDetails(p));item.Click+=delegate{PresetAction(delegate{var target=Presets().Find(Presets().Quick[slot]);if(target==null)throw new InvalidOperationException("快捷位置未绑定");ApplyPreset(target);});};quick.Items.Add(item);}};
+            var quick=new ContextMenuStrip();quick.Closed+=delegate{PresetHoverCard.HideCard();};quick.Opening+=delegate(object sender,System.ComponentModel.CancelEventArgs e){try{quick.Items.Clear();for(int i=0;i<5;i++){int slot=i;var p=Presets().Find(Presets().Quick[i]);var item=new ToolStripMenuItem((i+1)+". "+(p==null?"未绑定":p.Name)){Enabled=p!=null,AutoToolTip=false,ToolTipText=""};if(p!=null)AttachQuickPresetTip(item,quick,PresetQuickDetails(p));item.Click+=delegate{PresetAction(delegate{var target=Presets().Find(Presets().Quick[slot]);if(target==null)throw new InvalidOperationException("快捷位置未绑定");ApplyPreset(target);});};quick.Items.Add(item);}}catch(Exception ex){e.Cancel=true;MessageBox.Show(this,ex.Message,"预设配置",MessageBoxButtons.OK,MessageBoxIcon.Warning);}};
             button.ContextMenuStrip=quick;panel.Controls.Add(button);panel.Controls.Add(presetSelector);
             presetTips=new ThemeToolTip();presetTips.SetToolTip(button,"左键：管理预设；右键：五个快捷位置。选择器选择后应用到当前统一设置或明确的独立文件。");
             button.Disposed+=delegate{presetTips.Dispose();quick.Dispose();};
             // Load only on first interaction; file I/O is not added to the first-paint path.
-            presetSelector.DropDown+=delegate{if(presetStore==null)RefreshPresetSelector();};
+            presetSelector.DropDown+=delegate{if(presetStore==null)PresetAction(RefreshPresetSelector);};
             panel.HandleCreated+=delegate{BeginInvoke((MethodInvoker)delegate{if(listFiles!=null)InstallPresetQueueMenu();});};
         }
         private static readonly Dictionary<ContextMenuStrip,QuickPresetHints> quickPresetHints=new Dictionary<ContextMenuStrip,QuickPresetHints>();

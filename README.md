@@ -1,6 +1,6 @@
 ﻿# Film Grain Studio
 
-> **Film Grain Studio v5.0.27 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.28 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
 
@@ -17,14 +17,15 @@
 
 Film Grain Studio 的目标不是只提供一种“加颗粒”方法，而是把几种不同思路的 Film Grain 处理方式统一到同一套工作流中：可以使用 AV1 Film Grain metadata，也可以把真实扫描 Grain Plate、数字颗粒或 GPU Film Grain 直接烘焙进像素；同时保留 HDR、LUT、反交错、插帧、字幕、Cinematic Style、自动码率和多文件处理。
 
-当前提供四条同级主编码路线：
+主界面提供 AV1 / HEVC / H264 三个编码家族，勾选旁边 CPU 开关切换软件编码：
 
-| 主编码路线 | Film Grain 重点 | 最终编码 |
-|---|---|---|
-| **AV1 Main10 + grav1synth** | AV1 Film Grain metadata、Film Preset、Photon ISO、现成 Grain Table；也可选择像素颗粒 | AV1 Main10 NVENC |
-| **HEVC Main10** | 真实扫描 Grain Plate、Digital Grain、GPU Film Grain (FGSIM) | HEVC Main10 NVENC |
-| **H.264 NVENC High** | 复用 HEVC 像素颗粒与完整处理流程 | h264_nvenc High 8-bit |
-| **H.264 x264 Grain** | 真实扫描 Grain Plate、Digital Grain、GPU Film Grain (FGSIM) | libx264；启用颗粒时附加 `tune grain` |
+| 编码家族 | 硬件方式 | CPU 方式 | Film Grain |
+|---|---|---|---|
+| **AV1** | AV1 Main10 NVENC | SVT-AV1-HDR，10bit | 硬件方式支持 metadata 或像素颗粒；SVT 使用像素烘焙 |
+| **HEVC** | HEVC Main10 NVENC | x265，10bit | 数字颗粒、FGSIM、真实扫描 Grain Plate |
+| **H264** | H.264 NVENC High，8bit | x264，可选 High10 | 数字颗粒、FGSIM、真实扫描 Grain Plate |
+
+SVT / x265 提供 VBR 与 CRF；x264 沿用单遍／两遍／三遍 VBR。CPU 表示最终压缩编码使用软件，插帧、扫描颗粒或 HDR 转 SDR 等前处理仍可能使用 GPU。新增 SVT / x265 当前支持 SDR 与 HDR 转 SDR，显式选择保留 HDR 会停止，不降级冒充保留。
 
 默认配置为 **AV1 Main10 + MP4 + AAC 256k**。
 
@@ -49,11 +50,11 @@ AV1 NVENC、HEVC NVENC 和 H.264 NVENC 可在主窗口的多引擎并行旁勾�
 | H.264 | 16、18 | 19、20、21 | 22、24 |
 
 - 输出文件以 `_CQ23` 等标识目标质量，VBR 仍以原来的 `码率k` 命名。任务日志显示模式、用户质量和实际命令。
-- 旧配置未包含新设置时仍使用 VBR。x264、不重编码添加 AV1 颗粒和独立的像素烘焙功能保持原有方式。
+- 旧配置未包含新设置时仍使用 VBR。x264、不重编码添加 AV1 颗粒和独立的像素烘焙功能保持原有方式；SVT / x265 的 CRF 见 CPU 设置说明。
 
 ### 高级编码：音频与 NVENC Multipass
 
-音频策略与 MP4/MKV 容器分别选择。高级 → 编码提供：
+音频策略与 MP4/MKV 容器分别选择。高级 → 音频提供：
 
 - **跟随容器（默认）**：保留原有行为，MP4 转 AAC，MKV 复制原音轨；AAC 默认 256 kbps。
 - **智能保留**：MP4 按保守兼容策略复制 AAC/MP3/AC3/EAC3，其它音轨转 AAC；MKV 保留原音轨。已有 AAC 128 kbps 可直接保留到 MP4，不会因为默认 256 kbps 再编码。
@@ -68,7 +69,7 @@ AV1、HEVC 与 H.264 NVENC 主输出可分别选择 NVENC Multipass：**FGS 推�
 
 x264 插帧两遍/三遍共用一次完整渲染后的无损缓存，插帧、LUT、颗粒、字幕和画幅仅计算一次。非插帧 x264 多遍仍逐遍计算滤镜；是否增加整片缓存需要结合片长、效果负载和磁盘成本评估，目前不默认生成。
 
-高级编码分为 AV1 / HEVC 与 H.264 / x264 两页，编码器参数按上下两区显示。HEVC 与 H.264 NVENC 的 Spatial AQ（默认8，0关闭）和 Temporal AQ（默认关闭）分别保存，只对该编码器支持的能力生效；x264 不使用这些设置。旧共享 AQ 配置作为两线各自的初始值，后续独立修改不影响 AV1 原有配置。音频为四线共用设置，放在第一页；恢复默认值只重置当前页，第一页包含共用音频设置。
+高级编码按 AV1、HEVC、H264 各占一页，每页包含对应的 NVENC 硬件与 CPU 软件设置（SVT-AV1-HDR / x265 / x264）。HEVC 与 H264 NVENC 的 Spatial AQ（默认8，0关闭）和 Temporal AQ（默认关闭）独立保存，只对该编码器支持的能力生效；不影响另一家族或 CPU 编码。音频为全部编码共用设置，单独放在“音频”页。恢复默认只重置当前页，确定后保存；取消不保存。
 
 Lookahead 的数值是请求深度，可能受到编码器、B 帧、驱动及 FFmpeg 缓冲配置约束；不能仅凭可选数值判断实际深度，也不将 27 视为 RTX 4080 的固定上限。
 
@@ -86,7 +87,7 @@ Cinematic Style 的高级入口打开独立可视化窗口：时间轴选帧、�
 
 AV1、HEVC、x264、H.264 NVENC 与可视化窗口共用画幅几何核心。自动画幅沿用原来的偶数高度和起点取整；手动裁剪保留精确像素设置。自动码率和 ASS 字幕画布使用裁剪后的输出宽高；加黑边仍使用原输出宽高，AV1 不重编码模式不执行像素裁剪。
 
-高级设置包含编码、插帧、HDR 三页。裁剪参数在可视化窗口设置，调色窗口大小仍由调色按钮右键切换。
+高级设置包含 AV1、HEVC、H264、插帧、HDR、音频六页。裁剪参数在可视化窗口设置，调色窗口大小仍由调色按钮右键切换。
 
 ### LUT 强度与四档对照
 
@@ -173,7 +174,7 @@ FilmGrain_Studio.exe
 基本流程：
 
 1. 添加或拖入一个或多个视频。
-2. 编码方式选择 AV1、HEVC、x264 或 H.264 NVENC；颗粒方式在下方独立选择。
+2. 编码家族选择 AV1、HEVC 或 H264；勾选 CPU 使用 SVT-AV1-HDR、x265 或 x264；颗粒方式在下方独立选择。
 3. 按需勾选或关闭“启用颗粒”，设置输出容器、码率、输出帧率和反交错方式。
 4. 按需启用 Cinematic Style、LUT、字幕、OpenSVPFlow / FRUC Vulkan、HDR 处理等功能。
 5. 点击“开始编码”。
@@ -209,7 +210,7 @@ FGS 运行日志保存在根目录 `Logs`。主界面的“日志目录”按钮
 | 主界面位置 | 点击箭头后打开 |
 | --- | --- |
 | HDR 输入的处理流程信息 | 高级－HDR |
-| HEVC/x264/H.264 NVENC 速度与质量 | 高级－编码 |
+| AV1 / HEVC / H264 速度与质量 | 当前编码方式的独立高级小窗，仅显示当前 NVENC 或 CPU 设置 |
 | 插帧 | 高级－插帧 |
 | 已启用的 Cinematic Style | 独立可视化裁剪窗口 |
 
@@ -225,7 +226,7 @@ FGS 运行日志保存在根目录 `Logs`。主界面的“日志目录”按钮
 - 统一模式可从管理器或队列右键保存当前统一配置，无须启用独立配置；独立模式则保存明确选中文件的配置。
 - 独立模式下，单选文件右键可复制完整处理配置，再用 Shift／Ctrl 多选目标文件批量粘贴。菜单显示目标数量，管理器列出目标文件；保存／更新预设仍要求单选来源。简单预设分别保留每个目标未包含的高级参数；整批校验通过后才修改配置。字幕具体文件/轨道属于目标视频，不跨视频复制。预设字幕策略保存“关闭”“自动匹配”，或对指定字幕使用“保留目标绑定”，并保存样式。
 - LUT、颗粒表和扫描颗粒保存相对资源库引用；库外资源显式使用外部文件引用。缺失时指出具体资源并允许重新定位；重新定位后可从当前配置更新保存预设。
-- `Presets/Initial` 仅存放五份随附初始方案；个人预设保存在程序目录的 `UserPresets/*.fgspreset.json`，五个快捷绑定保存在 `UserPresets/quick.json`。分享请使用管理器导出，不必复制整份 INI。请自行备份 `UserPresets`。
+- `Presets/Initial` 仅存放五份随附初始方案；个人预设保存在程序目录的 `Presets\User/*.fgspreset.json`，五个快捷绑定保存在 `Presets\User/quick.json`。分享请使用管理器导出，不必复制整份 INI。请自行备份 `Presets\User`。
 - 详情仅展示当前编码器和当前算法的生效参数；关闭项只显示“关闭”，备用设置仍保存在预设中。资源缺失或兼容性问题单独提示。
 - 初始方案首次复制到本机预设目录；之后升级不覆盖用户修改或删除。完整说明与参数在管理器右侧详情框查看；快捷菜单与主界面选择器的悬停提示仅显示主要流程和必要问题。管理器列表不显示重复悬停提示。
 
@@ -250,6 +251,27 @@ FilmGrain_Studio.exe "D:\Videos\sample.mp4"
 该参数只导入图形界面的输入列表，不自动编码；当前不提供旧交互CLI、Bridge BAT或旧参数兼容入口。
 
 ---
+
+
+### CPU 编码（开发验证版）
+
+主界面的编码方式为 AV1 / HEVC / H264，右侧 CPU 开关分别选择 SVT-AV1-HDR / x265 / x264。未勾选时使用原有 NVENC 路线。不重编码入口保留。
+
+| CPU 路线 | 码率模式 | 颗粒 | 默认 preset |
+| --- | --- | --- | --- |
+| AV1 / SVT-AV1-HDR | CRF / 单遍目标码率 | Digital Grain、扫描 Grain Plate、FGSIM 像素烘焙；开启颗粒时 tune=6，film-grain=0 避免再次合成 | 6 |
+| HEVC / x265 | CRF / 单遍目标码率 | 同上；开启颗粒时 tune=grain | medium |
+| H264 / x264 | 原有单遍／两遍／三遍 | 原有三种像素颗粒 | faster |
+
+SVT 与 x265 的质量模式使用 CRF，不能把数值与 NVENC CQ 横向比较。默认 CRF 起点分别为 30 / 22，不保证视觉无损；自动 CRF 使用这两个起点。速度行右侧箭头打开当前实际编码方式的小窗（NVENC / SVT / x265 / x264），只保存该方式的高级选项。主界面“高级设置”保留完整六页，AV1 / HEVC / H264 各页均含对应硬件和软件选项。两种入口共用控件、配置键、默认值和校验；其它处理继续使用完整高级设置。
+
+SVT 要求主 FFmpeg 实际链接 SVT-AV1-HDR；执行前用短片检查 10bit、实际参数及 HDR 分支标识，失败时停止，不换编码器。当前未提供自动下载此特殊 FFmpeg 的功能，请在路径设置中指定自己的构建。使用自定义 FRUC FFmpeg 时，实际承担编码的这个程序也必须支持所选 CPU 编码器。检查结果按程序路径、大小、修改时间与参数缓存，浏览和应用预设不触发全面硬件检测。
+
+x265 Threaded ME 为实验开关，默认关闭。官方说明其要求至少 32 个逻辑处理器，且与 VBV 不兼容；本版仅允许 CRF 组合，条件不满足直接提示，不假装启用。高频 CPU / 4K 不保证加速；13600K / 5800H 不满足上述线程门槛。
+
+当前 CPU 新路线支持 SDR 和 HDR 转 SDR，显式 HDR 保留会停止并提示。扫描颗粒、FRUC、部分反交错／FGSIM 等预处理仍可能使用 GPU，CPU 开关指最终视频压缩。GPU AV1 / HEVC 已有的 P010 HDR 路线维持原有实现。
+
+简单预设包含 CPU 编码器及 CRF／码率模式；CPU preset、Threaded ME 为高级设置，简单预设保留目标值，完整预设保存它们。旧格式预设缺少 CPU 编码器标识时，原 slot 2 仍解释为 x264。
 
 ## Film Grain 方式
 
@@ -451,7 +473,7 @@ HEVC 主线适合将真实扫描 Grain Plate 直接合成到视频像素，再�
 
 ### HEVC AQ
 
-`高级设置 → AV1 / HEVC` 和 `H.264 / x264` 分别提供 HEVC、H.264 NVENC 的独立 Spatial AQ 与 Temporal AQ 控制。Spatial AQ 可选 `0 / 4 / 8 / 10 / 12 / 15`，默认 `8`，其中 `0` 表示关闭；Temporal AQ 为同行复选框并默认关闭。两线分别保存并服从各自能力检测；不会改变 AV1 原有设置，也不作用于 x264。
+`高级设置 → HEVC` 和 `高级设置 → H264` 分别提供对应 NVENC 的独立 Spatial AQ 与 Temporal AQ 控制。Spatial AQ 可选 `0 / 4 / 8 / 10 / 12 / 15`，默认 `8`，其中 `0` 表示关闭；Temporal AQ 为同行复选框并默认关闭。两线分别保存并服从各自能力检测；不会改变 AV1 原有设置，也不作用于 x264。
 
 ### Grain Cache
 
@@ -1359,3 +1381,21 @@ ffmpeg -hide_banner -h decoder=libdav1d
 文件列表显示文件名、大小和状态（等待、处理中、结束、失败、已取消或未执行）；完整路径保留在悬停提示中。开始执行后自动选中正在处理的文件并滚动到该行，完成后跟随下一项。
 
 底部“预览编码／起始／持续”为当前主窗口共用设置。切换文件、切换统一或独立模式、队列自动选择下一项时均保留当前值，只有主动编辑才改变；开始时仍将这组值冻结到本轮任务。
+
+### CPU Grain 调优
+
+SVT、x265、x264 的高级选项均提供 Grain 调优：自动（默认，随添加颗粒）、开启（不添加新颗粒也针对源视频颗粒调优）、关闭（不使用调优，仍可添加颗粒）。三个编码器分别保存；完整窗口与速度／质量旁小窗共用设置。此项属于高级参数，完整预设保存，简单预设保留目标当前值。旧配置缺失此项按自动处理。
+
+### SVT 调校方案
+
+高级设置提供 FGS 推荐、HandBrake 调教。主动选择方案才填入参考值：FGS 为 preset 6 / RF30 / 自动 Grain；HandBrake 为截图 preset 4 / RF30.5 / VQ。随后可修改 preset、质量或切换 VBR；重新打开窗口不恢复参考值。底层参数固定、只读且可复制，不能输入任意命令。HandBrake 使用截图的 variance boost、QM、ac-bias、tf-strength、qp-scale-compress-strength、sharpness 六项均为1；keyint=10s 按实际编码输出帧率换算成 FFmpeg 的帧数 GOP（四舍五入）。FGS 两方案都固定 hbd-mds=1、film-grain=0，Grain 调优仍可独立覆盖 tune。名称表示截图参考组合，不承诺与不同版本 HandBrake 输出完全一致。方案属高级设置，完整预设保存、简单预设保留目标当前值；旧配置默认 FGS。
+
+### CPU 依赖与高级入口
+
+主 FFmpeg 路径指向同时包含 ffmpeg.exe、ffprobe.exe 的目录；SVT 路线需编译了 SVT-AV1-HDR 的版本，普通 libsvtav1 不能仅凭编码器名称视为兼容。执行前进行短编码验证并缓存结果；不支持参数时停止。若指定了独立 FRUC FFmpeg，相关路线使用的该构建也必须支持所选 CPU 编码器。
+
+速度／质量旁的小箭头只显示当前实际编码方式的高级设置；原高级按钮保留 AV1 / HEVC / H264 / 插帧 / HDR / 音频六页。两入口使用同一组参数；小窗恢复默认只影响当前方式，完整窗口恢复默认作用于当前页，确定后保存，取消不保存。
+
+x265 默认 medium，可选 tune=grain。实验性 Threaded ME 默认关闭，当前要求 CRF、至少32个逻辑处理器；VBR 或处理器不足时停止并说明，不静默丢弃选择。它不保证加速。
+
+旧版根目录 UserPresets 在首次使用预设时自动迁移到 Presets\User，预设ID与五个快捷绑定一起保留。新目录已有用户数据且旧目录非空时停止预设操作并列出两处路径，不自动覆盖或合并；旧目录损坏也会停止迁移并保留原件。

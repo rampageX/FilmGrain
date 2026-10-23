@@ -23,6 +23,9 @@ namespace FilmGrainStudioPreview
         public string Container = "MP4";
 
         public string Mode = "";
+        public string CpuSvtTuning="FGS";
+        public string CpuSvtGrainTune="AUTO",CpuX265GrainTune="AUTO",X264GrainTune="AUTO";
+        public string CpuSvtPreset="6",CpuX265Preset="medium",CpuX265ThreadedMe="false";
         public string Speed = "";
         public int SfeEngines;
         public string BitrateMode = "";
@@ -132,6 +135,9 @@ namespace FilmGrainStudioPreview
             state["FG_OUTPUT_SPACE_CONFIRMED"] = "1";
             state["FG_KEEP_FAILED"] = "1";
             state["FG_MODE"] = snapshot.Mode;
+            state["FG_CPU_SVT_TUNING"]=snapshot.CpuSvtTuning;
+            state["FG_CPU_SVT_GRAIN_TUNE"]=snapshot.CpuSvtGrainTune;state["FG_CPU_X265_GRAIN_TUNE"]=snapshot.CpuX265GrainTune;state["FG_X264_GRAIN_TUNE"]=snapshot.X264GrainTune;
+            state["FG_CPU_SVT_PRESET"]=snapshot.CpuSvtPreset;state["FG_CPU_X265_PRESET"]=snapshot.CpuX265Preset;state["FG_CPU_X265_THREADED_ME"]=snapshot.CpuX265ThreadedMe;
             state["FG_CONTAINER"] = snapshot.Container;
             state["FG_AUDIO_MODE"] = snapshot.AudioMode;
             state["FG_AUDIO_BITRATE"] = snapshot.AudioBitrate;
@@ -321,6 +327,12 @@ namespace FilmGrainStudioPreview
         { string value; return state == null || !state.TryGetValue("FG_GRAIN_ENABLED",out value) || value != "0"; }
         internal static string Engine(IDictionary<string,string> state)
         { string value; return !IsEnabled(state) ? "NONE" : state != null && state.TryGetValue("FG_GRAIN_ENGINE",out value) ? value.ToUpperInvariant() : ""; }
+        internal static bool GrainTune(IDictionary<string,string> state,string key,bool addingGrain)
+        {
+            string value;if(state==null||!state.TryGetValue(key,out value))value="AUTO";
+            if(value=="AUTO")return addingGrain;if(value=="ON")return true;if(value=="OFF")return false;
+            throw new InvalidDataException("Invalid grain tune: "+key+" = "+value);
+        }
         internal static void AddX264Tune(IList<string> args, bool enabled)
         { if(enabled) { args.Add("-tune"); args.Add("grain"); } }
         internal static string BuildWithoutGrain(string before, string lutEscaped, string opacity, string after)

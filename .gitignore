@@ -38,3 +38,19 @@
 /Return_Presets_R8M3VN_*.zip
 
 /Return_HDRFRUC_H7M4QX_*.zip
+
+# CPU / encoder development checks (local only)
+/Tests_CPU_C7M4VN/
+/Tests_EncoderUI_C4M8VN/
+/Tests_Cleanup_CPU_Encoder/
+/Test_CPU_C7M4VN.cmd
+/Test_Encoder_UI_C4M8VN.cmd
+/Return_CPU_C7M4VN_*.zip
+/Return_EncoderUI_C4M8VN_*.zip
+
+/Presets/User/
+/Presets/User.seed.*/
+
+/Tests_UserPresetPath_P2M8VN/
+/Test_UserPresetPath_P2M8VN.cmd
+/Return_UserPresetPath_P2M8VN_*.zip
