@@ -59,6 +59,14 @@ namespace FilmGrainStudioPreview
         {
             var timer=System.Diagnostics.Stopwatch.StartNew();
             bool ok=TryPrepareCore(appRoot,input,info,state,caps,noReencode,out prepared,out reason);
+            if(ok && prepared!=null && prepared.ExecutionRequest!=null)
+            {
+                try { SharedInputTimelineCore.Bind(prepared.ExecutionRequest,input,info.Identity.Probe,info,noReencode); }
+                catch(Exception ex) {
+                    BridgeExecutionCore.CleanupTemporaryFiles(prepared.ExecutionRequest);
+                    prepared=null;reason="Shared input timeline binding failed: "+ex.Message;ok=false;
+                }
+            }
             timer.Stop();
             if(ok && prepared!=null && prepared.ExecutionRequest!=null)
                 prepared.ExecutionRequest.PreparationElapsed=timer.Elapsed;

@@ -332,15 +332,22 @@ namespace FilmGrainStudioPreview
         {
             internal double VideoOrigin;
             internal double CommonOrigin;
+            internal string AudioOrigins = "";
             internal double VideoDelay { get { return VideoOrigin - CommonOrigin; } }
         }
 
         internal static FrucTimeline ProbeTimeline(string ffprobe, string source)
         {
+            var scope=SharedInputTimelineCore.CurrentScope;
+            return scope==null?ProbeTimelineUncached(ffprobe,source):scope.Probe(ffprobe,source);
+        }
+        internal static FrucTimeline ProbeTimelineUncached(string ffprobe, string source)
+        {
             string output, reason;
             if (!Run(ffprobe, "-v error -show_entries stream=codec_type,start_time -of default=noprint_wrappers=0 " + Quote(source),
                 15000, out output, out reason)) throw new InvalidOperationException("Interpolation timestamp probe failed: " + reason);
             double videoOrigin = double.NaN, commonOrigin = double.PositiveInfinity;
+            var audioOrigins = new List<string>();
             string type = "";
             foreach (string raw in output.Split(new char[]{'\r','\n'}, StringSplitOptions.RemoveEmptyEntries))
             {
@@ -351,12 +358,13 @@ namespace FilmGrainStudioPreview
                     double time;
                     if (!double.TryParse(line.Substring(11), NumberStyles.Float, CultureInfo.InvariantCulture, out time) || double.IsNaN(time) || double.IsInfinity(time)) continue;
                     if (type == "video" && double.IsNaN(videoOrigin)) videoOrigin = time;
+                    if (type == "audio") { string stamp=time.ToString("0.#########",CultureInfo.InvariantCulture); if(!audioOrigins.Contains(stamp))audioOrigins.Add(stamp); }
                     if (type == "video" || type == "audio") commonOrigin = Math.Min(commonOrigin, time);
                 }
             }
             if (double.IsNaN(videoOrigin) || double.IsInfinity(commonOrigin))
                 throw new InvalidOperationException("Interpolation requires a known video start_time: " + source);
-            return new FrucTimeline { VideoOrigin = videoOrigin, CommonOrigin = commonOrigin };
+            return new FrucTimeline { VideoOrigin = videoOrigin, CommonOrigin = commonOrigin, AudioOrigins = string.Join(",",audioOrigins.ToArray()) };
         }
 
         internal static string JoinArguments(IEnumerable<string> args)
@@ -451,7 +459,7 @@ namespace FilmGrainStudioPreview
                 stage.DirectArguments = JoinArguments(args);
                 return "[AV1 " + engine + " remux timeline] source_common=" + source.CommonOrigin.ToString("0.#########", CultureInfo.InvariantCulture) +
                     " source_video_delay=" + source.VideoDelay.ToString("0.#########", CultureInfo.InvariantCulture) +
-                    " coded_video_origin=" + coded.VideoOrigin.ToString("0.#########", CultureInfo.InvariantCulture);
+                    " source_audio_origins=" + source.AudioOrigins + " audio_shift=" + (-source.CommonOrigin).ToString("0.#########",CultureInfo.InvariantCulture) + " coded_video_origin=" + coded.VideoOrigin.ToString("0.#########", CultureInfo.InvariantCulture);
             };
         }
 

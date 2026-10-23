@@ -54,3 +54,13 @@
 /Tests_UserPresetPath_P2M8VN/
 /Test_UserPresetPath_P2M8VN.cmd
 /Return_UserPresetPath_P2M8VN_*.zip
+
+# Local timeline verification and one-time release preparation
+/Test_Timeline_T7M4QX*.bat
+/Test_ProductionTimeline_R2_Q4N8VK.bat
+/Return_Timeline_T7M4QX_*.zip
+/Return_ProductionTimeline_R2_Q4N8VK_*.zip
+/FGS_Timeline_*.zip
+/FGS_v5.0.29_ReleasePrep_*.zip
+/Clean_Timeline_ReleasePrep_*.ps1
+/WORKING_SOURCE_INFO.txt

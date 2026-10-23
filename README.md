@@ -1,6 +1,6 @@
 ﻿# Film Grain Studio
 
-> **Film Grain Studio v5.0.28 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.29 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
 
@@ -1399,3 +1399,12 @@ SVT、x265、x264 的高级选项均提供 Grain 调优：自动（默认，随�
 x265 默认 medium，可选 tune=grain。实验性 Threaded ME 默认关闭，当前要求 CRF、至少32个逻辑处理器；VBR 或处理器不足时停止并说明，不静默丢弃选择。它不保证加速。
 
 旧版根目录 UserPresets 在首次使用预设时自动迁移到 Presets\User，预设ID与五个快捷绑定一起保留。新目录已有用户数据且旧目录非空时停止预设操作并列出两处路径，不自动覆盖或合并；旧目录损坏也会停止迁移并保留原件。
+
+
+### 剪切文件的音画时间轴
+
+FGS 保留输入的音视频时间关系。非零起点、音频提前（包括 TS 关键帧前保留的音频）不单独视为文件损坏，无需先把播放器显示的负延迟归零。处理后的视频出现前可能仍有一段声音。
+
+普通 SDR 的 CPU / NVENC 任务在共同入口绑定时间轴；AV1 最终封装、HDR、反交错及插帧复用各自已有的共享处理，不重复添加普通补偿。FGS 不为此额外执行整片重封装、转码，也不主动裁掉开头有效音频。探测失败会停止；缺失或跳变时间戳、素材内容本身失步等情况需要保留原文件和日志另行检查，不能视为本轮修复已经覆盖。
+
+日志中的 `source_common`、`video_delay`、`audio_shift` 以及 AV1 的 `coded_video_origin` 用于核对时间轴来源与补偿。任务结束的 `[Timeline probes] unique=... reused=...` 仅统计时间轴专用探测：同一任务内文件身份未变时复用，文件改变则重新探测，不跨任务缓存。该数字不代表所有媒体、硬件或帧率探测次数。

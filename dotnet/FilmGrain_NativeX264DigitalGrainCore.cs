@@ -319,12 +319,10 @@ namespace FilmGrainStudioPreview
                 {
                     List<string> args = BuildEncodeArgs(encodeInput, grainInput, filter, output, preset, highMotion, bitrate, max, buf, fps, duration, plateMode, autoFps, high10, mkv, deinterlace, 0, "", true, svp && !shareInterpolation, grainEnabled, state, info);
                     request.PixelGrainEncodeArguments = args;
-                    if (hdrToSdr || separateDeint || svp || fruc || !grainEnabled)
-                    {
-                        stages.Add(MakeStage(ffmpeg, workingDirectory, args, durationSeconds, stageOffset + 1, stageTotal, newCpu?Get(state,"FG_MODE")+" CPU final encode":"x264 final encode"));
-                        request.DirectStages = stages;
-                    }
-                    else request.DirectArguments = JoinArgs(args);
+                    // Even a single ordinary grain encode must have a stage: shared timeline
+                    // binding at the shared request entry requires stages, never a bare command.
+                    stages.Add(MakeStage(ffmpeg, workingDirectory, args, durationSeconds, stageOffset + 1, stageTotal, newCpu?Get(state,"FG_MODE")+" CPU final encode":"x264 final encode"));
+                    request.DirectStages = stages;
                 }
                 else
                 {
@@ -367,8 +365,7 @@ namespace FilmGrainStudioPreview
                 else if(hdrWorkfile && !interpolate && !info.IsInterlaced)
                     for(int i=stageOffset;i<stages.Count;i++)
                         SharedHdrPreprocessCore.AttachSharedWorkfileEncode(stages[i],ffprobe,encodeInput,gpuName);
-                else if (!grainEnabled && !interpolate && !(fieldWorkfile || separateDeint || hdrOffSdr))
-                    for (int i=stageOffset;i<stages.Count;i++)SharedOrdinaryTimelineCore.Attach(stages[i],ffprobe,encodeInput);
+
                 if(info.IsHdr && info.IsInterlaced && !deinterlace)request.ExecutionNotice="[Native .NET] 反交错 OFF：沿用不反交错的逐帧处理，不启用 bob/光流或双倍场率；不保证隔行编码标记。 / Deinterlace OFF: frame processing without bob/interpolation; no interlaced-encoding flags are added.";
             if(newCpu)request.ExecutionNotice=(request.ExecutionNotice??"")+Environment.NewLine+"[CPU] "+Get(state,"FG_MODE")+" "+(CpuEncoderCore.IsCrf(state)?"CRF "+Get(state,"FG_NVENC_CQ"):"VBR")+" preset="+CpuEncoderCore.Preset(state)+"; pixel grain baked before encoding; GPU preprocessing may still be used.";
             if (fgsimMode) FgsimTextureCore.AttachVerifiedDevice(request, fgsimHook, false);

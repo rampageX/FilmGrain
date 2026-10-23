@@ -108,8 +108,8 @@ namespace FilmGrainStudioPreview
             if (svp && hdrPreserve) { reason = "OpenSVPFlow HDR preservation is not supported; choose FRUC for validated P010 interpolation."; return false; }
 
             bool mpegTsSvp = svp && !hdrToSdr && IsMpegTsInput(input);
-            // No-grain SVP keeps the original audio lead on the common clock.
-            bool preserveSvpTransportTimeline = mpegTsSvp && !grainEnabled;
+            // All TS SVP routes keep the original audio lead on the shared common clock.
+            bool preserveSvpTransportTimeline = mpegTsSvp;
 
             string mpegTsVideoOffset = "";
 
@@ -612,8 +612,7 @@ namespace FilmGrainStudioPreview
                         }
                         else if(needsHdrWorkfile && !interpolate && !info.IsInterlaced)
                             SharedHdrPreprocessCore.AttachSharedWorkfileEncode(mainStage,ffprobe,encodeInput,caps.GpuName);
-                        else if (!grainEnabled && !interpolate && !(fieldWorkfile || separateDeint || hdrOffSdr))
-                            SharedOrdinaryTimelineCore.Attach(mainStage,ffprobe,encodeInput);
+
                         stages.Add(mainStage);
 
                     request.PixelGrainEncodeArguments = hevcArgs;

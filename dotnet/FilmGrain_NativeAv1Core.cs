@@ -296,7 +296,7 @@ namespace FilmGrainStudioPreview
             else Add(encode, "-r", fpsText, "-fps_mode:v", "cfr");
             if (hdrPreserve) Add(encode, "-color_range", HdrRange(info), "-color_primaries", HdrPrimaries(info), "-color_trc", info.ColorTransfer, "-colorspace", HdrSpace(info));
             else if (hdrToSdr) Add(encode, "-color_range", "tv", "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709");
-            if (!grainEnabled && !interpolate) SharedOrdinaryTimelineCore.NormalizeVideoOnly(encode);
+            if (!interpolate) SharedOrdinaryTimelineCore.NormalizeVideoOnly(encode);
             NvencRateControlCore.Apply(encode,state);
             NvencMultipassCore.Apply(encode,state,"AV1",caps);
             Add(encode, "-f", "ivf", cleanIvf);
@@ -390,10 +390,10 @@ namespace FilmGrainStudioPreview
                 directStages[preStages].StageText+=" / HDR merged";
             }
             if(fieldWorkfile || separateDeint || hdrOffSdr)SharedHdrPreprocessCore.AttachFieldValidation(directStages[preStages],ffprobe,hdrWorkfile,info,hdrToSdr,!hdrOffSdr);
-            if (mergedHdr || interpolate || fieldWorkfile || separateDeint || hdrOffSdr || !grainEnabled)
-                foreach (BridgeExecutionStage stage in directStages)
+            // IVF and grain synthesis own a local video clock; always restore the original A/V clock once.
+            foreach (BridgeExecutionStage stage in directStages)
                     if (stage.StageText.StartsWith("AV1 container remux", StringComparison.Ordinal))
-                        SharedFrucCore.AttachAv1RemuxTimeline(stage, ffprobe, remuxVideo, input, remux, !grainEnabled && !interpolate ? "ordinary no-grain" : fruc ? "FRUC" : "OpenSVPFlow");
+                        SharedFrucCore.AttachAv1RemuxTimeline(stage, ffprobe, remuxVideo, input, remux, !interpolate ? "ordinary" : fruc ? "FRUC" : "OpenSVPFlow");
             if (grainPercent != 100) Av1GrainStrengthCore.NumberStages(directStages);
             request.DirectStages = directStages;
             if(info.IsHdr && info.IsInterlaced && !deinterlace)request.ExecutionNotice="[Native .NET] 反交错 OFF：沿用不反交错的逐帧处理，不启用 bob/光流或双倍场率；不保证隔行编码标记。 / Deinterlace OFF: frame processing without bob/interpolation; no interlaced-encoding flags are added.";

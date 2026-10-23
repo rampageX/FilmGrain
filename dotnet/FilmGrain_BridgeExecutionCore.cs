@@ -68,6 +68,7 @@ namespace FilmGrainStudioPreview
         public string PipeProducerPath { get; set; }
         public string PipeProducerArguments { get; set; }
         internal IList<string> OriginalArguments { get; set; }
+        internal bool OrdinaryTimelineBound { get; set; }
         public string ToolPath { get; set; }
         public string WorkingDirectory { get; set; }
         public string DirectArguments { get; set; }
@@ -250,6 +251,7 @@ namespace FilmGrainStudioPreview
             int exitCode = -1;
             Exception failure = null;
             List<BridgeExecutionRequest> previewOwners = new List<BridgeExecutionRequest>();
+            var timelineScope=SharedInputTimelineCore.BeginScope();
             try
             {
             runPreparedRequest:
@@ -337,6 +339,8 @@ namespace FilmGrainStudioPreview
             }
             finally
             {
+                RaiseLog(BridgeLogStream.System,timelineScope.Summary);
+                timelineScope.Dispose();
                 bool failedRun = cancelRequested || exitCode != 0 || failure != null;
                 bool keepFailedOutputs = failedRun && !cancelRequested &&
                     string.Equals(Environment.GetEnvironmentVariable("FGS_KEEP_FAILED_OUTPUTS"), "1", StringComparison.OrdinalIgnoreCase);

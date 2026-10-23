@@ -143,7 +143,7 @@ $ReleaseSourceItems = @(
     'README_Toolkit.txt',
     'STABLE_BASELINE.txt',
     'release.bat',
-    '.github/release/ACCEPTANCE_v5.0.28.md',
+    '.github/release/ACCEPTANCE_v5.0.29.md',
     'dotnet/*.cs',
     'dotnet/BuildTools',
     'dotnet/BUILD_NET_FRAMEWORK.md',
@@ -189,6 +189,8 @@ $RetiredSourceFiles = @(
     'dotnet/Setup_Dependencies.ps1'
 )
 $ExcludedSourcePaths = @(
+    'Tests_Timeline_T7M4QX',
+    'WORKING_SOURCE_INFO.txt',
     'Tests_UserPresetPath_P2M8VN',
     'Test_UserPresetPath_P2M8VN.cmd',
     'Tests_Cleanup_CPU_Encoder',
@@ -228,6 +230,8 @@ $ExcludedSourcePaths = @(
     'FilmGrain_Studio.exe'
 )
 $ExcludedPackagePaths = @(
+    'Tests_Timeline_T7M4QX',
+    'WORKING_SOURCE_INFO.txt',
     'Tests_UserPresetPath_P2M8VN',
     'Test_UserPresetPath_P2M8VN.cmd',
     'Tests_EncoderUI_C4M8VN',
@@ -276,6 +280,13 @@ $ExcludedRecursiveDirectoryNames = @(
     '__pycache__'
 )
 $ExcludedRootDeliveryPatterns = @(
+    'Test_Timeline_T7M4QX*.bat',
+    'Test_ProductionTimeline_R2_Q4N8VK.bat',
+    'Return_Timeline_T7M4QX_*.zip',
+    'Return_ProductionTimeline_R2_Q4N8VK_*.zip',
+    'FGS_Timeline_*.zip',
+    'FGS_v5.0.29_ReleasePrep_*.zip',
+    'Clean_Timeline_ReleasePrep_*.ps1',
     'Return_UserPresetPath_P2M8VN_*.zip',
     'Return_CPU_C7M4VN_*.zip',
     'Return_EncoderUI_C4M8VN_*.zip',
