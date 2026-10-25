@@ -81,7 +81,7 @@ namespace FilmGrainStudioPreview
             defaults["TEMP_CUSTOM_DIR"] = "";
             defaults["OUTPUT_MODE"] = "VIDEO";
             defaults["OUTPUT_CUSTOM_DIR"] = "";
-            defaults["LANGUAGE"] = "zh-CN";
+            defaults["LANGUAGE"] = "AUTO";
             defaults["UI_THEME"] = "SYSTEM";
             defaults["SETUP_VERSION"] = "0";
             defaults["NETWORK_PROXY_MODE"] = "SYSTEM";

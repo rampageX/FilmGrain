@@ -19,13 +19,15 @@ namespace FilmGrainStudioPreview
         private readonly Dictionary<string, string> current = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         public string Code { get; private set; }
+        public string Preference { get; private set; }
         public string Root { get; private set; }
 
         public LanguagePack(string appRoot)
         {
             Root = Path.Combine(appRoot, "Lang");
             LoadFile(Path.Combine(Root, "zh-CN.ini"), fallback);
-            Code = ReadLanguagePreference(appRoot);
+            Preference = NormalizePreference(ReadLanguagePreference(appRoot));
+            Code = ResolveCode(Preference, CultureInfo.CurrentUICulture);
             string selected = Path.Combine(Root, Code + ".ini");
             if (!File.Exists(selected))
             {
@@ -45,33 +47,35 @@ namespace FilmGrainStudioPreview
 
         public List<LanguageChoice> GetChoices()
         {
-            List<LanguageChoice> result = new List<LanguageChoice>();
-            if (!Directory.Exists(Root)) return result;
-            string[] files = Directory.GetFiles(Root, "*.ini", SearchOption.TopDirectoryOnly);
-            Array.Sort(files, StringComparer.OrdinalIgnoreCase);
-            foreach (string file in files)
-            {
-                string name = Path.GetFileName(file);
-                if (string.Equals(name, "FilmGrain_Language.ini", StringComparison.OrdinalIgnoreCase)) continue;
-                Dictionary<string, string> dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                try
-                {
-                    LoadFile(file, dict);
-                    string display;
-                    if (!dict.TryGetValue("meta.display_name", out display) || string.IsNullOrWhiteSpace(display))
-                        display = Path.GetFileNameWithoutExtension(file);
-                    result.Add(new LanguageChoice(Path.GetFileNameWithoutExtension(file), display));
-                }
-                catch { }
-            }
-            return result;
+            return new List<LanguageChoice> {
+                new LanguageChoice("AUTO", Code=="zh-CN"?"自动":"Auto"),
+                new LanguageChoice("zh-CN","中文"),
+                new LanguageChoice("en-US","English")
+            };
+        }
+
+        internal static string NormalizePreference(string preference)
+        {
+            if(string.Equals(preference,"zh-CN",StringComparison.OrdinalIgnoreCase))return "zh-CN";
+            if(string.Equals(preference,"en-US",StringComparison.OrdinalIgnoreCase))return "en-US";
+            return "AUTO";
+        }
+        internal static string ResolveCode(string preference,CultureInfo systemUiCulture)
+        {
+            string normalized=NormalizePreference(preference);
+            if(normalized!="AUTO")return normalized;
+            return systemUiCulture!=null&&string.Equals(systemUiCulture.TwoLetterISOLanguageName,"zh",StringComparison.OrdinalIgnoreCase)?"zh-CN":"en-US";
+        }
+        internal static string LogFontName(string code)
+        {
+            return string.Equals(code,"zh-CN",StringComparison.OrdinalIgnoreCase)?"Microsoft YaHei UI":"Consolas";
         }
 
         private static string ReadLanguagePreference(string appRoot)
         {
             string config = Path.Combine(appRoot, "FilmGrain_Config.ini");
             if (!File.Exists(config)) config = Path.Combine(appRoot, "FilmGrain_Config.default.ini");
-            if (!File.Exists(config)) return "zh-CN";
+            if (!File.Exists(config)) return "AUTO";
             try
             {
                 string[] lines = File.ReadAllLines(config, new UTF8Encoding(false, true));
@@ -88,7 +92,7 @@ namespace FilmGrainStudioPreview
                 }
             }
             catch { }
-            return "zh-CN";
+            return "AUTO";
         }
 
         private static void LoadFile(string path, Dictionary<string, string> target)

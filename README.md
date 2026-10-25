@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.0.32 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.33 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
 
@@ -1442,3 +1442,9 @@ AV1 颗粒百分比处理兼容 grav1synth inspect 对无色度颗粒平面输�
 ### 任务栏处理进度
 
 任务栏图标同步主界面处理进度：无明确百分比时显示滚动动画，有明确进度后显示进度条。多文件沿用现有队列总进度，统一/独立模式均支持；完成、失败、取消及启动失败后清除。最小化后仍可查看，不增加媒体探测或改变编码流程。
+
+长任务可见日志与数值进度每 100 ms 合并刷新，仅保留近期可见内容；逐帧信息仍写入完整任务日志。此改动不改变编码参数。
+
+### 自动选择界面语言
+
+语言下拉提供自动、中文、English 三档，保存后重新打开生效。新配置默认 AUTO，按 Windows 当前显示语言选择（中文系统使用中文，其它使用英文），不依据地区格式或键盘语言。已有手动设置保留。中文日志字体为 Microsoft YaHei UI 9 pt，英文为 Consolas 9 pt；外部工具原始日志保持原文。

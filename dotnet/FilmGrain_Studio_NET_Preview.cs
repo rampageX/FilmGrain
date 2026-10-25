@@ -31,8 +31,9 @@ namespace FilmGrainStudioPreview
             string value = line.Trim();
             if (Regex.IsMatch(value, @"^(frame|fps|stream_\d+_\d+_q|bitrate|total_size|out_time_us|out_time_ms|out_time|dup_frames|drop_frames|speed|progress)=\s*(?:[-+0-9.:/]+(?:kbits/s|x)?|N/A|continue|end)\s*$", RegexOptions.IgnoreCase))
                 return false;
-            if (Regex.IsMatch(value, @"^frame=\s*\d+.*\bfps=\s*[0-9.]+.*\btime=\s*[0-9.:]+.*\bspeed=\s*[0-9.]+x\s*$", RegexOptions.IgnoreCase))
+            if (Regex.IsMatch(value, @"^frame=\s*\d+.*\bfps=\s*[0-9.]+.*\btime=\s*[0-9.:]+.*\bspeed=\s*[0-9.]+x(?:\s+elapsed=[0-9:.]+)?\s*$", RegexOptions.IgnoreCase))
                 return false;
+            if (Regex.IsMatch(value, @"^\[vspipe\] Frame:\s*\d+/\d+(?:\s*\([0-9.]+ fps\))?\s*$", RegexOptions.IgnoreCase)) return false;
             if (value.StartsWith("ffmpeg version ", StringComparison.OrdinalIgnoreCase) ||
                 value.StartsWith("built with ", StringComparison.OrdinalIgnoreCase) ||
                 value.StartsWith("configuration: ", StringComparison.OrdinalIgnoreCase) ||
@@ -106,8 +107,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.32";
-        internal const string FileReleaseVersion = "5.0.32.0";
+        internal const string ReleaseVersion = "5.0.33";
+        internal const string FileReleaseVersion = "5.0.33.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -203,6 +204,13 @@ namespace FilmGrainStudioPreview
 
     internal sealed partial class MainForm : Form
     {
+        // Compose the first client frame, then restore normal independent child painting.
+        private bool composeStartupFrame=true;
+        protected override CreateParams CreateParams
+        {
+            get {var cp=base.CreateParams;if(composeStartupFrame)cp.ExStyle|=0x02000000;return cp;}
+        }
+
 
         // Shell progress is a UI-only mirror of the existing coordinator progress.
         [System.Runtime.InteropServices.ComImport]
@@ -233,6 +241,11 @@ namespace FilmGrainStudioPreview
         }
         protected override void WndProc(ref Message m)
         {
+            if(m.Msg==0x0014&&m.WParam!=IntPtr.Zero) {
+                using(var graphics=Graphics.FromHdc(m.WParam))
+                using(var brush=new SolidBrush(BackColor))graphics.FillRectangle(brush,ClientRectangle);
+                m.Result=new IntPtr(1);return;
+            }
             base.WndProc(ref m);
             if(taskbarCreatedMessage!=0&&(uint)m.Msg==taskbarCreatedMessage) {
                 ReleaseTaskbarProgress();
@@ -255,6 +268,7 @@ namespace FilmGrainStudioPreview
         }
         private void SetTaskbarProgress(uint state,int value)
         {
+            if(taskbarProgressState==state&&taskbarProgressValue==Math.Max(0,Math.Min(1000,value)))return;
             taskbarProgressState=state;
             taskbarProgressValue=Math.Max(0,Math.Min(1000,value));
             ApplyTaskbarProgress();
@@ -506,6 +520,7 @@ namespace FilmGrainStudioPreview
             if (setupTest) Text = "[设置测试模式] " + Text;
             UpdateSpeedChoices();
             bridgeTaskCoordinator = new BridgeTaskCoordinator();
+            InitializeRunUiUpdates();
             bridgeTaskCoordinator.StateChanged += OnBridgeTaskStateChanged;
             bridgeTaskCoordinator.ItemCompleted += OnQueueItemCompleted;
             bridgeTaskCoordinator.LogLine += OnBridgeExecutionLogLine;
@@ -682,7 +697,7 @@ namespace FilmGrainStudioPreview
             foreach (LanguageChoice item in languages) cmbLanguage.Items.Add(item);
             for (int i = 0; i < languages.Count; i++)
             {
-                if (string.Equals(languages[i].Code, lang.Code, StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(languages[i].Code, lang.Preference, StringComparison.OrdinalIgnoreCase))
                 {
                     cmbLanguage.SelectedIndex = i;
                     break;
@@ -1173,6 +1188,11 @@ namespace FilmGrainStudioPreview
         private void OnStartupIdle(object sender, EventArgs e)
         {
             if (startupClosing || startupIdleStarted || !Visible || StartupTiming.PaintPending(this)) return;
+            if(composeStartupFrame) {
+                composeStartupFrame=false;
+                UpdateStyles();
+                StartupTiming.Mark("first.frame.composition.end");
+            }
             startupIdleStarted = true;
             Application.Idle -= OnStartupIdle;
             StartupTiming.Mark("deferred.begin");
@@ -1776,7 +1796,7 @@ namespace FilmGrainStudioPreview
             toolbar.Controls.Add(openLog, 4, 0); toolbar.Controls.Add(openFolder, 5, 0);
             layout.Controls.Add(toolbar, 0, 0);
 
-            log = new TextBox(); log.Multiline = true; log.ScrollBars = ScrollBars.Vertical; log.MaxLength = 0; log.Dock = DockStyle.Fill; log.ReadOnly = true; log.WordWrap = true; log.BackColor = Color.FromArgb(28, 30, 34); log.ForeColor = Color.Gainsboro; log.Font = new Font("Consolas", 9f); log.BorderStyle = BorderStyle.FixedSingle;
+            log = new TextBox(); log.Multiline = true; log.ScrollBars = ScrollBars.Vertical; log.MaxLength = 0; log.Dock = DockStyle.Fill; log.ReadOnly = true; log.WordWrap = true; log.BackColor = Color.FromArgb(28, 30, 34); log.ForeColor = Color.Gainsboro; log.Font = new Font(LanguagePack.LogFontName(lang.Code), 9f); log.BorderStyle = BorderStyle.FixedSingle;
             fullLog = new FullLogFileCore(appRoot, "Session", GetLogEntryLimit());
             AppendLog("Film Grain Studio v" + Program.ReleaseVersion + " · .NET · " + TestBuild + Environment.NewLine);
             AppendDiagnosticLog("Validated migration baseline: Q9AOL2 / release " + TestBuild + Environment.NewLine);
@@ -3159,6 +3179,7 @@ namespace FilmGrainStudioPreview
                     if (btnCancelTask != null) btnCancelTask.Enabled = e != null && e.State == BridgeTaskState.Running;
 
                     if (e == null) return;
+                    ClearPendingRunProgress();
                     UpdateQueueFileState(e);
                     if (e.State == BridgeTaskState.Running)
                     {
@@ -3213,60 +3234,74 @@ namespace FilmGrainStudioPreview
             catch (InvalidOperationException) { }
         }
 
+        private readonly object runUiSync=new object();
+        private readonly StringBuilder pendingRunLog=new StringBuilder();
+        private BridgeProgressEventArgs pendingRunStage,pendingRunMetrics,pendingRunProgress;
+        private System.Windows.Forms.Timer runUiTimer;
+        private void InitializeRunUiUpdates()
+        {
+            runUiTimer=new System.Windows.Forms.Timer {Interval=100};
+            runUiTimer.Tick+=delegate {FlushRunUiUpdates();};runUiTimer.Start();
+            FormClosed+=delegate {runUiTimer.Stop();runUiTimer.Dispose();lock(runUiSync){pendingRunLog.Clear();pendingRunStage=pendingRunMetrics=pendingRunProgress=null;}};
+        }
         private void OnBridgeExecutionLogLine(object sender, BridgeLogLineEventArgs e)
         {
-            string prefix = e.Stream == BridgeLogStream.StandardError ? "[stderr] " : (e.Stream == BridgeLogStream.StandardOutput ? "[stdout] " : "[runner] ");
-            string line = prefix + e.Line + Environment.NewLine;
-            FullLogFileCore currentLog = taskLog;
-            if (currentLog != null) currentLog.Write(line);
-            if (!VisibleLogCore.ShowProcessLine(e.Line)) return;
-            if (IsDisposed || Disposing || !IsHandleCreated) return;
-            try
-            {
-                BeginInvoke((MethodInvoker)delegate
-                {
-                    if (IsDisposed || Disposing || log == null) return;
-                    AppendVisibleLog(line);
-                    ScrollLogToEnd();
-                });
+            string prefix=e.Stream==BridgeLogStream.StandardError?"[stderr] ":e.Stream==BridgeLogStream.StandardOutput?"[stdout] ":"[runner] ";
+            string line=prefix+e.Line+Environment.NewLine;
+            FullLogFileCore currentLog=taskLog;if(currentLog!=null)currentLog.Write(line);
+            if(!VisibleLogCore.ShowProcessLine(e.Line)||IsDisposed||Disposing)return;
+            lock(runUiSync) {
+                // Only the visible tail is bounded. The disk log above retains every line.
+                const int limit=128*1024;
+                if(pendingRunLog.Length+line.Length>limit){pendingRunLog.Clear();pendingRunLog.Append("[UI] 显示缓冲已截短，完整内容见任务日志。"+Environment.NewLine);}
+                pendingRunLog.Append(line.Length>limit?line.Substring(line.Length-limit):line);
             }
-            catch (InvalidOperationException) { }
         }
-
         private void OnBridgeExecutionProgressChanged(object sender, BridgeProgressEventArgs e)
         {
-            if (IsDisposed || Disposing || !IsHandleCreated) return;
-            try
-            {
-                BeginInvoke((MethodInvoker)delegate
-                {
-                    if (IsDisposed || Disposing) return;
-
-                    if (bridgeTaskCoordinator.State == BridgeTaskState.Cancelling) return;
-                    if (e.HasStage && lblRunStage != null)
+            if(IsDisposed||Disposing||e==null)return;
+            lock(runUiSync) {
+                if(e.HasStage)pendingRunStage=e;
+                if(e.HasMetrics)pendingRunMetrics=e;
+                if(e.HasProgress)pendingRunProgress=e;
+            }
+        }
+        private void ClearPendingRunProgress()
+        {
+            lock(runUiSync){pendingRunStage=pendingRunMetrics=pendingRunProgress=null;}
+        }
+        private void FlushRunUiUpdates()
+        {
+            if(IsDisposed||Disposing)return;
+            string text;BridgeProgressEventArgs stage,metrics,progress;
+            lock(runUiSync) {
+                text=pendingRunLog.ToString();pendingRunLog.Clear();
+                stage=pendingRunStage;metrics=pendingRunMetrics;progress=pendingRunProgress;
+                pendingRunStage=pendingRunMetrics=pendingRunProgress=null;
+            }
+            if(text.Length>0){AppendVisibleLog(text);ScrollLogToEnd();}
+            if(bridgeTaskCoordinator==null||bridgeTaskCoordinator.State!=BridgeTaskState.Running)return;
+                    if (stage != null && stage.HasStage && lblRunStage != null)
                     {
                         lblRunStage.Text = (activeRunNativeBackend ? "Native .NET " + (string.IsNullOrWhiteSpace(activeRunCodecName) ? "" : activeRunCodecName + " · ") : "") +
-                            UiText("阶段 ", "Stage ") + e.StageCurrent.ToString(CultureInfo.InvariantCulture) + "/" + e.StageTotal.ToString(CultureInfo.InvariantCulture) + " · " + e.StageText;
+                            UiText("阶段 ", "Stage ") + stage.StageCurrent.ToString(CultureInfo.InvariantCulture) + "/" + stage.StageTotal.ToString(CultureInfo.InvariantCulture) + " · " + stage.StageText;
                     }
 
-                    if (e.HasMetrics && lblRunMetric != null)
+                    if (metrics != null && metrics.HasMetrics && lblRunMetric != null)
                     {
-                        string metricText = "fps: " + e.FpsText + "   speed: " + e.SpeedText + "x";
-                        if (!string.IsNullOrWhiteSpace(e.EtaText)) metricText += "   ETA: " + e.EtaText;
+                        string metricText = "fps: " + metrics.FpsText + "   speed: " + metrics.SpeedText + "x";
+                        if (!string.IsNullOrWhiteSpace(metrics.EtaText)) metricText += "   ETA: " + metrics.EtaText;
                         lblRunMetric.Text = metricText;
                     }
 
-                    if (e.HasProgress && progressRun != null)
+                    if (progress != null && progress.HasProgress && progressRun != null)
                     {
                         progressRun.MarqueeAnimationSpeed = 0;
                         progressRun.Style = ProgressBarStyle.Continuous;
-                        int value = Math.Max(progressRun.Minimum, Math.Min(progressRun.Maximum, e.ProgressPermille));
+                        int value = Math.Max(progressRun.Minimum, Math.Min(progressRun.Maximum, progress.ProgressPermille));
                         progressRun.Value = value;
                         SetTaskbarProgress(2,value);
                     }
-                });
-            }
-            catch (InvalidOperationException) { }
         }
 
         private void AppendDiagnosticLog(string text)
@@ -3363,8 +3398,8 @@ namespace FilmGrainStudioPreview
             if (log.TextLength > maxVisibleChars)
             {
                 string text = log.Text;
-                int cut = text.IndexOf('\n', text.Length - maxVisibleChars);
-                if (cut < 0) cut = text.Length - maxVisibleChars;
+                int cut = text.IndexOf('\n', text.Length - 384 * 1024);
+                if (cut < 0) cut = text.Length - 384 * 1024;
                 else cut++;
                 log.Select(0, cut);
                 log.SelectedText = "";
@@ -3397,6 +3432,8 @@ namespace FilmGrainStudioPreview
                 BeginInvoke((MethodInvoker)delegate
                 {
                     if (IsDisposed || Disposing) return;
+                    ClearPendingRunProgress();
+                    FlushRunUiUpdates();
                     SetTaskbarProgress(0,0);
                     if (progressRun != null)
                     {
@@ -3912,6 +3949,7 @@ namespace FilmGrainStudioPreview
             btnLutGallery.Enabled=false;
             try {
                 using(var gallery=new NativeLutGalleryForm(appRoot,Path.Combine(config.Get("FFMPEG_DIR"),"ffmpeg.exe"),LutRoot,LutPreviewRoot)) {
+                    gallery.PrepareTheme(this);
                     if(gallery.ShowDialog(this)==DialogResult.OK) {
                         if(gallery.DisabledLut){selectedLutPath="";selectedLutSource="None";chkLut.Checked=false;}
                         else {selectedLutPath=gallery.SelectedLut;selectedLutSource="Gallery";chkLut.Checked=true;}

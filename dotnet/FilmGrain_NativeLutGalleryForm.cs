@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Drawing;
@@ -50,19 +50,52 @@ namespace FilmGrainStudioPreview
     }
     internal sealed partial class NativeLutGalleryForm : Form, IMessageFilter
     {
-        protected override void OnLoad(EventArgs e)
+        // Buffer only the fixed control containers, without changing thumbnail rendering.
+        private sealed class GalleryLayoutPanel : TableLayoutPanel
         {
+            internal GalleryLayoutPanel(){DoubleBuffered=true;ResizeRedraw=true;SetStyle(ControlStyles.AllPaintingInWmPaint|ControlStyles.OptimizedDoubleBuffer,true);}
+            protected override void OnPaintBackground(PaintEventArgs e)
+            {using(var brush=new SolidBrush(BackColor))e.Graphics.FillRectangle(brush,ClientRectangle);}
+        }
+        private sealed class GalleryControlsPanel : FlowLayoutPanel
+        {
+            internal GalleryControlsPanel(){DoubleBuffered=true;ResizeRedraw=true;SetStyle(ControlStyles.AllPaintingInWmPaint|ControlStyles.OptimizedDoubleBuffer,true);}
+            protected override CreateParams CreateParams
+            {
+                get {var cp=base.CreateParams;cp.ExStyle|=0x02000000;return cp;}
+            }
+            protected override void OnPaintBackground(PaintEventArgs e)
+            {using(var brush=new SolidBrush(BackColor))e.Graphics.FillRectangle(brush,ClientRectangle);}
+        }
+
+        internal void PrepareTheme(IWin32Window owner)
+        {
+            MainForm.AttachOwnedTheme(this,owner,cards);
+            if(galleryLoaded)return;
+            // Complete size restoration and synchronous I/O before entering ShowDialog.
+            // A visible native window must not wait for the initial catalog/thumbnail load.
             RestoreGallerySize();
-            MainForm.AttachOwnedTheme(this, Owner, cards);
-            base.OnLoad(e);
-            // Complete the synchronous initial gallery load before the first visible frame.
-            // Loading in Shown blocks pending child paints and exposes native white surfaces.
             Reload();
             galleryLoaded=true;
             if(!IgnoreGallerySize)try {
                 bool restore=new[]{"true","1","yes","on"}.Contains(new FgsConfig(appRoot,null).Get("LUT_GALLERY_FIXED").ToLowerInvariant());
                 restoreFixedPending=restore;
             }catch(Exception ex){System.Diagnostics.Trace.WriteLine("Gallery lock restore: "+ex.Message);}
+            PerformLayout();cards.PerformLayout();
+        }
+        protected override void OnLoad(EventArgs e)
+        {
+            PrepareTheme(Owner);
+            base.OnLoad(e);
+        }
+        protected override void WndProc(ref Message m)
+        {
+            if(m.Msg==0x0014&&m.WParam!=IntPtr.Zero) {
+                using(var graphics=Graphics.FromHdc(m.WParam))
+                using(var brush=new SolidBrush(BackColor))graphics.FillRectangle(brush,ClientRectangle);
+                m.Result=new IntPtr(1);return;
+            }
+            base.WndProc(ref m);
         }
         protected override void OnShown(EventArgs e)
         {
@@ -148,10 +181,11 @@ namespace FilmGrainStudioPreview
         internal NativeLutGalleryForm(string appRoot,string ffmpeg,string root,string previews)
         {
             this.appRoot=appRoot;this.ffmpeg=ffmpeg;this.root=root;this.previews=previews;
+            DoubleBuffered=true;
             Text="电影风格 LUT 图库 · .NET";Size=new Size(1100,790);MinimumSize=new Size(900,600);StartPosition=FormStartPosition.CenterParent;KeyPreview=true;
-            var layout=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=4};Controls.Add(layout);
+            var layout=new GalleryLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=4};Controls.Add(layout);
             layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));layout.RowStyles.Add(new RowStyle(SizeType.Percent,100));layout.RowStyles.Add(new RowStyle(SizeType.Absolute,28));layout.RowStyles.Add(new RowStyle(SizeType.Absolute,40));
-            var top=new FlowLayoutPanel{Dock=DockStyle.Fill,WrapContents=true,AutoSize=true,AutoSizeMode=AutoSizeMode.GrowAndShrink};layout.Controls.Add(top,0,0);
+            var top=new GalleryControlsPanel{Dock=DockStyle.Fill,WrapContents=true,AutoSize=true,AutoSizeMode=AutoSizeMode.GrowAndShrink};layout.Controls.Add(top,0,0);
             top.Controls.Add(new ThemeLabel{Text="搜索：",AutoSize=true,Padding=new Padding(0,6,0,0)});top.Controls.Add(search);
             foreach(var item in new[]{new[]{"全部 LUT","All"},new[]{"最近使用","Recent"},new[]{"我的最爱","Favorites"}}) {
                 string target=item[1];var b=new ThemeButton{Text=item[0],AutoSize=true};b.Click+=delegate{mode=target;Filter();};top.Controls.Add(b);
@@ -162,7 +196,7 @@ namespace FilmGrainStudioPreview
             cards.SizeChanged+=delegate {ValidateFixedSpace();};
             fixedSpaceTimer.Tick+=delegate{fixedSpaceTimer.Stop();CheckFixedSpace();};
             layout.Controls.Add(cards,0,1);layout.Controls.Add(status,0,2);
-            var bottom=new FlowLayoutPanel{Dock=DockStyle.Fill,WrapContents=true};layout.Controls.Add(bottom,0,3);
+            var bottom=new GalleryControlsPanel{Dock=DockStyle.Fill,WrapContents=true};layout.Controls.Add(bottom,0,3);
             var previous=new ThemeButton{Text="< 上一页",AutoSize=true};var next=new ThemeButton{Text="下一页 >",AutoSize=true};
             bottom.Controls.Add(previous);bottom.Controls.Add(pages);bottom.Controls.Add(next);bottom.Controls.Add(smart);
             var change=new ThemeButton{Text="更换参考图",AutoSize=true};var update=new ThemeButton{Text="更新预览图",AutoSize=true};
