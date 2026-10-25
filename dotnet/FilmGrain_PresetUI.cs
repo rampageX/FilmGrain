@@ -293,7 +293,12 @@ namespace FilmGrainStudioPreview
             var paste=new ToolStripMenuItem("粘贴配置");paste.Click+=delegate{PresetAction(PasteSelectedConfiguration);};menu.Items.Add(paste);
             var savePreset=new ToolStripMenuItem("从该文件配置保存预设");savePreset.Click+=delegate{PresetAction(delegate{PrepareQueuePresetTarget();var p=new FgsPreset {Name="新预设",Description="",Kind="Simple"};if(EditPresetMetadata(this,p,independentFiles?"从当前文件保存预设: "+Path.GetFileName(editingFile):"从当前统一设置保存预设")){var captured=CapturePreset(p.Kind,p.Name,p.Description);Presets().Save(captured);RefreshPresetSelector();}});};menu.Items.Add(savePreset);
             var applyPreset=new ToolStripMenuItem("打开预设管理器，为该文件应用预设");applyPreset.Click+=delegate{PresetAction(delegate{PresetTargets();ShowPresetManager();});};menu.Items.Add(applyPreset);
-            menu.Opening+=delegate{UpdatePresetQueueMenu(menu);};UpdatePresetQueueMenu(menu);
+            menu.Items.Add(new ToolStripSeparator());
+            var resetStatus=new ToolStripMenuItem(UiText("重置状态","Reset status"));
+            resetStatus.Click+=delegate{ResetSelectedQueueStatus();};menu.Items.Add(resetStatus);
+            menu.Opening+=delegate{UpdatePresetQueueMenu(menu);resetStatus.Enabled=listFiles.SelectedItems.Count>0&&(bridgeTaskCoordinator==null||!bridgeTaskCoordinator.IsActive);};
+            resetStatus.Enabled=listFiles.SelectedItems.Count>0&&(bridgeTaskCoordinator==null||!bridgeTaskCoordinator.IsActive);
+            UpdatePresetQueueMenu(menu);
         }
         private bool EditPresetMetadata(Form owner,FgsPreset p,string title)
         {

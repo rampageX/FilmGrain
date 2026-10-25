@@ -1,7 +1,7 @@
 Film Grain Studio - 文件与发布说明
 ================================
 
-当前产品版本：v5.0.31；构建 Stable。
+当前产品版本：v5.0.32；构建 Stable。
 
 正式运行入口：FilmGrain_Studio.exe。
 Stable.zip 为精简便携运行包，包含默认配置、Lang、必要 Utils 资源、颗粒表、LUT 参考图和 OpenSVPFlow 脚本／插件及第三方声明。

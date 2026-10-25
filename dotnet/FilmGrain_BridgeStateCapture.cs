@@ -440,7 +440,21 @@ namespace FilmGrainStudioPreview
                 item.ToolTipText=path+(!independentFiles&&fileSettings.ContainsKey(path)?UiText("\r\n已保留独立配置；统一模式暂不应用。","\r\nPer-file settings retained; inactive in shared mode."):"");
             }
         }
-        // Membership is scoped to the current list; remove/re-add explicitly requests a rerun.
+        // Membership is scoped to the current list; reset or remove/re-add requests a rerun.
+        private void ResetSelectedQueueStatus()
+        {
+            if(bridgeTaskCoordinator!=null&&bridgeTaskCoordinator.IsActive)return;
+            listFiles.BeginUpdate();
+            try {
+                foreach(ListViewItem item in listFiles.SelectedItems) {
+                    string path=item.Tag as string;if(string.IsNullOrEmpty(path))continue;
+                    completedQueueFiles.Remove(path);
+                    submittedQueueFiles.Remove(path);
+                    displayedQueueFiles.Remove(path);
+                    item.SubItems[2].Text=UiText("等待","Waiting");
+                }
+            } finally {listFiles.EndUpdate();}
+        }
         private readonly HashSet<string> completedQueueFiles=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> submittedQueueFiles=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private bool IsPendingQueueFile(string path){return !string.IsNullOrEmpty(path)&&!completedQueueFiles.Contains(path);}

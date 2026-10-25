@@ -717,7 +717,7 @@ namespace FilmGrainStudioPreview
                 TabPage otherPage=new TabPage(UiText("其它","Other"));otherPage.Name="OTHER_PAGE";
                 var skipQueueFailed=new ThemeCheckBox {Name="QUEUE_SKIP_FAILED",Text=UiText("跳过队列中失败的文件","Skip failed files in queue"),Checked=config.GetBool("QUEUE_SKIP_FAILED"),AutoSize=true,Location=new Point(24,28)};
                 otherPage.Controls.Add(skipQueueFailed);
-                otherPage.Controls.Add(new ThemeLabel {Text=UiText("勾选后，处理失败会保留失败状态并继续下一项。\n取消任务仍会停止整个队列；队列结束会报告失败。\n再次开始仅处理未完成项；移除后重新添加可重做已完成文件。","Continue after processing failures; retain failed status.\nCancellation stops the queue. Final result still reports failures.\nStart retries unfinished items; remove/re-add completed files to rerun."),Location=new Point(24,70),Size=new Size(670,95)});
+                otherPage.Controls.Add(new ThemeLabel {Text=UiText("勾选后，处理失败会保留失败状态并继续下一项。\n取消任务仍会停止整个队列；队列结束会报告失败。\n再次开始仅处理未完成项；右键重置状态可重做已完成文件。","Continue after processing failures; retain failed status.\nCancellation stops the queue. Final result still reports failures.\nStart retries unfinished items; right-click Reset status to rerun completed files."),Location=new Point(24,70),Size=new Size(670,95)});
                 TabPage hdr = new TabPage("HDR");
                 tabs.Name="ADVANCED_TABS";enc.Name="ENCODER_AV1";hevcPage.Name="ENCODER_HEVC";h264Page.Name="ENCODER_H264";audioPage.Name="AUDIO_PAGE";
                 tabs.TabPages.Add(enc); tabs.TabPages.Add(hevcPage); tabs.TabPages.Add(h264Page); tabs.TabPages.Add(interp); tabs.TabPages.Add(hdr);tabs.TabPages.Add(audioPage);tabs.TabPages.Add(otherPage); dlg.Controls.Add(tabs);

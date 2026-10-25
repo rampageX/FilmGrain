@@ -106,8 +106,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.31";
-        internal const string FileReleaseVersion = "5.0.31.0";
+        internal const string ReleaseVersion = "5.0.32";
+        internal const string FileReleaseVersion = "5.0.32.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -203,6 +203,77 @@ namespace FilmGrainStudioPreview
 
     internal sealed partial class MainForm : Form
     {
+
+        // Shell progress is a UI-only mirror of the existing coordinator progress.
+        [System.Runtime.InteropServices.ComImport]
+        [System.Runtime.InteropServices.Guid("EA1AFB91-9E28-4B86-90E9-9E9F8A5EEFAF")]
+        [System.Runtime.InteropServices.InterfaceType(System.Runtime.InteropServices.ComInterfaceType.InterfaceIsIUnknown)]
+        private interface ITaskbarProgress
+        {
+            void HrInit();
+            void AddTab(IntPtr window);
+            void DeleteTab(IntPtr window);
+            void ActivateTab(IntPtr window);
+            void SetActiveAlt(IntPtr window);
+            void MarkFullscreenWindow(IntPtr window, [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)] bool fullscreen);
+            void SetProgressValue(IntPtr window, ulong completed, ulong total);
+            void SetProgressState(IntPtr window, uint state);
+        }
+        [System.Runtime.InteropServices.DllImport("user32.dll", CharSet=System.Runtime.InteropServices.CharSet.Unicode)]
+        private static extern uint RegisterWindowMessage(string message);
+        private uint taskbarCreatedMessage;
+        private ITaskbarProgress taskbarProgress;
+        private bool taskbarReady;
+        private uint taskbarProgressState;
+        private int taskbarProgressValue;
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            taskbarCreatedMessage=RegisterWindowMessage("TaskbarButtonCreated");
+            base.OnHandleCreated(e);
+        }
+        protected override void WndProc(ref Message m)
+        {
+            base.WndProc(ref m);
+            if(taskbarCreatedMessage!=0&&(uint)m.Msg==taskbarCreatedMessage) {
+                ReleaseTaskbarProgress();
+                taskbarReady=true;
+                ApplyTaskbarProgress();
+            }
+        }
+        protected override void OnHandleDestroyed(EventArgs e)
+        {
+            taskbarReady=false;
+            ReleaseTaskbarProgress();
+            base.OnHandleDestroyed(e);
+        }
+        private void ReleaseTaskbarProgress()
+        {
+            if(taskbarProgress==null)return;
+            try {System.Runtime.InteropServices.Marshal.FinalReleaseComObject(taskbarProgress);}
+            catch(System.Runtime.InteropServices.COMException) { }
+            finally {taskbarProgress=null;}
+        }
+        private void SetTaskbarProgress(uint state,int value)
+        {
+            taskbarProgressState=state;
+            taskbarProgressValue=Math.Max(0,Math.Min(1000,value));
+            ApplyTaskbarProgress();
+        }
+        private void ApplyTaskbarProgress()
+        {
+            if(!taskbarReady||!IsHandleCreated||IsDisposed||Disposing)return;
+            try {
+                if(taskbarProgress==null) {
+                    taskbarProgress=(ITaskbarProgress)Activator.CreateInstance(Type.GetTypeFromCLSID(new Guid("56FDF344-FD6D-11D0-958A-006097C9A090")));
+                    taskbarProgress.HrInit();
+                }
+                taskbarProgress.SetProgressState(Handle,taskbarProgressState);
+                if(taskbarProgressState==2)taskbarProgress.SetProgressValue(Handle,(ulong)taskbarProgressValue,1000);
+            } catch(System.Runtime.InteropServices.COMException) {ReleaseTaskbarProgress();}
+              catch(NotSupportedException) {ReleaseTaskbarProgress();}
+            // Shell failures must never interrupt media processing.
+        }
+
         private const string TestBuild = Program.BuildLabel;
         private readonly Color ColorHeader = Color.FromArgb(45, 57, 72);
         private readonly Color ColorAccent = Color.FromArgb(47, 111, 173);
@@ -2990,6 +3061,7 @@ namespace FilmGrainStudioPreview
                     progressRun.Style = ProgressBarStyle.Blocks;
                     progressRun.Value = 0;
                 }
+                SetTaskbarProgress(0,0);
                 AppendTaskLog("[Task] start failed: " + ex.ToString() + Environment.NewLine);
                 if (lblRunStage != null) lblRunStage.Text = UiText("启动失败", "Start failed");
                 MessageBox.Show(this, ex.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
@@ -3059,6 +3131,7 @@ namespace FilmGrainStudioPreview
             {
                 if (prepared != null) BridgeExecutionCore.CleanupTemporaryFiles(prepared.ExecutionRequest);
                 foreach (BridgeTaskRequest task in tasks) BridgeExecutionCore.CleanupTemporaryFiles(task.ExecutionRequest);
+                SetTaskbarProgress(0,0);
                 AppendTaskLog("[Queue] preparation/start failed: " + ex + Environment.NewLine);
                 if (lblRunStage != null) lblRunStage.Text = UiText("队列未启动", "Queue not started");
                 MessageBox.Show(this, ex.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -3122,10 +3195,12 @@ namespace FilmGrainStudioPreview
                             progressRun.Style = ProgressBarStyle.Marquee;
                             progressRun.MarqueeAnimationSpeed = 25;
                         }
+                        SetTaskbarProgress(1,0);
                         ScrollLogToEnd();
                     }
                     else if (e.State == BridgeTaskState.Cancelling)
                     {
+                        SetTaskbarProgress(0,0);
                         if (lblRunStage != null) lblRunStage.Text = UiText("正在取消任务...", "Cancelling task...");
                         if (log != null)
                         {
@@ -3187,6 +3262,7 @@ namespace FilmGrainStudioPreview
                         progressRun.Style = ProgressBarStyle.Continuous;
                         int value = Math.Max(progressRun.Minimum, Math.Min(progressRun.Maximum, e.ProgressPermille));
                         progressRun.Value = value;
+                        SetTaskbarProgress(2,value);
                     }
                 });
             }
@@ -3321,6 +3397,7 @@ namespace FilmGrainStudioPreview
                 BeginInvoke((MethodInvoker)delegate
                 {
                     if (IsDisposed || Disposing) return;
+                    SetTaskbarProgress(0,0);
                     if (progressRun != null)
                     {
                         progressRun.MarqueeAnimationSpeed = 0;

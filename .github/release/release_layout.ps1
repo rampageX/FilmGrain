@@ -143,7 +143,7 @@ $ReleaseSourceItems = @(
     'README_Toolkit.txt',
     'STABLE_BASELINE.txt',
     'release.bat',
-    '.github/release/ACCEPTANCE_v5.0.31.md',
+    '.github/release/ACCEPTANCE_v5.0.32.md',
     'dotnet/*.cs',
     'dotnet/BuildTools',
     'dotnet/BUILD_NET_FRAMEWORK.md',
@@ -292,6 +292,11 @@ $ExcludedRecursiveDirectoryNames = @(
     '__pycache__'
 )
 $ExcludedRootDeliveryPatterns = @(
+    'FGS_v5.0.32_ReleasePrep_*.zip',
+    'FGS_QueueReset_*.zip',
+    'FGS_TaskbarProgress_*.zip',
+    'QueueReset_*.txt',
+    'TaskbarProgress_*.txt',
     'Test_LutGallery_*.bat',
     'Return_LutGallery_*.zip',
     '__FGS_LutGallery_Audit_*.exe',
