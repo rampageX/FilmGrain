@@ -10,7 +10,8 @@ def build_svp_parameters(speed="FGS", tuning="FGS", block_size="auto",
                          analyse_profile="ENCODEGUI", algo=13, scene_mode=0,
                          mask_area=100, target_num=60, target_den=1,
                          dedup=0.0, still=False, still_limit=4.5, still_edge=5.0,
-                         still_tolerance=30.0, peel=False, peel_limit=6.0):
+                         still_tolerance=30.0, peel=False, peel_limit=6.0,
+                         exact=True, lean=False):
     # Speed/Tuning are front-end presets, not plugin API fields.
     # Mapping inspected from smoothie.z1x.us worker-oUtBbSR_.js on 2026-10-12.
     # Keep the existing FGS strings byte-for-byte at the default settings.
@@ -37,6 +38,10 @@ def build_svp_parameters(speed="FGS", tuning="FGS", block_size="auto",
             raise ValueError(f"Invalid OpenSVPFlow {name}: expected finite 0..{maximum}")
     if not isinstance(still, bool) or not isinstance(peel, bool):
         raise ValueError("still and peel must be boolean")
+    if not isinstance(exact, bool) or not isinstance(lean, bool):
+        raise ValueError("exact and lean must be boolean")
+    if lean and exact:
+        raise ValueError("OpenSVPFlow lean=true requires exact=false")
     mask_extra = ""
     if still:
         mask_extra += f",still:{{limit:{still_limit:g},edge:{still_edge:g},tolerance:{still_tolerance:g}}}"
@@ -81,6 +86,14 @@ def build_svp_parameters(speed="FGS", tuning="FGS", block_size="auto",
         else:
             analyse_params += "bad:{sad:2000}}}},refine:[{thsad:250}]}"
 
+    # Never add new keys on the verified default path (including BASE).
+    if not exact:
+        prefix = "exact:false," if analyse_params.startswith("{gpu:1,") else "gpu:1,exact:false,"
+        analyse_params = "{" + prefix + analyse_params[1:]
+        analyse_params = analyse_params.replace(",}", "}")
+    if lean:
+        super_params = super_params[:-1] + ",lean:true}"
+
     smooth_params = (
         f"{{gpuid:0,rate:{{num:{target_num},den:{target_den},abs:true}},"
         f"algo:{algo},cubic:1,linear:true,{dedup_extra}"
@@ -113,12 +126,14 @@ mask_area = int(arg("mask_area", "100"))
 speed = str(arg("speed", "FGS"))
 tuning = str(arg("tuning", "FGS"))
 block_size = str(arg("block_size", "auto"))
-def option_bool(name):
-    value = str(arg(name, "0")).lower()
+def option_bool(name, default="0"):
+    value = str(arg(name, default)).lower()
     if value not in {"0", "1", "false", "true"}:
         raise vs.Error(f"Invalid {name}: expected true/false or 1/0")
     return value in {"1", "true"}
 try:
+    exact_value = option_bool("exact", "1")
+    lean_value = option_bool("lean")
     dedup_value = float(arg("dedup", "0"))
     still_value = option_bool("still")
     peel_value = option_bool("peel")
@@ -133,10 +148,10 @@ try:
     super_params, analyse_params, smooth_params = build_svp_parameters(
         speed, tuning, block_size, analyse_profile, algo_value, scene_mode,
         mask_area, target_num, target_den, dedup_value, still_value, still_limit,
-        still_edge, still_tolerance, peel_value, peel_limit)
+        still_edge, still_tolerance, peel_value, peel_limit, exact_value, lean_value)
 except ValueError as exc:
     raise vs.Error(str(exc))
-print(f"[OpenSVPFlow options] speed={speed} tuning={tuning} block_size={block_size} analyse={analyse_profile} dedup={dedup_value:g} still={still_value} peel={peel_value} effective=YUV420P8/OpenCL", file=sys.stderr, flush=True)
+print(f"[OpenSVPFlow options] speed={speed} tuning={tuning} block_size={block_size} analyse={analyse_profile} exact={exact_value} lean={lean_value} dedup={dedup_value:g} still={still_value} peel={peel_value} effective=YUV420P8/OpenCL", file=sys.stderr, flush=True)
 print(f"[OpenSVPFlow params] Super={super_params} Analyse={analyse_params} SmoothFps={smooth_params}", file=sys.stderr, flush=True)
 
 if algo_value not in {1, 2, 11, 13, 21, 22, 23}:
@@ -160,6 +175,21 @@ if not os.path.isfile(svp2_path):
 
 core.std.LoadPlugin(svp1_path)
 core.std.LoadPlugin(svp2_path)
+
+if not exact_value:
+    # Feature probe: older plugins silently ignore unknown option keys. Lean Super
+    # marks byte 5 bit 7 of its packed metadata; require the experimental pair's
+    # feature generation without pinning a nightly or parsing a version file.
+    try:
+        probe_source = core.std.BlankClip(width=64, height=64, length=2, format=vs.YUV420P8)
+        probe_super = core.svp1.Super(probe_source, "{pel:1,gpu:1,full:true,lean:true}")
+        if not (int(probe_super["data"]) & (1 << 47)):
+            raise ValueError("lean metadata flag missing (option ignored)")
+    except (vs.Error, ValueError, KeyError, TypeError) as exc:
+        raise vs.Error("OpenSVPFlow 实验性高速分析不可用 / Experimental exact/lean unsupported. "
+                       "请成对更新 svpflow1_vs.dll 与 svpflow2_vs.dll，或关闭高速分析 / "
+                       f"Update both plugins or disable fast analysis. Details: {exc}")
+    del probe_super, probe_source
 
 clip = core.bs.VideoSource(source=input_path, cachemode=1)
 if clip.format is None:

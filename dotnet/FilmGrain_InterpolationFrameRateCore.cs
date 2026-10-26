@@ -573,10 +573,17 @@ namespace FilmGrainStudioPreview
             string edge = ExtraNumber(state,"FG_SVP_STILL_EDGE","5",100);
             string tolerance = ExtraNumber(state,"FG_SVP_STILL_TOLERANCE","30",100);
             string peelLimit = ExtraNumber(state,"FG_SVP_PEEL_LIMIT","6",100);
-            if(dedup=="0" && still=="0" && peel=="0") return new string[0];
-            return new string[]{"--arg","dedup="+dedup,"--arg","still="+still,
+            string exact = ExtraSwitch(state,"FG_SVP_EXACT","true");
+            string lean = ExtraSwitch(state,"FG_SVP_LEAN");
+            if(exact=="1" && lean=="1")
+                throw new ArgumentException("OpenSVPFlow: lean=true requires exact=false / 精简 Super 必须启用实验性高速分析");
+            string[] experimental = exact=="0" ? new string[]{"--arg","exact=0","--arg","lean="+lean} : new string[0];
+            if(dedup=="0" && still=="0" && peel=="0") return experimental;
+            var result = new List<string>(experimental);
+            result.AddRange(new string[]{"--arg","dedup="+dedup,"--arg","still="+still,
                 "--arg","still_limit="+limit,"--arg","still_edge="+edge,
-                "--arg","still_tolerance="+tolerance,"--arg","peel="+peel,"--arg","peel_limit="+peelLimit};
+                "--arg","still_tolerance="+tolerance,"--arg","peel="+peel,"--arg","peel_limit="+peelLimit});
+            return result.ToArray();
         }
 
         private static string ExtraNumber(IDictionary<string,string> state,string key,string fallback,double maximum)
@@ -588,9 +595,9 @@ namespace FilmGrainStudioPreview
             return value.ToString("0.#########",CultureInfo.InvariantCulture);
         }
 
-        private static string ExtraSwitch(IDictionary<string,string> state,string key)
+        private static string ExtraSwitch(IDictionary<string,string> state,string key,string fallback="false")
         {
-            string value=Option(state,key,"false");
+            string value=Option(state,key,fallback);
             if(value=="1" || string.Equals(value,"true",StringComparison.OrdinalIgnoreCase))return "1";
             if(value=="0" || string.Equals(value,"false",StringComparison.OrdinalIgnoreCase))return "0";
             throw new ArgumentException("OpenSVPFlow input error: "+key+" must be true/false or 1/0");

@@ -49,7 +49,7 @@ namespace FilmGrainStudioPreview
             if(k.EndsWith("_RATE_CONTROL")){Choice(v,"VBR CQ",k);return;}
             if(k.EndsWith("_CQ")){if(v!="AUTO")Number(v,1,k.Contains("AV1")||k.Contains("SVT")?63:51,k);return;}
             if(k.EndsWith("_CQ_MAXRATE")){Number(v,1,1000,k);return;}
-            if(k.EndsWith("_CQ_LIMIT_ENABLED")||k.EndsWith("TEMPORAL_AQ")||Contains("GRAIN_ENABLED H264_HIGH10 AV1_COPY_FAST AV1_COPY_FULL_VERIFY SVP_STILL SVP_PEEL COLOR_CORRECTION_ENABLED COLOR_BLACK_WHITE",k)){Choice(v,"true false",k);return;}
+            if(k.EndsWith("_CQ_LIMIT_ENABLED")||k.EndsWith("TEMPORAL_AQ")||Contains("GRAIN_ENABLED H264_HIGH10 AV1_COPY_FAST AV1_COPY_FULL_VERIFY SVP_STILL SVP_PEEL SVP_EXACT SVP_LEAN COLOR_CORRECTION_ENABLED COLOR_BLACK_WHITE",k)){Choice(v,"true false",k);return;}
             if(k.EndsWith("SPATIAL_AQ")){Choice(v,"0 4 8 10 12 15",k);return;}
             if(k.EndsWith("MULTIPASS")){Choice(v,"FGS DISABLED QRES FULLRES",k);return;}
             if(k.EndsWith("BFRAMES")){Choice(v,"FGS 0 1 2 3 4",k);return;}
@@ -101,6 +101,8 @@ namespace FilmGrainStudioPreview
             Require(p.Config!=null&&p.Fields!=null&&p.Controls!=null&&p.SubtitleStyle!=null,"缺少配置对象");
             foreach(string key in BasicKeys.Split(' '))Require(p.Config.ContainsKey(key),"缺少基础参数: "+key);
             foreach(var pair in p.Config){Require(Includes(p.Kind,pair.Key),"不允许的配置字段: "+pair.Key);ValidateConfig(pair.Key,pair.Value);}
+            if(p.Config.ContainsKey("SVP_EXACT")&&p.Config.ContainsKey("SVP_LEAN"))
+                Require(p.Config["SVP_EXACT"]!="true"||p.Config["SVP_LEAN"]!="true","精简 Super 必须启用实验性高速分析 (exact=false)");
             // Version 1 requires all editor fields. Missing optional advanced keys retain the target value.
             foreach(string key in Fields.Split(' '))Require(p.Fields.ContainsKey(key),"缺少字段: "+key);
             foreach(var pair in p.Fields) {
@@ -302,7 +304,7 @@ namespace FilmGrainStudioPreview
                     {"CPU_SVT_TUNING","SVT 调校方案"},{"CPU_SVT_GRAIN_TUNE","SVT Grain 调优（AUTO/ON/OFF）"},{"CPU_X265_GRAIN_TUNE","x265 Grain 调优（AUTO/ON/OFF）"},{"X264_GRAIN_TUNE","x264 Grain 调优（AUTO/ON/OFF）"},{"H264_HIGH10","x264 High10"},{"X264_RATE_MODE","x264 遍数"},{"X264_PRESET","x264 速度"},{"TONE_MAP_ALGO","HDR 色调映射"},{"GRAIN_ENABLED","颗粒总开关"},{"AV1_GRAIN_STRENGTH","AV1 相对强度 (%)"},
                     {"AV1_COPY_FAST","不重编码快速路径"},{"AV1_COPY_FULL_VERIFY","不重编码完整验证"},{"CINEMATIC_CROP_PER_SIDE","纵向单侧裁剪"},{"CINEMATIC_CROP_HORIZONTAL","横向单侧裁剪"},{"CINEMATIC_NO_CROP","恢复完整画幅"},
                     {"INTERPOLATION_TARGET_FPS","插帧目标帧率"},{"FRUC_PERF","FRUC 性能档位"},{"FRUC_GRID","FRUC 网格（auto=最大可用）"},
-                    {"SVP_ALGO","SVP 算法"},{"SVP_ANALYSE","SVP 分析配置"},{"SVP_MASK_AREA","SVP 遮罩区域"},{"SVP_SPEED","SVP 速度"},{"SVP_TUNING","SVP 调校"},{"SVP_BLOCK_SIZE","SVP 分块大小"},{"SVP_DEDUP","SVP 重复帧阈值"},
+                    {"SVP_ALGO","SVP 算法"},{"SVP_ANALYSE","SVP 分析配置"},{"SVP_MASK_AREA","SVP 遮罩区域"},{"SVP_SPEED","SVP 速度"},{"SVP_TUNING","SVP 调校"},{"SVP_BLOCK_SIZE","SVP 分块大小"},{"SVP_DEDUP","SVP 重复帧阈值"},{"SVP_EXACT","SVP 精确分析"},{"SVP_LEAN","SVP 精简 Super"},
                     {"SVP_STILL","SVP 静止保护"},{"SVP_STILL_LIMIT","静止保护阈值"},{"SVP_STILL_EDGE","静止边缘"},{"SVP_STILL_TOLERANCE","静止容差"},{"SVP_PEEL","SVP HUD 剥离"},{"SVP_PEEL_LIMIT","HUD 剥离阈值"}
                 };
                 string label;if(labels.TryGetValue(k,out label))return label;

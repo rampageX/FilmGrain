@@ -112,6 +112,8 @@ namespace FilmGrainStudioPreview
             snapshot.SvpSpeed = config.Get("SVP_SPEED");
             snapshot.SvpTuning = config.Get("SVP_TUNING");
             snapshot.SvpBlockSize = config.Get("SVP_BLOCK_SIZE");
+            snapshot.SvpExact = config.Get("SVP_EXACT");
+            snapshot.SvpLean = config.Get("SVP_LEAN");
             snapshot.SvpDedup = config.Get("SVP_DEDUP");
             snapshot.SvpStill = config.Get("SVP_STILL");
             snapshot.SvpStillLimit = config.Get("SVP_STILL_LIMIT");

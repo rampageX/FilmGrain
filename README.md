@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.0.33 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.34 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
 
@@ -728,6 +728,23 @@ HEVC/x264/H.264 NVENC 已覆盖路线使用 VSPipe Y4M → FFmpeg 管道，AV1 �
 三项默认 `FGS / FGS / auto` 保持既有 Super、Analyse、SmoothFps 参数；旧 INI 未含新键时使用这些默认值。Algo、Mask Area、主界面场景模式与目标帧率仍独立生效。BASE 仅支持新项默认值，选择其他预设时界面明确切换并禁用 Analyse Profile 为 ENCODEGUI；手动配置非法组合则停止准备并报实际原因。
 
 这是对前端预设的映射，不是向插件直接传入 `speed` / `tuning` API 字段。映射参考 2026-10-12 的 [OpenSVPFlow](https://github.com/Z1xus/open-svpflow) 与 [smoothie 网页](https://smoothie.z1x.us/) 实际脚本；保留 FGS 的 `full:true`、有理数帧率、cubic/linear、Algo、Mask 和场景模式。FGS Speed 配合新 Tuning 时保留 pel=1、自动 16 块（animation 除外），因此不宣称与网页整个输出完全一致。新映射保持 FGS 的 GPU 路径，本批不引入 CPU/GPU 后端切换。
+
+#### 实验性高速分析
+
+“高级 → 插帧”左下方提供两个独立开关：
+
+| 开关 | 默认 | 实际参数与条件 |
+|---|---|---|
+| 实验性高速分析 | 关闭 | 开启后向 Analyse 传入 `gpu:1,exact:false`，允许更多 GPU 快速分析路径；关闭时保留原精确分析参数 |
+| 精简 Super | 关闭 | 仅高速分析开启时可用，向 Super 增加 `lean:true`；保留现有速度档位的 `pel=1/2,gpu=1,full:true` |
+
+高速分析可能改变运动矢量并增加显存，不承诺固定的速度或画质收益；建议按“默认 → 仅高速 → 高速＋精简”分别比较同一片段。精简 Super 可减少 CPU / 内存工作，但不保证降低整个流程的显存。关闭高速分析会同时取消精简 Super；恢复本页默认会关闭两项。
+
+新项使用 `SVP_EXACT=true`、`SVP_LEAN=false` 作为旧配置缺省值，纳入完整预设、逐文件配置与任务快照；简易预设沿用未包含高级参数保持目标现值的规则。默认不向 DLL 添加新参数，Super / Analyse / SmoothFps 的原参数字符串保持不变。日志包含 `exact`、`lean` 和实际三个参数字符串，便于确认是否生效。
+
+需要支持 `exact` / `lean` 的同一构建的两只 OpenSVPFlow DLL。实验模式使用精简 Super 的能力标记探测，防止旧插件静默忽略参数；能力不足时提示成对更新插件或关闭高速分析，不按版本号锁定依赖。该探测验证 svpflow1 的新功能代际；svpflow2 仍需成对匹配并以实际渲染验证。实验项只影响 OpenSVPFlow 实际执行路线，不改变 FRUC、HDR 直通、隔行旁路及 AV1 stream-copy 的既有选择。
+
+参数依据：[OpenSVPFlow 上游 README](https://github.com/Z1xus/open-svpflow#on-top-of-svpflow)。当前接入不代表已在 RTX 4080 / T600 上确认提速；GPU 性能、显存与肉眼画质仍需实机对比。
 
 #### 重复帧、Still 与 Peel
 

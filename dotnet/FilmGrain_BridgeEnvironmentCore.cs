@@ -49,6 +49,8 @@ namespace FilmGrainStudioPreview
         public string SvpSpeed = "FGS";
         public string SvpTuning = "FGS";
         public string SvpBlockSize = "auto";
+        public string SvpExact = "true";
+        public string SvpLean = "false";
         public string SvpDedup = "0";
         public string SvpStill = "false";
         public string SvpStillLimit = "4.5";
@@ -175,6 +177,8 @@ namespace FilmGrainStudioPreview
             state["FG_SVP_SPEED"] = snapshot.SvpSpeed;
             state["FG_SVP_TUNING"] = snapshot.SvpTuning;
             state["FG_SVP_BLOCK_SIZE"] = snapshot.SvpBlockSize;
+            state["FG_SVP_EXACT"] = snapshot.SvpExact;
+            state["FG_SVP_LEAN"] = snapshot.SvpLean;
             state["FG_SVP_DEDUP"] = snapshot.SvpDedup;
             state["FG_SVP_STILL"] = snapshot.SvpStill;
             state["FG_SVP_STILL_LIMIT"] = snapshot.SvpStillLimit;

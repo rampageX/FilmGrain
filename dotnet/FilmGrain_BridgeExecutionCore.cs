@@ -233,14 +233,64 @@ namespace FilmGrainStudioPreview
         public void Cancel()
         {
             cancelRequested = true;
-            lock (sync)
+            // The execution worker observes this flag while polling process exit.
+            // Never wait for a GPU process or process-tree termination on the UI thread.
+        }
+
+        private void StopProcessTree(Process process)
+        {
+            if (process == null) return;
+            try
             {
-                // Only direct native processes are accepted by NativeProcessPolicy.
-                // Kill both ends; worker waits for exit before deleting registered files.
-                if (activePipeProducer != null)
-                    try { if (!activePipeProducer.HasExited) activePipeProducer.Kill(); } catch { }
-                if (activeProcess != null)
-                    try { if (!activeProcess.HasExited) activeProcess.Kill(); } catch { }
+                if (process.HasExited) return;
+                int pid = process.Id;
+                RaiseLog(BridgeLogStream.System, "[Cancel] stopping process tree PID " + pid);
+                if (Environment.OSVersion.Platform == PlatformID.Win32NT)
+                {
+                    // vspipe.exe in a Python environment may be a launcher. Killing only
+                    // the launcher leaves its child holding the redirected pipe open.
+                    using (var killer = new Process())
+                    {
+                        killer.StartInfo = new ProcessStartInfo {
+                            FileName=Path.Combine(Environment.SystemDirectory,"taskkill.exe"),
+                            Arguments="/PID " + pid.ToString(CultureInfo.InvariantCulture) + " /T /F",
+                            UseShellExecute=false, CreateNoWindow=true
+                        };
+                        if (killer.Start() && !killer.WaitForExit(5000))
+                            try { killer.Kill(); } catch { }
+                    }
+                }
+                if (!process.HasExited) process.Kill();
+            }
+            catch (Exception ex)
+            {
+                try { if (!process.HasExited) process.Kill(); } catch { }
+                RaiseLog(BridgeLogStream.System, "[Cancel] process stop: " + ex.Message);
+            }
+        }
+
+        private void WaitForNativeExit(Process process, Process producer)
+        {
+            while (!process.WaitForExit(100))
+            {
+                if (!cancelRequested) continue;
+                StopProcessTree(producer);
+                StopProcessTree(process);
+                if (!process.WaitForExit(5000))
+                    throw new IOException("Cancelled process did not exit within 5 seconds.");
+                return;
+            }
+        }
+
+        private void DrainProcessOutput(Func<bool> closed)
+        {
+            var timer=Stopwatch.StartNew();
+            while (!closed())
+            {
+                if (cancelRequested) return;
+                if (timer.ElapsedMilliseconds > 5000)
+                    throw new IOException("Process exited but redirected log streams did not close within 5 seconds.");
+                Thread.Sleep(25);
             }
         }
 
@@ -386,6 +436,7 @@ namespace FilmGrainStudioPreview
             failure = null;
             Process process = null;
             int exitCode = -1;
+            int outputClosed=0, errorClosed=0;
             try
             {
                 process = new Process();
@@ -393,7 +444,8 @@ namespace FilmGrainStudioPreview
                 process.EnableRaisingEvents = false;
                 process.OutputDataReceived += delegate(object sender, DataReceivedEventArgs e)
                 {
-                    if (e.Data != null)
+                    if (e.Data == null) Interlocked.Exchange(ref outputClosed,1);
+                    else
                     {
                         RaiseLog(BridgeLogStream.StandardOutput, e.Data);
                         HandleProcessLine(e.Data);
@@ -401,7 +453,8 @@ namespace FilmGrainStudioPreview
                 };
                 process.ErrorDataReceived += delegate(object sender, DataReceivedEventArgs e)
                 {
-                    if (e.Data != null)
+                    if (e.Data == null) Interlocked.Exchange(ref errorClosed,1);
+                    else
                     {
                         RaiseLog(BridgeLogStream.StandardError, e.Data);
                         HandleProcessLine(e.Data);
@@ -421,8 +474,8 @@ namespace FilmGrainStudioPreview
                 RaiseLog(BridgeLogStream.System, "PID " + process.Id.ToString(CultureInfo.InvariantCulture));
                 process.BeginOutputReadLine();
                 process.BeginErrorReadLine();
-                if (cancelRequested) Cancel();
-                process.WaitForExit();
+                WaitForNativeExit(process,null);
+                DrainProcessOutput(delegate { return Thread.VolatileRead(ref outputClosed)!=0 && Thread.VolatileRead(ref errorClosed)!=0; });
                 exitCode = process.ExitCode;
                 RaiseLog(BridgeLogStream.System, "[Process] exit=" + exitCode.ToString(CultureInfo.InvariantCulture));
             }
@@ -435,6 +488,8 @@ namespace FilmGrainStudioPreview
             {
                 if (process != null)
                 {
+                    StopProcessTree(process);
+                    try { process.WaitForExit(5000); } catch { }
                     try { process.CancelOutputRead(); } catch { }
                     try { process.CancelErrorRead(); } catch { }
                     lock (sync)
@@ -454,6 +509,7 @@ namespace FilmGrainStudioPreview
             Process producer = null, encoder = null;
             Exception copyFailure = null;
             Thread copyThread = null;
+            int producerErrorClosed=0,encoderOutputClosed=0,encoderErrorClosed=0;
             try
             {
                 NativeProcessPolicy.ValidateTool(stage.PipeProducerPath);
@@ -472,11 +528,11 @@ namespace FilmGrainStudioPreview
                 encoder = new Process(); encoder.StartInfo = BuildStartInfo(request, stage);
                 encoder.StartInfo.RedirectStandardInput = true;
                 producer.ErrorDataReceived += delegate(object sender, DataReceivedEventArgs e)
-                { if (e.Data != null) RaiseLog(BridgeLogStream.StandardError, "[vspipe] " + e.Data); };
+                { if (e.Data == null) Interlocked.Exchange(ref producerErrorClosed,1); else RaiseLog(BridgeLogStream.StandardError, "[vspipe] " + e.Data); };
                 encoder.OutputDataReceived += delegate(object sender, DataReceivedEventArgs e)
-                { if (e.Data != null) { RaiseLog(BridgeLogStream.StandardOutput, e.Data); HandleProcessLine(e.Data); } };
+                { if (e.Data == null) Interlocked.Exchange(ref encoderOutputClosed,1); else { RaiseLog(BridgeLogStream.StandardOutput, e.Data); HandleProcessLine(e.Data); } };
                 encoder.ErrorDataReceived += delegate(object sender, DataReceivedEventArgs e)
-                { if (e.Data != null) { RaiseLog(BridgeLogStream.StandardError, e.Data); HandleProcessLine(e.Data); } };
+                { if (e.Data == null) Interlocked.Exchange(ref encoderErrorClosed,1); else { RaiseLog(BridgeLogStream.StandardError, e.Data); HandleProcessLine(e.Data); } };
                 lock (sync) { activePipeProducer = producer; activeProcess = encoder; }
                 RaiseLog(BridgeLogStream.System, "[Process] producer_cwd=" + sourceInfo.WorkingDirectory + " args=" + sourceInfo.Arguments);
                 RaiseLog(BridgeLogStream.System, "[Process] encoder_cwd=" + encoder.StartInfo.WorkingDirectory + " args=" + encoder.StartInfo.Arguments);
@@ -485,7 +541,6 @@ namespace FilmGrainStudioPreview
                 encoder.BeginOutputReadLine(); encoder.BeginErrorReadLine();
                 if (!producer.Start()) throw new InvalidOperationException("vspipe did not start");
                 producer.BeginErrorReadLine();
-                if (cancelRequested) Cancel();
                 Process pipeSource = producer, pipeTarget = encoder;
                 copyThread = new Thread(delegate()
                 {
@@ -494,11 +549,11 @@ namespace FilmGrainStudioPreview
                     finally { try { pipeTarget.StandardInput.Close(); } catch { } }
                 });
                 copyThread.IsBackground = true; copyThread.Start();
-                encoder.WaitForExit();
-                if (encoder.ExitCode != 0 || cancelRequested)
-                    try { if (!producer.HasExited) producer.Kill(); } catch { }
-                producer.WaitForExit();
-                copyThread.Join();
+                WaitForNativeExit(encoder,producer);
+                if (encoder.ExitCode != 0 || cancelRequested) StopProcessTree(producer);
+                WaitForNativeExit(producer,null);
+                if (!copyThread.Join(5000)) throw new IOException("vspipe copy thread did not stop within 5 seconds.");
+                DrainProcessOutput(delegate { return Thread.VolatileRead(ref producerErrorClosed)!=0 && Thread.VolatileRead(ref encoderOutputClosed)!=0 && Thread.VolatileRead(ref encoderErrorClosed)!=0; });
                 if (!cancelRequested && encoder.ExitCode == 0 && producer.ExitCode != 0)
                     throw new InvalidDataException("vspipe exited with code " + producer.ExitCode.ToString(CultureInfo.InvariantCulture));
                 if (!cancelRequested && encoder.ExitCode == 0 && copyFailure != null)
@@ -514,11 +569,12 @@ namespace FilmGrainStudioPreview
             }
             finally
             {
-                if (producer != null) try { if (!producer.HasExited) producer.Kill(); } catch { }
-                if (encoder != null) try { if (!encoder.HasExited) encoder.Kill(); } catch { }
-                if (copyThread != null && copyThread.IsAlive) copyThread.Join(5000);
-                if (producer != null) { try { producer.WaitForExit(); } catch { } try { producer.CancelErrorRead(); } catch { } }
-                if (encoder != null) { try { encoder.WaitForExit(); } catch { } try { encoder.CancelOutputRead(); } catch { } try { encoder.CancelErrorRead(); } catch { } }
+                StopProcessTree(producer);
+                StopProcessTree(encoder);
+                if (producer != null) { try { producer.WaitForExit(5000); } catch { } try { producer.CancelErrorRead(); } catch { } }
+                if (encoder != null) { try { encoder.WaitForExit(5000); } catch { } try { encoder.CancelOutputRead(); } catch { } try { encoder.CancelErrorRead(); } catch { } }
+                if (copyThread != null && copyThread.IsAlive && !copyThread.Join(5000))
+                    RaiseLog(BridgeLogStream.System,"[Cancel] pipe copy still blocked after process termination");
                 lock (sync) { if (ReferenceEquals(activePipeProducer, producer)) activePipeProducer = null; if (ReferenceEquals(activeProcess, encoder)) activeProcess = null; }
                 if (producer != null) producer.Dispose();
                 if (encoder != null) encoder.Dispose();
