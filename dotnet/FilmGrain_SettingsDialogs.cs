@@ -717,7 +717,7 @@ namespace FilmGrainStudioPreview
                 TabPage otherPage=new TabPage(UiText("其它","Other"));otherPage.Name="OTHER_PAGE";
                 var skipQueueFailed=new ThemeCheckBox {Name="QUEUE_SKIP_FAILED",Text=UiText("跳过队列中失败的文件","Skip failed files in queue"),Checked=config.GetBool("QUEUE_SKIP_FAILED"),AutoSize=true,Location=new Point(24,28)};
                 otherPage.Controls.Add(skipQueueFailed);
-                otherPage.Controls.Add(new ThemeLabel {Text=UiText("勾选后，处理失败会保留失败状态并继续下一项。\n取消任务仍会停止整个队列；队列结束会报告失败。\n再次开始仅处理未完成项；右键重置状态可重做已完成文件。","Continue after processing failures; retain failed status.\nCancellation stops the queue. Final result still reports failures.\nStart retries unfinished items; right-click Reset status to rerun completed files."),Location=new Point(24,70),Size=new Size(670,95)});
+                otherPage.Controls.Add(new ThemeLabel {Text=UiText("勾选后，处理失败会保留失败状态并继续下一项。\n取消任务仍会停止整个队列；队列结束会报告失败。\n再次开始仅处理未完成项；右键重置状态可重做已完成文件。","Continue after processing failures; retain failed status.\nCancellation stops the queue. Final result still reports failures.\nStart retries unfinished items; right-click Reset status to rerun completed files."),Location=new Point(24,70),Size=new Size(670,95),ForeColor=ColorMuted});
                 TabPage hdr = new TabPage("HDR");
                 tabs.Name="ADVANCED_TABS";enc.Name="ENCODER_AV1";hevcPage.Name="ENCODER_HEVC";h264Page.Name="ENCODER_H264";audioPage.Name="AUDIO_PAGE";
                 tabs.TabPages.Add(enc); tabs.TabPages.Add(hevcPage); tabs.TabPages.Add(h264Page); tabs.TabPages.Add(interp); tabs.TabPages.Add(hdr);tabs.TabPages.Add(audioPage);tabs.TabPages.Add(otherPage); dlg.Controls.Add(tabs);
@@ -941,6 +941,7 @@ namespace FilmGrainStudioPreview
         internal sealed class EncoderOptionsEditor
         {
             internal readonly Panel Surface=new Panel {Width=724,Margin=Padding.Empty};
+            internal readonly Dictionary<string,string> StoredValues=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
             internal readonly Dictionary<string,Control> Fields=new Dictionary<string,Control>(StringComparer.OrdinalIgnoreCase);
             private readonly Dictionary<string,string[]> tokens=new Dictionary<string,string[]>(StringComparer.OrdinalIgnoreCase);
             internal Action<IDictionary<string,string>> ValidateHardware;
@@ -958,6 +959,7 @@ namespace FilmGrainStudioPreview
             }
             internal void SetValue(string key,string value)
             {
+                if(StoredValues.ContainsKey(key)){StoredValues[key]=value;return;}
                 var check=Fields[key] as CheckBox;if(check!=null){check.Checked=value=="true";return;}
                 var combo=Fields[key] as ComboBox;
                 if(combo!=null){int index=Array.FindIndex(tokens[key],delegate(string item){return string.Equals(item,value,StringComparison.OrdinalIgnoreCase);});
@@ -978,9 +980,10 @@ namespace FilmGrainStudioPreview
                     }catch{pair.Value.Focus();throw;}
                     values.Add(key,value);
                 }
+                foreach(var pair in StoredValues)values[pair.Key]=pair.Value;
                 if(ValidateHardware!=null)ValidateHardware(values);return values;
             }
-            internal void RestoreDefaults(FgsConfig config){foreach(string key in Fields.Keys)SetValue(key,config.GetDefault(key));}
+            internal void RestoreDefaults(FgsConfig config){foreach(string key in Fields.Keys)SetValue(key,config.GetDefault(key));foreach(string key in new List<string>(StoredValues.Keys))SetValue(key,config.GetDefault(key));}
         }
 
         private void AddGrainTuneChoice(EncoderOptionsEditor editor,string key,int y,FgsConfig cfg,ToolTip tips)
@@ -1003,12 +1006,12 @@ namespace FilmGrainStudioPreview
                     string[] values=new string[14];for(int i=0;i<values.Length;i++)values[i]=i.ToString(CultureInfo.InvariantCulture);
                     editor.AddChoice("CPU_SVT_PRESET","SVT Preset",values,values,76,config,tips,UiText("FGS 参考6；HandBrake 截图参考4。可以自由修改。","FGS starts at 6; HandBrake screenshot starts at 4. Freely editable."));
                     AddGrainTuneChoice(editor,"CPU_SVT_GRAIN_TUNE",110,config,tips);
-                    editor.AddChoice("CPU_SVT_CQ",UiText("目标质量 CRF / RF","Target CRF / RF"),new[]{"20","25","28","30","30.5","35","40"},new[]{"20","25","28","30","30.5","35","40"},144,config,tips,UiText("数值越小质量越高；可输入1–63，主界面可继续修改。","Lower values mean higher quality; enter 1–63. Also editable in the main window."));
-                    var quality=(ComboBox)editor.Fields["CPU_SVT_CQ"];quality.DropDownStyle=ComboBoxStyle.DropDown;
-                    editor.AddChoice("CPU_SVT_RATE_CONTROL",UiText("码率模式","Rate mode"),new[]{"CQ","VBR"},new[]{"CRF / RF","VBR"},178,config,tips,UiText("切换方案初始化为 CRF；之后仍可改为 VBR。","Scheme starts with CRF; VBR remains available afterwards."));
-                    editor.AddCheck("CPU_SVT_CQ_AUTO",UiText("自动质量（推荐值）","Automatic quality"),28,210,420,config,tips,UiText("自动质量采用 FGS 推荐30；手动质量保持输入值。","Automatic quality uses FGS recommendation 30; manual quality retains your value."));
-                    var parameters=new ThemeTextBox{Name="SVT_PARAMETERS_READONLY",ReadOnly=true,Multiline=true,ScrollBars=ScrollBars.Vertical,Location=new Point(28,242),Size=new Size(668,60),Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right};
-                    editor.Surface.Controls.Add(parameters);editor.Surface.Height=308;
+                    editor.StoredValues["CPU_SVT_CQ"]=config.Get("CPU_SVT_CQ");
+                    editor.StoredValues["CPU_SVT_RATE_CONTROL"]=config.Get("CPU_SVT_RATE_CONTROL");
+                    editor.StoredValues["CPU_SVT_CQ_AUTO"]=config.Get("CPU_SVT_CQ_AUTO");
+                    editor.Surface.Controls.Add(new ThemeLabel{Name="SVT_PARAMETERS_TITLE",Text=UiText("实际编码参数","Effective encoding parameters"),Location=new Point(28,144),Size=new Size(668,24),ForeColor=ColorMuted,Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right});
+                    var parameters=new ThemeLabel{Name="SVT_PARAMETERS_READONLY",AutoSize=false,UseMnemonic=false,ForeColor=ColorMuted,Location=new Point(28,170),Size=new Size(668,60),Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right};
+                    editor.Surface.Controls.Add(parameters);editor.Surface.Height=236;
                     Action refresh=delegate{
                         string scheme=((ComboBox)editor.Fields["CPU_SVT_TUNING"]).SelectedIndex==1?"HANDBRAKE":"FGS";
                         int tune=((ComboBox)editor.Fields["CPU_SVT_GRAIN_TUNE"]).SelectedIndex;bool grain=tune==1||(tune==0&&IsGrainEnabled());
