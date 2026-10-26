@@ -107,8 +107,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.35";
-        internal const string FileReleaseVersion = "5.0.35.0";
+        internal const string ReleaseVersion = "5.0.36";
+        internal const string FileReleaseVersion = "5.0.36.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -319,6 +319,7 @@ namespace FilmGrainStudioPreview
         private ComboBox cmbContainer;
         private ComboBox cmbSpeed;
         private CheckBox chkSfe;
+        private CheckBox chkGpuDecode;
         private ComboBox cmbBitrate;
         private CheckBox chkBitrateAuto;
         private CheckBox chkHighMotion;
@@ -839,6 +840,10 @@ namespace FilmGrainStudioPreview
             listFiles.DragEnter += OnDragEnter;
             listFiles.DragDrop += OnDragDrop;
             listFiles.SelectedIndexChanged += delegate { SelectFileEditor(); UpdateSelectedInfo(); };
+            listFiles.MouseDoubleClick += delegate(object sender,MouseEventArgs e) {
+                if(e.Button==MouseButtons.Left && listFiles.GetItemAt(e.X,e.Y)!=null)ResetSelectedQueueStatus();
+            };
+            ((ThemeListView)listFiles).ColumnHeaderDoubleClick += delegate(object sender,ColumnClickEventArgs e) { SortQueueFiles(e.Column); };
             layout.Controls.Add(listFiles, 0, 1);
 
             GroupBox info = new ThemeGroupBox();
@@ -1031,10 +1036,18 @@ namespace FilmGrainStudioPreview
             AddLabeledRow(t, 2, lang.T("encode.speed"), WithAdvancedShortcut(cmbSpeed, 0, lang.T("advanced.tab.encode"), out speedShortcut));
             speedShortcut.Visible = cmbCodec.SelectedIndex >= 0 && cmbCodec.SelectedIndex <= 3;
             cmbCodec.SelectedIndexChanged += delegate { speedShortcut.Visible = cmbCodec.SelectedIndex >= 0 && cmbCodec.SelectedIndex <= 3; };
-            var rateModes = new FlowLayoutPanel { Dock=DockStyle.Fill, Margin=Padding.Empty, WrapContents=false };
+            var rateModes = new FlowLayoutPanel { Dock=DockStyle.Fill, Margin=Padding.Empty, Padding=new Padding(9,0,0,0), WrapContents=false };
             chkSfe.Dock=DockStyle.None;chkSfe.AutoSize=true;
             chkCq=Check(UiText("CQ 模式", "CQ mode"),false);chkCq.AutoSize=true;
-            rateModes.Controls.Add(chkSfe);rateModes.Controls.Add(chkCq);t.Controls.Add(rateModes,1,3);
+            chkGpuDecode=Check(UiText("GPU 硬件解码", "GPU hardware decoding"),config.GetBool("GPU_DECODE"));chkGpuDecode.AutoSize=true;
+            sfeToolTip.SetToolTip(chkGpuDecode,UiText("尝试使用 GPU 解码源视频；不支持时自动回退软解并记录原因。实际启用的输出文件带 _HWD。默认关闭，可用于速度对比。", "Try GPU source decoding; unsupported inputs fall back to software with a logged reason. Hardware outputs include _HWD. Off by default for comparison."));
+            chkGpuDecode.CheckedChanged+=delegate {if(restoringFileEditor)return;try{config.SaveValue("GPU_DECODE",chkGpuDecode.Checked?"true":"false");}catch(Exception ex){MessageBox.Show(this,ex.Message);}};
+            foreach(CheckBox option in new[]{chkSfe,chkCq,chkGpuDecode}) {
+                option.Dock=DockStyle.None;option.AutoSize=true;option.Anchor=AnchorStyles.Left;
+                option.Margin=new Padding(4,7,3,3);
+                rateModes.Controls.Add(option);
+            }
+            t.Controls.Add(rateModes,0,3);t.SetColumnSpan(rateModes,2);
             chkCq.CheckedChanged += delegate {
                 if(restoringFileEditor||updatingBitrateUi)return;
                 int index=cmbCodec.SelectedIndex;if(index!=0&&index!=1&&index!=3&&!NewCpuSelected())return;
@@ -1961,7 +1974,8 @@ namespace FilmGrainStudioPreview
                 if (string.IsNullOrWhiteSpace(path) || !File.Exists(path) || existing.Contains(path)) continue;
                 FileInfo fi = new FileInfo(path);
                 ListViewItem item = new ListViewItem(fi.Name);
-                item.SubItems.Add(FormatSize(fi.Length));
+                item.SubItems[0].Tag=nextQueueFileOrder++;
+                item.SubItems.Add(FormatSize(fi.Length)).Tag=fi.Length;
                 item.SubItems.Add(UiText("等待","Waiting"));
                 item.Tag = fi.FullName;
                 item.ToolTipText = fi.FullName;

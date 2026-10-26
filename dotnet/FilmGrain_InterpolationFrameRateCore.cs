@@ -636,6 +636,8 @@ namespace FilmGrainStudioPreview
                 "--arg", "algo=" + algo, "--arg", "analyse_profile=" + analyse,
                 "--arg", "scene_mode=" + scene, "--arg", "mask_area=" + mask,
                 "--arg", "speed=" + speed, "--arg", "tuning=" + tuning, "--arg", "block_size=" + block});
+            string hw=HardwareDecodeCore.ProducerBackend(input,state);
+            if(hw.Length>0){producerArgs.Add("--arg");producerArgs.Add("hwdevice="+hw);}
             producerArgs.AddRange(extra);producerArgs.Add(vpy);producerArgs.Add("-");
             stage.PipeProducerArguments = JoinArgs(producerArgs);
         }

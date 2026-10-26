@@ -57,8 +57,27 @@ namespace FilmGrainStudioPreview
             IDictionary<string,string> state,HardwareCapabilitySnapshot caps,bool noReencode,
             out BridgePreparedExecution prepared,out string reason)
         {
+            if(state==null){prepared=null;reason="missing execution state";return false;}
             var timer=System.Diagnostics.Stopwatch.StartNew();
-            bool ok=TryPrepareCore(appRoot,input,info,state,caps,noReencode,out prepared,out reason);
+            string previewFlag;state.TryGetValue("FG_ENCODE_PREVIEW",out previewFlag);
+            string requested;state.TryGetValue("FG_GPU_DECODE",out requested);
+            bool planning=requested=="1"&&!noReencode&&previewFlag!="1";
+            var initialState=new Dictionary<string,string>(state,StringComparer.OrdinalIgnoreCase);
+            initialState.Remove("FG_HWD_PLAN");initialState.Remove("FG_HWD_BACKEND");initialState.Remove("FG_HWD_SOURCE");
+            if(planning)initialState["FG_HWD_PLAN"]=Guid.NewGuid().ToString("N");
+            bool ok=TryPrepareCore(appRoot,input,info,initialState,caps,noReencode,out prepared,out reason);
+            string decodeNotice=noReencode?"[HWD] effective=not-applicable reason=video stream copy":"";
+            if(ok && !noReencode && previewFlag!="1") {
+                IDictionary<string,string> selected;
+                bool hardware=HardwareDecodeCore.Select(appRoot,input,prepared.ExecutionRequest,initialState,out selected,out decodeNotice);
+                if(planning) {
+                    BridgeExecutionCore.CleanupTemporaryFiles(prepared.ExecutionRequest);
+                    if(!hardware)selected=initialState;
+                    selected.Remove("FG_HWD_PLAN");
+                    ok=TryPrepareCore(appRoot,input,info,selected,caps,noReencode,out prepared,out reason);
+                }
+            }
+            if(ok && prepared!=null && decodeNotice.Length>0)prepared.ExecutionRequest.ExecutionNotice=(prepared.ExecutionRequest.ExecutionNotice??"")+Environment.NewLine+decodeNotice;
             if(ok && prepared!=null && prepared.ExecutionRequest!=null)
             {
                 try { SharedInputTimelineCore.Bind(prepared.ExecutionRequest,input,info.Identity.Probe,info,noReencode); }
@@ -384,6 +403,119 @@ namespace FilmGrainStudioPreview
             taskRequest.NoReencode = prepared.NoReencode;
             taskRequest.RecommendedOutputFps = recommendedOutputFps;
             return taskRequest;
+        }
+    }
+    // Hardware decoding returns normal CPU frames to preserve the existing filter graph.
+    internal static class HardwareDecodeCore
+    {
+        private static string Get(IDictionary<string,string> s,string k) {string v;return s!=null&&s.TryGetValue(k,out v)?v??"":"";}
+        internal static string FileSuffix(IDictionary<string,string> s) {return Get(s,"FG_HWD_PLAN").Length>0?"_HWD_PLAN_"+Get(s,"FG_HWD_PLAN"):Get(s,"FG_HWD_BACKEND").Length>0?"_HWD":"";}
+        internal static string ProducerBackend(string input,IDictionary<string,string> s)
+        {return Same(input,Get(s,"FG_HWD_SOURCE"))?Get(s,"FG_HWD_BACKEND"):"";}
+        private static bool Same(string a,string b)
+        {if(string.IsNullOrEmpty(a)||string.IsNullOrEmpty(b))return false;try{return string.Equals(Path.GetFullPath(a),Path.GetFullPath(b),StringComparison.OrdinalIgnoreCase);}catch{return false;}}
+        internal static string Quote(string s)
+        {
+            var b=new System.Text.StringBuilder("\"");int slashes=0;
+            foreach(char c in s){if(c=='\\'){slashes++;continue;}if(c=='"'){b.Append('\\',slashes*2+1);b.Append(c);}else {b.Append('\\',slashes);b.Append(c);}slashes=0;}
+            b.Append('\\',slashes*2);return b.Append('"').ToString();
+        }
+        private sealed class Token {internal string Value;internal int Start;}
+        private static List<Token> Tokens(string args)
+        {
+            var result=new List<Token>();int i=0;
+            while(i<args.Length){while(i<args.Length&&char.IsWhiteSpace(args[i]))i++;if(i==args.Length)break;
+                int start=i;bool quoted=false;var b=new System.Text.StringBuilder();
+                while(i<args.Length&&(quoted||!char.IsWhiteSpace(args[i]))){int slashes=0;while(i<args.Length&&args[i]=='\\'){slashes++;i++;}
+                    if(i<args.Length&&args[i]=='"'){b.Append('\\',slashes/2);if(slashes%2==1)b.Append('"');else quoted=!quoted;i++;}
+                    else {b.Append('\\',slashes);if(i<args.Length&&(quoted||!char.IsWhiteSpace(args[i])))b.Append(args[i++]);}}
+                result.Add(new Token{Value=b.ToString(),Start=start});}
+            return result;
+        }
+        private static int SourceAt(string args,string source)
+        {
+            var t=Tokens(args);int inputIndex=0;
+            // Source video is input zero in native FFmpeg stages. Later original inputs
+            // supply audio/subtitles beside a pipe or processed workfile and must stay untouched.
+            for(int i=0;i+1<t.Count;i++){
+                if((t[i].Value=="-c:v"||t[i].Value=="-codec:v"||t[i].Value=="-c")&&t[i+1].Value=="copy")return -1;
+            }
+            for(int i=0;i+1<t.Count;i++)if(t[i].Value=="-i"){
+                if(inputIndex==0&&Same(t[i+1].Value,source))return t[i].Start;inputIndex++;
+            }
+            return -1;
+        }
+        internal static string ApplyArguments(string tool,string args,IDictionary<string,string> state)
+        {
+            string backend=Get(state,"FG_HWD_BACKEND");
+            if(backend.Length==0||!Path.GetFileName(tool).Equals("ffmpeg.exe",StringComparison.OrdinalIgnoreCase))return args;
+            if(backend!="cuda"&&backend!="d3d11va")throw new InvalidOperationException("Invalid hardware decode backend");
+            int at=SourceAt(args,Get(state,"FG_HWD_SOURCE"));
+            return at<0?args:args.Insert(at,"-hwaccel "+backend+" ");
+        }
+        private static bool Run(string tool,string args,string appdata,out string detail)
+        {
+            detail="";var lines=new System.Text.StringBuilder();object gate=new object();
+            try {using(var p=new System.Diagnostics.Process()){
+                p.StartInfo=new System.Diagnostics.ProcessStartInfo(tool,args){UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true,WorkingDirectory=Path.GetDirectoryName(tool)};
+                if(!string.IsNullOrEmpty(appdata))p.StartInfo.EnvironmentVariables["APPDATA"]=appdata;
+                var stdoutDone=new System.Threading.ManualResetEvent(false);var stderrDone=new System.Threading.ManualResetEvent(false);
+                System.Diagnostics.DataReceivedEventHandler receive=delegate(object sender,System.Diagnostics.DataReceivedEventArgs e){if(e.Data!=null)lock(gate){if(lines.Length<262144)lines.AppendLine(e.Data);}};
+                p.ErrorDataReceived+=delegate(object sender,System.Diagnostics.DataReceivedEventArgs e){if(e.Data==null)stderrDone.Set();else receive(sender,e);};
+                p.OutputDataReceived+=delegate(object sender,System.Diagnostics.DataReceivedEventArgs e){if(e.Data==null)stdoutDone.Set();else receive(sender,e);};p.Start();p.BeginErrorReadLine();p.BeginOutputReadLine();
+                // This probe owns no child processes. Bound indexing/driver stalls.
+                if(!p.WaitForExit(20000)){try{p.Kill();}catch{}p.WaitForExit(2000);detail="probe timed out (20s)";return false;}
+                // Async readers may still be draining after process exit; bounded joins only.
+                stdoutDone.WaitOne(2000);stderrDone.WaitOne(2000);lock(gate)detail=lines.ToString();
+                return p.ExitCode==0;
+            }}catch(Exception ex){detail=ex.Message;return false;}
+        }
+        internal static bool Select(string root,string input,BridgeExecutionRequest request,IDictionary<string,string> state,
+            out IDictionary<string,string> selected,out string notice)
+        {
+            selected=null;notice="[HWD] requested=off effective=software";
+            if(Get(state,"FG_GPU_DECODE")!="1")return false;
+            if(Get(state,"FG_MODE")=="AV1BAKE"){notice="[HWD] requested=on effective=software reason=AV1 bake requires libdav1d software film-grain synthesis";return false;}
+            bool bestSource=false;var tools=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if(request.DirectStages!=null)foreach(var stage in request.DirectStages){
+                if(!string.IsNullOrEmpty(stage.PipeProducerArguments)){
+                    var a=Tokens(stage.PipeProducerArguments);foreach(var token in a)if(token.Value.StartsWith("input=",StringComparison.Ordinal)&&Same(token.Value.Substring(6),input))bestSource=true;
+                }
+                if(!string.IsNullOrEmpty(stage.DirectArguments)&&SourceAt(stage.DirectArguments,input)>=0&&Path.GetFileName(stage.ToolPath).Equals("ffmpeg.exe",StringComparison.OrdinalIgnoreCase))tools.Add(stage.ToolPath);
+            }
+            if(request.DirectStages==null||request.DirectStages.Count==0)if(SourceAt(request.DirectArguments??"",input)>=0&&Path.GetFileName(request.ToolPath).Equals("ffmpeg.exe",StringComparison.OrdinalIgnoreCase))tools.Add(request.ToolPath);
+            if(!bestSource&&tools.Count==0){notice="[HWD] requested=on effective=software reason=no source-video decode stage";return false;}
+            var errors=new List<string>();
+            string sample="";
+            try {
+            if(bestSource){
+                sample=Path.Combine(Path.GetTempPath(),"FGS_HWD_"+Guid.NewGuid().ToString("N")+".mkv");
+                string ffmpeg=Path.Combine(new FgsConfig(root,null).Get("FFMPEG_DIR"),"ffmpeg.exe"), detail;
+                if(!Run(ffmpeg,"-hide_banner -nostdin -v error -y -i "+Quote(input)+" -map 0:v:0 -t 2 -c copy -an -sn -dn "+Quote(sample),"",out detail)){
+                    notice="[HWD] requested=on effective=software fallback=BestSource sample remux failed: "+detail;return false;
+                }
+            }
+            foreach(string backend in new[]{"cuda","d3d11va"}) {
+                bool ok=true;string detail="";
+                foreach(string tool in tools){
+                    bool decoded=Run(tool,"-hide_banner -nostdin -loglevel debug -hwaccel "+backend+" -i "+Quote(input)+" -map 0:v:0 -an -sn -dn -frames:v 1 -f null -","",out detail);
+                    // Exit success alone can describe a software-only codec. Require FFmpeg's
+                    // actual get_format hardware selection, not the requested command option.
+                    string format=backend=="cuda"?"cuda":"d3d11";
+                    if(!decoded||detail.IndexOf("Format "+format+" chosen by get_format",StringComparison.OrdinalIgnoreCase)<0){ok=false;break;}
+                }
+                if(ok&&bestSource){string dir=Path.Combine(root,"_OpenSVPFlow");
+                    ok=Run(Path.Combine(dir,".venv","Scripts","vspipe.exe"),"--info --arg "+Quote("input="+sample)+" --arg "+Quote("plugin_dir="+Path.Combine(dir,"Plugins"))+" --arg hwd_probe=1 --arg hwdevice="+backend+" "+Quote(Path.Combine(dir,"FilmGrain_OpenSVPFlow.vpy"))+" -",File.Exists(Path.Combine(dir,"_UserConfig","vapoursynth","vapoursynth.toml"))?Path.Combine(dir,"_UserConfig"):"",out detail);
+                    ok=ok&&detail.Contains("[HWD] effective=BestSource/"+backend);
+                }
+                if(ok){selected=new Dictionary<string,string>(state,StringComparer.OrdinalIgnoreCase);selected["FG_HWD_BACKEND"]=backend;selected["FG_HWD_SOURCE"]=input;
+                    notice="[HWD] requested=on effective="+(bestSource?"BestSource/":"FFmpeg/")+backend+" verified=first-frame; CPU-frame filter pipeline retained; output=_HWD";return true;}
+                string flat=detail.Replace('\r',' ').Replace('\n',' ');if(flat.Length>1200)flat=flat.Substring(flat.Length-1200);
+                errors.Add(backend+": "+flat);
+            }
+            notice="[HWD] requested=on effective=software fallback="+string.Join(" | ",errors.ToArray());return false;
+            }catch(Exception ex){notice="[HWD] requested=on effective=software fallback=hardware probe failed: "+ex.Message;return false;}
+            finally{if(sample.Length>0)try{File.Delete(sample);}catch{}}
         }
     }
 }

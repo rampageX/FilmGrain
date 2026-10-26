@@ -191,34 +191,47 @@ if not exact_value:
                        f"Update both plugins or disable fast analysis. Details: {exc}")
     del probe_super, probe_source
 
-clip = core.bs.VideoSource(source=input_path, cachemode=1)
-if clip.format is None:
-    raise vs.Error("Variable-format input is not supported by the current OpenSVPFlow integration.")
+hwdevice = str(arg("hwdevice", ""))
+if hwdevice and hwdevice not in {"cuda", "d3d11va"}:
+    raise vs.Error("Unsupported hardware decode backend")
+if hwdevice:
+    # No silent software fallback: _HWD must describe actual hardware decoding.
+    clip = core.bs.VideoSource(source=input_path, cachemode=0 if option_bool("hwd_probe") else 1,
+                               hwdevice=hwdevice, hwfallback=False)
+    clip.get_frame(0)
+    print(f"[HWD] effective=BestSource/{hwdevice}", file=sys.stderr, flush=True)
+else:
+    clip = core.bs.VideoSource(source=input_path, cachemode=1)
+if option_bool("hwd_probe"):
+    clip.set_output()
+else:
+    if clip.format is None:
+        raise vs.Error("Variable-format input is not supported by the current OpenSVPFlow integration.")
 
-# Current verified open-svpflow baseline is YUV420P8. Film Grain Studio converts
-# the interpolated result back to its normal P010/Main10 processing chain.
-if clip.format.id != vs.YUV420P8:
-    if clip.format.color_family == vs.RGB:
-        clip = core.resize.Bicubic(clip, format=vs.YUV420P8, matrix_s="709")
-    else:
-        clip = core.resize.Bicubic(clip, format=vs.YUV420P8)
+    # Current verified open-svpflow baseline is YUV420P8. Film Grain Studio converts
+    # the interpolated result back to its normal P010/Main10 processing chain.
+    if clip.format.id != vs.YUV420P8:
+        if clip.format.color_family == vs.RGB:
+            clip = core.resize.Bicubic(clip, format=vs.YUV420P8, matrix_s="709")
+        else:
+            clip = core.resize.Bicubic(clip, format=vs.YUV420P8)
 
-super_clip = core.svp1.Super(clip, super_params)
-vectors = core.svp1.Analyse(
-    super_clip["clip"],
-    super_clip["data"],
-    clip,
-    analyse_params
-)
+    super_clip = core.svp1.Super(clip, super_params)
+    vectors = core.svp1.Analyse(
+        super_clip["clip"],
+        super_clip["data"],
+        clip,
+        analyse_params
+    )
 
-smooth = core.svp2.SmoothFps(
-    clip,
-    super_clip["clip"],
-    super_clip["data"],
-    vectors["clip"],
-    vectors["data"],
-    smooth_params
-)
+    smooth = core.svp2.SmoothFps(
+        clip,
+        super_clip["clip"],
+        super_clip["data"],
+        vectors["clip"],
+        vectors["data"],
+        smooth_params
+    )
 
-smooth = core.std.AssumeFPS(smooth, fpsnum=target_num, fpsden=target_den)
-smooth.set_output()
+    smooth = core.std.AssumeFPS(smooth, fpsnum=target_num, fpsden=target_den)
+    smooth.set_output()

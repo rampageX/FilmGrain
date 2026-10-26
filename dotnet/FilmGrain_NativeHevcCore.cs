@@ -328,7 +328,7 @@ namespace FilmGrainStudioPreview
             string grainFileName = !grainEnabled ? "" : plateMode ? "_FG_" + grainTag + "_STR" + plateStrengthPercent.ToString(CultureInfo.InvariantCulture) : fgsimMode ? "_FG_FGSIM_" + fgsimTag : "_FG_DG" + procStrength.ToString(CultureInfo.InvariantCulture);
 
             if (grainEnabled && pixelPercent != 100) grainFileName += "_GS" + pixelPercent.ToString(CultureInfo.InvariantCulture);
-            string output = Path.Combine(outDir, Path.GetFileNameWithoutExtension(input) + (h264?"_H264_NVENC_":"_HEVC_") + speedSuffix + "_" + NvencRateControlCore.FileToken(state,bitrate) + fpsSuffix + deinterlaceSuffix + frame.FileSuffix + grainFileName + colorSuffix + lutNamingSuffix + (hdrToSdr ? "_SDR_" + tonemapLabel : "") + subSuffix + (mkv ? ".mkv" : ".mp4"));
+            string output = Path.Combine(outDir, Path.GetFileNameWithoutExtension(input) + (h264?"_H264_NVENC_":"_HEVC_") + speedSuffix + "_" + NvencRateControlCore.FileToken(state,bitrate) + fpsSuffix + deinterlaceSuffix + frame.FileSuffix + grainFileName + colorSuffix + lutNamingSuffix + (hdrToSdr ? "_SDR_" + tonemapLabel : "") + subSuffix + HardwareDecodeCore.FileSuffix(state) + (mkv ? ".mkv" : ".mp4"));
 
             if (File.Exists(output)) { reason = "native output already exists: " + output; return false; }
 

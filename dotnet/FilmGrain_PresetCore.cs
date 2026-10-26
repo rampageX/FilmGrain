@@ -31,7 +31,7 @@ namespace FilmGrainStudioPreview
         internal const string Styles="FontName FontSize PrimaryHex BorderHex Outline Shadow MarginV";
         internal const string BasicKeys="GRAIN_ENABLED AV1_GRAIN_STRENGTH HDR_POLICY AUDIO_MODE AUDIO_BITRATE INTERPOLATION_TARGET_FPS CINEMATIC_CROP_PER_SIDE CINEMATIC_CROP_HORIZONTAL CINEMATIC_NO_CROP COLOR_CORRECTION_ENABLED COLOR_CONTRAST COLOR_BRIGHTNESS COLOR_SATURATION COLOR_GAMMA COLOR_BLACK_WHITE NVENC_AV1_RATE_CONTROL NVENC_AV1_CQ NVENC_AV1_CQ_AUTO NVENC_HEVC_RATE_CONTROL NVENC_HEVC_CQ NVENC_HEVC_CQ_AUTO NVENC_H264_RATE_CONTROL NVENC_H264_CQ NVENC_H264_CQ_AUTO";
         internal static bool Contains(string list,string key) {return Array.IndexOf(list.Split(' '),key)>=0;}
-        internal static bool Includes(string kind,string key) {return FgsConfig.IsTaskKey(key)&&(kind=="Full"||key=="CPU_CODEC"||Contains("CPU_SVT_CQ CPU_SVT_CQ_AUTO",key)||key=="CPU_SVT_RATE_CONTROL"||Contains("CPU_X265_CQ CPU_X265_CQ_AUTO",key)||key=="CPU_X265_RATE_CONTROL"||Contains(BasicKeys,key));}
+        internal static bool Includes(string kind,string key) {return FgsConfig.IsTaskKey(key)&&(kind=="Full"||key=="GPU_DECODE"||key=="CPU_CODEC"||Contains("CPU_SVT_CQ CPU_SVT_CQ_AUTO",key)||key=="CPU_SVT_RATE_CONTROL"||Contains("CPU_X265_CQ CPU_X265_CQ_AUTO",key)||key=="CPU_X265_RATE_CONTROL"||Contains(BasicKeys,key));}
         internal static JavaScriptSerializer Serializer() {return new JavaScriptSerializer {MaxJsonLength=262144,RecursionLimit=16};}
         internal static FgsPreset Copy(FgsPreset p) {return Serializer().Deserialize<FgsPreset>(Serializer().Serialize(p));}
         internal static void Require(bool valid,string error) {if(!valid)throw new InvalidDataException(error);}
@@ -49,7 +49,7 @@ namespace FilmGrainStudioPreview
             if(k.EndsWith("_RATE_CONTROL")){Choice(v,"VBR CQ",k);return;}
             if(k.EndsWith("_CQ")){if(v!="AUTO")Number(v,1,k.Contains("AV1")||k.Contains("SVT")?63:51,k);return;}
             if(k.EndsWith("_CQ_MAXRATE")){Number(v,1,1000,k);return;}
-            if(k.EndsWith("_CQ_LIMIT_ENABLED")||k.EndsWith("TEMPORAL_AQ")||Contains("GRAIN_ENABLED H264_HIGH10 AV1_COPY_FAST AV1_COPY_FULL_VERIFY SVP_STILL SVP_PEEL SVP_EXACT SVP_LEAN COLOR_CORRECTION_ENABLED COLOR_BLACK_WHITE",k)){Choice(v,"true false",k);return;}
+            if(k.EndsWith("_CQ_LIMIT_ENABLED")||k.EndsWith("TEMPORAL_AQ")||Contains("GPU_DECODE GRAIN_ENABLED H264_HIGH10 AV1_COPY_FAST AV1_COPY_FULL_VERIFY SVP_STILL SVP_PEEL SVP_EXACT SVP_LEAN COLOR_CORRECTION_ENABLED COLOR_BLACK_WHITE",k)){Choice(v,"true false",k);return;}
             if(k.EndsWith("SPATIAL_AQ")){Choice(v,"0 4 8 10 12 15",k);return;}
             if(k.EndsWith("MULTIPASS")){Choice(v,"FGS DISABLED QRES FULLRES",k);return;}
             if(k.EndsWith("BFRAMES")){Choice(v,"FGS 0 1 2 3 4",k);return;}
@@ -291,7 +291,7 @@ namespace FilmGrainStudioPreview
             case "cmbInterpolationMode":return "插帧算法 [0 SVP / 1 SVP 场景融合 / 2 FRUC]";case "chkInterpolation":return "插帧开关";
             case "cmbInterpolationFps":return "插帧目标帧率";case "cmbDeint":return "反交错 [0 自动 / 1 关闭]";
             case "cmbDeintMethod":return "反交错算法 [0 Vulkan / 1 CUDA / 2 W3FDIF]";case "chkCinematic":return "电影画幅";
-            case "cmbFrameMode":return "画幅 [0 黑边 / 1 裁剪]";case "chkHighMotion":return "高动态策略";case "chkSfe":return "分割编码";
+            case "GPU_DECODE":return "GPU 硬件解码";case "cmbFrameMode":return "画幅 [0 黑边 / 1 裁剪]";case "chkHighMotion":return "高动态策略";case "chkSfe":return "分割编码";
             case "cmbFps":return "输出帧率 [0 自动 / 1 源帧率]";case "HDR_POLICY":return "HDR 策略";case "AUDIO_MODE":return "音频策略";
             case "AUDIO_BITRATE":return "音频码率";case "selectedLutPath":return "LUT 资源";case "selectedGrainPlatePath":return "扫描颗粒资源";case "selectedAv1GrainTable":return "AV1 颗粒表资源";
             default:

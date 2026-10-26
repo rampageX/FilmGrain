@@ -799,7 +799,7 @@ namespace FilmGrainStudioPreview
             NativeProcessPolicy.ValidateTool(toolPath);
             ProcessStartInfo direct = new ProcessStartInfo();
             direct.FileName = toolPath;
-            direct.Arguments = arguments ?? "";
+            direct.Arguments = HardwareDecodeCore.ApplyArguments(toolPath,arguments ?? "",request.Environment);
             direct.UseShellExecute = false;
             direct.CreateNoWindow = true;
             direct.RedirectStandardOutput = true;

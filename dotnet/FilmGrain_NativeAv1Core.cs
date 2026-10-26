@@ -163,7 +163,7 @@ namespace FilmGrainStudioPreview
             }
             if (interpolate) fpsSuffix = (fruc ? "_FRUC" : "_SVP") + frucRate.Label;
             string output = Path.Combine(outputDirectory,
-                Path.GetFileNameWithoutExtension(input) + "_AV1_" + speed + "_" + NvencRateControlCore.FileToken(state,bitrate) + fpsSuffix + deinterlaceSuffix + frame.FileSuffix + (grainEnabled ? "_GS_" + grainTag : "") + colorSuffix + lutNamingSuffix + (hdrToSdr ? "_SDR_" + tonemapLabel : "") + subtitleSuffix + extension);
+                Path.GetFileNameWithoutExtension(input) + "_AV1_" + speed + "_" + NvencRateControlCore.FileToken(state,bitrate) + fpsSuffix + deinterlaceSuffix + frame.FileSuffix + (grainEnabled ? "_GS_" + grainTag : "") + colorSuffix + lutNamingSuffix + (hdrToSdr ? "_SDR_" + tonemapLabel : "") + subtitleSuffix + HardwareDecodeCore.FileSuffix(state) + extension);
             if (File.Exists(output)) { reason = "native output already exists: " + output; return false; }
 
             string ffmpeg = Path.Combine(ReadConfigValue(appRoot, "FFMPEG_DIR"), "ffmpeg.exe");
@@ -877,7 +877,7 @@ namespace FilmGrainStudioPreview
             string dir=string.Equals(mode,"CUSTOM",StringComparison.OrdinalIgnoreCase)?custom:Path.GetDirectoryName(input);
             if(string.IsNullOrWhiteSpace(dir))throw new InvalidOperationException("烘焙输出目录未配置。 / Output directory is not configured.");
             string selected;state.TryGetValue("FG_BAKE_ENCODER",out selected);
-            return Path.Combine(dir,Path.GetFileNameWithoutExtension(input)+(string.Equals(selected,"HEVC_NVENC",StringComparison.OrdinalIgnoreCase)?"_BAKED_HEVC_MAIN10_NVENC":"_BAKED_H264_"+(nvenc?"NVENC":"X264"))+"_"+bitrate.ToString(CultureInfo.InvariantCulture)+"k.mp4");
+            return Path.Combine(dir,Path.GetFileNameWithoutExtension(input)+(string.Equals(selected,"HEVC_NVENC",StringComparison.OrdinalIgnoreCase)?"_BAKED_HEVC_MAIN10_NVENC":"_BAKED_H264_"+(nvenc?"NVENC":"X264"))+"_"+bitrate.ToString(CultureInfo.InvariantCulture)+"k"+HardwareDecodeCore.FileSuffix(state)+".mp4");
         }
         internal static bool TryPrepare(string appRoot,string input,MediaProbeInfo info,IDictionary<string,string> state,
             out BridgePreparedExecution prepared,out string reason)

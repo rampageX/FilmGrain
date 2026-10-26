@@ -23,6 +23,7 @@ namespace FilmGrainStudioPreview
         public string Container = "MP4";
 
         public string Mode = "";
+        public string GpuDecode="false";
         public string CpuSvtTuning="FGS";
         public string CpuSvtGrainTune="AUTO",CpuX265GrainTune="AUTO",X264GrainTune="AUTO";
         public string CpuSvtPreset="6",CpuX265Preset="medium",CpuX265ThreadedMe="false";
@@ -137,6 +138,7 @@ namespace FilmGrainStudioPreview
             state["FG_OUTPUT_SPACE_CONFIRMED"] = "1";
             state["FG_KEEP_FAILED"] = "1";
             state["FG_MODE"] = snapshot.Mode;
+            state["FG_GPU_DECODE"]=snapshot.GpuDecode=="true"?"1":"0";
             state["FG_CPU_SVT_TUNING"]=snapshot.CpuSvtTuning;
             state["FG_CPU_SVT_GRAIN_TUNE"]=snapshot.CpuSvtGrainTune;state["FG_CPU_X265_GRAIN_TUNE"]=snapshot.CpuX265GrainTune;state["FG_X264_GRAIN_TUNE"]=snapshot.X264GrainTune;
             state["FG_CPU_SVT_PRESET"]=snapshot.CpuSvtPreset;state["FG_CPU_X265_PRESET"]=snapshot.CpuX265Preset;state["FG_CPU_X265_THREADED_ME"]=snapshot.CpuX265ThreadedMe;

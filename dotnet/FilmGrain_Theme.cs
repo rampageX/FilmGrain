@@ -1050,6 +1050,19 @@ namespace FilmGrainStudioPreview
     {
         private bool dark;
         private HeaderTailWindow header;
+        internal event ColumnClickEventHandler ColumnHeaderDoubleClick;
+        private void HeaderDoubleClick(IntPtr position)
+        {
+            int x=(short)(position.ToInt64()&0xffff),y=(short)((position.ToInt64()>>16)&0xffff);
+            for(int i=0;i<Columns.Count;i++) {
+                NativeRect rect=new NativeRect();
+                if(SendRect(header.Handle,0x1207,new IntPtr(i),ref rect)==IntPtr.Zero)continue;
+                // Leave divider double-click to native column auto-sizing.
+                if(x>=rect.Left+4 && x<rect.Right-4 && y>=rect.Top && y<rect.Bottom) {
+                    var handler=ColumnHeaderDoubleClick;if(handler!=null)handler(this,new ColumnClickEventArgs(i));return;
+                }
+            }
+        }
         [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
         private struct NativeRect { internal int Left,Top,Right,Bottom; }
         [System.Runtime.InteropServices.DllImport("user32.dll",EntryPoint="SendMessageW")]
@@ -1088,7 +1101,9 @@ namespace FilmGrainStudioPreview
             protected override void WndProc(ref Message m)
             {
                 int message=m.Msg;
+                IntPtr position=m.LParam;
                 base.WndProc(ref m);
+                if(message==0x0203 && !owner.IsDisposed && !owner.Disposing)owner.HeaderDoubleClick(position);
                 if(!owner.dark || owner.IsDisposed || owner.Disposing || Handle==IntPtr.Zero ||
                     (message!=0x000F && message!=0x0014))return;
                 NativeRect client;

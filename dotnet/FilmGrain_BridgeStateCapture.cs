@@ -248,6 +248,7 @@ namespace FilmGrainStudioPreview
 
         private void CaptureCommonEnvironmentState(BridgeEnvironmentSnapshot snapshot)
         {
+            snapshot.GpuDecode=config.Get("GPU_DECODE");
             snapshot.CpuSvtTuning=config.Get("CPU_SVT_TUNING");
             snapshot.CpuSvtGrainTune=config.Get("CPU_SVT_GRAIN_TUNE");snapshot.CpuX265GrainTune=config.Get("CPU_X265_GRAIN_TUNE");snapshot.X264GrainTune=config.Get("X264_GRAIN_TUNE");
             snapshot.CpuSvtPreset=config.Get("CPU_SVT_PRESET");snapshot.CpuX265Preset=config.Get("CPU_X265_PRESET");snapshot.CpuX265ThreadedMe=config.Get("CPU_X265_THREADED_ME");
@@ -334,6 +335,7 @@ namespace FilmGrainStudioPreview
             FileEditorSettings value=source.Copy();restoringFileEditor=true;SuspendLayout();
             try {
                 config.UseTaskValues(taskOverlay?value.Config:null);
+                if(chkGpuDecode!=null)chkGpuDecode.Checked=config.GetBool("GPU_DECODE");
                 if(fileCopyFastMenu!=null)fileCopyFastMenu.Checked=config.Get("AV1_COPY_FAST")!="false";
                 if(fileCopyVerifyMenu!=null)fileCopyVerifyMenu.Checked=config.GetBool("AV1_COPY_FULL_VERIFY");
                 foreach(var pair in value.Fields)EditorField(pair.Key).SetValue(this,pair.Value);
@@ -407,6 +409,9 @@ namespace FilmGrainStudioPreview
             fileSettingsMode=new ThemeCheckBox {Text=UiText("独立配置","Per-file"),AutoSize=true,Checked=false,Margin=Padding.Empty};
             fileSettingsMode.CheckedChanged+=delegate {ChangeFileSettingsMode();};
             panel.Controls.Add(fileSettingsMode);AddPresetControls(panel);
+            var resetAll=new ThemeButton {Text=UiText("重置","Reset")};
+            resetAll.Click+=delegate {ResetQueueStatus(listFiles.Items);};
+            panel.Controls.Add(resetAll);
             bool aligning=false;FlowLayoutPanel above=null;
             Action align=delegate {
                 if(aligning||above==null||above.IsDisposed||above.Controls.Count<4||panel.IsDisposed)return;
@@ -420,7 +425,8 @@ namespace FilmGrainStudioPreview
                     fileSettingsMode.SetBounds(offset+add.Left,Math.Max(0,(panel.ClientSize.Height-caption.Height)/2),caption.Width,caption.Height);
                     Control manager=panel.Controls[1];
                     manager.SetBounds(offset+remove.Left,Math.Max(0,(panel.ClientSize.Height-remove.Height)/2),remove.Width,remove.Height);
-                    presetSelector.SetBounds(offset+clear.Left,Math.Max(0,(panel.ClientSize.Height-presetSelector.Height)/2),Math.Max(1,bake.Right-clear.Left),presetSelector.Height);
+                    resetAll.SetBounds(offset+clear.Left,Math.Max(0,(panel.ClientSize.Height-clear.Height)/2),clear.Width,clear.Height);
+                    presetSelector.SetBounds(offset+bake.Left,Math.Max(0,(panel.ClientSize.Height-presetSelector.Height)/2),bake.Width,presetSelector.Height);
                 } finally {aligning=false;}
             };
             LayoutEventHandler onAboveLayout=delegate{align();};
@@ -443,12 +449,27 @@ namespace FilmGrainStudioPreview
             }
         }
         // Membership is scoped to the current list; reset or remove/re-add requests a rerun.
-        private void ResetSelectedQueueStatus()
+        private long nextQueueFileOrder;
+        private int queueSortColumn=-1,queueSortMode;
+        private void SortQueueFiles(int column)
+        {
+            if(column<0||column>2||bridgeTaskCoordinator!=null&&bridgeTaskCoordinator.IsActive)return;
+            queueSortMode=queueSortColumn==column?(queueSortMode+1)%3:1;queueSortColumn=column;
+            bool wasChanging=changingFileSelection;changingFileSelection=true;listFiles.BeginUpdate();
+            try {
+                listFiles.ListViewItemSorter=new QueueFileListComparer(column,queueSortMode);
+                listFiles.Sort();
+                string[] titles={lang.T("input.column.filename"),lang.T("input.column.size"),UiText("状态","Status")};
+                for(int i=0;i<titles.Length;i++)listFiles.Columns[i].Text=titles[i]+(i==column&&queueSortMode!=0?(queueSortMode==1?" ↑":" ↓"):"");
+            } finally {listFiles.ListViewItemSorter=null;listFiles.EndUpdate();changingFileSelection=wasChanging;}
+        }
+        private void ResetSelectedQueueStatus() {ResetQueueStatus(listFiles.SelectedItems);}
+        private void ResetQueueStatus(System.Collections.IEnumerable items)
         {
             if(bridgeTaskCoordinator!=null&&bridgeTaskCoordinator.IsActive)return;
             listFiles.BeginUpdate();
             try {
-                foreach(ListViewItem item in listFiles.SelectedItems) {
+                foreach(ListViewItem item in items) {
                     string path=item.Tag as string;if(string.IsNullOrEmpty(path))continue;
                     completedQueueFiles.Remove(path);
                     submittedQueueFiles.Remove(path);
@@ -534,4 +555,24 @@ namespace FilmGrainStudioPreview
         }
     }
 
+
+    // Sorting uses cached bytes and insertion ordinals, never disk I/O or display units.
+    internal sealed class QueueFileListComparer : System.Collections.IComparer
+    {
+        private readonly int column,mode;
+        internal QueueFileListComparer(int column,int mode){this.column=column;this.mode=mode;}
+        private static long Number(object value){return value is long?(long)value:0;}
+        public int Compare(object left,object right)
+        {
+            var a=(ListViewItem)left;var b=(ListViewItem)right;
+            int original=Number(a.SubItems[0].Tag).CompareTo(Number(b.SubItems[0].Tag));
+            if(mode==0)return original;
+            int compared;
+            if(column==1)compared=Number(a.SubItems[1].Tag).CompareTo(Number(b.SubItems[1].Tag));
+            else if(column==2)compared=StringComparer.CurrentCultureIgnoreCase.Compare(a.SubItems[2].Text,b.SubItems[2].Text);
+            else compared=StringComparer.CurrentCultureIgnoreCase.Compare(Path.GetFileName(a.Tag as string??a.Text),Path.GetFileName(b.Tag as string??b.Text));
+            if(compared==0)return original;
+            return mode==2?-Math.Sign(compared):Math.Sign(compared);
+        }
+    }
 }
