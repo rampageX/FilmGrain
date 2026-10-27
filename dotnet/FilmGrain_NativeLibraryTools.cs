@@ -248,50 +248,5 @@ namespace FilmGrainStudioPreview
                 }
             }
         }
-        internal static List<string> CacheEncodeArguments(string input,string temp,string hash,bool small)
-        {
-            var a=new List<string> { "-hide_banner","-stats","-nostdin","-y" };
-            if(small) a.AddRange(new[] { "-init_hw_device","vulkan=vk:0","-filter_hw_device","vk" });
-            a.AddRange(new[] { "-i",input,"-filter_complex", "[0:v:0]format=p010le,"+(small?"hwupload,scale_vulkan=w=1920:h=1080:scaler=bilinear,hwdownload,format=p010le,":"")+
-                "split=2[venc][vhash];[vhash]format=yuv420p10le[vhash10]",
-                "-map","[venc]","-an","-sn","-dn","-c:v","hevc_nvenc","-profile:v","main10","-pix_fmt","p010le","-preset","p5","-tune","lossless","-fps_mode","passthrough",temp,
-                "-map","[vhash10]","-an","-sn","-dn","-c:v","rawvideo","-pix_fmt","yuv420p10le","-fps_mode","passthrough","-f","hash","-hash","sha256",hash });
-            return a;
-        }
-        internal static string ReadHash(string path)
-        {
-            string text=File.ReadAllText(path).Trim();
-            if(!Regex.IsMatch(text,@"^SHA256=[0-9a-fA-F]{64}$")) throw new IOException("无效 SHA-256 样本哈希："+path);
-            return text.ToLowerInvariant();
-        }
-        internal static LibraryToolResult BuildCaches(string root,string ffmpeg,CancellationToken token,Action<string> log,LibraryToolRunner run)
-        {
-            var result=new LibraryToolResult(); var movs=Scan(root,"",new[] { ".mov" },log);
-            try {
-                int n=0;
-                foreach(string mov in movs) foreach(bool small in new[] { false,true }) {
-                    token.ThrowIfCancellationRequested(); n++;
-                    string output=Path.Combine(Path.GetDirectoryName(mov),Path.GetFileNameWithoutExtension(mov)+(small?"_1080p_HEVC_Lossless.mkv":"_HEVC_Lossless.mkv"));
-                    log("["+n+"/"+(movs.Count*2)+"] "+(small?"1080p Vulkan":"原分辨率")+" 缓存："+mov);
-                    if(File.Exists(output)) { result.Skipped++; log("跳过已有缓存："+output); continue; }
-                    string temp=output+".tmp_"+Guid.NewGuid().ToString("N")+".mkv", src=temp+".src.sha256",dst=temp+".dst.sha256";
-                    try {
-                        log("编码并捕获同一次过滤流的 10-bit 样本哈希");
-                        if(run(ffmpeg,CacheEncodeArguments(mov,temp,src,small),root,token,log)!=0) throw new IOException("HEVC NVENC / Vulkan 编码失败；未生成可用缓存");
-                        token.ThrowIfCancellationRequested();
-                        log("解码缓存并验证 10-bit 样本哈希");
-                        var a=new List<string> { "-v","error","-nostdin","-y","-i",temp,"-map","0:v:0","-an","-sn","-dn","-vf","format=yuv420p10le","-c:v","rawvideo","-pix_fmt","yuv420p10le","-fps_mode","passthrough","-f","hash","-hash","sha256",dst };
-                        if(run(ffmpeg,a,root,token,log)!=0 || ReadHash(src)!=ReadHash(dst)) throw new IOException("10-bit 样本验证失败；保留原 MOV，不发布缓存");
-                        token.ThrowIfCancellationRequested();
-                        // No overwrite: another instance may have published the cache while this job was running.
-                        if(File.Exists(output)) { result.Skipped++; log("缓存已由另一任务生成，本次跳过发布"); }
-                        else { File.Move(temp,output); result.Success++; log("验证通过，已发布缓存："+output); }
-                    } catch(OperationCanceledException) { throw; }
-                    catch(Exception ex) { result.Failed++; log("失败："+ex.Message); }
-                    finally { DeleteTemp(temp); DeleteTemp(src); DeleteTemp(dst); }
-                }
-            } catch(OperationCanceledException) { result.Cancelled=true; }
-            log(result.Summary); return result;
-        }
     }
 }

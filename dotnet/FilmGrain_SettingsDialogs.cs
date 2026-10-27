@@ -372,10 +372,8 @@ namespace FilmGrainStudioPreview
                 Label statusGrav = ConfigStatusLabel(lang.T("config.not_checked"));
                 Label statusGrain = ConfigStatusLabel(lang.T("config.not_checked"));
                 Label statusLut = ConfigStatusLabel(lang.T("config.not_checked"));
-                Button buildCache = ConfigButton(lang.T("config.build_cache"));
                 Button buildThumbs = ConfigButton(lang.T("config.build_thumbs"));
                 ToolTip configTip = new ThemeToolTip();
-                configTip.SetToolTip(buildCache, lang.T("config.tip.cache"));
                 configTip.SetToolTip(buildThumbs, lang.T("config.tip.thumbs"));
 
                 table.Controls.Add(ConfigLabelWithWebLink(lang.T("config.ffmpeg_dir"),StableFfmpegDownloadUrl,UiText("推荐下载：Windows 稳定版","Recommended download: Windows Stable"),dlg), 0, 0);
@@ -389,7 +387,7 @@ namespace FilmGrainStudioPreview
                 table.Controls.Add(statusGrav, 1, 5); table.SetColumnSpan(statusGrav, 3);
                 table.Controls.Add(ConfigLabelWithReadme(lang.T("config.grain_root"), "hevc真实扫描-grain-plate", dlg), 0, 6);
                 table.Controls.Add(txtGrain, 1, 6); table.Controls.Add(btnGrain, 2, 6); table.Controls.Add(refreshGrain, 3, 6);
-                table.Controls.Add(statusGrain, 1, 7); table.Controls.Add(buildCache, 2, 7); table.SetColumnSpan(buildCache, 2);
+                table.Controls.Add(statusGrain, 1, 7); table.SetColumnSpan(statusGrain, 3);
                 table.Controls.Add(ConfigLabelWithReadme(lang.T("config.lut_root"), "lut-gallery-与-film-look", dlg), 0, 8);
                 table.Controls.Add(txtLut, 1, 8); table.Controls.Add(btnLut, 2, 8); table.Controls.Add(refreshLut, 3, 8);
                 table.Controls.Add(statusLut, 1, 9); table.Controls.Add(buildThumbs, 2, 9); table.SetColumnSpan(buildThumbs, 2);
@@ -468,7 +466,7 @@ namespace FilmGrainStudioPreview
 
                 EventHandler markFfmpeg = delegate { statusFfmpeg.Text = lang.T("config.path_changed"); };
                 EventHandler markGrav = delegate { statusGrav.Text = lang.T("config.path_changed"); };
-                EventHandler markGrain = delegate { statusGrain.Text = lang.T("config.path_changed"); buildCache.Enabled = false; };
+                EventHandler markGrain = delegate { statusGrain.Text = lang.T("config.path_changed"); };
                 EventHandler markLut = delegate { statusLut.Text = lang.T("config.path_changed"); buildThumbs.Enabled = false; };
                 txtFfmpeg.TextChanged += markFfmpeg; txtGrav.TextChanged += markGrav; txtGrain.TextChanged += markGrain; txtLut.TextChanged += markLut;
 
@@ -501,22 +499,13 @@ namespace FilmGrainStudioPreview
                 };
                 Action updateGrain = delegate
                 {
-                    string root = txtGrain.Text.Trim(); buildCache.Enabled = false;
+                    string root = txtGrain.Text.Trim();
                     if (!Directory.Exists(root)) { statusGrain.Text = lang.T("config.detect.grain_missing"); return; }
                     statusGrain.Text = lang.T("config.detect.grain_scan"); Application.DoEvents();
                     try
                     {
                         string[] movs = Directory.GetFiles(root, "*.mov", SearchOption.AllDirectories);
-                        int full = 0, small = 0;
-                        foreach (string mov in movs)
-                        {
-                            string dir = Path.GetDirectoryName(mov) ?? "";
-                            string baseName = Path.GetFileNameWithoutExtension(mov);
-                            if (File.Exists(Path.Combine(dir, baseName + "_HEVC_Lossless.mkv"))) full++;
-                            if (File.Exists(Path.Combine(dir, baseName + "_1080p_HEVC_Lossless.mkv"))) small++;
-                        }
-                        statusGrain.Text = movs.Length == 0 ? lang.T("config.detect.grain_zero") : LF("config.detect.grain_count", movs.Length, full, small);
-                        buildCache.Enabled = movs.Length > 0 && (full < movs.Length || small < movs.Length);
+                        statusGrain.Text = movs.Length == 0 ? lang.T("config.detect.grain_zero") : LF("config.detect.grain_count", movs.Length);
                     }
                     catch (Exception ex) { statusGrain.Text = LF("config.detect.grain_fail", ex.Message); }
                 };
@@ -564,7 +553,6 @@ namespace FilmGrainStudioPreview
                 btnTemp.Click += delegate { PickFolder(dlg, txtTemp, lang.T("config.temp_browse"), true); };
                 btnOutput.Click += delegate { PickFolder(dlg, txtOutput, lang.T("config.output_browse"), true); };
 
-                buildCache.Click += delegate { RunGrainCacheUtility(dlg, txtGrain.Text.Trim(), txtFfmpeg.Text.Trim(), updateGrain); };
                 buildThumbs.Click += delegate { RunLutPreviewUtility(dlg, txtLut.Text.Trim(), txtFfmpeg.Text.Trim(), updateLut); };
 
                 restore.Click += delegate

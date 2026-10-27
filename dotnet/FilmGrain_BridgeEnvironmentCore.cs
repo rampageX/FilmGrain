@@ -328,6 +328,29 @@ namespace FilmGrainStudioPreview
     }
     internal static class SharedGrainCore
     {
+        // This is a metadata probe only; no encoded grain cache is created or selected.
+        // Keep scaling when the dimensions cannot be established, preserving MOV compatibility.
+        internal static bool NeedsPlateScaling(string ffprobe, string plate, int width, int height)
+        {
+            if (width <= 0 || height <= 0) return true;
+            try
+            {
+                string output, reason;
+                if (!SharedFrucCore.Run(ffprobe, "-v error -select_streams v:0 -show_entries stream=width,height -of default=noprint_wrappers=1 " + SharedFrucCore.Quote(plate),
+                    5000, out output, out reason)) return true;
+                int plateWidth = 0, plateHeight = 0;
+                foreach (string raw in output.Split(new char[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    string line = raw.Trim();
+                    if (line.StartsWith("width=", StringComparison.Ordinal))
+                        int.TryParse(line.Substring(6), NumberStyles.Integer, CultureInfo.InvariantCulture, out plateWidth);
+                    else if (line.StartsWith("height=", StringComparison.Ordinal))
+                        int.TryParse(line.Substring(7), NumberStyles.Integer, CultureInfo.InvariantCulture, out plateHeight);
+                }
+                return plateWidth != width || plateHeight != height;
+            }
+            catch { return true; }
+        }
         // Missing setting means enabled, including state produced before this option existed.
         internal static bool IsEnabled(IDictionary<string,string> state)
         { string value; return state == null || !state.TryGetValue("FG_GRAIN_ENABLED",out value) || value != "0"; }

@@ -8,26 +8,6 @@ namespace FilmGrainStudioPreview
 {
     internal sealed partial class MainForm
     {
-        private void RunGrainCacheUtility(Form owner, string root, string ffdir, Action refresh)
-        {
-            refresh(); if (!Directory.Exists(root)) return;
-            int full=0,small=0;List<string> movs;
-            try {
-                movs=NativeLibraryTools.Scan(root,"",new[]{".mov"},delegate{});
-                foreach(string mov in movs) {
-                    string prefix=Path.Combine(Path.GetDirectoryName(mov),Path.GetFileNameWithoutExtension(mov));
-                    if(!File.Exists(prefix+"_HEVC_Lossless.mkv"))full++;
-                    if(!File.Exists(prefix+"_1080p_HEVC_Lossless.mkv"))small++;
-                }
-            } catch(Exception ex){MessageBox.Show(owner,LF("config.detect.grain_fail",ex.Message));return;}
-            if(full+small==0)return;
-            string ffmpeg=Path.Combine(ffdir,"ffmpeg.exe");
-            if(!File.Exists(ffmpeg)){MessageBox.Show(owner,"FFmpeg 不存在："+ffmpeg);return;}
-            if(MessageBox.Show(owner,LF("config.cache_confirm",full,small),lang.T("config.cache_title"),MessageBoxButtons.YesNo,MessageBoxIcon.Question)!=DialogResult.Yes)return;
-            NativeLibraryToolDialog.Show(owner,lang.T("config.utility_cache"),delegate(CancellationToken token,Action<string> log){
-                return NativeLibraryTools.BuildCaches(root,ffmpeg,token,log,NativeLibraryTools.RunProcess);
-            });refresh();
-        }
         private void RunLutPreviewUtility(Form owner, string root, string ffdir, Action refresh)
         {
             refresh();if(!Directory.Exists(root))return;

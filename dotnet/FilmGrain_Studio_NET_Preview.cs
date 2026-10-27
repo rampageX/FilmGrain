@@ -107,8 +107,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.36";
-        internal const string FileReleaseVersion = "5.0.36.0";
+        internal const string ReleaseVersion = "5.0.37";
+        internal const string FileReleaseVersion = "5.0.37.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -1621,7 +1621,7 @@ namespace FilmGrainStudioPreview
             trackFilmGrainStrength = new ThemeTrackBar(); trackFilmGrainStrength.AutoSize = false; trackFilmGrainStrength.Height = 30; trackFilmGrainStrength.Dock = DockStyle.Fill; trackFilmGrainStrength.Margin = new Padding(0, 2, 6, 2); trackFilmGrainStrength.TickStyle = TickStyle.BottomRight;
             if (kind == "DIGITAL") { trackFilmGrainStrength.Minimum = 10; trackFilmGrainStrength.Maximum = 100; trackFilmGrainStrength.Value = Math.Max(10, Math.Min(100, proceduralStrength)); trackFilmGrainStrength.TickFrequency = 10; }
             else if (kind == "FGSIM") { trackFilmGrainStrength.Minimum = 0; trackFilmGrainStrength.Maximum = 3; trackFilmGrainStrength.Value = Math.Max(0, Math.Min(3, fgsimPresetIndex)); trackFilmGrainStrength.TickFrequency = 1; }
-            else { trackFilmGrainStrength.Minimum = 1; trackFilmGrainStrength.Maximum = 10; trackFilmGrainStrength.Value = GrainControlCore.SnapTen(scannedGrainStrengthPercent)/10; trackFilmGrainStrength.TickFrequency = 1; }
+            else { trackFilmGrainStrength.Minimum = 2; trackFilmGrainStrength.Maximum = 20; trackFilmGrainStrength.Value = GrainControlCore.SnapFive(scannedGrainStrengthPercent)/5; trackFilmGrainStrength.TickFrequency = 1; }
             trackFilmGrainStrength.SmallChange=1;trackFilmGrainStrength.LargeChange=1;
             lblFilmGrainValue = new ThemeLabel(); lblFilmGrainValue.AutoSize = false; lblFilmGrainValue.Dock = DockStyle.Fill; lblFilmGrainValue.Margin = new Padding(4, 0, 0, 2); lblFilmGrainValue.TextAlign = ContentAlignment.MiddleLeft;
             TableLayoutPanel slider = new TableLayoutPanel(); slider.Dock = DockStyle.Fill; slider.Margin = Padding.Empty; slider.ColumnCount = 2; slider.RowCount = 1; slider.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); slider.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 112)); slider.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
@@ -1631,7 +1631,7 @@ namespace FilmGrainStudioPreview
             { if(restoringFileEditor)return;
                 if (kind == "DIGITAL") proceduralStrength = trackFilmGrainStrength.Value;
                 else if (kind == "FGSIM") fgsimPresetIndex = trackFilmGrainStrength.Value;
-                else scannedGrainStrengthPercent = trackFilmGrainStrength.Value*10;
+                else scannedGrainStrengthPercent = trackFilmGrainStrength.Value*5;
                 UpdateGrainStrengthLabel(kind);
             };
             UpdateGrainStrengthLabel(kind);
@@ -1648,7 +1648,7 @@ namespace FilmGrainStudioPreview
             }
             else
             {
-                lblFilmGrainValue.Text=(trackFilmGrainStrength.Value*10).ToString(CultureInfo.InvariantCulture)+"%";
+                lblFilmGrainValue.Text=(trackFilmGrainStrength.Value*5).ToString(CultureInfo.InvariantCulture)+"%";
             }
         }
 
@@ -4017,7 +4017,7 @@ namespace FilmGrainStudioPreview
                 using(var window=new NativeGrainPreviewForm(Path.Combine(config.Get("FFMPEG_DIR"),"ffmpeg.exe"),appRoot,input,pixelState,hardwareCaps,info,lang.Code))
                 {window.ShowDialog(this);if(window.SelectedStrength>0 && trackFilmGrainStrength!=null) {
                     if(pixelState["FG_GRAIN_ENGINE"]=="FGSIM")trackFilmGrainStrength.Value=window.SelectedStrength-1;
-                    else if(pixelState["FG_GRAIN_ENGINE"]=="NATIVE")trackFilmGrainStrength.Value=window.SelectedStrength/10;
+                    else if(pixelState["FG_GRAIN_ENGINE"]=="NATIVE")trackFilmGrainStrength.Value=window.SelectedStrength/5;
                     else trackFilmGrainStrength.Value=window.SelectedStrength;
                 }}
                 return;

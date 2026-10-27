@@ -156,12 +156,8 @@ namespace FilmGrainStudioPreview
                 string plate = Get(state, "FG_HEVC_GRAIN_PATH");
                 if (string.IsNullOrWhiteSpace(plate) || !File.Exists(plate)) { reason = "selected Grain Plate is missing: " + plate; return false; }
                 grainInput = plate;
-                grainScale = true;
-                string stem = Path.Combine(Path.GetDirectoryName(plate), Path.GetFileNameWithoutExtension(plate));
-                string cache1080 = stem + "_1080p_HEVC_Lossless.mkv";
-                string cache4k = stem + "_HEVC_Lossless.mkv";
-                if (info.Width <= 1920 && info.Height <= 1080 && File.Exists(cache1080)) { grainInput = cache1080; grainScale = !(info.Width == 1920 && info.Height == 1080); }
-                else if (File.Exists(cache4k)) { grainInput = cache4k; grainScale = true; }
+                grainScale = SharedGrainCore.NeedsPlateScaling(ffprobe, plate, info.Width, info.Height);
+
                 int strengthSel;
                 if (!int.TryParse(Get(state, "FG_HEVC_STRENGTH_SEL"), NumberStyles.Integer, CultureInfo.InvariantCulture, out strengthSel)) strengthSel = 3;
                 plateStrengthPercent = GrainControlCore.PlatePercent(state);

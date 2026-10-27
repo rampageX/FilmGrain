@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.0.36 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.37 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
 
@@ -106,12 +106,12 @@ Digital Grain、扫描颗粒文件及 FGSIM 直接调整各自原有算法，不
 | 模式 | 强度控制 | 四格预览 |
 |---|---|---|
 | Digital Grain | 0.10–1.00，步进0.01；参考说明不变 | 0.25 / 0.50 / 0.75 / 1.00 |
-| 扫描颗粒文件 | 10%–100%，十档，步进10%；直接控制原有合成强度 | 25% / 50% / 75% / 100% |
+| 扫描颗粒文件 | 10%–100%，步进5%；直接控制原有合成强度 | 25% / 50% / 75% / 100% |
 | FGSIM | Light 0.10 / Normal 0.15 / Medium 0.20 / Heavy 0.30 | 四个实际预设 |
 
 FGSIM 在任务执行前以实际 shader 检查 GPU 输出像素，优先选择可用的 NVIDIA Vulkan 设备；未通过检查时尝试默认设备，均失败则停止并提示日志位置。Vulkan 设备编号与 NVENC 编号互不对应，不再直接认定设备 0 可用于 FGSIM。
 
-预览分别运行每档真实参数，不使用相对强度混合近似；保留时间轴、随机选点、1:1居中、原图对照及HDR显示转换。扫描颗粒的25%和75%为对比档，不属于十档滑杆，标注“仅对比”；其余可应用档位直接回填主界面。扫描颗粒初始值为80%，FGSIM仍默认Medium 0.20。预览仅比较颗粒，不包含LUT、调色、插帧、字幕和电影画幅；实际输出的HDR策略保持原有规则。
+预览分别运行每档真实参数，不使用相对强度混合近似；保留时间轴、随机选点、1:1居中、原图对照及HDR显示转换。扫描颗粒四档均可应用，准确回填主界面；滑杆按5%步进保留25%和75%。像素颗粒预览从原视频准确解码选定时间点，使用时间戳归零的临时无损片段，避免关键帧复制切片造成的开头黑屏。扫描颗粒初始值为80%，FGSIM仍默认Medium 0.20。预览仅比较颗粒，不包含LUT、调色、插帧、字幕和电影画幅；实际输出的HDR策略保持原有规则。
 
 ### AV1 颗粒强度与四档对比
 
@@ -236,7 +236,7 @@ AV1、HEVC、x264、H.264 NVENC 共用 .NET 串行队列。每个输入分别探
 
 共享预处理按实际路线处理 FRUC、OpenSVPFlow、HDR 转 SDR、时间轴与工作文件；最终封装和验证继续保留各编码器的职责。日志显示实际原生执行阶段。只有最终验证完成后才显示成功。
 
-四线共用的辅助功能包括硬件能力检测、LUT 图库与预览、参考图及索引同步、Grain Plate MOV 验证缓存、首次运行依赖安装、OpenSVPFlow 插件更新，以及 FGSIM 纹理 / hook 准备。这些入口由 .NET 原生实现执行。
+四线共用的辅助功能包括硬件能力检测、LUT 图库与预览、参考图及索引同步、Grain Plate MOV 扫描、首次运行依赖安装、OpenSVPFlow 插件更新，以及 FGSIM 纹理 / hook 准备。这些入口由 .NET 原生实现执行。
 
 Native 支持按具体组合判断。隔行 HDR 的 AUTO/OFF、HDR 保留/转换及已有输出复用沿用累计实现；隔行 OpenSVPFlow 按规则绕过光流、AUTO 输出 2x 场率，HDR 保留的渐进 HEVC/AV1 绕过 8-bit SVP。x264 HDR Preserve、隔行 FRUC 等原本不支持的组合显示原因并停止，不尝试 BAT。未知准备失败也停止并保留诊断。
 
@@ -475,26 +475,16 @@ HEVC 主线适合将真实扫描 Grain Plate 直接合成到视频像素，再�
 
 `高级设置 → HEVC` 和 `高级设置 → H264` 分别提供对应 NVENC 的独立 Spatial AQ 与 Temporal AQ 控制。Spatial AQ 可选 `0 / 4 / 8 / 10 / 12 / 15`，默认 `8`，其中 `0` 表示关闭；Temporal AQ 为同行复选框并默认关闭。两线分别保存并服从各自能力检测；不会改变 AV1 原有设置，也不作用于 x264。
 
-### Grain Cache
+### Grain MOV 直接使用
 
-FGS 会自动查找与原始 Grain MOV 同目录、同名的缓存：
+扫描颗粒直接读取所选 MOV，不再生成或自动选用同名 HEVC 无损 MKV 缓存。
+配置页只扫描 MOV 数量；已有缓存文件不会自动删除。
 
-```text
-*_1080p_HEVC_Lossless.mkv
-*_HEVC_Lossless.mkv
-```
+颗粒尺寸与合成画面一致时，跳过颗粒的 Vulkan 缩放；尺寸不同或尺寸探测失败时，
+保留原有缩放流程。网上下载的 MOV 仍按同一流程兼容。
 
-选择规则：
-
-```text
-≤ 1920×1080 → 优先使用 1080p Cache
-> 1920×1080 → 优先使用原分辨率 Cache
-找不到适用 Cache → 回退到原始 Grain MOV
-```
-
-GUI 的“配置 → Grain 根目录”会检查 Cache 完整度，缺失时可通过当前原生功能补建而不覆盖已有文件。
-
-Cache 校验采用实际 10-bit sample-exact 思路：从与 NVENC 相同的 P010 帧流中分出参考路径，规范化为 `yuv420p10le` 后计算 SHA-256，再与 HEVC 解码结果比较，从而避免不同 GPU / 驱动对 P010 低位填充实现差异造成假失败。
+使用生成器时，可直接导出与目标画面匹配的 Full HD 或 4K UHD 灰底 ProRes MOV，
+无需事先转码。P010 工作格式转换、帧率匹配及颗粒强度控制仍按原流程执行。
 
 免费 Grain Plate 素材：
 
@@ -516,7 +506,7 @@ D:\Film_Grain\
 
 ## H.264：x264 Grain
 
-H.264 x264 Grain 与 HEVC 共用真实扫描 Grain、LUT、Cinematic Style、字幕、反交错、Field-rate、OpenSVPFlow 与 Grain Cache 等前处理，只在最终编码器边界切换为 libx264。
+H.264 x264 Grain 与 HEVC 共用真实扫描 Grain、LUT、Cinematic Style、字幕、反交错、Field-rate、OpenSVPFlow 等前处理，只在最终编码器边界切换为 libx264。
 
 默认编码：
 
@@ -1154,7 +1144,7 @@ LUT 根目录：E:\Adobe Portable\LUTs
 - Grain 与 LUT 路径标签旁的 `[?]` 使用系统默认浏览器打开项目 README 的对应说明；
 - FFmpeg / FFprobe 显示版本；
 - grav1synth 显示版本；
-- Grain 根目录统计原始 MOV、原分辨率 Cache 与 1080p Cache；
+- Grain 根目录统计 MOV 颗粒文件，直接使用所选 MOV；
 - LUT 根目录统计 `.cube` LUT 与 Gallery 预览；
 - 临时目录与输出目录分别检查目录创建、写入权限与可用空间；
 - 浏览选择后立即检测；

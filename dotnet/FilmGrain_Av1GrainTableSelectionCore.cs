@@ -230,6 +230,7 @@ namespace FilmGrainStudioPreview
 
     internal static class GrainControlCore
     {
+        internal static int SnapFive(int value) { return Math.Max(10,Math.Min(100,((value+2)/5)*5)); }
         internal static int SnapTen(int value) { return Math.Max(10,Math.Min(100,((value+5)/10)*10)); }
         internal static readonly string[] FgsimPresets={"LIGHT","NORMAL","MEDIUM","HEAVY"};
         internal static readonly string[] FgsimStrengths={"0.10","0.15","0.20","0.30"};

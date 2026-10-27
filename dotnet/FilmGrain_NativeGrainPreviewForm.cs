@@ -27,7 +27,6 @@ namespace FilmGrainStudioPreview
         private readonly List<string>[] variants = { new List<string>(), new List<string>(), new List<string>(), new List<string>() };
         private readonly int[] strengths = {20,40,70,100};
         private string pixelKind="";
-        private bool CanApply(int index){return pixelKind!="NATIVE" || strengths[index]%10==0;}
         private readonly Button[] choose = {new ThemeButton(),new ThemeButton(),new ThemeButton(),new ThemeButton()};
         private readonly Label status = new ThemeLabel();
         private readonly TrackBar frame = new ThemeTrackBar();
@@ -60,7 +59,7 @@ namespace FilmGrainStudioPreview
                 var panel=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=1,RowCount=2};
                 panel.RowStyles.Add(new RowStyle(SizeType.Absolute,30));panel.RowStyles.Add(new RowStyle(SizeType.Percent,100));
                 choose[i].Text=strengths[i]+T("% · 点击应用","% · Apply");choose[i].Dock=DockStyle.Fill;choose[i].Enabled=false;
-                choose[i].Click+=delegate {if(!CanApply(index))return;SelectedStrength=strengths[index]; DialogResult=DialogResult.OK; Close();};
+                choose[i].Click+=delegate {SelectedStrength=strengths[index]; DialogResult=DialogResult.OK; Close();};
                 panes[i].Dock=DockStyle.Fill;panes[i].SizeMode=PictureBoxSizeMode.Zoom;panes[i].BackColor=Color.Black;
                 panel.Controls.Add(choose[i],0,0);panel.Controls.Add(panes[i],0,1);layout.Controls.Add(panel,i%2,i/2);
             }
@@ -100,7 +99,7 @@ namespace FilmGrainStudioPreview
             for(int i=0;i<4;i++) {
                 strengths[i]=pixelKind=="FGSIM"?i+1:(i+1)*25;
                 string label=pixelKind=="FGSIM"?GrainControlCore.FgsimPresets[i]+" / "+GrainControlCore.FgsimStrengths[i]:pixelKind=="PROCEDURAL"?(strengths[i]/100.0).ToString("0.00",CultureInfo.InvariantCulture):strengths[i]+"%";
-                choose[i].Text=label+(CanApply(i)?T(" · 点击应用"," · Apply"):T(" · 仅对比"," · Compare only"));
+                choose[i].Text=label+T(" · 点击应用"," · Apply");
             }
             Text=T("像素颗粒四档对比","Pixel grain comparison");
         }
@@ -151,9 +150,18 @@ namespace FilmGrainStudioPreview
                     Directory.CreateDirectory(temporary);
                     foreach(string path in Directory.GetFiles(temporary))File.Delete(path);
                     string sample=Path.Combine(temporary,"sample.mkv"),baseIvf=Path.Combine(temporary,"base.ivf"),model=Path.Combine(temporary,"model.ivf");
+                    string probe=Path.Combine(Path.GetDirectoryName(ffmpeg),"ffprobe.exe");
+                    if(pixelState!=null) {
+                        // Decode from the original source with accurate seeking. Stream-copy
+                        // cuts can expose missing references and unstable timestamps to previews.
+                        Run(ffmpeg,BuildPixelSampleArguments(source,seconds,sample));
+                        actualStart=seconds;
+                        RenderPixelSample(sample,probe,skipOpening);
+                    }
+                    else
+                    {
                     // Copy the keyframe sample with original PTS so the selected table can be rebased accurately.
                     Run(ffmpeg,new List<string>{"-hide_banner","-v","error","-y","-copyts","-ss",seconds.ToString("0.######",CultureInfo.InvariantCulture),"-noaccurate_seek","-i",source,"-map","0:v:0","-c:v","copy","-frames:v","160","-an","-sn","-dn","-avoid_negative_ts","disabled",sample});
-                    string probe=Path.Combine(Path.GetDirectoryName(ffmpeg),"ffprobe.exe");
                     var parser=new System.Web.Script.Serialization.JavaScriptSerializer();
                     string json=Run(probe,new List<string>{"-v","error","-select_streams","v:0","-read_intervals","%+#1","-show_packets","-show_entries","packet=pts_time,flags","-of","json",sample});
                     var data=parser.DeserializeObject(json) as Dictionary<string,object>;object raw;
@@ -166,9 +174,6 @@ namespace FilmGrainStudioPreview
                     var format=data!=null&&data.TryGetValue("format",out raw)?raw as Dictionary<string,object>:null;object originValue;
                     double origin=0;if(format!=null&&format.TryGetValue("start_time",out originValue))double.TryParse(Convert.ToString(originValue),NumberStyles.Float,CultureInfo.InvariantCulture,out origin);
                     actualStart=Math.Max(0,firstPts-origin);
-                    if(pixelState!=null) RenderPixelSample(sample,probe,skipOpening);
-                    else
-                    {
                     Run(ffmpeg,new List<string>{"-hide_banner","-v","error","-y","-i",sample,"-map","0:v:0","-c:v","copy","-an","-sn","-dn","-f","ivf",baseIvf});
                     json=Run(probe,new List<string>{"-v","error","-select_streams","v:0","-read_intervals","%+#1","-show_packets","-show_entries","packet=pts_time","-of","json",baseIvf});
                     data=parser.DeserializeObject(json) as Dictionary<string,object>;
@@ -210,7 +215,7 @@ namespace FilmGrainStudioPreview
                             for(int i=0;i<4;i++){variants[i].AddRange(Directory.GetFiles(temporary,"variant"+i+"_*.png"));variants[i].Sort(StringComparer.Ordinal);if(variants[i].Count!=cleanFrames.Count)throw new InvalidDataException(T("四档预览的帧数不一致。","Preview frame counts do not match."));}
                             if(cleanFrames.Count==0)throw new InvalidDataException(T("未生成预览画面。","No preview frames were generated."));
                             frame.Maximum=cleanFrames.Count-1;frame.Value=0;ShowFrame();
-                            play.Enabled=frame.Enabled=showClean.Enabled=true;for(int i=0;i<4;i++)choose[i].Enabled=CanApply(i);
+                            play.Enabled=frame.Enabled=showClean.Enabled=true;for(int i=0;i<4;i++)choose[i].Enabled=true;
                             status.Text=(automatic?T("随机选点：","Random position: "):T("请求起始：","Requested start: "))+requestedTime+T("；实际关键帧起始：","; actual keyframe start: ")+TimeSpan.FromSeconds(actualStart).ToString()+T("。同帧同种子，点击档位应用。\r\n仅比较颗粒；HDR 转换仅用于显示，不包含 LUT、调色或插帧。1:1 居中可检查颗粒细节。",". Same frames and seed; click a strength to apply.\r\nGrain only; HDR conversion is for display. LUTs, color correction and interpolation are excluded. Use 1:1 centered to inspect detail.");
                         }catch(Exception ex){ReleaseImages();status.Text=T("预览失败：","Preview failed: ")+ex.Message;}
                     }));}catch{running=false;Cleanup();}
@@ -224,10 +229,19 @@ namespace FilmGrainStudioPreview
             try{BeginInvoke(new Action(delegate {if(!closing&&!IsDisposed&&running)status.Text=renderLocation+T("；","; ")+text;}));}catch(InvalidOperationException){}
         }
 
+        internal static List<string> BuildPixelSampleArguments(string input,double seconds,string output)
+        {
+            if(double.IsNaN(seconds)||double.IsInfinity(seconds)||seconds<0)throw new ArgumentOutOfRangeException("seconds");
+            return new List<string> {"-hide_banner","-v","error","-nostdin","-y",
+                "-ss",seconds.ToString("0.######",CultureInfo.InvariantCulture),"-accurate_seek","-i",input,
+                "-map","0:v:0","-an","-sn","-dn","-vf","setpts=PTS-STARTPTS",
+                "-c:v","ffv1","-level","3","-threads","2","-frames:v","160","-t","8",
+                "-fps_mode","passthrough",output};
+        }
+
         private void RenderPixelSample(string sample,string probe,bool skipOpening)
         {
-            string normalized=Path.Combine(temporary,"normalized.mkv");
-            Run(ffmpeg,new List<string>{"-hide_banner","-v","error","-y","-i",sample,"-map","0:v:0","-c:v","copy",normalized});
+            string normalized=sample;
             var media=SharedEncodePreviewCore.Probe(normalized,probe,delegate {return closing;});
             int first=0;
             for(int level=0;level<4;level++) {

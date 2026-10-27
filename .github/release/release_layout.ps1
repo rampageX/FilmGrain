@@ -292,6 +292,19 @@ $ExcludedRecursiveDirectoryNames = @(
     '__pycache__'
 )
 $ExcludedRootDeliveryPatterns = @(
+    'Test_NoGrainCache_R8M4VN.cmd',
+    'Test_GrainPreview_K6N9VX.cmd',
+    'FGS_GrainCache_Benchmark_G7M4VN.cmd',
+    'R8M4VN_说明.txt',
+    'K6N9VX_说明.txt',
+    'Return_NoGrainCache_R8M4VN_*.zip',
+    'Return_GrainPreview_K6N9VX_*.zip',
+    'Return_GrainCache_G7M4VN_*.zip',
+    'FGS_NoGrainCache_R8M4VN*.zip',
+    'FGS_GrainPreview_K6N9VX*.zip',
+    'FGS_v5.0.37_ReleasePrep_*.zip',
+    'Clean_Tests_v5.0.37_M8Q4VN.cmd',
+    'v5.0.37_发布说明.txt',
     'FGS_v5.0.33_ReleasePrep_*.zip',
     'FGS_UIRefresh_*.zip',
     'FGS_AutoLanguage_*.zip',
@@ -394,6 +407,7 @@ function Get-ReleaseTrackedPaths {
 function Test-ExcludedSourcePath {
     param([string]$RelativePath)
     $n = $RelativePath.Replace('\', '/').Trim('/')
+    if ($n -match '^(Results_GrainCache_G7M4VN_|Results_NoGrainCache_R8M4VN_|Results_GrainPreview_K6N9VX_)[^/]*(/|$)') { return $true }
     if ($n -match '(^|/)Presets/User(?:\.seed\.[^/]+)?(/|$)') { return $true }
     if ($n -match '(^|/)UserPresets(?:\.seed\.[^/]+)?(/|$)') { return $true }
     if ($n.StartsWith('Presets/', [StringComparison]::OrdinalIgnoreCase) -and $RequiredPackageFiles -notcontains $n) { return $true }
