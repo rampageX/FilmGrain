@@ -107,8 +107,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.37";
-        internal const string FileReleaseVersion = "5.0.37.0";
+        internal const string ReleaseVersion = "5.0.38";
+        internal const string FileReleaseVersion = "5.0.38.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -1535,6 +1535,16 @@ namespace FilmGrainStudioPreview
                 platePanel.Controls.Add(cmbGrainPlate, 0, 0); platePanel.Controls.Add(refreshPlate, 1, 0);
                 AddLabeledRow(t, 0, UiText("颗粒文件", "Grain Plate"), platePanel);
                 BuildUnifiedGrainSlider(t, 1, "PLATE");
+                const string generatorName = "Film Grain Generator";
+                string generatorText = UiText("推荐使用 Film Grain Generator 生成自己的颗粒文件", "Use Film Grain Generator to create your own grain files");
+                var generatorNote = new LinkLabel { Text = generatorText, Dock = DockStyle.Fill, AutoSize = false,
+                    TextAlign = ContentAlignment.TopLeft, ForeColor = ColorMuted, LinkColor = ColorMuted,
+                    ActiveLinkColor = ColorMuted, VisitedLinkColor = ColorMuted, DisabledLinkColor = ColorMuted,
+                    Padding = new Padding(4, 6, 4, 0), Margin = new Padding(3), Tag = "MutedInfoLink" };
+                generatorNote.Links.Clear();
+                generatorNote.Links.Add(generatorText.IndexOf(generatorName, StringComparison.Ordinal), generatorName.Length);
+                generatorNote.LinkClicked += delegate { OpenWebLink(this, "https://github.com/rampageX/FilmGrain-Generator"); };
+                t.Controls.Add(generatorNote, 0, 2); t.SetColumnSpan(generatorNote, 2); t.SetRowSpan(generatorNote, 2);
             }
             else if ((av1 && mode == 3) || (!av1 && mode == 0))
             {

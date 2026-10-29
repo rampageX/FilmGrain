@@ -382,7 +382,7 @@ namespace FilmGrainStudioPreview
                 table.Controls.Add(ConfigLabelWithWebLink(UiText("特殊版 FFmpeg","Special FFmpeg"),SpecialFfmpegDownloadUrl,UiText("推荐下载：FRUC / SVT-AV1-HDR 特别版","Recommended download: FRUC / SVT-AV1-HDR"),dlg), 0, 2);
                 table.Controls.Add(frucPanel, 1, 2); table.Controls.Add(btnFruc, 2, 2); table.Controls.Add(refreshFruc, 3, 2);
                 table.Controls.Add(statusFruc, 1, 3); table.SetColumnSpan(statusFruc, 3);
-                table.Controls.Add(ConfigLabel("grav1synth"), 0, 4);
+                table.Controls.Add(ConfigLabelWithWebLink("grav1synth","https://github.com/rampageX/grav1synth",UiText("grav1synth 项目主页","grav1synth project homepage"),dlg), 0, 4);
                 table.Controls.Add(txtGrav, 1, 4); table.Controls.Add(btnGrav, 2, 4); table.Controls.Add(refreshGrav, 3, 4);
                 table.Controls.Add(statusGrav, 1, 5); table.SetColumnSpan(statusGrav, 3);
                 table.Controls.Add(ConfigLabelWithReadme(lang.T("config.grain_root"), "hevc真实扫描-grain-plate", dlg), 0, 6);

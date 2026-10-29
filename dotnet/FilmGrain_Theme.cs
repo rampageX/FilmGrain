@@ -264,6 +264,8 @@ namespace FilmGrainStudioPreview
                     link.ActiveLinkColor = dark ? TextColor : s.ActiveLink;
                     link.VisitedLinkColor = dark ? Color.FromArgb(182,167,218) : s.VisitedLink;
                     link.DisabledLinkColor = dark ? Muted : s.DisabledLink;
+                    if (string.Equals(link.Tag as string, "MutedInfoLink", StringComparison.Ordinal))
+                        link.LinkColor = link.ActiveLinkColor = link.VisitedLinkColor = link.DisabledLinkColor = c.ForeColor;
                 }
                 MaskedTextBox masked = c as MaskedTextBox;
                 if (masked != null) masked.BorderStyle = dark ? BorderStyle.FixedSingle : s.TextBorder;
