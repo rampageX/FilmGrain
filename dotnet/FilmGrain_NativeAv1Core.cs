@@ -310,8 +310,11 @@ namespace FilmGrainStudioPreview
             }
 
             int grainPercent = metadataGrain ? Av1GrainStrengthCore.Read(state) : 100;
+            bool directTableScale=metadataGrain && grainPercent!=100 && Eq(state,"FG_AV1_GRAIN_MODE","TABLE");
+            bool directPresetScale=metadataGrain && grainPercent!=100 && Eq(state,"FG_AV1_GRAIN_MODE","PRESET");
+            bool postScale=grainPercent!=100 && !directTableScale && !directPresetScale;
             string strengthIvf = grainIvf + ".strength.ivf";
-            string remuxVideo = metadataGrain ? (grainPercent == 100 ? grainIvf : strengthIvf) : cleanIvf;
+            string remuxVideo = metadataGrain ? (postScale ? strengthIvf : grainIvf) : cleanIvf;
             List<string> remux = new List<string>();
             Add(remux, "-hide_banner", "-stats", "-progress", "pipe:2", "-stats_period", "0.5", "-y", "-i", remuxVideo, "-i", input,
                 "-map", "0:v:0", "-map", "1:a?");
@@ -374,8 +377,11 @@ namespace FilmGrainStudioPreview
             if (metadataGrain)
             {
                 directStages.Add(Stage(ffmpeg, encodeWorkingDirectory, encode, duration, preStages + 1, totalStages, "AV1 Main10 encode"));
-                directStages.Add(Stage(grav1synth, tempRoot, apply, duration, preStages + 2, totalStages, "AV1 Film Grain metadata"));
-                if (grainPercent != 100) directStages.AddRange(Av1GrainStrengthCore.Stages(grav1synth,tempRoot,delegate { return grainIvf; },strengthIvf,grainPercent,request.TemporaryFiles));
+                var applyGrainStage=Stage(grav1synth, tempRoot, apply, duration, preStages + 2, totalStages, "AV1 Film Grain metadata");
+                if(directTableScale)Av1GrainStrengthCore.AttachTableScale(applyGrainStage,apply,Get(state,"FG_AV1_GRAIN_TABLE"),grainIvf+".scaled.tbl",grainPercent,request.TemporaryFiles);
+                if(directPresetScale)Av1GrainStrengthCore.AttachPresetScale(applyGrainStage,apply,grainIvf+".preset-scaled.tbl",grainPercent,request.TemporaryFiles);
+                directStages.Add(applyGrainStage);
+                if (postScale) directStages.AddRange(Av1GrainStrengthCore.Stages(grav1synth,tempRoot,delegate { return grainIvf; },strengthIvf,grainPercent,request.TemporaryFiles));
                 directStages.Add(Stage(ffmpeg, tempRoot, remux, duration, preStages + 3, totalStages, "AV1 container remux"));
             }
             else
@@ -394,7 +400,7 @@ namespace FilmGrainStudioPreview
             foreach (BridgeExecutionStage stage in directStages)
                     if (stage.StageText.StartsWith("AV1 container remux", StringComparison.Ordinal))
                         SharedFrucCore.AttachAv1RemuxTimeline(stage, ffprobe, remuxVideo, input, remux, !interpolate ? "ordinary" : fruc ? "FRUC" : "OpenSVPFlow");
-            if (grainPercent != 100) Av1GrainStrengthCore.NumberStages(directStages);
+            if (postScale) Av1GrainStrengthCore.NumberStages(directStages);
             request.DirectStages = directStages;
             if(info.IsHdr && info.IsInterlaced && !deinterlace)request.ExecutionNotice="[Native .NET] 反交错 OFF：沿用不反交错的逐帧处理，不启用 bob/光流或双倍场率；不保证隔行编码标记。 / Deinterlace OFF: frame processing without bob/interpolation; no interlaced-encoding flags are added.";
             if (fgsimGrain) FgsimTextureCore.AttachVerifiedDevice(request, fgsimHook, hdrPreserve);

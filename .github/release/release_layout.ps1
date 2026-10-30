@@ -292,6 +292,20 @@ $ExcludedRecursiveDirectoryNames = @(
     '__pycache__'
 )
 $ExcludedRootDeliveryPatterns = @(
+    'Test_TableScale_*.cmd',
+    'Test_Av1Preview_*.cmd',
+    'Test_PresetScale_*.cmd',
+    'TableScale_Fixture_*.tbl',
+    'TableScale_*_说明.md',
+    'AV1_颗粒审计_*.md',
+    'PresetScale_来源_*.md',
+    'PresetScale_测试说明_*.md',
+    'FGS_TableScale_*.zip',
+    'FGS_Av1Preview_*.zip',
+    'FGS_PresetScale_*.zip',
+    'Clean_Tests_v5.0.40_*.cmd',
+    'FGS_v5.0.40_ReleasePrep_*.zip',
+    'Clean_Tests_v5.0.39.cmd',
     'Test_EncodingMonitor_*.cmd',
     'MONITOR_PREVIEW_*.md',
     'FGS_EncodingMonitor*.zip',

@@ -25,7 +25,7 @@ namespace FilmGrainStudioPreview
         private volatile bool closing;
         private readonly PictureBox[] panes = { new PictureBox(), new PictureBox(), new PictureBox(), new PictureBox() };
         private readonly List<string>[] variants = { new List<string>(), new List<string>(), new List<string>(), new List<string>() };
-        private readonly int[] strengths = {20,40,70,100};
+        private readonly int[] strengths = {15,40,70,100};
         private string pixelKind="";
         private readonly Button[] choose = {new ThemeButton(),new ThemeButton(),new ThemeButton(),new ThemeButton()};
         private readonly Label status = new ThemeLabel();
@@ -43,10 +43,10 @@ namespace FilmGrainStudioPreview
         private string T(string zh,string en){return isZh?zh:en;}
         internal int SelectedStrength { get; private set; }
 
-        internal NativeGrainPreviewForm(string ffmpegPath, string gravPath, string input, List<string> args, MediaProbeInfo media, string languageCode = "zh-CN")
+        internal NativeGrainPreviewForm(string ffmpegPath, string gravPath, string input, List<string> args, MediaProbeInfo media, string languageCode = "zh-CN", HardwareCapabilitySnapshot metadataCaps = null)
         {
             isZh=string.Equals(languageCode,"zh-CN",StringComparison.OrdinalIgnoreCase);
-            info=media; ffmpeg=ffmpegPath; grav1synth=gravPath; source=input; grainArgs=new List<string>(args);
+            capabilities=metadataCaps; info=media; ffmpeg=ffmpegPath; grav1synth=gravPath; source=input; grainArgs=new List<string>(args);
             Text=T("颗粒四档对比","Four grain strengths");
             Size=new Size(1180,860); MinimumSize=new Size(1000,700); StartPosition=FormStartPosition.CenterParent;
             var layout=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=2,RowCount=4,Padding=new Padding(8)};
@@ -97,7 +97,7 @@ namespace FilmGrainStudioPreview
             appRoot=root;pixelState=new Dictionary<string,string>(state,StringComparer.OrdinalIgnoreCase);capabilities=caps;
             pixelKind=pixelState["FG_GRAIN_ENGINE"];
             for(int i=0;i<4;i++) {
-                strengths[i]=pixelKind=="FGSIM"?i+1:(i+1)*25;
+                if(pixelKind=="FGSIM")strengths[i]=i+1;
                 string label=pixelKind=="FGSIM"?GrainControlCore.FgsimPresets[i]+" / "+GrainControlCore.FgsimStrengths[i]:pixelKind=="PROCEDURAL"?(strengths[i]/100.0).ToString("0.00",CultureInfo.InvariantCulture):strengths[i]+"%";
                 choose[i].Text=label+T(" · 点击应用"," · Apply");
             }
@@ -160,6 +160,14 @@ namespace FilmGrainStudioPreview
                     }
                     else
                     {
+                    if (!string.Equals(info.VideoCodec,"av1",StringComparison.OrdinalIgnoreCase))
+                    {
+                        ReportProgress(T("正在将短片段转为 AV1（仅预览）…","Converting a short sample to AV1 (preview only)..."));
+                        Run(ffmpeg,BuildMetadataSampleArguments(source,seconds,baseIvf,info,capabilities!=null&&capabilities.Av1Available));
+                        actualStart=seconds;
+                    }
+                    else
+                    {
                     // Copy the keyframe sample with original PTS so the selected table can be rebased accurately.
                     Run(ffmpeg,new List<string>{"-hide_banner","-v","error","-y","-copyts","-ss",seconds.ToString("0.######",CultureInfo.InvariantCulture),"-noaccurate_seek","-i",source,"-map","0:v:0","-c:v","copy","-frames:v","160","-an","-sn","-dn","-avoid_negative_ts","disabled",sample});
                     var parser=new System.Web.Script.Serialization.JavaScriptSerializer();
@@ -180,6 +188,7 @@ namespace FilmGrainStudioPreview
                     packets=data!=null&&data.TryGetValue("packets",out raw)?raw as object[]:null;
                     packet=packets!=null&&packets.Length>0?packets[0] as Dictionary<string,object>:null;
                     if(packet==null||!packet.TryGetValue("pts_time",out pts)||Math.Abs(double.Parse(Convert.ToString(pts),CultureInfo.InvariantCulture))>0.000001)throw new InvalidDataException(T("预览 IVF 时间轴未归零。","The preview IVF timeline did not normalize to zero."));
+                    }
                     var selected=new List<string>(grainArgs);
                     int tableIndex=selected.IndexOf("--grain");if(tableIndex<0)tableIndex=selected.IndexOf("-g");
                     if(tableIndex>=0)
@@ -188,8 +197,13 @@ namespace FilmGrainStudioPreview
                         File.WriteAllText(local,Av1GrainStrengthCore.ShiftTable(File.ReadAllText(selected[tableIndex+1]),actualStart),new UTF8Encoding(false));selected[tableIndex+1]=local;
                     }
                     var apply=new List<string>{"apply",baseIvf,"-o",model};apply.AddRange(selected);apply.AddRange(new[]{"--replace","-y"});Run(grav1synth,apply);
-                    string original=Path.Combine(temporary,"original.tbl");Run(grav1synth,new List<string>{"inspect",model,"-o",original,"-y"});
-                    string originalText=File.ReadAllText(original);
+                    string originalText;
+                    if(tableIndex>=0)originalText=File.ReadAllText(selected[tableIndex+1]);
+                    else if(selected.IndexOf("--preset")>=0)originalText=Av1GrainStrengthCore.PresetTable(selected[selected.IndexOf("--preset")+1]);
+                    else {
+                        string original=Path.Combine(temporary,"original.tbl");Run(grav1synth,new List<string>{"inspect",model,"-o",original,"-y"});
+                        originalText=File.ReadAllText(original);
+                    }
                     if(skipOpening) {string scan=Path.Combine(temporary,"scan.gray");Run(ffmpeg,BuildScanArguments(baseIvf,scan));firstFrame=FindPreviewStartFrame(File.ReadAllBytes(scan));if(firstFrame<0)firstFrame=0;}
                     RenderFrames(baseIvf,"0","clean",firstFrame);
                     for(int i=0;i<4;i++)
@@ -216,7 +230,7 @@ namespace FilmGrainStudioPreview
                             if(cleanFrames.Count==0)throw new InvalidDataException(T("未生成预览画面。","No preview frames were generated."));
                             frame.Maximum=cleanFrames.Count-1;frame.Value=0;ShowFrame();
                             play.Enabled=frame.Enabled=showClean.Enabled=true;for(int i=0;i<4;i++)choose[i].Enabled=true;
-                            status.Text=(automatic?T("随机选点：","Random position: "):T("请求起始：","Requested start: "))+requestedTime+T("；实际关键帧起始：","; actual keyframe start: ")+TimeSpan.FromSeconds(actualStart).ToString()+T("。同帧同种子，点击档位应用。\r\n仅比较颗粒；HDR 转换仅用于显示，不包含 LUT、调色或插帧。1:1 居中可检查颗粒细节。",". Same frames and seed; click a strength to apply.\r\nGrain only; HDR conversion is for display. LUTs, color correction and interpolation are excluded. Use 1:1 centered to inspect detail.");
+                            status.Text=(automatic?T("随机选点：","Random position: "):T("请求起始：","Requested start: "))+requestedTime+T("；实际片段起始：","; actual sample start: ")+TimeSpan.FromSeconds(actualStart).ToString()+T("。同帧同种子，点击档位应用。\r\n仅比较颗粒；HDR 转换仅用于显示，不包含 LUT、调色或插帧。1:1 居中可检查颗粒细节。",". Same frames and seed; click a strength to apply.\r\nGrain only; HDR conversion is for display. LUTs, color correction and interpolation are excluded. Use 1:1 centered to inspect detail.");
                         }catch(Exception ex){ReleaseImages();status.Text=T("预览失败：","Preview failed: ")+ex.Message;}
                     }));}catch{running=false;Cleanup();}
                 }
@@ -297,6 +311,20 @@ namespace FilmGrainStudioPreview
             // libdav1d must expose filmgrain; if unsupported, fail explicitly instead of
             // accidentally displaying an AV1 decode with grain disabled.
             Run(ffmpeg, BuildFrameRenderArguments(input, filmgrain, Path.Combine(temporary, prefix + "%02d.png"), info, firstFrame));
+        }
+
+        // One shared, full-resolution base for all four strengths; never encode each pane.
+        internal static List<string> BuildMetadataSampleArguments(string input,double seconds,string output,MediaProbeInfo media,bool nvenc)
+        {
+            var args=new List<string>{"-hide_banner","-v","error","-y","-ss",seconds.ToString("0.######",CultureInfo.InvariantCulture),"-i",input,
+                "-map","0:v:0","-an","-sn","-dn","-vf","setpts=PTS-STARTPTS","-frames:v","40","-fps_mode","passthrough"};
+            if(nvenc)args.AddRange(new[]{"-c:v","av1_nvenc","-preset","p4","-rc","constqp","-qp","12"});
+            else args.AddRange(new[]{"-c:v","libaom-av1","-cpu-used","8","-crf","12","-b:v","0","-row-mt","1","-threads","8"});
+            string pixel=media.PixelFormat??"";
+            args.AddRange(new[]{"-pix_fmt",media.IsHdr||pixel.IndexOf("10",StringComparison.Ordinal)>=0||pixel.IndexOf("12",StringComparison.Ordinal)>=0?"yuv420p10le":"yuv420p"});
+            foreach(var pair in new[]{new[]{"-color_primaries",media.ColorPrimaries},new[]{"-color_trc",media.ColorTransfer},new[]{"-colorspace",media.ColorSpace},new[]{"-color_range",media.ColorRange}})
+                if(!string.IsNullOrEmpty(pair[1])&&pair[1]!="unknown"&&pair[1]!="reserved")args.AddRange(pair);
+            args.AddRange(new[]{"-f","ivf",output});return args;
         }
 
         internal static List<string> BuildFrameRenderArguments(string input, string filmgrain, string outputPattern, MediaProbeInfo info)

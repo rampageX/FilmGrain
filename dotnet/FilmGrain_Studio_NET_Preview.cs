@@ -107,8 +107,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.39";
-        internal const string FileReleaseVersion = "5.0.39.0";
+        internal const string ReleaseVersion = "5.0.40";
+        internal const string FileReleaseVersion = "5.0.40.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -372,7 +372,7 @@ namespace FilmGrainStudioPreview
         private string activeRunCodecName = "";
         private TrackBar trackFilmGrainStrength;
         private TrackBar av1StrengthControl;
-        private int Av1GrainStrengthPercent { get { int v; return int.TryParse(config.Get("AV1_GRAIN_STRENGTH"),out v)?GrainControlCore.SnapTen(v):100; } }
+        private int Av1GrainStrengthPercent { get { int v; return int.TryParse(config.Get("AV1_GRAIN_STRENGTH"),out v)?GrainControlCore.SnapFive(v):100; } }
         private Label lblFilmGrainValue;
         private ComboBox cmbGrainFormat;
         private ComboBox cmbGrainStock;
@@ -1568,7 +1568,7 @@ namespace FilmGrainStudioPreview
             }
             if (av1 && mode <= 2)
             {
-                av1StrengthControl=new ThemeTrackBar {Minimum=1,Maximum=10,Value=Av1GrainStrengthPercent/10,TickFrequency=1,SmallChange=1,LargeChange=1,AutoSize=false,Height=30,Dock=DockStyle.Fill,Margin=new Padding(0,2,6,2)};
+                av1StrengthControl=new ThemeTrackBar {Minimum=3,Maximum=20,Value=Av1GrainStrengthPercent/5,TickFrequency=1,SmallChange=1,LargeChange=1,AutoSize=false,Height=30,Dock=DockStyle.Fill,Margin=new Padding(0,2,6,2)};
                 var strengthRow=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=2,RowCount=1,Margin=Padding.Empty};
                 strengthRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));strengthRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,62));
                 var strengthValue=new ThemeLabel {Dock=DockStyle.Fill,TextAlign=ContentAlignment.MiddleLeft};
@@ -1577,10 +1577,10 @@ namespace FilmGrainStudioPreview
                 var performanceNote=MutedLabel("");performanceNote.AutoEllipsis=true;
                 t.Controls.Add(performanceNote,0,3);t.SetColumnSpan(performanceNote,2);
                 Action updateStrength=delegate {
-                    int percent=av1StrengthControl.Value*10;strengthValue.Text=percent+"%";
-                    performanceNote.Text=percent==100?"":UiText("选择非100%强度可能会导致性能损失。","Selecting a strength below 100% may reduce performance.");
+                    int percent=av1StrengthControl.Value*5;strengthValue.Text=percent+"%";
+                    performanceNote.Text=percent==100?"":mode!=1?UiText("先调整颗粒表强度，再一次应用。","Table strength is adjusted before a single apply."):UiText("非100%强度需额外读取并重写颗粒元数据。","Below 100%, grain metadata requires an extra read and rewrite.");
                 };
-                av1StrengthControl.ValueChanged+=delegate { if(restoringFileEditor)return;updateStrength();try{config.SaveValue("AV1_GRAIN_STRENGTH",(av1StrengthControl.Value*10).ToString(CultureInfo.InvariantCulture));}catch(Exception ex){MessageBox.Show(this,ex.Message);}};
+                av1StrengthControl.ValueChanged+=delegate { if(restoringFileEditor)return;updateStrength();try{config.SaveValue("AV1_GRAIN_STRENGTH",(av1StrengthControl.Value*5).ToString(CultureInfo.InvariantCulture));}catch(Exception ex){MessageBox.Show(this,ex.Message);}};
                 updateStrength();
                 lutToolTip.SetToolTip(av1StrengthControl,UiText("相对当前预设/ISO/颗粒表的强度；100%保持原效果。","Relative to the selected preset/ISO/table; 100% preserves the original."));
             }
@@ -1630,9 +1630,9 @@ namespace FilmGrainStudioPreview
         private void BuildUnifiedGrainSlider(TableLayoutPanel t, int row, string kind)
         {
             trackFilmGrainStrength = new ThemeTrackBar(); trackFilmGrainStrength.AutoSize = false; trackFilmGrainStrength.Height = 30; trackFilmGrainStrength.Dock = DockStyle.Fill; trackFilmGrainStrength.Margin = new Padding(0, 2, 6, 2); trackFilmGrainStrength.TickStyle = TickStyle.BottomRight;
-            if (kind == "DIGITAL") { trackFilmGrainStrength.Minimum = 10; trackFilmGrainStrength.Maximum = 100; trackFilmGrainStrength.Value = Math.Max(10, Math.Min(100, proceduralStrength)); trackFilmGrainStrength.TickFrequency = 10; }
+            if (kind == "DIGITAL") { proceduralStrength=GrainControlCore.SnapFive(proceduralStrength); trackFilmGrainStrength.Minimum = 3; trackFilmGrainStrength.Maximum = 20; trackFilmGrainStrength.Value = proceduralStrength/5; trackFilmGrainStrength.TickFrequency = 1; }
             else if (kind == "FGSIM") { trackFilmGrainStrength.Minimum = 0; trackFilmGrainStrength.Maximum = 3; trackFilmGrainStrength.Value = Math.Max(0, Math.Min(3, fgsimPresetIndex)); trackFilmGrainStrength.TickFrequency = 1; }
-            else { trackFilmGrainStrength.Minimum = 2; trackFilmGrainStrength.Maximum = 20; trackFilmGrainStrength.Value = GrainControlCore.SnapFive(scannedGrainStrengthPercent)/5; trackFilmGrainStrength.TickFrequency = 1; }
+            else { scannedGrainStrengthPercent=GrainControlCore.SnapFive(scannedGrainStrengthPercent); trackFilmGrainStrength.Minimum = 3; trackFilmGrainStrength.Maximum = 20; trackFilmGrainStrength.Value = GrainControlCore.SnapFive(scannedGrainStrengthPercent)/5; trackFilmGrainStrength.TickFrequency = 1; }
             trackFilmGrainStrength.SmallChange=1;trackFilmGrainStrength.LargeChange=1;
             lblFilmGrainValue = new ThemeLabel(); lblFilmGrainValue.AutoSize = false; lblFilmGrainValue.Dock = DockStyle.Fill; lblFilmGrainValue.Margin = new Padding(4, 0, 0, 2); lblFilmGrainValue.TextAlign = ContentAlignment.MiddleLeft;
             TableLayoutPanel slider = new TableLayoutPanel(); slider.Dock = DockStyle.Fill; slider.Margin = Padding.Empty; slider.ColumnCount = 2; slider.RowCount = 1; slider.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); slider.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 112)); slider.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
@@ -1640,7 +1640,7 @@ namespace FilmGrainStudioPreview
             AddLabeledRow(t, row, lang.T("grain.strength"), slider);
             trackFilmGrainStrength.ValueChanged += delegate
             { if(restoringFileEditor)return;
-                if (kind == "DIGITAL") proceduralStrength = trackFilmGrainStrength.Value;
+                if (kind == "DIGITAL") proceduralStrength = trackFilmGrainStrength.Value*5;
                 else if (kind == "FGSIM") fgsimPresetIndex = trackFilmGrainStrength.Value;
                 else scannedGrainStrengthPercent = trackFilmGrainStrength.Value*5;
                 UpdateGrainStrengthLabel(kind);
@@ -1651,7 +1651,7 @@ namespace FilmGrainStudioPreview
         private void UpdateGrainStrengthLabel(string kind)
         {
             if (trackFilmGrainStrength == null || lblFilmGrainValue == null) return;
-            if (kind == "DIGITAL") lblFilmGrainValue.Text = (trackFilmGrainStrength.Value / 100.0).ToString("0.00", CultureInfo.InvariantCulture);
+            if (kind == "DIGITAL") lblFilmGrainValue.Text = (trackFilmGrainStrength.Value*5 / 100.0).ToString("0.00", CultureInfo.InvariantCulture);
             else if (kind == "FGSIM")
             {
                 string[] names = new string[] { "Light / 0.10", "Normal / 0.15", "Medium / 0.20", "Heavy / 0.30" };
@@ -2242,6 +2242,7 @@ namespace FilmGrainStudioPreview
                 if (cmbCodec.SelectedIndex == 4) cmbCodec.SelectedIndex = 0;
                 cmbCodec.Items.RemoveAt(4);
             }
+            SyncCodecPicker();
         }
 
         private bool GrainTuneSelected()
@@ -4046,11 +4047,10 @@ namespace FilmGrainStudioPreview
                 {window.ShowDialog(this);if(window.SelectedStrength>0 && trackFilmGrainStrength!=null) {
                     if(pixelState["FG_GRAIN_ENGINE"]=="FGSIM")trackFilmGrainStrength.Value=window.SelectedStrength-1;
                     else if(pixelState["FG_GRAIN_ENGINE"]=="NATIVE")trackFilmGrainStrength.Value=window.SelectedStrength/5;
-                    else trackFilmGrainStrength.Value=window.SelectedStrength;
+                    else trackFilmGrainStrength.Value=window.SelectedStrength/5;
                 }}
                 return;
             }
-            if (info.VideoCodec != "av1") {MessageBox.Show(this,UiText("AV1 元数据颗粒预览需要 AV1 输入；其它编码的源可使用下方预览编码。","AV1 metadata preview requires AV1 input; use preview encoding for other source codecs."));return;}
             if (!IsGrainEnabled())
             { MessageBox.Show(this, UiText("请启用颗粒并选择 AV1 的预设、ISO 或颗粒表模式。", "Enable grain and select an AV1 preset, ISO or table mode.")); return; }
             var state = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -4062,10 +4062,10 @@ namespace FilmGrainStudioPreview
             var args = new List<string>(); string tag, reason;
             string mode = new string[] { "PRESET", "ISO", "TABLE" }[cmbGrainMode.SelectedIndex];
             if (!NativeAv1GrainReplaceCore.TryBuildGrainArgs(mode, state, args, out tag, out reason)) { MessageBox.Show(this, reason); return; }
-            using (var window = new NativeGrainPreviewForm(Path.Combine(config.Get("FFMPEG_DIR"), "ffmpeg.exe"), config.Get("GRAV1SYNTH"), input, args, info, lang.Code))
+            using (var window = new NativeGrainPreviewForm(Path.Combine(config.Get("FFMPEG_DIR"), "ffmpeg.exe"), config.Get("GRAV1SYNTH"), input, args, info, lang.Code, hardwareCaps))
             {
                 window.ShowDialog(this);
-                if (window.SelectedStrength > 0 && av1StrengthControl != null) av1StrengthControl.Value = window.SelectedStrength/10;
+                if (window.SelectedStrength > 0 && av1StrengthControl != null) av1StrengthControl.Value = window.SelectedStrength/5;
             }
         }
 
@@ -4299,18 +4299,21 @@ namespace FilmGrainStudioPreview
         private void CommitCodecPicker()
         {
             if(syncingCodecPicker||restoringFileEditor)return;
-            int family=Math.Max(0,cmbCodecFamily.SelectedIndex);bool cpu=chkCpuEncoder.Checked;
+            int family=Math.Max(0,cmbCodecFamily.SelectedIndex);bool copy=family==3;bool cpu=!copy&&chkCpuEncoder.Checked;
             if(cpu)config.SaveValue("CPU_CODEC",family==0?"SVT":family==1?"X265":"X264");
-            cmbCodec.SelectedIndex=cpu?2:family==0?0:family==1?1:3;
+            cmbCodec.SelectedIndex=copy?4:cpu?2:family==0?0:family==1?1:3;
             SyncCodecPicker();UpdateSpeedChoices();UpdateGrainForCodec();LoadBitrateStateForCodec();UpdateBitrateDisplays();UpdateSfeUi();UpdateMediaDrivenUi(GetSelectedMediaInfo());
         }
         private void SyncCodecPicker()
         {
             if(cmbCodecFamily==null||chkCpuEncoder==null)return;syncingCodecPicker=true;
             try {bool cpu=cmbCodec.SelectedIndex==2;string codec=CpuCodec();
-                cmbCodecFamily.SelectedIndex=cpu?(codec=="SVT"?0:codec=="X265"?1:2):cmbCodec.SelectedIndex==1?1:cmbCodec.SelectedIndex==3?2:0;
+                bool available=cmbCodec.Items.Count>=5;
+                if(available&&cmbCodecFamily.Items.Count==3)cmbCodecFamily.Items.Add(lang.T("codec.no_reencode"));
+                else if(!available&&cmbCodecFamily.Items.Count>3)cmbCodecFamily.Items.RemoveAt(3);
+                cmbCodecFamily.SelectedIndex=cmbCodec.SelectedIndex==4?3:cpu?(codec=="SVT"?0:codec=="X265"?1:2):cmbCodec.SelectedIndex==1?1:cmbCodec.SelectedIndex==3?2:0;
                 chkCpuEncoder.Checked=cpu;chkCpuEncoder.Text="CPU · "+(cmbCodecFamily.SelectedIndex==0?"SVT":cmbCodecFamily.SelectedIndex==1?"x265":"x264");
-                cmbCodecFamily.Enabled=cmbCodec.SelectedIndex!=4;chkCpuEncoder.Enabled=cmbCodec.SelectedIndex!=4;
+                cmbCodecFamily.Enabled=true;chkCpuEncoder.Enabled=cmbCodec.SelectedIndex!=4;
             }finally{syncingCodecPicker=false;}
         }
 
