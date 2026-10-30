@@ -107,8 +107,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.38";
-        internal const string FileReleaseVersion = "5.0.38.0";
+        internal const string ReleaseVersion = "5.0.39";
+        internal const string FileReleaseVersion = "5.0.39.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -351,6 +351,7 @@ namespace FilmGrainStudioPreview
         private Panel encodePreviewPanel;
         private Button btnCancelTask;
         private ProgressBar progressRun;
+        private EncodingMonitorPanel encodingMonitor;
         private ToolStripStatusLabel statusHardware;
         private ToolStripStatusLabel statusFfmpeg;
         private readonly Dictionary<string, ToolStripStatusLabel> statusCapabilities = new Dictionary<string, ToolStripStatusLabel>();
@@ -1795,12 +1796,14 @@ namespace FilmGrainStudioPreview
             toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 84)); toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 84));
             toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 94)); toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 94));
             lblRunStage = new ThemeLabel(); lblRunStage.Text = lang.T("log.waiting"); lblRunStage.Dock = DockStyle.Fill; lblRunStage.TextAlign = ContentAlignment.MiddleLeft; lblRunStage.AutoEllipsis = true;
-            lblRunMetric = new ThemeLabel(); lblRunMetric.Text = "fps: —   speed: —"; lblRunMetric.AutoSize = true; lblRunMetric.MinimumSize = new Size(360, 0); lblRunMetric.Anchor = AnchorStyles.Left; lblRunMetric.TextAlign = ContentAlignment.MiddleLeft; lblRunMetric.ForeColor = ColorMuted; lblRunMetric.AutoEllipsis = false;
+            lblRunMetric = new ThemeLabel(); lblRunMetric.Text = "FPS: —   Speed: —"; lblRunMetric.AutoSize = true; lblRunMetric.MinimumSize = new Size(360, 0); lblRunMetric.Anchor = AnchorStyles.Left; lblRunMetric.TextAlign = ContentAlignment.MiddleLeft; lblRunMetric.ForeColor = ColorMuted; lblRunMetric.AutoEllipsis = false;
             Button copy = new ThemeButton(); copy.Text = lang.T("button.copy_log"); copy.Size = new Size(78, 24); copy.Anchor = AnchorStyles.Right;
             Button clear = new ThemeButton(); clear.Text = lang.T("button.clear_log"); clear.Size = new Size(78, 24); clear.Anchor = AnchorStyles.Right;
             copy.Click += delegate { if (log.TextLength > 0) Clipboard.SetText(log.Text); };
             clear.Click += delegate { log.Clear(); };
-            toolbar.Controls.Add(lblRunStage, 0, 0); toolbar.Controls.Add(lblRunMetric, 1, 0); toolbar.Controls.Add(copy, 2, 0); toolbar.Controls.Add(clear, 3, 0);
+            toolbar.SetColumnSpan(lblRunStage, 2);
+            toolbar.ColumnStyles[1].SizeType = SizeType.Absolute; toolbar.ColumnStyles[1].Width = 0;
+            toolbar.Controls.Add(lblRunStage, 0, 0); toolbar.Controls.Add(copy, 2, 0); toolbar.Controls.Add(clear, 3, 0);
             Button openLog = new ThemeButton(); openLog.Text = UiText("完整日志", "Full log"); openLog.Size = new Size(88, 24);
             Button openFolder = new ThemeButton(); openFolder.Text = UiText("日志目录", "Log folder"); openFolder.Size = new Size(88, 24);
             foreach (Button button in new Button[] { copy, clear, openLog, openFolder })
@@ -1819,7 +1822,7 @@ namespace FilmGrainStudioPreview
             toolbar.Controls.Add(openLog, 4, 0); toolbar.Controls.Add(openFolder, 5, 0);
             layout.Controls.Add(toolbar, 0, 0);
 
-            log = new TextBox(); log.Multiline = true; log.ScrollBars = ScrollBars.Vertical; log.MaxLength = 0; log.Dock = DockStyle.Fill; log.ReadOnly = true; log.WordWrap = true; log.BackColor = Color.FromArgb(28, 30, 34); log.ForeColor = Color.Gainsboro; log.Font = new Font(LanguagePack.LogFontName(lang.Code), 9f); log.BorderStyle = BorderStyle.FixedSingle;
+            log = new TextBox(); log.Multiline = true; log.ScrollBars = ScrollBars.None; log.MaxLength = 0; log.Dock = DockStyle.Fill; log.ReadOnly = true; log.WordWrap = true; log.BackColor = Color.FromArgb(28, 30, 34); log.ForeColor = Color.Gainsboro; log.Font = new Font(LanguagePack.LogFontName(lang.Code), 9f); log.BorderStyle = BorderStyle.FixedSingle;
             fullLog = new FullLogFileCore(appRoot, "Session", GetLogEntryLimit());
             AppendLog("Film Grain Studio v" + Program.ReleaseVersion + " · .NET · " + TestBuild + Environment.NewLine);
             AppendDiagnosticLog("Validated migration baseline: Q9AOL2 / release " + TestBuild + Environment.NewLine);
@@ -1827,7 +1830,15 @@ namespace FilmGrainStudioPreview
             AppendDiagnosticLog(".NET execution modules: Native AV1 grain inspection and Native-only codecs; preparation failures stop the task." + Environment.NewLine);
             AppendLog("[Full log] " + fullLog.FilePath + Environment.NewLine);
             if (!string.IsNullOrEmpty(fullLog.Error)) AppendVisibleLog("[Full log ERROR] " + fullLog.Error + Environment.NewLine);
-            layout.Controls.Add(log, 0, 1);
+            TableLayoutPanel monitorSplit = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = Padding.Empty };
+            monitorSplit.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+            monitorSplit.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+            monitorSplit.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            encodingMonitor = new EncodingMonitorPanel(lang.Code == "zh" || lang.Code.StartsWith("zh", StringComparison.OrdinalIgnoreCase));
+            encodingMonitor.Dock = DockStyle.Fill;
+            monitorSplit.Controls.Add(log, 0, 0); monitorSplit.Controls.Add(encodingMonitor, 1, 0);
+            layout.Controls.Add(monitorSplit, 0, 1);
+            // Flow is painted in the monitor text column; keep the log at full height.
             return box;
         }
 
@@ -3203,7 +3214,8 @@ namespace FilmGrainStudioPreview
                     if (btnCancelTask != null) btnCancelTask.Enabled = e != null && e.State == BridgeTaskState.Running;
 
                     if (e == null) return;
-                    ClearPendingRunProgress();
+                    // The worker can publish its first stage before this UI callback runs.
+                    if(e.State != BridgeTaskState.Running)ClearPendingRunProgress();
                     UpdateQueueFileState(e);
                     if (e.State == BridgeTaskState.Running)
                     {
@@ -3211,6 +3223,7 @@ namespace FilmGrainStudioPreview
                         bool noReencode = task != null && task.NoReencode;
                         IDictionary<string, string> state = task != null && task.ExecutionRequest != null ? task.ExecutionRequest.Environment : null;
                         activeRunNativeBackend = task != null && task.NativeBackend;
+                        if(encodingMonitor!=null)encodingMonitor.StartTask(state, noReencode);
                         string codec;
                         activeRunCodecName = state != null && state.TryGetValue("FG_MODE", out codec) ? codec : "AV1";
                         if (lblRunStage != null)
@@ -3232,7 +3245,7 @@ namespace FilmGrainStudioPreview
                                 lblRunMetric.Text = "grain: " + (state != null && state.TryGetValue("FG_AV1_GRAIN_MODE", out value) ? value : "—") + "   video: copy";
                             else
                                 lblRunMetric.Text = (state != null && state.TryGetValue("FG_GRAIN_ENGINE", out value) ? (SharedGrainCore.IsEnabled(state) ? "grain: " + value : "颗粒：关闭") + "   " : "") +
-                                    "fps: " + (task == null ? 0.0 : task.RecommendedOutputFps).ToString("0.###", CultureInfo.InvariantCulture);
+                                    "FPS: " + (task == null ? 0.0 : task.RecommendedOutputFps).ToString("0.###", CultureInfo.InvariantCulture);
                         }
                         if (progressRun != null)
                         {
@@ -3272,6 +3285,7 @@ namespace FilmGrainStudioPreview
         {
             string prefix=e.Stream==BridgeLogStream.StandardError?"[stderr] ":e.Stream==BridgeLogStream.StandardOutput?"[stdout] ":"[runner] ";
             string line=prefix+e.Line+Environment.NewLine;
+            if(encodingMonitor!=null)encodingMonitor.Feed(e.Line);
             FullLogFileCore currentLog=taskLog;if(currentLog!=null)currentLog.Write(line);
             if(!VisibleLogCore.ShowProcessLine(e.Line)||IsDisposed||Disposing)return;
             lock(runUiSync) {
@@ -3304,18 +3318,21 @@ namespace FilmGrainStudioPreview
                 pendingRunStage=pendingRunMetrics=pendingRunProgress=null;
             }
             if(text.Length>0){AppendVisibleLog(text);ScrollLogToEnd();}
+            if(encodingMonitor!=null)encodingMonitor.RefreshSnapshot();
             if(bridgeTaskCoordinator==null||bridgeTaskCoordinator.State!=BridgeTaskState.Running)return;
                     if (stage != null && stage.HasStage && lblRunStage != null)
                     {
                         lblRunStage.Text = (activeRunNativeBackend ? "Native .NET " + (string.IsNullOrWhiteSpace(activeRunCodecName) ? "" : activeRunCodecName + " · ") : "") +
                             UiText("阶段 ", "Stage ") + stage.StageCurrent.ToString(CultureInfo.InvariantCulture) + "/" + stage.StageTotal.ToString(CultureInfo.InvariantCulture) + " · " + stage.StageText;
+                        if(encodingMonitor!=null)encodingMonitor.SetStage(stage.StageText);
                     }
 
                     if (metrics != null && metrics.HasMetrics && lblRunMetric != null)
                     {
-                        string metricText = "fps: " + metrics.FpsText + "   speed: " + metrics.SpeedText + "x";
+                        string metricText = "FPS: " + metrics.FpsText + "   Speed: " + metrics.SpeedText + "x";
                         if (!string.IsNullOrWhiteSpace(metrics.EtaText)) metricText += "   ETA: " + metrics.EtaText;
                         lblRunMetric.Text = metricText;
+                        if(encodingMonitor!=null)encodingMonitor.SetMetrics(metricText);
                     }
 
                     if (progress != null && progress.HasProgress && progressRun != null)
@@ -3457,6 +3474,7 @@ namespace FilmGrainStudioPreview
                 {
                     if (IsDisposed || Disposing) return;
                     ClearPendingRunProgress();
+                    if(encodingMonitor!=null)encodingMonitor.Finish(e.Result.Cancelled ? UiText("已取消", "Cancelled") : e.Result.Exception != null || e.Result.ExitCode != 0 ? UiText("失败", "Failed") : UiText("完成", "Completed"));
                     FlushRunUiUpdates();
                     SetTaskbarProgress(0,0);
                     if (progressRun != null)
@@ -4296,5 +4314,138 @@ namespace FilmGrainStudioPreview
             }finally{syncingCodecPicker=false;}
         }
 
+    }
+
+    // Read-only telemetry: no encoder arguments or execution behavior are changed.
+    internal sealed class EncodingMonitorPanel : Control
+    {
+        private readonly object gate = new object();
+        private readonly List<double> history = new List<double>();
+        private readonly bool chinese;
+        private string config = "", chain = "", stage = "", metrics = "", q = "—", position = "—";
+        private double bytes = -1, seconds = -1, lastBytes = -1, lastSeconds = -1, current = -1, average = -1, peak;
+        private bool running, tracking, copyOnly, dirty = true;
+        private readonly Stopwatch clock = new Stopwatch();
+        private DateTime lastRefresh = DateTime.MinValue;
+        public EncodingMonitorPanel(bool zh)
+        {
+            chinese = zh; DoubleBuffered = true; BackColor = Color.FromArgb(28,30,34);
+            ForeColor = Color.Gainsboro; Font = new Font("Segoe UI", 9f);
+            Margin = new Padding(6,0,0,0); stage = T("等待任务", "Waiting for task");
+        }
+        private string T(string zh,string en) { return chinese ? zh : en; }
+        private static string Get(IDictionary<string,string> s,string key,string fallback)
+        { string v; return s != null && s.TryGetValue(key,out v) && !string.IsNullOrWhiteSpace(v) ? v : fallback; }
+        public void StartTask(IDictionary<string,string> s,bool copy)
+        {
+            lock(gate) {
+                history.Clear(); bytes=seconds=lastBytes=lastSeconds=current=average=-1; peak=0; q=position="—";
+                metrics=""; stage=T("准备中", "Preparing"); running=true; tracking=true; copyOnly=copy; clock.Restart();
+                string codec=Get(s,"FG_MODE","AV1");
+                config=copy ? "AV1 · "+T("不重编码", "Stream copy") : codec;
+                if(!copy && (codec=="AV1" || codec=="HEVC" || codec=="H264"))
+                    config += Get(s,"FG_NVENC_RATE_CONTROL","VBR")=="CQ" ? " · CQ "+Get(s,"FG_NVENC_CQ","—") : " · VBR "+Get(s,"FG_BITRATE","—")+" kbps";
+                if(!copy && CpuEncoderCore.IsNewCpu(s))config += CpuEncoderCore.IsCrf(s) ? " · CRF "+Get(s,"FG_NVENC_CQ","—") : " · VBR "+Get(s,"FG_BITRATE","—")+" kbps";
+                chain=T("颗粒 ", "Grain ")+ (Get(s,"FG_GRAIN_ENABLED","1")=="0" ? "OFF" : Get(s,"FG_GRAIN_ENGINE","NATIVE")=="NATIVE" && codec=="AV1" ? "AV1 "+Get(s,"FG_AV1_GRAIN_MODE","NATIVE") : Get(s,"FG_GRAIN_ENGINE","NATIVE"))
+                    +" · LUT "+(Get(s,"FG_LUT_PATH","")=="" ? "OFF" : Get(s,"FG_LUT_STRENGTH","100")+"%")
+                    +" · "+T("插帧 ","Interpolation ")+(Get(s,"FG_SVP_INTERPOLATE","0")=="1" ? Get(s,"FG_INTERPOLATION_ENGINE","OFF") : "OFF")+" · "+T("HDR策略 ","HDR policy ")+Get(s,"FG_HDR_POLICY","—"); dirty=true;
+            }
+        }
+        public void SetMetrics(string text) { lock(gate) {if(tracking) {metrics=text;dirty=true;} } }
+        public void SetStage(string text) { lock(gate) {stage=text;dirty=true;} }
+        private void ResetSegment() { bytes=seconds=lastBytes=lastSeconds=current=average=-1; q=position="—"; history.Clear();peak=0; }
+        public void Finish(string text) { lock(gate) {running=false;clock.Stop();stage=text;dirty=true;} }
+        public void Feed(string line)
+        {
+            if(string.IsNullOrEmpty(line))return;
+            lock(gate) {
+                if(!running)return;
+                if(line.IndexOf("[Process] args=",StringComparison.Ordinal)>=0) {
+                    // Keep the encode snapshot when AV1 moves to grain metadata and stream-copy remux.
+                    if(!copyOnly && (line.IndexOf("args=\"apply\"",StringComparison.Ordinal)>=0 ||
+                        Regex.IsMatch(line,@"""-c:v""\s+""copy""")))tracking=false;
+                    return;
+                }
+                Match stageLine=Regex.Match(line,@"(?:\b(?:AV1|x264) step |\[)(\d+)/(\d+)(?:\]|)\s*[-:]?\s*(.+)$",RegexOptions.IgnoreCase);
+                if(stageLine.Success) {stage=stageLine.Groups[1].Value+"/"+stageLine.Groups[2].Value+" · "+stageLine.Groups[3].Value;dirty=true;}
+                if(!tracking)return;
+                int eq=line.IndexOf('='); if(eq<=0)return;
+                string key=line.Substring(0,eq).Trim(), value=line.Substring(eq+1).Trim();
+                double number; TimeSpan time;
+                if(key=="total_size") { if(double.TryParse(value,NumberStyles.Float,CultureInfo.InvariantCulture,out number) && number>=0)bytes=number; }
+                else if(key=="out_time") { if(TimeSpan.TryParse(value,CultureInfo.InvariantCulture,out time) && time.TotalSeconds>=0) {seconds=time.TotalSeconds;position=time.ToString(@"hh\:mm\:ss");} }
+                else if(key.StartsWith("stream_",StringComparison.Ordinal) && key.EndsWith("_q",StringComparison.Ordinal)) {
+                    if(double.TryParse(value,NumberStyles.Float,CultureInfo.InvariantCulture,out number) && number>=0)q=value;
+                }
+                else if(key=="progress") { if(stage==T("准备中", "Preparing"))stage=T("编码中", "Encoding");Sample();dirty=true; }
+                // All production encoders supply -progress. Do not mix rounded human stats
+                // with exact total_size/out_time records: rounding can look like a clock rollback.
+
+            }
+        }
+        private void Sample()
+        {
+            if(bytes<0 || seconds<=0)return;
+            if(bytes<lastBytes || seconds<lastSeconds) {
+                double newBytes=bytes,newSeconds=seconds;string newQ=q,newPosition=position;
+                ResetSegment();bytes=newBytes;seconds=newSeconds;q=newQ;position=newPosition;
+            }
+            average=bytes*8/seconds/1000;
+            if(lastSeconds>=0 && seconds-lastSeconds>=1) {
+                current=(bytes-lastBytes)*8/(seconds-lastSeconds)/1000;
+                peak=Math.Max(peak,current); history.Add(current);if(history.Count>240)history.RemoveAt(0);
+                lastBytes=bytes;lastSeconds=seconds;
+            } else if(lastSeconds<0) {lastBytes=bytes;lastSeconds=seconds;}
+        }
+        public void RefreshSnapshot()
+        {
+            if((DateTime.UtcNow-lastRefresh).TotalMilliseconds<500)return;
+            lock(gate) {if(!dirty && !running)return;dirty=false;}
+            lastRefresh=DateTime.UtcNow;Invalidate();
+        }
+        private static string Rate(double value) {return value<0 ? "—" : (value/1000).ToString("0.00",CultureInfo.InvariantCulture)+" Mbps";}
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            lock(gate) {
+                Graphics g=e.Graphics; int w=ClientSize.Width, h=ClientSize.Height; int half=w/2+35;
+                using(Brush muted=new SolidBrush(Color.FromArgb(151,159,168)))
+                using(Brush accent=new SolidBrush(Color.FromArgb(91,200,132)))
+                using(Brush text=new SolidBrush(ForeColor))
+                using(Pen border=new Pen(Color.FromArgb(57,62,68)))
+                using(Pen curve=new Pen(Color.FromArgb(91,200,132),1.5f)) {
+                    Action<string,int,Brush> line=delegate(string t,int y,Brush b) {
+                        using(StringFormat f=new StringFormat {Trimming=StringTrimming.EllipsisCharacter,FormatFlags=StringFormatFlags.NoWrap})
+                            g.DrawString(t,Font,b,new RectangleF(10,y,Math.Max(1,half-18),19),f);
+                    };
+                    line(config+"   "+T("反馈 Q ", "Reported Q ")+q,5,accent);
+                    line(stage,23,muted);
+                    string[] metricParts=metrics.Split(new string[]{"   ETA: "},StringSplitOptions.None);
+                    line(metrics=="" ? "FPS: —   Speed: —" : metricParts[0],41,text);
+                    line("ETA: "+(metricParts.Length>1?metricParts[1]:"—")+"   "+T("耗时 ", "Elapsed ")+clock.Elapsed.ToString(@"hh\:mm\:ss"),59,muted);
+                    line(T("区间 ", "Interval ")+Rate(current)+"   "+T("平均 ", "Average ")+Rate(average),77,accent);
+                    line(T("峰值 ", "Peak ")+Rate(peak>0?peak:-1)+"   "+T("编码输出 ", "Encoded ")+(bytes<0?"—":(bytes/1048576).ToString("0.0",CultureInfo.InvariantCulture)+" MiB"),95,text);
+                    line(T("位置 ", "Position ")+position,113,muted);
+                    line(chain,138,muted);
+                    Rectangle plot=new Rectangle(half+8,25,Math.Max(1,w-half-18),Math.Max(12,h-36));
+                    if(h>70 && w>180) {
+                        g.DrawString(T("区间码率", "Interval bitrate"),Font,accent,half+8,4);
+                        g.DrawRectangle(border,plot);
+                        for(int i=1;i<4;i++)g.DrawLine(border,plot.Left,plot.Top+plot.Height*i/4,plot.Right,plot.Top+plot.Height*i/4);
+                        double max=1;foreach(double v in history)max=Math.Max(max,v*1.15);
+                        g.DrawString((max/1000).ToString("0.#",CultureInfo.InvariantCulture),Font,muted,plot.Left+4,plot.Top+3);
+                        g.DrawString("Mbps",Font,muted,plot.Left+4,plot.Bottom-Font.Height-3);
+                        if(history.Count>1) {
+                            PointF[] points=new PointF[history.Count];
+                            for(int i=0;i<points.Length;i++)points[i]=new PointF(plot.Left+(float)i/(points.Length-1)*plot.Width,plot.Bottom-(float)(history[i]/max)*plot.Height);
+                            g.DrawLines(curve,points);
+                        } else {
+                            using(StringFormat f=new StringFormat {Trimming=StringTrimming.EllipsisCharacter,FormatFlags=StringFormatFlags.NoWrap})
+                                g.DrawString(T("等待码率采样…", "Waiting for bitrate samples…"),Font,muted,new RectangleF(plot.Left+4,plot.Top+4,Math.Max(1,plot.Width-8),22),f);
+                        }
+                    }
+                }
+            }
+        }
     }
 }

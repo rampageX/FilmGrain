@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.0.38 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.39 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
 
@@ -30,6 +30,8 @@ SVT / x265 提供 VBR 与 CRF；x264 沿用单遍／两遍／三遍 VBR。CPU �
 默认配置为 **AV1 Main10 + MP4 + AAC 256k**。
 
 主界面提供整机 CPU、GPU、物理内存及专用显存监控。CPU 优先使用任务管理器对应的 Processor Utility 口径，不可用时回退时间占用口径。GPU 优先显示当前监控显卡的 Windows 最忙引擎占用；悬停可查看设备名称和统计来源，`GPU*` 表示已回退 NVIDIA NVML 口径，与任务管理器可能存在差异。
+
+任务日志区右侧提供实时编码监控：目标 CQ/CRF/VBR、编码器反馈 Q、FPS、Speed、ETA、视频位置、编码输出大小、总耗时及流程摘要。反馈 Q 与设定 CQ 的含义不同，无有效反馈显示“—”。绿色曲线表示按输出字节与视频时间差计算的区间码率，保留最近 240 个采样点；码率包含当前输出流的封装数据，受写入缓冲影响，不是逐帧码率。AV1 后续写颗粒和封装阶段保留编码统计，完成后保留曲线；“编码输出”指编码阶段输出大小，可能与最终文件大小不同。
 
 颗粒四档预览打开后自动随机选点生成画面，也可通过时间轴或精确时间重新选择片段；按当前界面语言显示，并可点击档位应用颗粒强度。
 

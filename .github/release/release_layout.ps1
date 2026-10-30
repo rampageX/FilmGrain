@@ -292,6 +292,11 @@ $ExcludedRecursiveDirectoryNames = @(
     '__pycache__'
 )
 $ExcludedRootDeliveryPatterns = @(
+    'Test_EncodingMonitor_*.cmd',
+    'MONITOR_PREVIEW_*.md',
+    'FGS_EncodingMonitor*.zip',
+    'Clean_Tests_v5.0.39_*.cmd',
+    'FGS_v5.0.39_ReleasePrep_*.zip',
     'Build_GeneratorLinks_K7M4VX.cmd',
     'FGS_GeneratorLinks_K7M4VX.zip',
     'Clean_Tests_v5.0.38_N6R8VX.cmd',
