@@ -50,11 +50,25 @@ namespace FilmGrainStudioPreview
                 var description=new ThemeLabel{Text=UiText("将输入列表中的已有 AV1 转为 H.264 或 HEVC / AAC。\n合成源内已有颗粒，不再添加颗粒；不应用主界面的插帧、调色或字幕设置。HDR 本阶段不支持。", "Convert the input AV1 list to H.264 or HEVC / AAC.\nSynthesize existing grain only. Main-window transformations do not apply. HDR is deferred."),Location=new Point(16,14),Size=new Size(438,66)};
                 var encoder=new ThemeComboBox{DropDownStyle=ComboBoxStyle.DropDownList,Location=new Point(126,88),Size=new Size(312,26)};
                 encoder.Items.AddRange(new object[]{"x264 · VBR 1-Pass","H.264 NVENC · P7 / VBR","HEVC NVENC · Main10 / P7 / VBR"});encoder.SelectedIndex=0;
-                var auto=new ThemeCheckBox{Text=UiText("自动码率（沿用所选编码线推荐）", "Automatic bitrate (selected FGS encoder recommendation)"),Checked=true,Location=new Point(16,123),Size=new Size(300,25)};
-                var bitrate=new ThemeNumericUpDown{Minimum=100,Maximum=500000,Value=16000,Increment=1000,Location=new Point(326,123),Size=new Size(112,26),Enabled=false};auto.CheckedChanged+=delegate{bitrate.Enabled=!auto.Checked;};
+                var auto=new ThemeCheckBox{Text=UiText("自动码率（源帧率 / 普通档）", "Automatic bitrate (source FPS / normal)"),Checked=true,Location=new Point(16,123),Size=new Size(300,25)};
+                var bitrate=new ThemeNumericUpDown{Minimum=100,Maximum=500000,Value=16000,Increment=1000,Location=new Point(326,123),Size=new Size(112,26),Enabled=false};
+                decimal manualBitrate=bitrate.Value;
+                var rateSummary=new ThemeLabel{Location=new Point(16,153),Size=new Size(438,32)};
+                EventHandler refreshBitrate=delegate {
+                    bitrate.Enabled=!auto.Checked;
+                    if(!auto.Checked){rateSummary.Text=UiText("手动目标码率（kbps）；实际平均码率可能浮动。", "Manual target (kbps); actual average may vary.");return;}
+                    int minRate=int.MaxValue,maxRate=0;
+                    foreach(string input in inputs){var info=mediaProbeCache[input];int rate=BitrateRecommendationCore.GetRecommendedBitrate(encoder.SelectedIndex==2?1:2,info.Width,info.Height,BitrateRecommendationCore.ParseMediaFps(info),false);minRate=Math.Min(minRate,rate);maxRate=Math.Max(maxRate,rate);}
+                    bitrate.Value=Math.Max(bitrate.Minimum,Math.Min(bitrate.Maximum,minRate));
+                    rateSummary.Text=minRate==maxRate?UiText("目标码率：", "Target: ")+minRate.ToString(CultureInfo.InvariantCulture)+" kbps":UiText("逐文件目标：", "Per-file targets: ")+minRate.ToString(CultureInfo.InvariantCulture)+"–"+maxRate.ToString(CultureInfo.InvariantCulture)+UiText(" kbps（右侧显示最低值）", " kbps (minimum shown above)");
+                };
+                auto.CheckedChanged+=delegate{if(!auto.Checked)bitrate.Value=manualBitrate;refreshBitrate(null,EventArgs.Empty);};
+                bitrate.ValueChanged+=delegate{if(!auto.Checked)manualBitrate=bitrate.Value;};
+                encoder.SelectedIndexChanged+=refreshBitrate;
+                refreshBitrate(null,EventArgs.Empty);
                 var start=new ThemeButton{Text=UiText("开始烘焙", "Start baking"),Location=new Point(230,191),Size=new Size(106,30),DialogResult=DialogResult.OK};
                 var cancel=new ThemeButton{Text=lang.T("config.cancel"),Location=new Point(342,191),Size=new Size(96,30),DialogResult=DialogResult.Cancel};
-                dlg.Controls.AddRange(new Control[]{description,new ThemeLabel{Text=UiText("视频编码器", "Video encoder"),Location=new Point(16,92),Size=new Size(105,23)},encoder,auto,bitrate,start,cancel});dlg.AcceptButton=start;dlg.CancelButton=cancel;
+                dlg.Controls.AddRange(new Control[]{description,new ThemeLabel{Text=UiText("视频编码器", "Video encoder"),Location=new Point(16,92),Size=new Size(105,23)},encoder,auto,bitrate,rateSummary,start,cancel});dlg.AcceptButton=start;dlg.CancelButton=cancel;
                 AttachThemeWindow(dlg);
                 if(dlg.ShowDialog(this)!=DialogResult.OK)return;
                 var tasks=new List<BridgeTaskRequest>();var paths=new HashSet<string>(StringComparer.OrdinalIgnoreCase);

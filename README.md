@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.0.40 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.41 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
 
@@ -1465,3 +1465,7 @@ AV1 颗粒百分比处理兼容 grav1synth inspect 对无色度颗粒平面输�
 
 ### 内置预设百分比强度
 非100%的内置胶片预设使用与 grav1synth v0.2.2 一致的完整原始表，先缩放强度、再向视频应用一次；普通编码和不重编码添加/替换共用此路径。100%保留原 --preset 路径。预设四档预览直接使用完整原表生成各档，不再提取模型；ISO保留原处理。原始表压缩内置在程序中，无需安装额外表文件。更新 grav1synth 或自定义其内置预设时需同时核对这些表；本轮测试脚本比较14种预设的实际输出。
+
+### AV1 颗粒烘焙的自动码率
+
+烘焙窗口按所选烘焙编码器、源分辨率和源帧率采用普通档推荐，不使用主界面的输出帧率或高动态选项。自动模式显示目标码率（kbps）；多文件目标不同时显示范围。VBR 实际平均码率可能与目标不同。
