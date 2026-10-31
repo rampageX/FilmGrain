@@ -85,6 +85,10 @@ namespace FilmGrainStudioPreview
             if (!CinematicFrameCore.TryBuild(info, state, out frame, out reason)) return false;
             string colorFilter, colorSuffix;
             if (!TryBuildColorFilter(state, out colorFilter, out colorSuffix, out reason)) return false;
+            string preprocessing;
+            if(!PreprocessingCore.TryBuild(state,out preprocessing,out reason))return false;
+            colorFilter=preprocessing+colorFilter;
+            if(preprocessing.Length>0)colorSuffix="_BIL"+colorSuffix;
             string lutNamingSuffix = hdrPreserve ? "" : BuildLutNamingSuffix(state);
             string subtitleSuffix = Get(state, "FG_SUBTITLE") == "1" ? "_SUB" : "";
             if (!Eq(state, "FG_SPEED", "STANDARD") && !Eq(state, "FG_SPEED", "FAST") && !Eq(state, "FG_SPEED", "UHQ"))
@@ -179,6 +183,7 @@ namespace FilmGrainStudioPreview
             { reason = "requested AV1 SFE mode is not supported by current speed, GPU, or grav1synth capabilities"; return false; }
             if (svp && !SharedSvpCore.TryDependencies(appRoot, out reason)) return false;
             string frucFfmpeg = Get(state, "FG_FRUC_USE_MAIN_FFMPEG") == "0" ? Get(state, "FG_FRUC_FFMPEG_PATH") : ffmpeg;
+            if(preprocessing.Length>0 && !PreprocessingCore.TryCheckTool(ffmpeg,out reason))return false;
             string frucPerf = Get(state, "FG_FRUC_PERF").ToLowerInvariant();
             string frucGrid = Get(state, "FG_FRUC_GRID").ToLowerInvariant();
             if (fruc && !SharedFrucCore.TryPreflight(frucFfmpeg, frucPerf, frucGrid, out reason)) return false;

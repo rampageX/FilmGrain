@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.0.41 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.42 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
 
@@ -148,6 +148,19 @@ Stable 不附带开发源码、Legacy 历史实现或项目截图，也不预装
 维护者执行 `release.bat 版本号` 后，当前开发目录会生成 Stable、Source 及各自 SHA256。Source 包含源码、构建与发布工具、项目图片及运行资源，不含编译后的 EXE；它保留在本地和 Windows runner 的工作流 Artifact 中，不作为额外附件上传到 Release 页面。GitHub 自带的 Source code 下载入口仍指向版本 Tag。
 
 Source 与 Stable 来自同一次已提交源码归档，`SOURCE_BUILD_INFO.txt` 记录源码 commit 和对应运行 EXE 的 SHA256。当前磁盘状态的 `Working_Source_日期时间.zip` 用于开发交接，按导出规则包含未提交修改和新文件，不会自动上传为 Release 附件。
+
+## 前处理
+
+编码区顶部的「前处理...」打开专用设置窗；启用后显示「前处理 [bilateral]」。字幕位于画幅处理选项前方。当前仅支持 CPU Bilateral，不使用 CUDA/Vulkan 版双边滤波。
+
+默认关闭，启用默认值为 `sigmaS=3 / sigmaR=0.05 / planes=1`。sigmaS 控制空间范围（0–512），sigmaR 控制像素差异容忍度（0–1），planes 为通道位掩码（0–15；1=Y、2=U、4=V、6=UV、7=YUV，0=不处理）。数值越强不代表画质越好，建议先比较默认值。
+
+CPU 双边滤波位于现有反交错、HDR 转换和插帧之后，调色/LUT及新增颗粒之前；以 `yuv420p10le` 进入滤镜，输出像素格式由原编码路线决定。原有部分 SDR 插帧、FGSIM 和数字颗粒路线的 8-bit 边界不因此升级为 10-bit。硬件解码保留原策略，CPU 滤镜可能降低速度。
+
+前处理参与统一/独立配置、逐任务快照以及简单/完整预设。旧配置默认关闭；旧预设加载时也恢复关闭。设置窗确认后保存，取消保留原值；恢复默认值需确认后才应用。窗口位置和大小单独记忆，不进入任务或预设。
+
+底部编码预览与正式编码使用相同生产参数。颗粒四格预览使用相同双边滤波构造；启用时，AV1 合成颗粒对照先处理一份最多 40 帧的公共底片。LUT 单项四档对照和调色工具仍按其原有用途独立显示，并非完整处理链预览。完整画质以编码预览为准。AV1 不重编码替换颗粒和独立颗粒烘焙工具不提供前处理。
+
 
 ## 快速开始
 

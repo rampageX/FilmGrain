@@ -107,8 +107,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.41";
-        internal const string FileReleaseVersion = "5.0.41.0";
+        internal const string ReleaseVersion = "5.0.42";
+        internal const string FileReleaseVersion = "5.0.42.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -343,6 +343,7 @@ namespace FilmGrainStudioPreview
         private GroupBox grpGrain;
         private GroupBox grpLut;
         private Button btnSubtitle;
+        private Button btnPreprocess;
         private Label lblFrameHelp;
         private Button btnStart;
         private CheckBox chkEncodePreview;
@@ -1031,10 +1032,10 @@ namespace FilmGrainStudioPreview
 
             lblFrameHelp = new ThemeLabel(); lblFrameHelp.Dock = DockStyle.Fill; lblFrameHelp.AutoEllipsis = true; lblFrameHelp.ForeColor = ColorMuted; lblFrameHelp.TextAlign = ContentAlignment.TopLeft; lblFrameHelp.Padding = new Padding(8, 6, 8, 0); lblFrameHelp.Text = lang.T("encode.frame_help");
 
-            AddLabeledRow(t, 0, lang.T("encode.method"), BuildCodecPicker());
-            AddLabeledRow(t, 1, lang.T("encode.container"), cmbContainer);
+            AddLabeledRow(t, 1, lang.T("encode.method"), BuildCodecPicker());
+            AddLabeledRow(t, 2, lang.T("encode.container"), cmbContainer);
             Button speedShortcut;
-            AddLabeledRow(t, 2, lang.T("encode.speed"), WithAdvancedShortcut(cmbSpeed, 0, lang.T("advanced.tab.encode"), out speedShortcut));
+            AddLabeledRow(t, 3, lang.T("encode.speed"), WithAdvancedShortcut(cmbSpeed, 0, lang.T("advanced.tab.encode"), out speedShortcut));
             speedShortcut.Visible = cmbCodec.SelectedIndex >= 0 && cmbCodec.SelectedIndex <= 3;
             cmbCodec.SelectedIndexChanged += delegate { speedShortcut.Visible = cmbCodec.SelectedIndex >= 0 && cmbCodec.SelectedIndex <= 3; };
             var rateModes = new FlowLayoutPanel { Dock=DockStyle.Fill, Margin=Padding.Empty, Padding=new Padding(9,0,0,0), WrapContents=false };
@@ -1048,27 +1049,31 @@ namespace FilmGrainStudioPreview
                 option.Margin=new Padding(4,7,3,3);
                 rateModes.Controls.Add(option);
             }
-            t.Controls.Add(rateModes,0,3);t.SetColumnSpan(rateModes,2);
+            t.Controls.Add(rateModes,0,4);t.SetColumnSpan(rateModes,2);
             chkCq.CheckedChanged += delegate {
                 if(restoringFileEditor||updatingBitrateUi)return;
                 int index=cmbCodec.SelectedIndex;if(index!=0&&index!=1&&index!=3&&!NewCpuSelected())return;
                 config.SaveValue(RateControlKey("RATE_CONTROL"),chkCq.Checked?"CQ":"VBR");
                 LoadBitrateStateForCodec();UpdateBitrateDisplays();
             };
-            AddLabeledRow(t, 4, lang.T("encode.bitrate"), bitrate);
-            rateControlLabel=t.GetControlFromPosition(0,4);
-            AddLabeledRow(t, 5, lang.T("encode.fps"), cmbFps);
+            AddLabeledRow(t, 5, lang.T("encode.bitrate"), bitrate);
+            rateControlLabel=t.GetControlFromPosition(0,5);
+            AddLabeledRow(t, 6, lang.T("encode.fps"), cmbFps);
             Button interpShortcut;
-            AddLabeledRow(t, 6, lang.T("encode.interpolation"), WithAdvancedShortcut(interp, 1, lang.T("advanced.tab.interp"), out interpShortcut));
-            AddLabeledRow(t, 7, lang.T("encode.deinterlace"), cmbDeint);
-            AddLabeledRow(t, 8, lang.T("encode.deinterlace_method"), cmbDeintMethod);
+            AddLabeledRow(t, 7, lang.T("encode.interpolation"), WithAdvancedShortcut(interp, 1, lang.T("advanced.tab.interp"), out interpShortcut));
+            AddLabeledRow(t, 8, lang.T("encode.deinterlace"), cmbDeint);
+            AddLabeledRow(t, 9, lang.T("encode.deinterlace_method"), cmbDeintMethod);
             Button cinematicShortcut;
             Control cinematicRow = WithAdvancedShortcut(chkCinematic, -1, UiText("可视化裁剪", "Visual crop"), out cinematicShortcut);
             cinematicShortcut.Enabled = chkCinematic.Checked;
             chkCinematic.CheckedChanged += delegate { cinematicShortcut.Enabled = chkCinematic.Checked; };
-            t.Controls.Add(cinematicRow, 0, 9); t.SetColumnSpan(cinematicRow, 2);
-            AddLabeledRow(t, 10, lang.T("encode.framing"), cmbFrameMode);
-            t.Controls.Add(btnSubtitle, 0, 11); t.SetColumnSpan(btnSubtitle, 2);
+            t.Controls.Add(cinematicRow,0,10);t.SetColumnSpan(cinematicRow,2);
+            btnSubtitle.Margin=new Padding(3,4,3,4);
+            t.Controls.Add(btnSubtitle,0,11);t.Controls.Add(cmbFrameMode,1,11);
+            lutToolTip.SetToolTip(cmbFrameMode,lang.T("encode.framing"));
+            btnPreprocess=new ThemeButton {Dock=DockStyle.Fill,Margin=new Padding(3,4,8,4)};
+            btnPreprocess.Click+=delegate {ShowPreprocessDialog();};RefreshPreprocessButton();
+            t.Controls.Add(btnPreprocess,0,0);t.SetColumnSpan(btnPreprocess,2);
             var resourceMonitor = new ResourceMonitorPanel(UiText("内存", "RAM"), UiText("显存", "VRAM"));
             resourceMonitor.Font = UiFont(8f, FontStyle.Regular);
             t.Controls.Add(resourceMonitor, 0, 12); t.SetColumnSpan(resourceMonitor, 2); t.SetRowSpan(resourceMonitor, 2);
@@ -2348,6 +2353,7 @@ namespace FilmGrainStudioPreview
                 
                 
                 if (btnSubtitle != null) btnSubtitle.Enabled = false;
+                if(btnPreprocess!=null)btnPreprocess.Enabled=false;
                 if (grpLut != null) grpLut.Enabled = false;
                 if (lblFrameHelp != null) lblFrameHelp.Text = lang.T("cinematic.copy_help_full");
                 if (btnStart != null) btnStart.Text = lang.T("button.start_process");
@@ -2374,6 +2380,7 @@ namespace FilmGrainStudioPreview
             
             
             if (btnSubtitle != null) btnSubtitle.Enabled = true;
+            if(btnPreprocess!=null)btnPreprocess.Enabled=true;
             if (grpLut != null) grpLut.Enabled = true;
             if (lblFrameHelp != null) lblFrameHelp.Text = lang.T("encode.frame_help");
             if (btnStart != null) btnStart.Text = lang.T("button.start_encode");
@@ -4062,7 +4069,7 @@ namespace FilmGrainStudioPreview
             var args = new List<string>(); string tag, reason;
             string mode = new string[] { "PRESET", "ISO", "TABLE" }[cmbGrainMode.SelectedIndex];
             if (!NativeAv1GrainReplaceCore.TryBuildGrainArgs(mode, state, args, out tag, out reason)) { MessageBox.Show(this, reason); return; }
-            using (var window = new NativeGrainPreviewForm(Path.Combine(config.Get("FFMPEG_DIR"), "ffmpeg.exe"), config.Get("GRAV1SYNTH"), input, args, info, lang.Code, hardwareCaps))
+            using (var window = new NativeGrainPreviewForm(Path.Combine(config.Get("FFMPEG_DIR"), "ffmpeg.exe"), config.Get("GRAV1SYNTH"), input, args, info, lang.Code, hardwareCaps, PreprocessEnvironment()))
             {
                 window.ShowDialog(this);
                 if (window.SelectedStrength > 0 && av1StrengthControl != null) av1StrengthControl.Value = window.SelectedStrength/5;

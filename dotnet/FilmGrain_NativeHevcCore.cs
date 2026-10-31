@@ -250,6 +250,11 @@ namespace FilmGrainStudioPreview
             string colorFilter, colorSuffix;
 
             if (!TryBuildColorFilter(state, out colorFilter, out colorSuffix, out reason)) return false;
+            string preprocessing;
+            if(!PreprocessingCore.TryBuild(state,out preprocessing,out reason))return false;
+            if(preprocessing.Length>0 && !PreprocessingCore.TryCheckTool(ffmpeg,out reason))return false;
+            colorFilter=preprocessing+colorFilter;
+            if(preprocessing.Length>0)colorSuffix="_BIL"+colorSuffix;
 
             string lutNamingSuffix = hdrPreserve ? "" : BuildLutNamingSuffix(state);
 

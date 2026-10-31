@@ -28,8 +28,8 @@ $RequiredPackageFiles = @(
     'Utils\_FilmGrainSimplified\FilmGrainSimplified.hook.template',
     'Lang\zh-CN.ini',
     'Lang\en-US.ini',
-    '_AV1_Grain_Tables\Netflix_FGS_Dune2.txt',
-    '_AV1_Grain_Tables\Netflix_FGS_Dune2_Strength75.txt',
+    '_AV1_Grain_Tables\Netflix_FGS_Dune2_MOD_E3.txt',
+    '_AV1_Grain_Tables\Netflix_FGS_Dune2_Orig.txt',
     '_OpenSVPFlow\Plugins\open-svpflow-version.txt',
     '_OpenSVPFlow\Plugins\svpflow1_vs.dll',
     '_OpenSVPFlow\Plugins\svpflow2_vs.dll',
@@ -41,6 +41,7 @@ $RequiredPackageFiles = @(
     'dotnet\FilmGrain_BridgeExecutionCore.cs',
     'dotnet\FilmGrain_BridgeRequestPreparationCore.cs',
     'dotnet\FilmGrain_BridgeStateCapture.cs',
+    'dotnet\FilmGrain_Preprocessing.cs',
     'dotnet\FilmGrain_PresetCore.cs',
     'dotnet\FilmGrain_PresetUI.cs',
     'dotnet\FilmGrain_BridgeTaskCoordinator.cs',
@@ -189,6 +190,7 @@ $RetiredSourceFiles = @(
     'dotnet/Setup_Dependencies.ps1'
 )
 $ExcludedSourcePaths = @(
+    'Verify_Preprocessing_K7M4VX',
     'Tests_LutGallery_M8Q4VP',
     'Tests_LutGallery_C6R9WN',
     'Tests_MediaQueue_Q6M8VN',
@@ -236,6 +238,7 @@ $ExcludedSourcePaths = @(
     'FilmGrain_Studio.exe'
 )
 $ExcludedPackagePaths = @(
+    'Verify_Preprocessing_K7M4VX',
     'Tests_LutGallery_M8Q4VP',
     'Tests_LutGallery_C6R9WN',
     'Tests_MediaQueue_Q6M8VN',
@@ -292,6 +295,10 @@ $ExcludedRecursiveDirectoryNames = @(
     '__pycache__'
 )
 $ExcludedRootDeliveryPatterns = @(
+    'Test_Preprocessing_*.cmd',
+    'FGS_Preprocessing_*.zip',
+    'FGS_v5.0.42_ReleasePrep_*.zip',
+    'Clean_Preprocessing_*.cmd',
     'Test_TableScale_*.cmd',
     'Test_Av1Preview_*.cmd',
     'Test_PresetScale_*.cmd',

@@ -128,6 +128,7 @@ namespace FilmGrainStudioPreview
             try
             {
                 bool success;
+                if(noReencode && PreprocessingCore.Enabled(state)){reason="前处理需要重新编码，不能用于仅替换 AV1 颗粒。";return false;}
                 if(noReencode)
                 {
                     var copyState=new Dictionary<string,string>(state,StringComparer.OrdinalIgnoreCase);copyState["FG_MODE"]="AV1";copyState["FG_GRAIN_ENABLED"]="1";
@@ -136,6 +137,7 @@ namespace FilmGrainStudioPreview
                 else
                 {
                     string mode;state.TryGetValue("FG_MODE",out mode);
+                    if(string.Equals(mode,"AV1BAKE",StringComparison.OrdinalIgnoreCase)&&PreprocessingCore.Enabled(state)){reason="独立 AV1 颗粒烘焙不提供前处理，请使用主编码流程。";return false;}
                     if(string.Equals(mode,"AV1BAKE",StringComparison.OrdinalIgnoreCase))success=NativeAv1BakeCore.TryPrepare(appRoot,input,info,state,out prepared,out reason);
                     else if(string.Equals(mode,"AV1",StringComparison.OrdinalIgnoreCase))success=NativeAv1Core.TryPrepare(appRoot,input,info,state,caps,out prepared,out reason);
                     else if((string.Equals(mode,"HEVC",StringComparison.OrdinalIgnoreCase)||string.Equals(mode,"H264",StringComparison.OrdinalIgnoreCase)))success=NativeHevcCore.TryPrepare(appRoot,input,info,state,caps,out prepared,out reason);
@@ -143,7 +145,7 @@ namespace FilmGrainStudioPreview
                     else {reason="unsupported codec: "+mode;return false;}
                 }
                 if(success && prepared!=null && prepared.ExecutionRequest!=null)
-                { info.Identity.RequireCurrent(); string rateNotice=NvencRateControlCore.Notice(state);if(rateNotice.Length>0)prepared.ExecutionRequest.ExecutionNotice=(prepared.ExecutionRequest.ExecutionNotice??"")+Environment.NewLine+rateNotice; string audioNotice=AudioOutputCore.Notice(info,state);if(audioNotice.Length>0)prepared.ExecutionRequest.ExecutionNotice=(prepared.ExecutionRequest.ExecutionNotice??"")+Environment.NewLine+audioNotice; prepared.ExecutionRequest.SourceIdentity=info.Identity; prepared.ExecutionRequest.SourceConfigRoot=appRoot; NativeProcessPolicy.ValidateRequest(prepared.ExecutionRequest);return true; }
+                { if(!noReencode && PreprocessingCore.Enabled(state))prepared.ExecutionRequest.ExecutionNotice=(prepared.ExecutionRequest.ExecutionNotice??"")+Environment.NewLine+"[Preprocessing] CPU bilateral / 10-bit software frames / before color, LUT and grain"; info.Identity.RequireCurrent(); string rateNotice=NvencRateControlCore.Notice(state);if(rateNotice.Length>0)prepared.ExecutionRequest.ExecutionNotice=(prepared.ExecutionRequest.ExecutionNotice??"")+Environment.NewLine+rateNotice; string audioNotice=AudioOutputCore.Notice(info,state);if(audioNotice.Length>0)prepared.ExecutionRequest.ExecutionNotice=(prepared.ExecutionRequest.ExecutionNotice??"")+Environment.NewLine+audioNotice; prepared.ExecutionRequest.SourceIdentity=info.Identity; prepared.ExecutionRequest.SourceConfigRoot=appRoot; NativeProcessPolicy.ValidateRequest(prepared.ExecutionRequest);return true; }
                 if(success)reason="Native preparation returned no execution request";
             }
             catch(Exception ex){reason="Native preparation failed: "+ex.Message;}

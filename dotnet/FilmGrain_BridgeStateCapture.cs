@@ -249,6 +249,8 @@ namespace FilmGrainStudioPreview
         private void CaptureCommonEnvironmentState(BridgeEnvironmentSnapshot snapshot)
         {
             snapshot.GpuDecode=config.Get("GPU_DECODE");
+            snapshot.BilateralEnabled=config.Get("PRE_BILATERAL_ENABLED");
+            snapshot.BilateralSigmaS=config.Get("PRE_BILATERAL_SIGMA_S");snapshot.BilateralSigmaR=config.Get("PRE_BILATERAL_SIGMA_R");snapshot.BilateralPlanes=config.Get("PRE_BILATERAL_PLANES");
             snapshot.CpuSvtTuning=config.Get("CPU_SVT_TUNING");
             snapshot.CpuSvtGrainTune=config.Get("CPU_SVT_GRAIN_TUNE");snapshot.CpuX265GrainTune=config.Get("CPU_X265_GRAIN_TUNE");snapshot.X264GrainTune=config.Get("X264_GRAIN_TUNE");
             snapshot.CpuSvtPreset=config.Get("CPU_SVT_PRESET");snapshot.CpuX265Preset=config.Get("CPU_X265_PRESET");snapshot.CpuX265ThreadedMe=config.Get("CPU_X265_THREADED_ME");
@@ -357,7 +359,7 @@ namespace FilmGrainStudioPreview
                 }
                 foreach(var field in typeof(SubtitleState).GetFields(System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic))field.SetValue(subtitleState,field.GetValue(value.Subtitle));
                 // Media-derived text is refreshed below, never stored as a task configuration.
-                UpdateNoReencodeUi();UpdateSfeUi();UpdateMediaDrivenUi(GetBitrateMediaContext());UpdateGrainEnableUi();UpdateCinematicCropLabels();RefreshSubtitleButton();UpdateColorCorrectionUi();UpdateLutUi();lblLutStrength.Text=GetLutStrength().ToString(CultureInfo.InvariantCulture)+"%";
+                UpdateNoReencodeUi();UpdateSfeUi();UpdateMediaDrivenUi(GetBitrateMediaContext());UpdateGrainEnableUi();UpdateCinematicCropLabels();RefreshSubtitleButton();RefreshPreprocessButton();UpdateColorCorrectionUi();UpdateLutUi();lblLutStrength.Text=GetLutStrength().ToString(CultureInfo.InvariantCulture)+"%";
             } finally {restoringFileEditor=false;ResumeLayout(true);}
             SyncCodecPicker();LoadBitrateStateForCodec();UpdateBitrateDisplays();
         }

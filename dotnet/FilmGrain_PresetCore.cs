@@ -29,7 +29,7 @@ namespace FilmGrainStudioPreview
         internal const string Fields="ordinaryGrainEnabled av1GrainModeIndex pixelGrainModeIndex av1FormatIndex av1StockIndex av1IsoValue av1ChromaEnabled selectedAv1GrainTable proceduralStrength fgsimPresetIndex selectedGrainPlatePath scannedGrainStrengthPercent selectedLutPath colorCorrectionEnabled colorContrast colorBrightness colorSaturation colorGamma colorBlackWhite";
         internal const string Controls="cmbCodec cmbContainer cmbSpeed chkSfe chkCq cmbBitrate chkBitrateAuto chkHighMotion cmbFps chkInterpolation cmbInterpolationMode cmbInterpolationFps cmbDeint cmbDeintMethod chkCinematic cmbFrameMode chkGrainEnabled chkLut trackLutStrength";
         internal const string Styles="FontName FontSize PrimaryHex BorderHex Outline Shadow MarginV";
-        internal const string BasicKeys="GRAIN_ENABLED AV1_GRAIN_STRENGTH HDR_POLICY AUDIO_MODE AUDIO_BITRATE INTERPOLATION_TARGET_FPS CINEMATIC_CROP_PER_SIDE CINEMATIC_CROP_HORIZONTAL CINEMATIC_NO_CROP COLOR_CORRECTION_ENABLED COLOR_CONTRAST COLOR_BRIGHTNESS COLOR_SATURATION COLOR_GAMMA COLOR_BLACK_WHITE NVENC_AV1_RATE_CONTROL NVENC_AV1_CQ NVENC_AV1_CQ_AUTO NVENC_HEVC_RATE_CONTROL NVENC_HEVC_CQ NVENC_HEVC_CQ_AUTO NVENC_H264_RATE_CONTROL NVENC_H264_CQ NVENC_H264_CQ_AUTO";
+        internal const string BasicKeys="PRE_BILATERAL_ENABLED PRE_BILATERAL_SIGMA_S PRE_BILATERAL_SIGMA_R PRE_BILATERAL_PLANES GRAIN_ENABLED AV1_GRAIN_STRENGTH HDR_POLICY AUDIO_MODE AUDIO_BITRATE INTERPOLATION_TARGET_FPS CINEMATIC_CROP_PER_SIDE CINEMATIC_CROP_HORIZONTAL CINEMATIC_NO_CROP COLOR_CORRECTION_ENABLED COLOR_CONTRAST COLOR_BRIGHTNESS COLOR_SATURATION COLOR_GAMMA COLOR_BLACK_WHITE NVENC_AV1_RATE_CONTROL NVENC_AV1_CQ NVENC_AV1_CQ_AUTO NVENC_HEVC_RATE_CONTROL NVENC_HEVC_CQ NVENC_HEVC_CQ_AUTO NVENC_H264_RATE_CONTROL NVENC_H264_CQ NVENC_H264_CQ_AUTO";
         internal static bool Contains(string list,string key) {return Array.IndexOf(list.Split(' '),key)>=0;}
         internal static bool Includes(string kind,string key) {return FgsConfig.IsTaskKey(key)&&(kind=="Full"||key=="GPU_DECODE"||key=="CPU_CODEC"||Contains("CPU_SVT_CQ CPU_SVT_CQ_AUTO",key)||key=="CPU_SVT_RATE_CONTROL"||Contains("CPU_X265_CQ CPU_X265_CQ_AUTO",key)||key=="CPU_X265_RATE_CONTROL"||Contains(BasicKeys,key));}
         internal static JavaScriptSerializer Serializer() {return new JavaScriptSerializer {MaxJsonLength=262144,RecursionLimit=16};}
@@ -56,6 +56,10 @@ namespace FilmGrainStudioPreview
             if(k.EndsWith("BREF_MODE")){Choice(v,"FGS disabled middle",k);return;}
             if(k.EndsWith("LOOKAHEAD")){Choice(v,"FGS 0 8 16 24 27 32",k);return;}
             switch(k) {
+            case "PRE_BILATERAL_ENABLED":Choice(v,"true false",k);return;
+            case "PRE_BILATERAL_SIGMA_S":Number(v,0,512,k);return;
+            case "PRE_BILATERAL_SIGMA_R":Number(v,0,1,k);return;
+            case "PRE_BILATERAL_PLANES":Integer(v,0,15,k);return;
             case "AUDIO_MODE":Choice(v,"FGS SMART COPY AAC",k);return;
             case "AUDIO_BITRATE":Choice(v,"SOURCE 128 160 192 256 320",k);return;
             case "CPU_SVT_GRAIN_TUNE":case "CPU_X265_GRAIN_TUNE":case "X264_GRAIN_TUNE":Choice(v,"AUTO ON OFF",k);return;
@@ -99,7 +103,7 @@ namespace FilmGrainStudioPreview
             SafeText(p.Name,"名称",48);Require(!string.IsNullOrWhiteSpace(p.Name),"名称不能为空");
             Require(p.Description!=null&&p.Description.Length<=4000,"说明过长");Choice(p.Kind,"Simple Full","类型");Choice(p.SubtitlePolicy,"OFF AUTO TARGET","字幕策略");
             Require(p.Config!=null&&p.Fields!=null&&p.Controls!=null&&p.SubtitleStyle!=null,"缺少配置对象");
-            foreach(string key in BasicKeys.Split(' '))Require(p.Config.ContainsKey(key),"缺少基础参数: "+key);
+            foreach(string key in BasicKeys.Split(' '))if(!key.StartsWith("PRE_BILATERAL_"))Require(p.Config.ContainsKey(key),"缺少基础参数: "+key);
             foreach(var pair in p.Config){Require(Includes(p.Kind,pair.Key),"不允许的配置字段: "+pair.Key);ValidateConfig(pair.Key,pair.Value);}
             if(p.Config.ContainsKey("SVP_EXACT")&&p.Config.ContainsKey("SVP_LEAN"))
                 Require(p.Config["SVP_EXACT"]!="true"||p.Config["SVP_LEAN"]!="true","精简 Super 必须启用实验性高速分析 (exact=false)");
@@ -206,6 +210,7 @@ namespace FilmGrainStudioPreview
         internal static FgsPreset CoherentCopy(FgsPreset source)
         {
             Validate(source);var p=Copy(source);
+            for(int i=0;i<PreprocessingCore.Keys.Length;i++)if(!p.Config.ContainsKey(PreprocessingCore.Keys[i]))p.Config[PreprocessingCore.Keys[i]]=PreprocessingCore.Defaults[i];
             bool grain=p.Fields["ordinaryGrainEnabled"]=="True";
             p.Config["GRAIN_ENABLED"]=grain?"true":"false";
             p.Controls["chkGrainEnabled"]=grain||p.Controls["cmbCodec"]=="4"?"1":"0";
@@ -216,6 +221,7 @@ namespace FilmGrainStudioPreview
         }
         private static bool DetailConfigActive(FgsPreset p,string key,int codec)
         {
+            if(key.StartsWith("PRE_BILATERAL_") && key!="PRE_BILATERAL_ENABLED" && p.Config["PRE_BILATERAL_ENABLED"]!="true")return false;
             if(key=="GRAIN_ENABLED"||key.StartsWith("COLOR_")||key=="HDR_POLICY"||key=="AUDIO_MODE"||key=="AUDIO_BITRATE"||key=="INTERPOLATION_TARGET_FPS")return false;
             if(key=="AV1_GRAIN_STRENGTH")return p.Controls["chkGrainEnabled"]=="1"&&(codec==0||codec==4)&&int.Parse(p.Fields["av1GrainModeIndex"])<=2;
             if(key.StartsWith("CINEMATIC_"))return p.Controls["chkCinematic"]=="1"&&(key=="CINEMATIC_NO_CROP"||p.Config["CINEMATIC_NO_CROP"]!="1");
@@ -283,7 +289,11 @@ namespace FilmGrainStudioPreview
         }
         internal static string Label(string k)
         {
-            switch(k) {case "cmbCodec":return "编码器 [0 AV1 / 1 HEVC / 2 x264 / 3 H264 / 4 不重编码]";
+            switch(k) {
+            case "PRE_BILATERAL_ENABLED":return "前处理 Bilateral（CPU）";
+            case "PRE_BILATERAL_SIGMA_S":return "Bilateral sigmaS";
+            case "PRE_BILATERAL_SIGMA_R":return "Bilateral sigmaR";
+            case "PRE_BILATERAL_PLANES":return "Bilateral planes";case "cmbCodec":return "编码器 [0 AV1 / 1 HEVC / 2 x264 / 3 H264 / 4 不重编码]";
             case "cmbContainer":return "容器 [0 MP4 / 1 MKV]";case "cmbSpeed":return "编码速度 [0 快速 / 1 标准 / 2 UHQ]";
             case "chkCq":return "CQ 质量模式";case "cmbBitrate":return "码率或 CQ（自动时显示值不作为手动设置）";
             case "chkBitrateAuto":return "自动码率 / 自动 CQ";case "chkGrainEnabled":return "颗粒开关";case "chkLut":return "LUT 开关";

@@ -18,6 +18,7 @@ namespace FilmGrainStudioPreview
         private readonly MediaProbeInfo info;
         private readonly string appRoot;
         private readonly IDictionary<string,string> pixelState;
+        private readonly IDictionary<string,string> preprocessingState;
         private readonly HardwareCapabilitySnapshot capabilities;
         private readonly string temporary = Path.Combine(Path.GetTempPath(), "FGS_GrainCompare_" + Guid.NewGuid().ToString("N"));
         private readonly object sync = new object();
@@ -43,9 +44,10 @@ namespace FilmGrainStudioPreview
         private string T(string zh,string en){return isZh?zh:en;}
         internal int SelectedStrength { get; private set; }
 
-        internal NativeGrainPreviewForm(string ffmpegPath, string gravPath, string input, List<string> args, MediaProbeInfo media, string languageCode = "zh-CN", HardwareCapabilitySnapshot metadataCaps = null)
+        internal NativeGrainPreviewForm(string ffmpegPath, string gravPath, string input, List<string> args, MediaProbeInfo media, string languageCode = "zh-CN", HardwareCapabilitySnapshot metadataCaps = null, IDictionary<string,string> preprocessing = null)
         {
             isZh=string.Equals(languageCode,"zh-CN",StringComparison.OrdinalIgnoreCase);
+            preprocessingState=preprocessing==null?new Dictionary<string,string>():new Dictionary<string,string>(preprocessing);
             capabilities=metadataCaps; info=media; ffmpeg=ffmpegPath; grav1synth=gravPath; source=input; grainArgs=new List<string>(args);
             Text=T("颗粒四档对比","Four grain strengths");
             Size=new Size(1180,860); MinimumSize=new Size(1000,700); StartPosition=FormStartPosition.CenterParent;
@@ -160,10 +162,13 @@ namespace FilmGrainStudioPreview
                     }
                     else
                     {
-                    if (!string.Equals(info.VideoCodec,"av1",StringComparison.OrdinalIgnoreCase))
+                    if (PreprocessingCore.Enabled(preprocessingState) || !string.Equals(info.VideoCodec,"av1",StringComparison.OrdinalIgnoreCase))
                     {
                         ReportProgress(T("正在将短片段转为 AV1（仅预览）…","Converting a short sample to AV1 (preview only)..."));
-                        Run(ffmpeg,BuildMetadataSampleArguments(source,seconds,baseIvf,info,capabilities!=null&&capabilities.Av1Available));
+                        string pre,preReason;if(!PreprocessingCore.TryBuild(preprocessingState,out pre,out preReason))throw new InvalidDataException(preReason);
+                        if(pre.Length>0&&!PreprocessingCore.TryCheckTool(ffmpeg,out preReason))throw new InvalidDataException(preReason);
+                        var sampleArgs=BuildMetadataSampleArguments(source,seconds,baseIvf,info,capabilities!=null&&capabilities.Av1Available);
+                        sampleArgs[sampleArgs.IndexOf("-vf")+1]=pre+"setpts=PTS-STARTPTS";Run(ffmpeg,sampleArgs);
                         actualStart=seconds;
                     }
                     else
