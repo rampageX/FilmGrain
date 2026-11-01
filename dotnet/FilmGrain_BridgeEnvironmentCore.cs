@@ -24,6 +24,7 @@ namespace FilmGrainStudioPreview
 
         public string Mode = "";
         public string GpuDecode="false";
+        public Dictionary<string,string> ResizeSettings=new Dictionary<string,string>();
         public string BilateralEnabled="false", BilateralSigmaS="3", BilateralSigmaR="0.05", BilateralPlanes="1";
         public string CpuSvtTuning="FGS";
         public string CpuSvtGrainTune="AUTO",CpuX265GrainTune="AUTO",X264GrainTune="AUTO";
@@ -140,6 +141,7 @@ namespace FilmGrainStudioPreview
             state["FG_KEEP_FAILED"] = "1";
             state["FG_MODE"] = snapshot.Mode;
             state["FG_GPU_DECODE"]=snapshot.GpuDecode=="true"?"1":"0";
+            foreach(var pair in snapshot.ResizeSettings)state["FG_"+pair.Key]=pair.Value;
             state["FG_PRE_BILATERAL_ENABLED"]=snapshot.BilateralEnabled;
             state["FG_PRE_BILATERAL_SIGMA_S"]=snapshot.BilateralSigmaS;
             state["FG_PRE_BILATERAL_SIGMA_R"]=snapshot.BilateralSigmaR;

@@ -70,7 +70,7 @@ namespace FilmGrainStudioPreview
             render.Text=T("生成四档","Render four strengths");render.AutoSize=true;render.Click+=delegate {if(!running)StartRender();};
             play.Text=T("播放","Play");play.AutoSize=true;play.Enabled=false;play.Click+=delegate {playback.Enabled=!playback.Enabled;play.Text=playback.Enabled?T("暂停","Pause"):T("播放","Play");};
             frame.Width=180;frame.Maximum=0;frame.TickStyle=TickStyle.None;frame.Enabled=false;frame.ValueChanged+=delegate {ShowFrame();};
-            actualSize.Text=T("1:1 居中","1:1 centered");actualSize.AutoSize=true;
+            actualSize.Text=ResizeCore.Enabled(preprocessingState)?T("1:1 输出像素","1:1 output pixels"):T("1:1 居中","1:1 centered");actualSize.AutoSize=true;
             actualSize.CheckedChanged+=delegate {foreach(var box in panes)box.SizeMode=actualSize.Checked?PictureBoxSizeMode.CenterImage:PictureBoxSizeMode.Zoom;};
             actualSize.Checked=true;
             skipBlack.Text=T("跳过黑帧","Skip black frames");skipBlack.Checked=true;skipBlack.AutoSize=true;
@@ -98,6 +98,7 @@ namespace FilmGrainStudioPreview
         {
             appRoot=root;pixelState=new Dictionary<string,string>(state,StringComparer.OrdinalIgnoreCase);capabilities=caps;
             pixelKind=pixelState["FG_GRAIN_ENGINE"];
+            if(ResizeCore.Enabled(pixelState))actualSize.Text=T("1:1 输出像素","1:1 output pixels");
             for(int i=0;i<4;i++) {
                 if(pixelKind=="FGSIM")strengths[i]=i+1;
                 string label=pixelKind=="FGSIM"?GrainControlCore.FgsimPresets[i]+" / "+GrainControlCore.FgsimStrengths[i]:pixelKind=="PROCEDURAL"?(strengths[i]/100.0).ToString("0.00",CultureInfo.InvariantCulture):strengths[i]+"%";
@@ -162,13 +163,19 @@ namespace FilmGrainStudioPreview
                     }
                     else
                     {
-                    if (PreprocessingCore.Enabled(preprocessingState) || !string.Equals(info.VideoCodec,"av1",StringComparison.OrdinalIgnoreCase))
+                    if (ResizeCore.Enabled(preprocessingState) || PreprocessingCore.Enabled(preprocessingState) || !string.Equals(info.VideoCodec,"av1",StringComparison.OrdinalIgnoreCase))
                     {
                         ReportProgress(T("正在将短片段转为 AV1（仅预览）…","Converting a short sample to AV1 (preview only)..."));
                         string pre,preReason;if(!PreprocessingCore.TryBuild(preprocessingState,out pre,out preReason))throw new InvalidDataException(preReason);
                         if(pre.Length>0&&!PreprocessingCore.TryCheckTool(ffmpeg,out preReason))throw new InvalidDataException(preReason);
                         var sampleArgs=BuildMetadataSampleArguments(source,seconds,baseIvf,info,capabilities!=null&&capabilities.Av1Available);
-                        sampleArgs[sampleArgs.IndexOf("-vf")+1]=pre+"setpts=PTS-STARTPTS";Run(ffmpeg,sampleArgs);
+                        CinematicFramePlan geometry;ResizePlan resize;
+                        if(!CinematicFrameCore.TryBuild(info,preprocessingState,out geometry,out preReason)||!ResizeCore.TryBuild(info,preprocessingState,geometry,out resize,out preReason))throw new InvalidDataException(preReason);
+                        if(resize.Enabled) {
+                            if(!ResizeCore.TryCheckTool(ffmpeg,out preReason))throw new InvalidDataException(preReason);
+                            sampleArgs.InsertRange(0,new[]{"-init_hw_device","vulkan=vk:0","-filter_hw_device","vk"});
+                        }
+                        sampleArgs[sampleArgs.IndexOf("-vf")+1]=pre+resize.Prefix+(resize.Enabled&&geometry.Filter.Length>0?geometry.Filter.Substring(1)+",":"")+"setpts=PTS-STARTPTS";Run(ffmpeg,sampleArgs);
                         actualStart=seconds;
                     }
                     else
@@ -272,7 +279,7 @@ namespace FilmGrainStudioPreview
                 else if(pixelKind=="NATIVE")state["FG_GRAIN_PLATE_STRENGTH"]=strengths[level].ToString(CultureInfo.InvariantCulture);
                 else state["FG_PROC_STRENGTH"]=strengths[level].ToString(CultureInfo.InvariantCulture);
                 state["FG_COLOR_ENABLED"]="0";state["FG_LUT_PATH"]="";
-                state["FG_SUBTITLE"]="0";state["FG_CINEMATIC_FRAME"]="0";state["FG_SVP_INTERPOLATE"]="0";
+                state["FG_SUBTITLE"]="0";if(!ResizeCore.Enabled(state))state["FG_CINEMATIC_FRAME"]="0";state["FG_SVP_INTERPOLATE"]="0";
                 state["FG_FPS_MODE"]="SOURCE";state["FG_X264_PASS_MODE"]="VBR1";
                 state["FG_ENCODE_PREVIEW"]="0";state["FG_SFE_ENGINES"]="0";
                 state["FG_OUTPUT_MODE"]="CUSTOM";state["FG_OUTPUT_CUSTOM_DIR"]=temporary;

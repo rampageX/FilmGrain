@@ -29,7 +29,7 @@ namespace FilmGrainStudioPreview
         internal const string Fields="ordinaryGrainEnabled av1GrainModeIndex pixelGrainModeIndex av1FormatIndex av1StockIndex av1IsoValue av1ChromaEnabled selectedAv1GrainTable proceduralStrength fgsimPresetIndex selectedGrainPlatePath scannedGrainStrengthPercent selectedLutPath colorCorrectionEnabled colorContrast colorBrightness colorSaturation colorGamma colorBlackWhite";
         internal const string Controls="cmbCodec cmbContainer cmbSpeed chkSfe chkCq cmbBitrate chkBitrateAuto chkHighMotion cmbFps chkInterpolation cmbInterpolationMode cmbInterpolationFps cmbDeint cmbDeintMethod chkCinematic cmbFrameMode chkGrainEnabled chkLut trackLutStrength";
         internal const string Styles="FontName FontSize PrimaryHex BorderHex Outline Shadow MarginV";
-        internal const string BasicKeys="PRE_BILATERAL_ENABLED PRE_BILATERAL_SIGMA_S PRE_BILATERAL_SIGMA_R PRE_BILATERAL_PLANES GRAIN_ENABLED AV1_GRAIN_STRENGTH HDR_POLICY AUDIO_MODE AUDIO_BITRATE INTERPOLATION_TARGET_FPS CINEMATIC_CROP_PER_SIDE CINEMATIC_CROP_HORIZONTAL CINEMATIC_NO_CROP COLOR_CORRECTION_ENABLED COLOR_CONTRAST COLOR_BRIGHTNESS COLOR_SATURATION COLOR_GAMMA COLOR_BLACK_WHITE NVENC_AV1_RATE_CONTROL NVENC_AV1_CQ NVENC_AV1_CQ_AUTO NVENC_HEVC_RATE_CONTROL NVENC_HEVC_CQ NVENC_HEVC_CQ_AUTO NVENC_H264_RATE_CONTROL NVENC_H264_CQ NVENC_H264_CQ_AUTO";
+        internal const string BasicKeys="RESIZE_MODE RESIZE_WIDTH RESIZE_HEIGHT RESIZE_KEEP_ASPECT PRE_BILATERAL_ENABLED PRE_BILATERAL_SIGMA_S PRE_BILATERAL_SIGMA_R PRE_BILATERAL_PLANES GRAIN_ENABLED AV1_GRAIN_STRENGTH HDR_POLICY AUDIO_MODE AUDIO_BITRATE INTERPOLATION_TARGET_FPS CINEMATIC_CROP_PER_SIDE CINEMATIC_CROP_HORIZONTAL CINEMATIC_NO_CROP COLOR_CORRECTION_ENABLED COLOR_CONTRAST COLOR_BRIGHTNESS COLOR_SATURATION COLOR_GAMMA COLOR_BLACK_WHITE NVENC_AV1_RATE_CONTROL NVENC_AV1_CQ NVENC_AV1_CQ_AUTO NVENC_HEVC_RATE_CONTROL NVENC_HEVC_CQ NVENC_HEVC_CQ_AUTO NVENC_H264_RATE_CONTROL NVENC_H264_CQ NVENC_H264_CQ_AUTO";
         internal static bool Contains(string list,string key) {return Array.IndexOf(list.Split(' '),key)>=0;}
         internal static bool Includes(string kind,string key) {return FgsConfig.IsTaskKey(key)&&(kind=="Full"||key=="GPU_DECODE"||key=="CPU_CODEC"||Contains("CPU_SVT_CQ CPU_SVT_CQ_AUTO",key)||key=="CPU_SVT_RATE_CONTROL"||Contains("CPU_X265_CQ CPU_X265_CQ_AUTO",key)||key=="CPU_X265_RATE_CONTROL"||Contains(BasicKeys,key));}
         internal static JavaScriptSerializer Serializer() {return new JavaScriptSerializer {MaxJsonLength=262144,RecursionLimit=16};}
@@ -56,6 +56,9 @@ namespace FilmGrainStudioPreview
             if(k.EndsWith("BREF_MODE")){Choice(v,"FGS disabled middle",k);return;}
             if(k.EndsWith("LOOKAHEAD")){Choice(v,"FGS 0 8 16 24 27 32",k);return;}
             switch(k) {
+            case "RESIZE_MODE":Choice(v,"OFF 720 1080 1440 2160 CUSTOM",k);return;
+            case "RESIZE_WIDTH":case "RESIZE_HEIGHT":Integer(v,2,16384,k);return;
+            case "RESIZE_KEEP_ASPECT":Choice(v,"true false",k);return;
             case "PRE_BILATERAL_ENABLED":Choice(v,"true false",k);return;
             case "PRE_BILATERAL_SIGMA_S":Number(v,0,512,k);return;
             case "PRE_BILATERAL_SIGMA_R":Number(v,0,1,k);return;
@@ -103,7 +106,7 @@ namespace FilmGrainStudioPreview
             SafeText(p.Name,"名称",48);Require(!string.IsNullOrWhiteSpace(p.Name),"名称不能为空");
             Require(p.Description!=null&&p.Description.Length<=4000,"说明过长");Choice(p.Kind,"Simple Full","类型");Choice(p.SubtitlePolicy,"OFF AUTO TARGET","字幕策略");
             Require(p.Config!=null&&p.Fields!=null&&p.Controls!=null&&p.SubtitleStyle!=null,"缺少配置对象");
-            foreach(string key in BasicKeys.Split(' '))if(!key.StartsWith("PRE_BILATERAL_"))Require(p.Config.ContainsKey(key),"缺少基础参数: "+key);
+            foreach(string key in BasicKeys.Split(' '))if(!key.StartsWith("PRE_BILATERAL_")&&!key.StartsWith("RESIZE_"))Require(p.Config.ContainsKey(key),"缺少基础参数: "+key);
             foreach(var pair in p.Config){Require(Includes(p.Kind,pair.Key),"不允许的配置字段: "+pair.Key);ValidateConfig(pair.Key,pair.Value);}
             if(p.Config.ContainsKey("SVP_EXACT")&&p.Config.ContainsKey("SVP_LEAN"))
                 Require(p.Config["SVP_EXACT"]!="true"||p.Config["SVP_LEAN"]!="true","精简 Super 必须启用实验性高速分析 (exact=false)");
@@ -290,6 +293,8 @@ namespace FilmGrainStudioPreview
         internal static string Label(string k)
         {
             switch(k) {
+            case "RESIZE_MODE":return "画面缩放 / Resize";
+            case "RESIZE_WIDTH":return "Resize 宽度";case "RESIZE_HEIGHT":return "Resize 高度";case "RESIZE_KEEP_ASPECT":return "Resize 保持比例";
             case "PRE_BILATERAL_ENABLED":return "前处理 Bilateral（CPU）";
             case "PRE_BILATERAL_SIGMA_S":return "Bilateral sigmaS";
             case "PRE_BILATERAL_SIGMA_R":return "Bilateral sigmaR";

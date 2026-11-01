@@ -249,6 +249,7 @@ namespace FilmGrainStudioPreview
         private void CaptureCommonEnvironmentState(BridgeEnvironmentSnapshot snapshot)
         {
             snapshot.GpuDecode=config.Get("GPU_DECODE");
+            foreach(string key in ResizeCore.Keys)snapshot.ResizeSettings[key]=config.Get(key);
             snapshot.BilateralEnabled=config.Get("PRE_BILATERAL_ENABLED");
             snapshot.BilateralSigmaS=config.Get("PRE_BILATERAL_SIGMA_S");snapshot.BilateralSigmaR=config.Get("PRE_BILATERAL_SIGMA_R");snapshot.BilateralPlanes=config.Get("PRE_BILATERAL_PLANES");
             snapshot.CpuSvtTuning=config.Get("CPU_SVT_TUNING");

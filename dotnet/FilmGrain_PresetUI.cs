@@ -78,7 +78,8 @@ namespace FilmGrainStudioPreview
         }
         private FileEditorSettings MergePreset(FgsPreset p,FileEditorSettings target,bool relocate)
         {
-            p=PresetCore.CoherentCopy(p);var value=target.Copy();value.Config["CPU_CODEC"]=p.Config.ContainsKey("CPU_CODEC")?p.Config["CPU_CODEC"]:"X264";foreach(var x in p.Config)value.Config[x.Key]=x.Value;
+            p=PresetCore.CoherentCopy(p);var value=target.Copy();
+            for(int i=0;i<ResizeCore.Keys.Length;i++)value.Config[ResizeCore.Keys[i]]=ResizeCore.Defaults[i];value.Config["CPU_CODEC"]=p.Config.ContainsKey("CPU_CODEC")?p.Config["CPU_CODEC"]:"X264";foreach(var x in p.Config)value.Config[x.Key]=x.Value;
             foreach(var x in p.Controls)value.Controls[x.Key]=x.Value;
             value.Bitrates=(string[])p.Bitrates.Clone();value.Automatic=(bool[])p.Automatic.Clone();
             foreach(var x in p.Fields) {

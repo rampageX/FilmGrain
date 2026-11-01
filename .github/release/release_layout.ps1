@@ -295,6 +295,17 @@ $ExcludedRecursiveDirectoryNames = @(
     '__pycache__'
 )
 $ExcludedRootDeliveryPatterns = @(
+    'Test_Resize_*.cmd',
+    'Return_Resize_*',
+    'FGS_Resize_*.zip',
+    'FGS_Preprocess_Width_*.zip',
+    'Resize_Evidence_*',
+    'Resize_Manifest_*.json',
+    'TEST_Resize_*.md',
+    'TEST_UI_R3_*.txt',
+    'TEST_Width_R4_*.txt',
+    'Clean_Resize_*.cmd',
+    'FGS_v5.0.43_ReleasePrep_*.zip',
     'Test_Preprocessing_*.cmd',
     'FGS_Preprocessing_*.zip',
     'FGS_v5.0.42_ReleasePrep_*.zip',

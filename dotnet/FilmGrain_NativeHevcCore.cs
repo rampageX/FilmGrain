@@ -234,6 +234,9 @@ namespace FilmGrainStudioPreview
             CinematicFramePlan frame;
 
             if (!CinematicFrameCore.TryBuild(info, state, out frame, out reason)) return false;
+            ResizePlan resize;
+            if(!ResizeCore.TryBuild(info,state,frame,out resize,out reason))return false;
+            int processingWidth=resize.Enabled?resize.Width:info.Width, processingHeight=resize.Enabled?resize.Height:info.Height;
 
             bool highMotion = Get(state, "FG_HIGH_MOTION") == "1";
 
@@ -253,7 +256,8 @@ namespace FilmGrainStudioPreview
             string preprocessing;
             if(!PreprocessingCore.TryBuild(state,out preprocessing,out reason))return false;
             if(preprocessing.Length>0 && !PreprocessingCore.TryCheckTool(ffmpeg,out reason))return false;
-            colorFilter=preprocessing+colorFilter;
+            if(resize.Enabled && !ResizeCore.TryCheckTool(ffmpeg,out reason))return false;
+            colorFilter=preprocessing+resize.Prefix+colorFilter;
             if(preprocessing.Length>0)colorSuffix="_BIL"+colorSuffix;
 
             string lutNamingSuffix = hdrPreserve ? "" : BuildLutNamingSuffix(state);
@@ -286,7 +290,7 @@ namespace FilmGrainStudioPreview
 
                 grainInput = plate;
 
-                grainScale = SharedGrainCore.NeedsPlateScaling(ffprobe, plate, info.Width, info.Height);
+                grainScale = SharedGrainCore.NeedsPlateScaling(ffprobe, plate, processingWidth, processingHeight);
 
                 int strengthSel;
 
@@ -381,7 +385,7 @@ namespace FilmGrainStudioPreview
 
                 {
 
-                    string grain = "[1:v:0]fps=" + fps + ",format=p010le,setpts=PTS-STARTPTS,hwupload" + (grainScale ? ",scale_vulkan=w=" + info.Width.ToString(CultureInfo.InvariantCulture) + ":h=" + info.Height.ToString(CultureInfo.InvariantCulture) + ":scaler=bilinear" : "") + "[grainvk]";
+                    string grain = "[1:v:0]fps=" + fps + ",format=p010le,setpts=PTS-STARTPTS,hwupload" + (grainScale ? ",scale_vulkan=w=" + processingWidth.ToString(CultureInfo.InvariantCulture) + ":h=" + processingHeight.ToString(CultureInfo.InvariantCulture) + ":scaler=bilinear" : "") + "[grainvk]";
 
                     string baseFilter;
 
@@ -453,9 +457,9 @@ namespace FilmGrainStudioPreview
 
                 {
 
-                    int pw = Even((info.Width * 4 + 2) / 3);
+                    int pw = Even((processingWidth * 4 + 2) / 3);
 
-                    int ph = Even((info.Height * 4 + 2) / 3);
+                    int ph = Even((processingHeight * 4 + 2) / 3);
 
                     string baseFilter;
 
@@ -467,7 +471,7 @@ namespace FilmGrainStudioPreview
 
                         baseFilter = "[0:v:0]" + deinterlaceFilter + fpsFilter + colorFilter + "format=yuv420p[procbase]";
 
-                    filter = baseFilter + ";[procbase]split=4[seed][masksrc][base][blacksrc];[seed]scale=" + pw.ToString(CultureInfo.InvariantCulture) + ":" + ph.ToString(CultureInfo.InvariantCulture) + ",lutyuv=y=128:u=128:v=128,noise=c0s=100:c0f=t+u,deflate=threshold0=15,dilation=threshold0=10,eq=contrast=3,scale=" + info.Width.ToString(CultureInfo.InvariantCulture) + ":" + info.Height.ToString(CultureInfo.InvariantCulture) + "[n];[masksrc]lutyuv=y='" + procMask + "*(182-abs(75-val))':u=128:v=128[o];[n][o]blend=c0_mode=multiply,negate[a];[base][a]alphamerge[c];[blacksrc]drawbox=color=black:t=fill[black];[black][c]overlay=shortest=1" + frame.Filter + subtitleFilter + ",format=p010le[vout]";
+                    filter = baseFilter + ";[procbase]split=4[seed][masksrc][base][blacksrc];[seed]scale=" + pw.ToString(CultureInfo.InvariantCulture) + ":" + ph.ToString(CultureInfo.InvariantCulture) + ",lutyuv=y=128:u=128:v=128,noise=c0s=100:c0f=t+u,deflate=threshold0=15,dilation=threshold0=10,eq=contrast=3,scale=" + processingWidth.ToString(CultureInfo.InvariantCulture) + ":" + processingHeight.ToString(CultureInfo.InvariantCulture) + "[n];[masksrc]lutyuv=y='" + procMask + "*(182-abs(75-val))':u=128:v=128[o];[n][o]blend=c0_mode=multiply,negate[a];[base][a]alphamerge[c];[blacksrc]drawbox=color=black:t=fill[black];[black][c]overlay=shortest=1" + frame.Filter + subtitleFilter + ",format=p010le[vout]";
 
                     if (hdrPreserve)
 
@@ -481,7 +485,7 @@ namespace FilmGrainStudioPreview
 
                         string hdrBase = "[0:v:0]" + deinterlaceFilter + fpsFilter + colorFilter + "format=yuv420p10le[procbase]";
 
-                        filter = hdrBase + ";[procbase]split=3[seedsrc][masksrc][base];[seedsrc]format=yuv420p,scale=" + pw.ToString(CultureInfo.InvariantCulture) + ":" + ph.ToString(CultureInfo.InvariantCulture) + ",lutyuv=y=128:u=128:v=128,noise=c0s=100:c0f=t+u,deflate=threshold0=15,dilation=threshold0=10,eq=contrast=3,scale=" + info.Width.ToString(CultureInfo.InvariantCulture) + ":" + info.Height.ToString(CultureInfo.InvariantCulture) + "[n8];[masksrc]scale=in_range=" + range + ":out_range=tv,format=yuv420p,lutyuv=y='" + procMask + "*(182-abs(75-val))':u=128:v=128[o8];[n8][o8]blend=c0_mode=multiply,negate,format=gray,format=gray10le[alpha10];[base]extractplanes=planes=y+u+v[yb][ub][vb];[yb][alpha10]lut2=c0='" + blackValue + "+(x-" + blackValue + ")*y/1023':d=10[yout];[yout][ub][vb]mergeplanes=map0s=0:map0p=0:map1s=1:map1p=0:map2s=2:map2p=0:format=yuv420p10le" + frame.Filter + subtitleFilter + BuildHdrFrameFilter(info) + ",format=p010le[vout]";
+                        filter = hdrBase + ";[procbase]split=3[seedsrc][masksrc][base];[seedsrc]format=yuv420p,scale=" + pw.ToString(CultureInfo.InvariantCulture) + ":" + ph.ToString(CultureInfo.InvariantCulture) + ",lutyuv=y=128:u=128:v=128,noise=c0s=100:c0f=t+u,deflate=threshold0=15,dilation=threshold0=10,eq=contrast=3,scale=" + processingWidth.ToString(CultureInfo.InvariantCulture) + ":" + processingHeight.ToString(CultureInfo.InvariantCulture) + "[n8];[masksrc]scale=in_range=" + range + ":out_range=tv,format=yuv420p,lutyuv=y='" + procMask + "*(182-abs(75-val))':u=128:v=128[o8];[n8][o8]blend=c0_mode=multiply,negate,format=gray,format=gray10le[alpha10];[base]extractplanes=planes=y+u+v[yb][ub][vb];[yb][alpha10]lut2=c0='" + blackValue + "+(x-" + blackValue + ")*y/1023':d=10[yout];[yout][ub][vb]mergeplanes=map0s=0:map0p=0:map1s=1:map1p=0:map2s=2:map2p=0:format=yuv420p10le" + frame.Filter + subtitleFilter + BuildHdrFrameFilter(info) + ",format=p010le[vout]";
 
                     }
 
@@ -602,7 +606,7 @@ namespace FilmGrainStudioPreview
                         else if (mergedHdr)
                         {
                             mainStage.StageText = (h264?"H.264":"HEVC")+"：HDR 合并 / 调色 / LUT / 颗粒 / 编码";
-                            if(!grainEnabled)SharedHdrPreprocessCore.AttachMergedHevc(mainStage,ffprobe,input,info,tonemap,caps.GpuName);
+                            if(!grainEnabled && !resize.Enabled)SharedHdrPreprocessCore.AttachMergedHevc(mainStage,ffprobe,input,info,tonemap,caps.GpuName);
                             else SharedHdrPreprocessCore.AttachMergedEncode(mainStage,ffprobe,input,info,tonemap,caps.GpuName);
                         }
                         else if(needsHdrWorkfile && !interpolate && !info.IsInterlaced)

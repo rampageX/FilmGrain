@@ -217,6 +217,7 @@ namespace FilmGrainStudioPreview
         public string VideoProfile = "";
         public int Width;
         public int Height;
+        public string SampleAspectRatio = "1:1";
         public string AvgFrameRate = "";
         public string VideoStartTime = "";
         public string FieldOrder = "";
@@ -299,6 +300,7 @@ namespace FilmGrainStudioPreview
                             info.VideoProfile = GetString(stream, "profile");
                             info.Width = GetInt(stream, "width");
                             info.Height = GetInt(stream, "height");
+                            info.SampleAspectRatio = GetString(stream, "sample_aspect_ratio");
                             info.AvgFrameRate = GetString(stream, "avg_frame_rate");
                             info.VideoStartTime = GetString(stream, "start_time");
                             info.FieldOrder = GetString(stream, "field_order");
@@ -452,7 +454,7 @@ namespace FilmGrainStudioPreview
                 psi.CreateNoWindow = true;
                 psi.RedirectStandardOutput = true;
                 psi.RedirectStandardError = true;
-                psi.Arguments = "-v error -show_entries format=format_name,duration,bit_rate:stream_tags=BPS,BPS-eng:stream=index,codec_type,codec_name,profile,width,height,avg_frame_rate,start_time,field_order,bit_rate,channels,channel_layout,sample_rate,pix_fmt,bits_per_raw_sample,color_range,color_space,color_transfer,color_primaries -of json " + QuoteArgument(path);
+                psi.Arguments = "-v error -show_entries format=format_name,duration,bit_rate:stream_tags=BPS,BPS-eng:stream=index,codec_type,codec_name,profile,width,height,sample_aspect_ratio,avg_frame_rate,start_time,field_order,bit_rate,channels,channel_layout,sample_rate,pix_fmt,bits_per_raw_sample,color_range,color_space,color_transfer,color_primaries -of json " + QuoteArgument(path);
 
                 process = new Process();
                 process.StartInfo = psi;

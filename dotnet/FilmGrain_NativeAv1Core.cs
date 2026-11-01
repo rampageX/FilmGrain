@@ -83,11 +83,14 @@ namespace FilmGrainStudioPreview
             string deinterlaceSuffix = bwdifVulkan ? "_DI_BWV" : bwdifCuda ? "_DI_BWC" : w3fdif ? "_DI_W3F" : "";
             CinematicFramePlan frame;
             if (!CinematicFrameCore.TryBuild(info, state, out frame, out reason)) return false;
+            ResizePlan resize;
+            if(!ResizeCore.TryBuild(info,state,frame,out resize,out reason))return false;
+            string resizeBars=resize.Enabled?frame.Filter:"";if(resize.Enabled)frame.Filter="";
             string colorFilter, colorSuffix;
             if (!TryBuildColorFilter(state, out colorFilter, out colorSuffix, out reason)) return false;
             string preprocessing;
             if(!PreprocessingCore.TryBuild(state,out preprocessing,out reason))return false;
-            colorFilter=preprocessing+colorFilter;
+            colorFilter=preprocessing+resize.Prefix+colorFilter;
             if(preprocessing.Length>0)colorSuffix="_BIL"+colorSuffix;
             string lutNamingSuffix = hdrPreserve ? "" : BuildLutNamingSuffix(state);
             string subtitleSuffix = Get(state, "FG_SUBTITLE") == "1" ? "_SUB" : "";
@@ -184,6 +187,7 @@ namespace FilmGrainStudioPreview
             if (svp && !SharedSvpCore.TryDependencies(appRoot, out reason)) return false;
             string frucFfmpeg = Get(state, "FG_FRUC_USE_MAIN_FFMPEG") == "0" ? Get(state, "FG_FRUC_FFMPEG_PATH") : ffmpeg;
             if(preprocessing.Length>0 && !PreprocessingCore.TryCheckTool(ffmpeg,out reason))return false;
+            if(resize.Enabled && !ResizeCore.TryCheckTool(ffmpeg,out reason))return false;
             string frucPerf = Get(state, "FG_FRUC_PERF").ToLowerInvariant();
             string frucGrid = Get(state, "FG_FRUC_GRID").ToLowerInvariant();
             if (fruc && !SharedFrucCore.TryPreflight(frucFfmpeg, frucPerf, frucGrid, out reason)) return false;
@@ -259,6 +263,7 @@ namespace FilmGrainStudioPreview
                     : AppendProceduralFilter(filterGraph, frame.ActiveWidth, frame.ActiveHeight, strength);
             }
 
+            if(resizeBars.Length>0)filterGraph=filterGraph.Replace("[vout]",resizeBars+"[vout]");
             string pixelFull = grainEnabled && !metadataGrain ? filterGraph : null;
             string pixelClean = null;
             if (pixelFull != null)
@@ -266,11 +271,12 @@ namespace FilmGrainStudioPreview
                 pixelClean = BuildFilterGraph(info,frame,state,deinterlaceFilter,colorFilter,lutCompatName,lutOpacity,subtitleFilter,
                     proceduralGrain || hdrPreserve,fgsimGrain && !hdrPreserve,false,hdrPreserve).Replace("[baseout]",",format=p010le[vout]");
                 if(hdrPreserve)pixelClean=pixelClean.Replace("[vout]",BuildHdrFrameFilter(info)+"[vout]");
+                if(resizeBars.Length>0)pixelClean=pixelClean.Replace("[vout]",resizeBars+"[vout]");
                 filterGraph=PixelGrainStrengthCore.Wrap(filterGraph,pixelClean,pixelPercent);
             }
             List<string> encode = new List<string>();
             Add(encode, "-hide_banner", "-stats", "-progress", "pipe:2", "-stats_period", "0.5", "-y");
-            if (fgsimGrain || (bwdifVulkan && !fieldWorkfile && !separateDeint)) Add(encode, "-init_hw_device", "vulkan=vk:0", "-filter_hw_device", "vk");
+            if (resize.Enabled || fgsimGrain || (bwdifVulkan && !fieldWorkfile && !separateDeint)) Add(encode, "-init_hw_device", "vulkan=vk:0", "-filter_hw_device", "vk");
             if (interpolate) Add(encode, "-copyts");
             Add(encode, "-i", encodeInput);
             if (!string.IsNullOrWhiteSpace(filterGraph)) Add(encode, "-filter_complex", filterGraph, "-map", "[vout]");

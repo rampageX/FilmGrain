@@ -107,8 +107,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.42";
-        internal const string FileReleaseVersion = "5.0.42.0";
+        internal const string ReleaseVersion = "5.0.43";
+        internal const string FileReleaseVersion = "5.0.43.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -965,7 +965,7 @@ namespace FilmGrainStudioPreview
             chkHighMotion = Check(lang.T("encode.high_motion"), false);
             bitrate.Controls.Add(cmbBitrate, 0, 0); bitrate.Controls.Add(chkBitrateAuto, 1, 0); bitrate.Controls.Add(chkHighMotion, 2, 0);
 
-            cmbFps = Combo(new string[] { lang.T("fps.auto_interlaced"), lang.T("fps.keep_source") }, 0);
+            cmbFps = Combo(new string[] { lang.T("fps.auto_interlaced"), lang.T("fps.keep_source") }, 1);
             TableLayoutPanel interp = new TableLayoutPanel(); interp.Dock = DockStyle.Fill; interp.Margin = Padding.Empty;
             interp.ColumnCount = 3; interp.RowCount = 1;
             interp.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
@@ -1393,8 +1393,9 @@ namespace FilmGrainStudioPreview
 
         private List<string> GetFilteredAv1GrainTables(MediaProbeInfo source)
         {
-            return Av1GrainTableSelectionCore.GetFilteredAv1GrainTables(av1GrainTableFiles,
-                source != null ? source.Width : 0, source != null ? source.Height : 0, showAllAv1GrainTables);
+            int w=source!=null?source.Width:0,h=source!=null?source.Height:0;
+            ResizeDimensionsForUi(source,ref w,ref h);
+            return Av1GrainTableSelectionCore.GetFilteredAv1GrainTables(av1GrainTableFiles,w,h,showAllAv1GrainTables);
         }
 
         private void RefreshAv1GrainTableForMedia()
@@ -1442,7 +1443,8 @@ namespace FilmGrainStudioPreview
             else if (av1 && mode == 2)
             {
                 MediaProbeInfo source = GetAv1GrainSourceContext();
-                string preferredTier = Av1GrainTableSelectionCore.GetAv1GrainTierFromDimensions(source != null ? source.Width : 0, source != null ? source.Height : 0);
+                int rw=source!=null?source.Width:0,rh=source!=null?source.Height:0;ResizeDimensionsForUi(source,ref rw,ref rh);
+                string preferredTier = Av1GrainTableSelectionCore.GetAv1GrainTierFromDimensions(rw,rh);
                 displayedAv1GrainTableFiles.Clear();
                 if (tableCatalog.Ready) displayedAv1GrainTableFiles.AddRange(GetFilteredAv1GrainTables(source));
 
@@ -2592,6 +2594,7 @@ namespace FilmGrainStudioPreview
             MediaProbeInfo info = GetBitrateMediaContext();
             int width = info != null ? info.Width : 1920;
             int height = info != null ? info.Height : 1080;
+            if(info!=null && config.Get("RESIZE_MODE")!="OFF") {var state=PreprocessEnvironment();CinematicFramePlan frame;ResizePlan plan;string error;if(CinematicFrameCore.TryBuild(info,state,out frame,out error)&&ResizeCore.TryBuild(info,state,frame,out plan,out error)){width=plan.Width;height=plan.Height;}}
             double fps = GetRecommendedOutputFps(info);
             bool highMotion = chkHighMotion != null && chkHighMotion.Checked;
 
@@ -4299,14 +4302,15 @@ namespace FilmGrainStudioPreview
             panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,120));
             cmbCodecFamily=Combo(new[]{"AV1","HEVC","H264"},0);chkCpuEncoder=Check("CPU · SVT",false);
             panel.Controls.Add(cmbCodecFamily,0,0);panel.Controls.Add(chkCpuEncoder,1,0);
-            cmbCodecFamily.SelectionChangeCommitted+=delegate{CommitCodecPicker();};
+            cmbCodecFamily.SelectionChangeCommitted+=delegate{CommitCodecPicker(true);};
             chkCpuEncoder.CheckedChanged+=delegate{if(!syncingCodecPicker)CommitCodecPicker();};
             cmbCodec.SelectedIndexChanged+=delegate{SyncCodecPicker();};SyncCodecPicker();return panel;
         }
-        private void CommitCodecPicker()
+        private void CommitCodecPicker(bool userFamilySelection = false)
         {
             if(syncingCodecPicker||restoringFileEditor)return;
             int family=Math.Max(0,cmbCodecFamily.SelectedIndex);bool copy=family==3;bool cpu=!copy&&chkCpuEncoder.Checked;
+            if(userFamilySelection && family==0 && hardwareCapsReady && hardwareCaps!=null && !hardwareCaps.Av1Available)cpu=true;
             if(cpu)config.SaveValue("CPU_CODEC",family==0?"SVT":family==1?"X265":"X264");
             cmbCodec.SelectedIndex=copy?4:cpu?2:family==0?0:family==1?1:3;
             SyncCodecPicker();UpdateSpeedChoices();UpdateGrainForCodec();LoadBitrateStateForCodec();UpdateBitrateDisplays();UpdateSfeUi();UpdateMediaDrivenUi(GetSelectedMediaInfo());

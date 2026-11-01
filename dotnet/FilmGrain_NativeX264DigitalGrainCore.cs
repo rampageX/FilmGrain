@@ -130,6 +130,9 @@ namespace FilmGrainStudioPreview
 
             CinematicFramePlan frame;
             if (!CinematicFrameCore.TryBuild(info, state, out frame, out reason)) return false;
+            ResizePlan resize;
+            if(!ResizeCore.TryBuild(info,state,frame,out resize,out reason))return false;
+            int processingWidth=resize.Enabled?resize.Width:info.Width, processingHeight=resize.Enabled?resize.Height:info.Height;
             bool highMotion = Get(state, "FG_HIGH_MOTION") == "1";
             if (!(newCpu&&CpuEncoderCore.IsCrf(state)) && Eq(state, "FG_BITRATE_MODE", "AUTO"))
             {
@@ -142,7 +145,8 @@ namespace FilmGrainStudioPreview
             string preprocessing;
             if(!PreprocessingCore.TryBuild(state,out preprocessing,out reason))return false;
             if(preprocessing.Length>0 && !PreprocessingCore.TryCheckTool(ffmpeg,out reason))return false;
-            colorFilter=preprocessing+colorFilter;
+            if(resize.Enabled && !ResizeCore.TryCheckTool(ffmpeg,out reason))return false;
+            colorFilter=preprocessing+resize.Prefix+colorFilter;
             if(preprocessing.Length>0)colorSuffix="_BIL"+colorSuffix;
             string lutNamingSuffix = BuildLutNamingSuffix(state);
             string preset = Get(state, "FG_X264_PRESET").ToLowerInvariant();
@@ -161,7 +165,7 @@ namespace FilmGrainStudioPreview
                 string plate = Get(state, "FG_HEVC_GRAIN_PATH");
                 if (string.IsNullOrWhiteSpace(plate) || !File.Exists(plate)) { reason = "selected Grain Plate is missing: " + plate; return false; }
                 grainInput = plate;
-                grainScale = SharedGrainCore.NeedsPlateScaling(ffprobe, plate, info.Width, info.Height);
+                grainScale = SharedGrainCore.NeedsPlateScaling(ffprobe, plate, processingWidth, processingHeight);
 
                 int strengthSel;
                 if (!int.TryParse(Get(state, "FG_HEVC_STRENGTH_SEL"), NumberStyles.Integer, CultureInfo.InvariantCulture, out strengthSel)) strengthSel = 3;
@@ -217,7 +221,7 @@ namespace FilmGrainStudioPreview
                 }
                 else if (plateMode)
                 {
-                    string grain = "[1:v:0]fps=" + fps + ",format=p010le,setpts=PTS-STARTPTS,hwupload" + (grainScale ? ",scale_vulkan=w=" + info.Width.ToString(CultureInfo.InvariantCulture) + ":h=" + info.Height.ToString(CultureInfo.InvariantCulture) + ":scaler=bilinear" : "") + "[grainvk]";
+                    string grain = "[1:v:0]fps=" + fps + ",format=p010le,setpts=PTS-STARTPTS,hwupload" + (grainScale ? ",scale_vulkan=w=" + processingWidth.ToString(CultureInfo.InvariantCulture) + ":h=" + processingHeight.ToString(CultureInfo.InvariantCulture) + ":scaler=bilinear" : "") + "[grainvk]";
                     string baseFilter;
                     if (!string.IsNullOrEmpty(lutCompatName))
                         baseFilter = "[0:v:0]" + deinterlaceFilter + fpsFilter + colorFilter + "format=gbrp16le,setpts=PTS-STARTPTS,split=2[lutorig][lutsrc];[lutsrc]lut3d=file='" + EscapeFilterPath(lutCompatName) + "':interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=" + lutOpacity + ",format=p010le,hwupload[basevk]";
@@ -236,14 +240,14 @@ namespace FilmGrainStudioPreview
                 }
                 else
                 {
-                    int pw = Even((info.Width * 4 + 2) / 3);
-                    int ph = Even((info.Height * 4 + 2) / 3);
+                    int pw = Even((processingWidth * 4 + 2) / 3);
+                    int ph = Even((processingHeight * 4 + 2) / 3);
                     string baseFilter;
                     if (!string.IsNullOrEmpty(lutCompatName))
                         baseFilter = "[0:v:0]" + deinterlaceFilter + fpsFilter + colorFilter + "format=gbrp16le,setpts=PTS-STARTPTS,split=2[lutorig][lutsrc];[lutsrc]lut3d=file='" + EscapeFilterPath(lutCompatName) + "':interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=" + lutOpacity + ",format=yuv420p[procbase]";
                     else
                         baseFilter = "[0:v:0]" + deinterlaceFilter + fpsFilter + colorFilter + "format=yuv420p[procbase]";
-                    filter = baseFilter + ";[procbase]split=4[seed][masksrc][base][blacksrc];[seed]scale=" + pw.ToString(CultureInfo.InvariantCulture) + ":" + ph.ToString(CultureInfo.InvariantCulture) + ",lutyuv=y=128:u=128:v=128,noise=c0s=100:c0f=t+u,deflate=threshold0=15,dilation=threshold0=10,eq=contrast=3,scale=" + info.Width.ToString(CultureInfo.InvariantCulture) + ":" + info.Height.ToString(CultureInfo.InvariantCulture) + "[n];[masksrc]lutyuv=y='" + procMask + "*(182-abs(75-val))':u=128:v=128[o];[n][o]blend=c0_mode=multiply,negate[a];[base][a]alphamerge[c];[blacksrc]drawbox=color=black:t=fill[black];[black][c]overlay=shortest=1" + frame.Filter + subtitleFilter + ",format=" + (high10 ? "yuv420p10le" : "yuv420p") + "[vout]";
+                    filter = baseFilter + ";[procbase]split=4[seed][masksrc][base][blacksrc];[seed]scale=" + pw.ToString(CultureInfo.InvariantCulture) + ":" + ph.ToString(CultureInfo.InvariantCulture) + ",lutyuv=y=128:u=128:v=128,noise=c0s=100:c0f=t+u,deflate=threshold0=15,dilation=threshold0=10,eq=contrast=3,scale=" + processingWidth.ToString(CultureInfo.InvariantCulture) + ":" + processingHeight.ToString(CultureInfo.InvariantCulture) + "[n];[masksrc]lutyuv=y='" + procMask + "*(182-abs(75-val))':u=128:v=128[o];[n][o]blend=c0_mode=multiply,negate[a];[base][a]alphamerge[c];[blacksrc]drawbox=color=black:t=fill[black];[black][c]overlay=shortest=1" + frame.Filter + subtitleFilter + ",format=" + (high10 ? "yuv420p10le" : "yuv420p") + "[vout]";
                 }
 
                 filter=LutStrengthCore.OptimizeGraph(filter);

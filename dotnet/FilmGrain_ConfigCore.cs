@@ -22,7 +22,7 @@ namespace FilmGrainStudioPreview
 
         private static readonly KeyValuePair<string, string[]>[] Sections = new KeyValuePair<string, string[]>[]
         {
-            new KeyValuePair<string, string[]>("Preprocessing", new[] { "PRE_BILATERAL_ENABLED", "PRE_BILATERAL_SIGMA_S", "PRE_BILATERAL_SIGMA_R", "PRE_BILATERAL_PLANES" }),
+            new KeyValuePair<string, string[]>("Preprocessing", new[] { "RESIZE_MODE", "RESIZE_WIDTH", "RESIZE_HEIGHT", "RESIZE_KEEP_ASPECT", "PRE_BILATERAL_ENABLED", "PRE_BILATERAL_SIGMA_S", "PRE_BILATERAL_SIGMA_R", "PRE_BILATERAL_PLANES" }),
             new KeyValuePair<string, string[]>("Advanced.EncoderAQ", new[] { "HEVC_SPATIAL_AQ", "HEVC_TEMPORAL_AQ", "H264_SPATIAL_AQ", "H264_TEMPORAL_AQ" }),
             new KeyValuePair<string, string[]>("Paths", new string[] { "FFMPEG_DIR", "FRUC_FFMPEG_SAME_AS_MAIN", "FRUC_FFMPEG_PATH", "GRAV1SYNTH", "GRAIN_ROOT", "LUT_ROOT", "TEMP_MODE", "TEMP_CUSTOM_DIR", "OUTPUT_MODE", "OUTPUT_CUSTOM_DIR" }),
             new KeyValuePair<string, string[]>("General", new string[] { "LANGUAGE", "UI_THEME", "MAIN_WINDOW", "PREPROCESS_WINDOW", "SETUP_VERSION", "NETWORK_PROXY_MODE", "NETWORK_PROXY_URL", "LOG_ENTRY_LIMIT", "GRAIN_ENABLED", "AV1_GRAIN_STRENGTH", "AV1_COPY_FAST", "AV1_COPY_FULL_VERIFY" }),
@@ -70,6 +70,10 @@ namespace FilmGrainStudioPreview
             defaults["GRAV1SYNTH"] = @"E:\EnCoder\FFMpeg\grav1synth\grav1synth.exe";
             defaults["MAIN_WINDOW"] = "";
             defaults["PREPROCESS_WINDOW"] = "";
+            defaults["RESIZE_MODE"] = "OFF";
+defaults["RESIZE_WIDTH"] = "1920";
+defaults["RESIZE_HEIGHT"] = "1080";
+defaults["RESIZE_KEEP_ASPECT"] = "true";
             defaults["PRE_BILATERAL_ENABLED"] = "false";
             defaults["PRE_BILATERAL_SIGMA_S"] = "3";
             defaults["PRE_BILATERAL_SIGMA_R"] = "0.05";
