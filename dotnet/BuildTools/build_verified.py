@@ -2,6 +2,7 @@
 import argparse
 import hashlib
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -37,7 +38,27 @@ def main():
         shutil.copyfile(TOOLS/'Mono.Cecil.dll',stage/'Mono.Cecil.dll')
         subprocess.run(compiler+['-target:exe','-out:'+str(auditor),'-r:'+str(TOOLS/'Mono.Cecil.dll'),str(TOOLS/'FrameworkApiAudit.cs')],check=True)
         candidate=stage/'FilmGrain_Studio.exe'
-        sources=[str(p) for p in sorted((ROOT/'dotnet').glob('*.cs'))]
+        # Audit the actual Windows BAT inputs, including its no-icon branch.
+        # A wildcard-only prebuild can conceal a missing Windows compiler argument.
+        script=(ROOT/'dotnet/build_NET_Preview.bat').read_text(encoding='utf-8-sig')
+        variables={'~dp0':str(ROOT/'dotnet')+'/'}
+        def expand(value):
+            value=value.replace('%~dp0',variables['~dp0'])
+            return re.sub(r'%([^%]+)%',lambda match:variables.get(match[1],match[0]),value)
+        for key,value in re.findall(r'^set "([^=]+)=(.*)"$',script,re.M):
+            variables[key]=expand(value)
+        branches=[]
+        for line in script.splitlines():
+            if not line.startswith('"%CSC%" /nologo'):continue
+            inputs=[Path(expand(token).replace('\\','/')).resolve()
+                    for token in re.findall(r'"([^"\r\n]+)"',line)
+                    if expand(token).lower().endswith('.cs')]
+            branches.append(inputs)
+        expected=set(path.resolve() for path in (ROOT/'dotnet').glob('*.cs'))
+        if len(branches)!=2 or any(set(inputs)!=expected or len(inputs)!=len(expected) for inputs in branches):
+            raise RuntimeError('Windows BAT compiler source lists differ from dotnet/*.cs; update both branches.')
+        sources=[str(path) for path in branches[0]]
+        print('Windows BAT source audit: both compiler branches include all '+str(len(sources))+' C# modules.')
         subprocess.run(compiler+['-target:winexe','-win32icon:'+str(ROOT/'Utils/FGS.ico'),'-out:'+str(candidate)]+sources,check=True)
         subprocess.run(runtime+[str(auditor),str(candidate),str(ref)],check=True)
         compatible=ROOT/'dotnet/build/FilmGrain_Studio_NET_Preview.exe'

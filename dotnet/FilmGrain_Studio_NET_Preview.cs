@@ -107,8 +107,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.43";
-        internal const string FileReleaseVersion = "5.0.43.0";
+        internal const string ReleaseVersion = "5.0.44";
+        internal const string FileReleaseVersion = "5.0.44.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -310,6 +310,11 @@ namespace FilmGrainStudioPreview
         private Button btnHdrShortcut;
         private Label lblStatus;
         private Label lblRunStage;
+        private Label lblQueueElapsed;
+        private readonly object queueClockSync = new object();
+        private readonly Stopwatch queueClock = new Stopwatch();
+        private string queueClockStatus = "";
+        private bool preparingQueue;
         private Label lblRunMetric;
         private TextBox log;
         private FullLogFileCore fullLog;
@@ -793,9 +798,10 @@ namespace FilmGrainStudioPreview
             layout.Dock = DockStyle.Fill;
             layout.Padding = new Padding(7, 6, 7, 7);
             layout.ColumnCount = 1;
-            layout.RowCount = 4;
+            layout.RowCount = 5;
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 74));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 112));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
             box.Controls.Add(layout);
@@ -825,7 +831,8 @@ namespace FilmGrainStudioPreview
             listFiles.GridLines = true;
             listFiles.HideSelection = false;
             listFiles.AllowDrop = true;
-            listFiles.ShowItemToolTips = true;
+            listFiles.ShowItemToolTips = false;
+            InitializeQueueFileHints();
             listFiles.Columns.Add(lang.T("input.column.filename"), 178);
             listFiles.Columns.Add(lang.T("input.column.size"), 72);
             listFiles.Columns.Add(UiText("状态","Status"), 90);
@@ -841,12 +848,14 @@ namespace FilmGrainStudioPreview
             FitFileColumns();
             listFiles.DragEnter += OnDragEnter;
             listFiles.DragDrop += OnDragDrop;
-            listFiles.SelectedIndexChanged += delegate { SelectFileEditor(); UpdateSelectedInfo(); };
+            listFiles.SelectedIndexChanged += delegate { SelectFileEditor(); UpdateSelectedInfo(); UpdateNoReencodeAvailability(); };
             listFiles.MouseDoubleClick += delegate(object sender,MouseEventArgs e) {
                 if(e.Button==MouseButtons.Left && listFiles.GetItemAt(e.X,e.Y)!=null)ResetSelectedQueueStatus();
             };
             ((ThemeListView)listFiles).ColumnHeaderDoubleClick += delegate(object sender,ColumnClickEventArgs e) { SortQueueFiles(e.Column); };
             layout.Controls.Add(listFiles, 0, 1);
+            chkQueueHistory = new ThemeCheckBox { Name = "QUEUE_SHOW_HISTORY", Text = UiText("队列完成后显示详细记录", "Show detailed record when queue finishes"), Dock = DockStyle.Fill, Checked = false, Margin = new Padding(3, 2, 0, 0) };
+            layout.Controls.Add(chkQueueHistory, 0, 2);
 
             GroupBox info = new ThemeGroupBox();
             info.Text = lang.T("input.info_group");
@@ -860,7 +869,7 @@ namespace FilmGrainStudioPreview
             lblMediaInfo.Font = UiFont(8.5f, FontStyle.Regular);
             lblMediaInfo.Text = lang.T("input.info_prompt");
             info.Controls.Add(lblMediaInfo);
-            layout.Controls.Add(info, 0, 2);
+            layout.Controls.Add(info, 0, 3);
 
             TableLayoutPanel inputStatus = new TableLayoutPanel();
             inputStatus.Dock = DockStyle.Fill;
@@ -884,7 +893,7 @@ namespace FilmGrainStudioPreview
             lblHdrRoute.Text = lang.T("input.hdr_route_pending");
             inputStatus.Controls.Add(WithAdvancedShortcut(lblHdrRoute, 2, "HDR", out btnHdrShortcut), 0, 1);
             btnHdrShortcut.Visible = false;
-            layout.Controls.Add(inputStatus, 0, 3);
+            layout.Controls.Add(inputStatus, 0, 4);
             return box;
         }
 
@@ -1080,6 +1089,7 @@ namespace FilmGrainStudioPreview
 
             cmbCodec.SelectedIndexChanged += delegate
             { if(restoringFileEditor)return;
+                if (cmbCodec.SelectedIndex == 4 && !CanSelectNoReencode()) { UpdateNoReencodeAvailability(); return; }
                 if (GuardUnavailableCodecSelection()) return;
                 if (cmbCodec.SelectedIndex >= 0 && cmbCodec.SelectedIndex <= 3)
                     lastCodecIndex = cmbCodec.SelectedIndex;
@@ -1808,8 +1818,10 @@ namespace FilmGrainStudioPreview
             Button clear = new ThemeButton(); clear.Text = lang.T("button.clear_log"); clear.Size = new Size(78, 24); clear.Anchor = AnchorStyles.Right;
             copy.Click += delegate { if (log.TextLength > 0) Clipboard.SetText(log.Text); };
             clear.Click += delegate { log.Clear(); };
-            toolbar.SetColumnSpan(lblRunStage, 2);
-            toolbar.ColumnStyles[1].SizeType = SizeType.Absolute; toolbar.ColumnStyles[1].Width = 0;
+            toolbar.ColumnStyles[1].SizeType = SizeType.Absolute; toolbar.ColumnStyles[1].Width = 280;
+            lblQueueElapsed = new ThemeLabel { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleRight, ForeColor = ColorMuted, AutoEllipsis = true };
+            toolbar.Controls.Add(lblQueueElapsed, 1, 0);
+            UpdateQueueElapsedLabel();
             toolbar.Controls.Add(lblRunStage, 0, 0); toolbar.Controls.Add(copy, 2, 0); toolbar.Controls.Add(clear, 3, 0);
             Button openLog = new ThemeButton(); openLog.Text = UiText("完整日志", "Full log"); openLog.Size = new Size(88, 24);
             Button openFolder = new ThemeButton(); openFolder.Text = UiText("日志目录", "Log folder"); openFolder.Size = new Size(88, 24);
@@ -1909,6 +1921,10 @@ namespace FilmGrainStudioPreview
         private void FitFileColumns()
         {
             if(fittingFileColumns || listFiles==null || listFiles.Columns.Count!=3 || listFiles.ClientSize.Width<20)return;
+            if(WindowState==FormWindowState.Minimized)return;
+            int available=Math.Max(3,listFiles.ClientSize.Width-4);
+            int expectedName=Math.Max(1,(int)(available*0.62)),expectedSize=Math.Max(1,(int)(available*0.19));
+            if(listFiles.Columns[0].Width==expectedName&&listFiles.Columns[1].Width==expectedSize&&listFiles.Columns[2].Width==Math.Max(1,available-expectedName-expectedSize))return;
             fittingFileColumns=true;listFiles.BeginUpdate();
             try {
                 int width=Math.Max(3,listFiles.ClientSize.Width-4);
@@ -2226,17 +2242,24 @@ namespace FilmGrainStudioPreview
             return info != null && string.Equals(info.VideoCodec, "av1", StringComparison.OrdinalIgnoreCase);
         }
 
+        private bool CanSelectNoReencode()
+        {
+            if (listFiles == null) return false;
+            string path = captureInputPath;
+            int count = 1;
+            if (path == null) {
+                count = independentFiles ? listFiles.SelectedItems.Count : listFiles.Items.Count;
+                if (count != 1) return false;
+                path = (independentFiles ? listFiles.SelectedItems[0] : listFiles.Items[0]).Tag as string;
+            }
+            MediaProbeInfo info;
+            return path != null && mediaProbeCache.TryGetValue(path, out info) && NoReencodeEligibilityCore.CanSelect(info, count);
+        }
+
         private void UpdateNoReencodeAvailability()
         {
             if (cmbCodec == null || listFiles == null) return;
-            bool eligible = independentFiles;
-            if (!independentFiles && listFiles.Items.Count == 1)
-            {
-                string path = listFiles.Items[0].Tag as string;
-                MediaProbeInfo info;
-                if (!string.IsNullOrEmpty(path) && mediaProbeCache.TryGetValue(path, out info))
-                    eligible = IsAv1Media(info);
-            }
+            bool eligible = CanSelectNoReencode();
 
             string itemText = lang.T("codec.no_reencode");
             bool hasItem = cmbCodec.Items.Count >= 5 && string.Equals(Convert.ToString(cmbCodec.Items[4], CultureInfo.InvariantCulture), itemText, StringComparison.Ordinal);
@@ -2982,7 +3005,72 @@ namespace FilmGrainStudioPreview
             return true;
         }
 
+        // Independent of ListView's native label-tip state and repaint lifecycle.
+        private void InitializeQueueFileHints()
+        {
+            var tip = new ThemeToolTip { ShowAlways = true };
+            var hover = new System.Windows.Forms.Timer { Interval = 500 };
+            ListViewItem candidate = null;
+            string shown = null;
+            Action clear = delegate { hover.Stop(); tip.Hide(listFiles); tip.SetToolTip(listFiles, null); candidate = null; shown = null; };
+            listFiles.MouseMove += delegate(object sender, MouseEventArgs e) {
+                if (Control.MouseButtons != MouseButtons.None) { clear(); return; }
+                ListViewItem item = listFiles.GetItemAt(e.X, e.Y);
+                if (item == candidate) return;
+                clear(); candidate = item;
+                if (item != null) hover.Start();
+            };
+            hover.Tick += delegate {
+                hover.Stop();
+                Point point = listFiles.PointToClient(Cursor.Position);
+                if (!ContainsFocus && Form.ActiveForm != this) { clear(); return; }
+                if (candidate == null || listFiles.GetItemAt(point.X, point.Y) != candidate || Control.MouseButtons != MouseButtons.None) { clear(); return; }
+                shown = candidate.ToolTipText;
+                if (string.IsNullOrEmpty(shown)) shown = candidate.Tag as string;
+                if (string.IsNullOrEmpty(shown)) return;
+                // SetToolTip also supplies the full text to ThemeToolTip's size calculation.
+                tip.SetToolTip(listFiles, shown);
+                tip.Show(shown, listFiles, point.X + 16, point.Y + 22, 20000);
+            };
+            listFiles.MouseLeave += delegate { clear(); };
+            listFiles.MouseDown += delegate { clear(); };
+            listFiles.MouseWheel += delegate { clear(); };
+            listFiles.KeyDown += delegate { clear(); };
+            listFiles.ClientSizeChanged += delegate { clear(); };
+            Deactivate += delegate { clear(); };
+            listFiles.Disposed += delegate { hover.Dispose(); tip.Dispose(); };
+        }
+
+        private void UpdateQueueElapsedLabel()
+        {
+            if (lblQueueElapsed == null) return;
+            TimeSpan elapsed; string status;
+            lock (queueClockSync) { elapsed = queueClock.Elapsed; status = queueClockStatus; }
+            string text = UiText("全队列耗时 ", "Queue elapsed ") + FormatTaskElapsed(elapsed).Split('.')[0];
+            if (!string.IsNullOrEmpty(status)) text += " · " + status;
+            if (lblQueueElapsed.Text != text) lblQueueElapsed.Text = text;
+        }
+
         private void StartBridgeExecution()
+        {
+            if (preparingQueue || bridgeTaskCoordinator == null || bridgeTaskCoordinator.IsActive) return;
+            preparingQueue = true;
+            queueHistory = new QueueCompletionHistory(chkQueueHistory != null && chkQueueHistory.Checked, independentFiles);
+            lock (queueClockSync) { queueClock.Restart(); queueClockStatus = ""; }
+            UpdateQueueElapsedLabel();
+            try { StartBridgeExecutionCore(); }
+            finally {
+                preparingQueue = false;
+                lock (queueClockSync) {
+                    if (!bridgeTaskCoordinator.IsActive && queueClock.IsRunning) {
+                        queueClock.Stop(); queueClockStatus = UiText("未启动", "Not started");
+                    }
+                }
+                UpdateQueueElapsedLabel();
+            }
+        }
+
+        private void StartBridgeExecutionCore()
         {
             if (bridgeTaskCoordinator == null || bridgeTaskCoordinator.IsActive) return;
             if (listFiles == null || listFiles.Items.Count == 0)
@@ -3116,6 +3204,7 @@ namespace FilmGrainStudioPreview
             {
                 ScrollLogToEnd();
                 submittedQueueFiles.Clear();foreach(string input in inputs)submittedQueueFiles.Add(input);
+                RegisterQueueHistory(new List<BridgeTaskRequest> { taskRequest });
                 bridgeTaskCoordinator.Start(taskRequest);
             }
             catch (Exception ex)
@@ -3191,6 +3280,7 @@ namespace FilmGrainStudioPreview
                 submittedQueueFiles.Clear();foreach(string input in inputs)submittedQueueFiles.Add(input);
                 bridgeTaskCoordinator.SkipFailedFiles=config.GetBool("QUEUE_SKIP_FAILED");
                 AppendTaskLog("[Queue] skip_failed="+bridgeTaskCoordinator.SkipFailedFiles+" (frozen at start)"+Environment.NewLine);
+                RegisterQueueHistory(tasks);
                 bridgeTaskCoordinator.StartQueue(tasks);
             }
             catch (Exception ex)
@@ -3212,6 +3302,8 @@ namespace FilmGrainStudioPreview
 
         private void OnBridgeTaskStateChanged(object sender, BridgeTaskStateChangedEventArgs e)
         {
+            QueueCompletionHistory history = queueHistory;
+            if (history != null && e != null && e.State == BridgeTaskState.Running) history.Running(e.Task);
             if (IsDisposed || Disposing || !IsHandleCreated) return;
             try
             {
@@ -3296,6 +3388,7 @@ namespace FilmGrainStudioPreview
         {
             string prefix=e.Stream==BridgeLogStream.StandardError?"[stderr] ":e.Stream==BridgeLogStream.StandardOutput?"[stdout] ":"[runner] ";
             string line=prefix+e.Line+Environment.NewLine;
+            QueueCompletionHistory history = queueHistory; if (history != null) history.Log(e.Line);
             if(encodingMonitor!=null)encodingMonitor.Feed(e.Line);
             FullLogFileCore currentLog=taskLog;if(currentLog!=null)currentLog.Write(line);
             if(!VisibleLogCore.ShowProcessLine(e.Line)||IsDisposed||Disposing)return;
@@ -3330,6 +3423,7 @@ namespace FilmGrainStudioPreview
             }
             if(text.Length>0){AppendVisibleLog(text);ScrollLogToEnd();}
             if(encodingMonitor!=null)encodingMonitor.RefreshSnapshot();
+            UpdateQueueElapsedLabel();
             if(bridgeTaskCoordinator==null||bridgeTaskCoordinator.State!=BridgeTaskState.Running)return;
                     if (stage != null && stage.HasStage && lblRunStage != null)
                     {
@@ -3472,9 +3566,17 @@ namespace FilmGrainStudioPreview
 
         private void OnBridgeExecutionCompleted(object sender, BridgeExecutionCompletedEventArgs e)
         {
+            TimeSpan queueElapsed;
+            lock (queueClockSync) {
+                queueClock.Stop(); queueElapsed = queueClock.Elapsed;
+                queueClockStatus = e.Result.Cancelled ? UiText("已取消", "Cancelled") : e.Result.Exception != null || e.Result.ExitCode != 0 ? UiText("失败", "Failed") : UiText("完成", "Completed");
+            }
+            QueueCompletionHistory history = queueHistory;
+            string detailedRecord = history == null ? "" : history.Finish(queueElapsed, e.Result);
             string completion = (e.Result.Exception == null ? "" : "[runner] exception=" + e.Result.Exception.ToString() + Environment.NewLine) +
                 "[runner] exit_code=" + e.Result.ExitCode.ToString(CultureInfo.InvariantCulture) + " cancelled=" + (e.Result.Cancelled ? "1" : "0") + Environment.NewLine +
-                "[Task] " + UiText("总耗时：", "Total elapsed: ") + FormatTaskElapsed(e.Result.TotalElapsed) + Environment.NewLine +
+                "[Task] " + UiText("末项耗时：", "Last item elapsed: ") + FormatTaskElapsed(e.Result.TotalElapsed) + Environment.NewLine +
+                "[Queue] " + UiText("全队列总耗时：", "Total queue elapsed: ") + FormatTaskElapsed(queueElapsed) + Environment.NewLine +
                 "============================================================" + Environment.NewLine;
             FullLogFileCore completedLog = taskLog;
             if (completedLog != null) completedLog.Write(completion);
@@ -3513,6 +3615,7 @@ namespace FilmGrainStudioPreview
                     }
 
                     if (hardwareRefreshQueued) BeginHardwareDetection();
+                    if (history != null && history.Enabled && !e.Result.Cancelled && detailedRecord.Length > 0) ShowQueueCompletionRecord(detailedRecord);
                     if (log != null)
                     {
                         AppendVisibleLog(completion);
@@ -4310,6 +4413,7 @@ namespace FilmGrainStudioPreview
         {
             if(syncingCodecPicker||restoringFileEditor)return;
             int family=Math.Max(0,cmbCodecFamily.SelectedIndex);bool copy=family==3;bool cpu=!copy&&chkCpuEncoder.Checked;
+            if(copy && !CanSelectNoReencode()) { UpdateNoReencodeAvailability(); SyncCodecPicker(); return; }
             if(userFamilySelection && family==0 && hardwareCapsReady && hardwareCaps!=null && !hardwareCaps.Av1Available)cpu=true;
             if(cpu)config.SaveValue("CPU_CODEC",family==0?"SVT":family==1?"X265":"X264");
             cmbCodec.SelectedIndex=copy?4:cpu?2:family==0?0:family==1?1:3;
@@ -4336,7 +4440,7 @@ namespace FilmGrainStudioPreview
         private readonly object gate = new object();
         private readonly List<double> history = new List<double>();
         private readonly bool chinese;
-        private string config = "", chain = "", stage = "", metrics = "", q = "—", position = "—";
+        private string config = "", stage = "", metrics = "", q = "—", position = "—";
         private double bytes = -1, seconds = -1, lastBytes = -1, lastSeconds = -1, current = -1, average = -1, peak;
         private bool running, tracking, copyOnly, dirty = true;
         private readonly Stopwatch clock = new Stopwatch();
@@ -4360,9 +4464,7 @@ namespace FilmGrainStudioPreview
                 if(!copy && (codec=="AV1" || codec=="HEVC" || codec=="H264"))
                     config += Get(s,"FG_NVENC_RATE_CONTROL","VBR")=="CQ" ? " · CQ "+Get(s,"FG_NVENC_CQ","—") : " · VBR "+Get(s,"FG_BITRATE","—")+" kbps";
                 if(!copy && CpuEncoderCore.IsNewCpu(s))config += CpuEncoderCore.IsCrf(s) ? " · CRF "+Get(s,"FG_NVENC_CQ","—") : " · VBR "+Get(s,"FG_BITRATE","—")+" kbps";
-                chain=T("颗粒 ", "Grain ")+ (Get(s,"FG_GRAIN_ENABLED","1")=="0" ? "OFF" : Get(s,"FG_GRAIN_ENGINE","NATIVE")=="NATIVE" && codec=="AV1" ? "AV1 "+Get(s,"FG_AV1_GRAIN_MODE","NATIVE") : Get(s,"FG_GRAIN_ENGINE","NATIVE"))
-                    +" · LUT "+(Get(s,"FG_LUT_PATH","")=="" ? "OFF" : Get(s,"FG_LUT_STRENGTH","100")+"%")
-                    +" · "+T("插帧 ","Interpolation ")+(Get(s,"FG_SVP_INTERPOLATE","0")=="1" ? Get(s,"FG_INTERPOLATION_ENGINE","OFF") : "OFF")+" · "+T("HDR策略 ","HDR policy ")+Get(s,"FG_HDR_POLICY","—"); dirty=true;
+                dirty=true;
             }
         }
         public void SetMetrics(string text) { lock(gate) {if(tracking) {metrics=text;dirty=true;} } }
@@ -4432,15 +4534,16 @@ namespace FilmGrainStudioPreview
                         using(StringFormat f=new StringFormat {Trimming=StringTrimming.EllipsisCharacter,FormatFlags=StringFormatFlags.NoWrap})
                             g.DrawString(t,Font,b,new RectangleF(10,y,Math.Max(1,half-18),19),f);
                     };
-                    line(config+"   "+T("反馈 Q ", "Reported Q ")+q,5,accent);
-                    line(stage,23,muted);
+                    int gap = Math.Max(19, Math.Min(23, (h - 18) / 7));
+                    int top = Math.Max(5, (h - (6 * gap + Font.Height)) / 2);
+                    line(config+"   "+T("反馈 Q ", "Reported Q ")+q,top,accent);
+                    line(stage,top+1*gap,muted);
                     string[] metricParts=metrics.Split(new string[]{"   ETA: "},StringSplitOptions.None);
-                    line(metrics=="" ? "FPS: —   Speed: —" : metricParts[0],41,text);
-                    line("ETA: "+(metricParts.Length>1?metricParts[1]:"—")+"   "+T("耗时 ", "Elapsed ")+clock.Elapsed.ToString(@"hh\:mm\:ss"),59,muted);
-                    line(T("区间 ", "Interval ")+Rate(current)+"   "+T("平均 ", "Average ")+Rate(average),77,accent);
-                    line(T("峰值 ", "Peak ")+Rate(peak>0?peak:-1)+"   "+T("编码输出 ", "Encoded ")+(bytes<0?"—":(bytes/1048576).ToString("0.0",CultureInfo.InvariantCulture)+" MiB"),95,text);
-                    line(T("位置 ", "Position ")+position,113,muted);
-                    line(chain,138,muted);
+                    line(metrics=="" ? "FPS: —   Speed: —" : metricParts[0],top+2*gap,text);
+                    line("ETA: "+(metricParts.Length>1?metricParts[1]:"—")+"   "+T("耗时 ", "Elapsed ")+clock.Elapsed.ToString(@"hh\:mm\:ss"),top+3*gap,muted);
+                    line(T("区间 ", "Interval ")+Rate(current)+"   "+T("平均 ", "Average ")+Rate(average),top+4*gap,accent);
+                    line(T("峰值 ", "Peak ")+Rate(peak>0?peak:-1)+"   "+T("编码输出 ", "Encoded ")+(bytes<0?"—":(bytes/1048576).ToString("0.0",CultureInfo.InvariantCulture)+" MiB"),top+5*gap,text);
+                    line(T("位置 ", "Position ")+position,top+6*gap,muted);
                     Rectangle plot=new Rectangle(half+8,25,Math.Max(1,w-half-18),Math.Max(12,h-36));
                     if(h>70 && w>180) {
                         g.DrawString(T("区间码率", "Interval bitrate"),Font,accent,half+8,4);

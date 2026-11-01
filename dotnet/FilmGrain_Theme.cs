@@ -1050,6 +1050,42 @@ namespace FilmGrainStudioPreview
     }
     internal sealed class ThemeListView : ListView, IThemeSurface
     {
+        private Form restoreOwner;
+        private bool restorePaintPending;
+        internal ThemeListView() { DoubleBuffered=true; }
+        private void BindRestoreOwner()
+        {
+            Form owner=FindForm();if(restoreOwner==owner)return;
+            UnbindRestoreOwner();restoreOwner=owner;
+            if(owner!=null){owner.Activated+=RestoreOwnerChanged;owner.Resize+=RestoreOwnerChanged;}
+        }
+        private void UnbindRestoreOwner()
+        {if(restoreOwner!=null){restoreOwner.Activated-=RestoreOwnerChanged;restoreOwner.Resize-=RestoreOwnerChanged;restoreOwner=null;}}
+        private void RestoreOwnerChanged(object sender,EventArgs e) { QueueRestorePaint(); }
+        protected override void OnVisibleChanged(EventArgs e) {base.OnVisibleChanged(e);if(Visible)QueueRestorePaint();}
+        private void QueueRestorePaint()
+        {
+            if(restorePaintPending||!IsHandleCreated||IsDisposed||Disposing||!Visible||
+                (restoreOwner!=null&&restoreOwner.WindowState==FormWindowState.Minimized))return;
+            restorePaintPending=true;
+            try {BeginInvoke(new Action(delegate {
+                restorePaintPending=false;
+                if(IsDisposed||Disposing||!IsHandleCreated||!Visible||ClientSize.Height<1||
+                    (restoreOwner!=null&&restoreOwner.WindowState==FormWindowState.Minimized))return;
+                // EnsureVisible on a minimized native list can leave a positive row-origin gap.
+                // Repair only that impossible gap; preserve a legitimate scrolled viewport.
+                if(View==View.Details&&Items.Count>0&&header!=null) {
+                    NativeRect rect;
+                    if(GetClientRect(header.Handle,out rect)) {
+                        int gap=Items[0].Bounds.Top-(rect.Bottom-rect.Top);
+                        if(gap>2)SendMessage(Handle,0x1014,IntPtr.Zero,new IntPtr(gap)); // LVM_SCROLL
+                    }
+                    SendMessage(Handle,0x1015,IntPtr.Zero,new IntPtr(Items.Count-1)); // LVM_REDRAWITEMS
+                }
+                Invalidate(true);
+                if(header!=null)InvalidateRect(header.Handle,IntPtr.Zero,true);
+            }));}catch(InvalidOperationException){restorePaintPending=false;}
+        }
         private bool dark;
         private HeaderTailWindow header;
         internal event ColumnClickEventHandler ColumnHeaderDoubleClick;
@@ -1088,9 +1124,9 @@ namespace FilmGrainStudioPreview
             if(header!=null){header.ReleaseHandle();header=null;}
             if(handle!=IntPtr.Zero){header=new HeaderTailWindow(this);header.AssignHandle(handle);}
         }
-        protected override void OnHandleCreated(EventArgs e) { base.OnHandleCreated(e);AttachHeader(); }
+        protected override void OnHandleCreated(EventArgs e) { base.OnHandleCreated(e);AttachHeader();BindRestoreOwner(); }
         protected override void OnHandleDestroyed(EventArgs e)
-        { if(header!=null){header.ReleaseHandle();header=null;}base.OnHandleDestroyed(e); }
+        { UnbindRestoreOwner();restorePaintPending=false;if(header!=null){header.ReleaseHandle();header=null;}base.OnHandleDestroyed(e); }
         protected override void WndProc(ref Message m)
         {
             base.WndProc(ref m);

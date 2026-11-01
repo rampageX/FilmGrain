@@ -42,6 +42,7 @@ $RequiredPackageFiles = @(
     'dotnet\FilmGrain_BridgeRequestPreparationCore.cs',
     'dotnet\FilmGrain_BridgeStateCapture.cs',
     'dotnet\FilmGrain_Preprocessing.cs',
+    'dotnet\FilmGrain_QueueHistory.cs',
     'dotnet\FilmGrain_PresetCore.cs',
     'dotnet\FilmGrain_PresetUI.cs',
     'dotnet\FilmGrain_BridgeTaskCoordinator.cs',
@@ -295,6 +296,17 @@ $ExcludedRecursiveDirectoryNames = @(
     '__pycache__'
 )
 $ExcludedRootDeliveryPatterns = @(
+    'FGS_Av1CopyGuard_*.zip',
+    'TEST_Av1CopyGuard_*.txt',
+    'FGS_QueueRecord_*.zip',
+    'TEST_QueueRecord_*.txt',
+    'FGS_QueueHints_Timer_*.zip',
+    'TEST_QueueHints_Timer_*.txt',
+    'FGS_QueueRestore_Fix_*.zip',
+    'TEST_QueueRestore_*.txt',
+    'Clean_QueueRestore_*.cmd',
+    'Clean_Queue44_*.cmd',
+    'FGS_v5.0.44_ReleasePrep_*.zip',
     'Test_Resize_*.cmd',
     'Return_Resize_*',
     'FGS_Resize_*.zip',

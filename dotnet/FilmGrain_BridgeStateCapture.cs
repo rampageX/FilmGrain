@@ -343,9 +343,11 @@ namespace FilmGrainStudioPreview
                 if(fileCopyVerifyMenu!=null)fileCopyVerifyMenu.Checked=config.GetBool("AV1_COPY_FULL_VERIFY");
                 foreach(var pair in value.Fields)EditorField(pair.Key).SetValue(this,pair.Value);
                 Array.Copy(value.Bitrates,modeBitrate,modeBitrate.Length);Array.Copy(value.Automatic,modeBitrateAuto,modeBitrateAuto.Length);
-                if(int.Parse(value.Controls["cmbCodec"],CultureInfo.InvariantCulture)==4&&cmbCodec.Items.Count<5)cmbCodec.Items.Add(lang.T("codec.no_reencode"));
+                if (int.Parse(value.Controls["cmbCodec"], CultureInfo.InvariantCulture) == 4 && !CanSelectNoReencode())
+                    value.Controls["cmbCodec"] = Math.Max(0, Math.Min(3, lastCodecIndex)).ToString(CultureInfo.InvariantCulture);
+                UpdateNoReencodeAvailability();
                 cmbCodec.SelectedIndex=int.Parse(value.Controls["cmbCodec"],CultureInfo.InvariantCulture);
-                lastCodecIndex=Math.Max(0,Math.Min(3,cmbCodec.SelectedIndex));
+                if(cmbCodec.SelectedIndex>=0&&cmbCodec.SelectedIndex<=3)lastCodecIndex=cmbCodec.SelectedIndex;
                 UpdateSpeedChoices();UpdateGrainForCodec();
                 foreach(var pair in value.Controls) {
                     object control=EditorField(pair.Key).GetValue(this);
@@ -510,12 +512,14 @@ namespace FilmGrainStudioPreview
             }
             active.SubItems[2].Text=UiText("处理中","Processing");
             changingFileSelection=true;
-            try {foreach(ListViewItem item in listFiles.Items)item.Selected=false;active.Selected=true;active.Focused=true;active.EnsureVisible();}
+            try {foreach(ListViewItem item in listFiles.Items)item.Selected=false;active.Selected=true;active.Focused=true;if(WindowState!=FormWindowState.Minimized&&listFiles.Visible)active.EnsureVisible();}
             finally {changingFileSelection=false;}
             selectingQueueFile=true;try{SelectFileEditor();}finally{selectingQueueFile=false;}UpdateSelectedInfo();listFiles.Focus();
         }
         private void OnQueueItemCompleted(object sender,BridgeTaskItemCompletedEventArgs e)
         {
+            QueueCompletionHistory history = queueHistory;
+            if (history != null) history.Completed(e.Task, e.Result);
             if(IsDisposed||Disposing||!IsHandleCreated)return;
             try {BeginInvoke((MethodInvoker)delegate {
                 if(IsDisposed||Disposing)return;
@@ -536,7 +540,11 @@ namespace FilmGrainStudioPreview
                 foreach(ListViewItem item in listFiles.Items) {
                     string input=item.Tag as string;if(!IsPendingQueueFile(input))continue;
                     FileEditorSettings editor;if(!fileSettings.TryGetValue(input,out editor))fileSettings[input]=editor=sharedEditor.Copy();
-                    captureInputPath=input;ApplyFileEditor(editor,true);
+                    captureInputPath=input;
+                    // Never reinterpret a queued stream-copy request as an encode while preparing it.
+                    if (editor.Controls["cmbCodec"] == "4" && !CanSelectNoReencode())
+                        throw new InvalidOperationException(input + " : " + lang.T("error.not_confirmed_av1"));
+                    ApplyFileEditor(editor,true);
                     if(!ValidateHardwareForSelectedCodec())return;
                     string error;var state=BuildBridgeEnvironment(out error);
                     if(state==null)throw new InvalidOperationException(input+" : "+error);
@@ -576,6 +584,19 @@ namespace FilmGrainStudioPreview
             else compared=StringComparer.CurrentCultureIgnoreCase.Compare(Path.GetFileName(a.Tag as string??a.Text),Path.GetFileName(b.Tag as string??b.Text));
             if(compared==0)return original;
             return mode==2?-Math.Sign(compared):Math.Sign(compared);
+        }
+    }
+}
+
+namespace FilmGrainStudioPreview
+{
+    internal static class NoReencodeEligibilityCore
+    {
+        // A positive cached codec identification is required; filenames/extensions are insufficient.
+        internal static bool CanSelect(MediaProbeInfo media, int contextCount)
+        {
+            return contextCount == 1 && media != null && media.HasVideo &&
+                string.Equals(media.VideoCodec, "av1", StringComparison.OrdinalIgnoreCase);
         }
     }
 }
