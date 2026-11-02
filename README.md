@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.0.44 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.45 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
 
@@ -1333,6 +1333,11 @@ E:\EnCoder\FFMpeg\x64\bin
 
 更换 GPU、升级 NVIDIA 驱动或替换 FFmpeg 后，能力缓存会自动失效并重新检测。
 
+混合显卡机器上的 Vulkan 序号与 NVENC/CUDA 序号互不等同。FGS 的 Vulkan 处理统一按现有检测识别的 NVIDIA 显卡名称选择设备，相关能力检查与编码／预览共用策略；不因独显初始化失败改用核显。任务日志中的 `[GPU] requested Vulkan adapter=...` 记录请求设备，FFmpeg 详细报告中的 `Using device:` 可核实实际设备。
+
+底部仅展示 NVENC 能力，以及安装／更换组件后可扩展 FGS 的能力，顺序为 `H.264 / HEVC / AV1 / AV1-UHQ | FRUC / SVP-GPU | SVT-AV1`。组间以分隔符区分，无分类标题；悬停查看依赖与不可用原因。SVT-AV1 项检查本项目所需的特殊 10-bit SVT 构建及参数，不承诺 HDR 元数据保留。普通 x264／High10 不再占用底部空间，也不再执行启动时的五项 x264 能力测试；High10 高级选项仍在实际使用前校验，软件编码不会因旧硬件能力缓存被禁用。
+
+
 需要人工检查时可以使用：
 
 ```bat
@@ -1477,7 +1482,7 @@ FGS 保留输入的音视频时间关系。非零起点、音频提前（包括 
 
 
 ### 特殊版 FFmpeg 能力检测
-FRUC 与 CPU SVT 共用特殊版 FFmpeg 路径。配置中的刷新按钮分别报告 fruc_vulkan 和 SVT-AV1-HDR；状态栏新增 SVT-HDR，悬停查看路径与依据，点击刷新能力。SVT 检测使用 64×64 单帧 10-bit、hbd-mds=1 / tune=6 微型编码，结果随工具签名缓存；不修改编码配置，不承诺 HDR 元数据保留。状态栏显示完整 FFmpeg 版本标识（含 git 后缀）。旧缓存首次使用会刷新一次，之后继续复用。
+FRUC 与 CPU SVT 共用特殊版 FFmpeg 路径。配置中的刷新按钮分别报告 fruc_vulkan 和 SVT-AV1-HDR；状态栏以 SVT-AV1 显示所需特殊构建的支持状态，悬停查看路径与依据，点击刷新能力。SVT 检测使用 64×64 单帧 10-bit、hbd-mds=1 / tune=6 微型编码，结果随工具签名缓存；不修改编码配置，不承诺 HDR 元数据保留。状态栏显示完整 FFmpeg 版本标识（含 git 后缀）。旧缓存首次使用会刷新一次，之后继续复用。
 
 ### 队列失败、续跑与重新处理
 高级 → 其它 → **跳过队列中失败的文件**：默认关闭；开启后，执行失败保留“失败”状态并继续下一项。该选项属于整个队列，在开始时固定，不跟随逐文件配置或预设变化；用户取消始终停止整个队列。存在失败时，最终结果仍报告失败，日志保留逐项结果。启动前的配置、媒体信息和空间检查仍须通过。

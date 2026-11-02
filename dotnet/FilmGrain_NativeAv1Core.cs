@@ -276,7 +276,7 @@ namespace FilmGrainStudioPreview
             }
             List<string> encode = new List<string>();
             Add(encode, "-hide_banner", "-stats", "-progress", "pipe:2", "-stats_period", "0.5", "-y");
-            if (resize.Enabled || fgsimGrain || (bwdifVulkan && !fieldWorkfile && !separateDeint)) Add(encode, "-init_hw_device", "vulkan=vk:0", "-filter_hw_device", "vk");
+            if (resize.Enabled || fgsimGrain || (bwdifVulkan && !fieldWorkfile && !separateDeint)) Add(encode, "-init_hw_device", VulkanDevicePolicy.Spec("vk"), "-filter_hw_device", "vk");
             if (interpolate) Add(encode, "-copyts");
             Add(encode, "-i", encodeInput);
             if (!string.IsNullOrWhiteSpace(filterGraph)) Add(encode, "-filter_complex", filterGraph, "-map", "[vout]");

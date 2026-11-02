@@ -461,8 +461,8 @@ namespace FilmGrainStudioPreview
         private static List<string> BuildEncodeArgs(string input, string grainInput, string filter, string output, string preset, bool highMotion, long bitrate, long max, long buf, string fps, string duration, bool plateMode, bool autoFps, bool high10, bool mkv, bool deinterlace, int passNumber, string passlog, bool finalOutput, bool svp, bool grainEnabled, IDictionary<string,string> audioState, MediaProbeInfo audioInfo)
         {
             List<string> a = new List<string>{"-hide_banner","-stats","-progress","pipe:2","-stats_period","0.5","-y"};
-            if (plateMode || filter.Contains("libplacebo=") || filter.Contains("fruc_vulkan=")) { a.Add("-init_hw_device"); a.Add("vulkan=vk:0"); a.Add("-filter_hw_device"); a.Add("vk"); }
-            else if (filter.Contains("bwdif_vulkan=")) { a.Add("-init_hw_device"); a.Add("vulkan=deintvk:0"); a.Add("-filter_hw_device"); a.Add("deintvk"); }
+            if (plateMode || filter.Contains("libplacebo=") || filter.Contains("fruc_vulkan=")) { a.Add("-init_hw_device"); a.Add(VulkanDevicePolicy.Spec("vk")); a.Add("-filter_hw_device"); a.Add("vk"); }
+            else if (filter.Contains("bwdif_vulkan=")) { a.Add("-init_hw_device"); a.Add(VulkanDevicePolicy.Spec("deintvk")); a.Add("-filter_hw_device"); a.Add("deintvk"); }
             a.Add("-i"); a.Add(input);
             if (plateMode)
             {

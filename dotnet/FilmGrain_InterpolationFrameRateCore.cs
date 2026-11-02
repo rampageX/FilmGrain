@@ -107,7 +107,7 @@ namespace FilmGrainStudioPreview
         private static readonly Dictionary<string,string> gridCache=new Dictionary<string,string>();
         private static string DeviceGridKey(string ffmpeg,string perf)
         {
-            return Path.GetFullPath(ffmpeg)+"|"+(File.Exists(ffmpeg)?new FileInfo(ffmpeg).Length:0)+"|"+File.GetLastWriteTimeUtc(ffmpeg).Ticks+"|"+perf;
+            return Path.GetFullPath(ffmpeg)+"|"+VulkanDevicePolicy.DeviceName+"|"+(File.Exists(ffmpeg)?new FileInfo(ffmpeg).Length:0)+"|"+File.GetLastWriteTimeUtc(ffmpeg).Ticks+"|"+perf;
         }
         private static bool DiscoverGrids(string ffmpeg,string perf,ProbeRunner runner,out string supported,out string reason)
         {
@@ -139,7 +139,7 @@ namespace FilmGrainStudioPreview
         }
         private static string GridProbeArguments(string perf,string grid)
         {
-            return "-hide_banner -v verbose -nostdin -init_hw_device vulkan=vk:0 -filter_hw_device vk "+
+            return "-hide_banner -v verbose -nostdin -init_hw_device "+Quote(VulkanDevicePolicy.Spec("vk"))+" -filter_hw_device vk "+
                 "-f lavfi -i testsrc2=size=128x128:rate=30:duration=0.2 "+
                 "-vf format=nv12,hwupload,fruc_vulkan=fps=60:perf="+perf+":grid="+grid+
                 ",hwdownload,format=nv12 -frames:v 4 -f null -";
@@ -150,7 +150,7 @@ namespace FilmGrainStudioPreview
         internal static void RestoreVerifiedPreflight(string ffmpeg,string perf,string grid,string version,string evidence)
         {
             if(string.IsNullOrWhiteSpace(ffmpeg) || !File.Exists(ffmpeg))return;
-            string key=Path.GetFullPath(ffmpeg)+"|"+new FileInfo(ffmpeg).Length.ToString(System.Globalization.CultureInfo.InvariantCulture)+"|"+File.GetLastWriteTimeUtc(ffmpeg).Ticks+"|"+perf+"|"+grid;
+            string key=Path.GetFullPath(ffmpeg)+"|"+VulkanDevicePolicy.DeviceName+"|"+new FileInfo(ffmpeg).Length.ToString(System.Globalization.CultureInfo.InvariantCulture)+"|"+File.GetLastWriteTimeUtc(ffmpeg).Ticks+"|"+perf+"|"+grid;
             if(SupportedGrids(evidence).Length==0)return;
             lock(gridCache)gridCache[DeviceGridKey(ffmpeg,perf)]=SupportedGrids(evidence);
             lock(runtimeCache)runtimeCache[key]=new CapabilityReport {Version=version??"",Evidence=evidence??"Persisted verified FRUC preflight"};
@@ -198,7 +198,7 @@ namespace FilmGrainStudioPreview
                 if (!File.Exists(ffmpeg)) { reason = "[dependency missing] FRUC FFmpeg executable: " + ffmpeg; return false; }
                 runner = Run;
             }
-            string key = Path.GetFullPath(ffmpeg) + "|" + (File.Exists(ffmpeg) ? new FileInfo(ffmpeg).Length.ToString(System.Globalization.CultureInfo.InvariantCulture) : "missing") + "|" + File.GetLastWriteTimeUtc(ffmpeg).Ticks + "|" + perf + "|" + grid;
+            string key = Path.GetFullPath(ffmpeg) + "|" + VulkanDevicePolicy.DeviceName + "|" + (File.Exists(ffmpeg) ? new FileInfo(ffmpeg).Length.ToString(System.Globalization.CultureInfo.InvariantCulture) : "missing") + "|" + File.GetLastWriteTimeUtc(ffmpeg).Ticks + "|" + perf + "|" + grid;
             CapabilityReport cached;
             lock (runtimeCache) { if (runtimeCache.TryGetValue(key, out cached)) { report = cached; return true; } }
             string output;
@@ -407,11 +407,11 @@ namespace FilmGrainStudioPreview
             reason="";CapabilityReport report;
             if(!TryInspect(ffmpeg,perf,grid,out report,out reason))return false;
             string resolved=grid=="auto"?LargestGrid(report.Evidence):grid;
-            string key=Path.GetFullPath(ffmpeg)+"|"+new FileInfo(ffmpeg).Length+"|"+File.GetLastWriteTimeUtc(ffmpeg).Ticks+"|"+perf+"|"+resolved;
+            string key=Path.GetFullPath(ffmpeg)+"|"+VulkanDevicePolicy.DeviceName+"|"+new FileInfo(ffmpeg).Length+"|"+File.GetLastWriteTimeUtc(ffmpeg).Ticks+"|"+perf+"|"+resolved;
             lock(depthCache)if(depthCache.Contains(key))return true;
             string path=Path.Combine(Path.GetTempPath(),"FGS_P010_"+Guid.NewGuid().ToString("N")+".yuv");
             try {
-                var args=new List<string>{"-hide_banner","-v","error","-nostdin","-y","-init_hw_device","vulkan=vk:0","-filter_hw_device","vk",
+                var args=new List<string>{"-hide_banner","-v","error","-nostdin","-y","-init_hw_device",VulkanDevicePolicy.Spec("vk"),"-filter_hw_device","vk",
                     "-f","lavfi","-i","nullsrc=size=1024x128:rate=24:duration=0.125,format=yuv420p10le,geq=lum='64+52*floor(X/64)+mod(floor(X/64),4)':cb=512:cr=512",
                     "-vf",InputFilter("48",perf,resolved,true)+"format=yuv420p10le","-frames:v","3","-an","-c:v","rawvideo","-pix_fmt","yuv420p10le","-f","rawvideo",path};
                 string output,error;
@@ -432,7 +432,7 @@ namespace FilmGrainStudioPreview
             string output, string cwd, string fps, string perf, string grid, double duration, int index, int total, bool highDepth = false)
         {
             List<string> args = new List<string>{"-hide_banner", "-stats", "-progress", "pipe:2", "-stats_period", "0.5", "-y",
-                "-init_hw_device", "vulkan=vk:0", "-filter_hw_device", "vk", "-i", source,
+                "-init_hw_device", VulkanDevicePolicy.Spec("vk"), "-filter_hw_device", "vk", "-i", source,
                 "-filter_complex", "[0:v:0]" + InputFilter(fps,perf,grid,highDepth) + "format=" + (highDepth ? "yuv420p10le" : "yuv420p") + "[vout]",
                 "-map", "[vout]", "-an", "-sn", "-dn", "-map_metadata", "0", "-c:v", "ffv1", "-level", "3",
                 "-pix_fmt", highDepth ? "yuv420p10le" : "yuv420p", "-fps_mode", "passthrough", output};

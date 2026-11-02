@@ -296,6 +296,16 @@ $ExcludedRecursiveDirectoryNames = @(
     '__pycache__'
 )
 $ExcludedRootDeliveryPatterns = @(
+    'FGS_v5.0.45_ReleasePrep_*.zip',
+    'FGS_Flicker_*.zip',
+    'FGS_SelectedGPU_Test_*_Logs.zip',
+    'FGS_Vulkan_SelectedGPU_*.zip',
+    'FGS_StatusGroups_SelectedGPU_*.zip',
+    'FGS_StatusCompact_SelectedGPU_*.zip',
+    'FGS_RemoveX264Probes_*.zip',
+    'Test_Flicker_*.cmd',
+    'Start_FGS_Flicker_*.cmd',
+    'Test_Selected_GPU_*.cmd',
     'FGS_Av1CopyGuard_*.zip',
     'TEST_Av1CopyGuard_*.txt',
     'FGS_QueueRecord_*.zip',

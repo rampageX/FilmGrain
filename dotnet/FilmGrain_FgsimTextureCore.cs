@@ -112,7 +112,7 @@ namespace FilmGrainStudioPreview
                 Directory.CreateDirectory(directory);
                 File.Copy(hook, Path.Combine(directory, "probe.hook"));
                 StringBuilder evidence = new StringBuilder();
-                foreach (string candidate in new[] { "NVIDIA", "0" })
+                foreach (string candidate in new[] { VulkanDevicePolicy.DeviceName })
                 {
                     if (cancelled != null && cancelled()) { reason = "FGSIM GPU validation cancelled"; return false; }
                     string detail;
@@ -125,7 +125,7 @@ namespace FilmGrainStudioPreview
                     evidence.AppendLine(candidate + ": FAIL " + detail);
                 }
                 File.WriteAllText(Path.Combine(directory, "DeviceProbe.log"), evidence.ToString(), new UTF8Encoding(false));
-                reason = "FGSIM GPU pixel validation failed; no verified adapter. See " + Path.Combine(directory, "DeviceProbe.log");
+                reason = "FGSIM GPU pixel validation failed on selected adapter " + VulkanDevicePolicy.DeviceName + "; no other adapter will be used. See " + Path.Combine(directory, "DeviceProbe.log");
                 return false;
             }
             catch (Exception ex) { reason = "FGSIM GPU pixel validation failed: " + ex.Message; return false; }
@@ -204,11 +204,8 @@ namespace FilmGrainStudioPreview
                         if (cancelled != null && cancelled()) return notice + "\n[FGSIM] GPU validation cancelled.";
                         throw new InvalidOperationException(reason);
                     }
-                    // Timeline preparation may regenerate the command. Apply the verified device last.
-                    target.DirectArguments = System.Text.RegularExpressions.Regex.Replace(target.DirectArguments, @"vulkan=vk:(?:0|NVIDIA)(?=[\s""]|$)", "vulkan=vk:" + device);
-                    if (target.OriginalArguments != null)
-                        for (int i = 0; i < target.OriginalArguments.Count; i++)
-                            if (target.OriginalArguments[i] == "vulkan=vk:0" || target.OriginalArguments[i] == "vulkan=vk:NVIDIA") target.OriginalArguments[i] = "vulkan=vk:" + device;
+                    // Command builders already bind every stage to the same selected GPU.
+                    // Pixel validation must not introduce a second adapter/fallback policy.
                     return notice + "\n[FGSIM] Vulkan adapter=" + device + "; actual shader pixel validation passed.";
                 };
             }

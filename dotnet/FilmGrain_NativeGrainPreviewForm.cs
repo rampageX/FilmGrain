@@ -173,7 +173,7 @@ namespace FilmGrainStudioPreview
                         if(!CinematicFrameCore.TryBuild(info,preprocessingState,out geometry,out preReason)||!ResizeCore.TryBuild(info,preprocessingState,geometry,out resize,out preReason))throw new InvalidDataException(preReason);
                         if(resize.Enabled) {
                             if(!ResizeCore.TryCheckTool(ffmpeg,out preReason))throw new InvalidDataException(preReason);
-                            sampleArgs.InsertRange(0,new[]{"-init_hw_device","vulkan=vk:0","-filter_hw_device","vk"});
+                            sampleArgs.InsertRange(0,new[]{"-init_hw_device",VulkanDevicePolicy.Spec("vk"),"-filter_hw_device","vk"});
                         }
                         sampleArgs[sampleArgs.IndexOf("-vf")+1]=pre+resize.Prefix+(resize.Enabled&&geometry.Filter.Length>0?geometry.Filter.Substring(1)+",":"")+"setpts=PTS-STARTPTS";Run(ffmpeg,sampleArgs);
                         actualStart=seconds;

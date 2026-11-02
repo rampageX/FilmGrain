@@ -467,6 +467,8 @@ namespace FilmGrainStudioPreview
                     activeProcess = process;
                 }
 
+                if (psi.Arguments.IndexOf("vulkan=", StringComparison.OrdinalIgnoreCase) >= 0)
+                    RaiseLog(BridgeLogStream.System, "[GPU] requested Vulkan adapter=" + VulkanDevicePolicy.DeviceName + "; no implicit adapter-zero fallback");
                 RaiseLog(BridgeLogStream.System, "[Process] cwd=" + psi.WorkingDirectory);
                 RaiseLog(BridgeLogStream.System, "[Process] args=" + psi.Arguments);
                 RaiseLog(BridgeLogStream.System, "starting: " + toolPath);

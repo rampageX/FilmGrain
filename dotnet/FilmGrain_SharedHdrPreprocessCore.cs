@@ -37,7 +37,7 @@ namespace FilmGrainStudioPreview
                 return (string.IsNullOrEmpty(prior)?"":prior+"\n")+notice;
             };
         }
-        internal static List<string> BuildGpuArguments(IList<string> cpu,string vulkanDevice = "0")
+        internal static List<string> BuildGpuArguments(IList<string> cpu,string vulkanDevice = null)
         {
             var args=new List<string>(cpu);
             int vf=args.IndexOf("-vf"),input=args.IndexOf("-i");
@@ -51,10 +51,10 @@ namespace FilmGrainStudioPreview
             string sourceTags="setparams=range="+source.Groups[1].Value+":color_primaries="+source.Groups[2].Value+":color_trc="+source.Groups[3].Value+":colorspace="+source.Groups[4].Value+",";
             args[vf+1]=sourceTags+deint+"format=p010le,hwupload,libplacebo=tonemapping=hable:peak_detect=1:colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv:format=p010le:contrast_recovery=0:gamut_mode=clip,hwdownload,format=p010le,"+filter.Substring(clean);
             // A Vulkan deinterlace stage already supplies a filter device; reuse it.
-            if(!args.Contains("-filter_hw_device"))args.InsertRange(input,new[]{"-init_hw_device","vulkan=hdrvk:"+vulkanDevice,"-filter_hw_device","hdrvk"});
+            if(!args.Contains("-filter_hw_device"))args.InsertRange(input,new[]{"-init_hw_device",VulkanDevicePolicy.Spec("hdrvk"),"-filter_hw_device","hdrvk"});
             return args;
         }
-        internal static List<string> SelectAutomatic(string ffmpeg,IList<string> cpu,string tonemap,out string notice,string vulkanDevice = "0",SharedFrucCore.ProbeRunner runner = null)
+        internal static List<string> SelectAutomatic(string ffmpeg,IList<string> cpu,string tonemap,out string notice,string vulkanDevice = null,SharedFrucCore.ProbeRunner runner = null)
         {
             if(!string.Equals(tonemap,"hable",StringComparison.OrdinalIgnoreCase))
             {
@@ -117,7 +117,7 @@ namespace FilmGrainStudioPreview
             var frozen=new List<string>(stage.OriginalArguments);
             // No workfile is created: reuse the shared filter builders and their worker-side probe/fallback.
             var cpu=BuildToSdr(input,"unused-inline-hdr.mkv",info,tonemap,false);
-            string device=string.IsNullOrWhiteSpace(gpuName)?"0":gpuName;
+            string device=VulkanDevicePolicy.DeviceName;
             stage.BeforeRunPreparation=delegate {
                 string notice;
                 var selected=SelectAutomatic(stage.ToolPath,cpu,tonemap,out notice,device);
@@ -150,7 +150,7 @@ namespace FilmGrainStudioPreview
                     throw new InvalidOperationException("Merged HDR requires an existing Vulkan filter device");
                 int colon=args[init+1].IndexOf(':');
                 string name=colon<0?args[init+1]:args[init+1].Substring(0,colon);
-                args[init+1]=name+":"+(string.IsNullOrWhiteSpace(gpuName)?"0":gpuName);
+                args[init+1]=name+":"+(VulkanDevicePolicy.DeviceName);
             } else {
                 var devices=new List<string>();
                 foreach(string option in new[]{"-init_hw_device","-filter_hw_device"})
@@ -211,7 +211,7 @@ namespace FilmGrainStudioPreview
             var original=new List<string>(stage.FrucArguments);
             var cpu=BuildToSdr(input,"unused-fruc-hdr.mkv",info,tonemap,false);
             stage.BeforeRunPreparation=delegate {
-                string notice;var hdr=SelectAutomatic(stage.ToolPath,cpu,tonemap,out notice,string.IsNullOrWhiteSpace(gpuName)?"0":gpuName);
+                string notice;var hdr=SelectAutomatic(stage.ToolPath,cpu,tonemap,out notice,VulkanDevicePolicy.DeviceName);
                 string rate=ProbeWorkfileFrameRate(stage.ToolPath,input);
                 stage.FrucArguments=MergeFrucArguments(original,hdr,gpuName,rate);
                 return "[HDR merged FRUC] conversion before interpolation; no HDR workfile; encoder clock="+rate+" then Matroska milliseconds.\n"+notice;
@@ -235,7 +235,7 @@ namespace FilmGrainStudioPreview
             if(stage.BeforeRunPreparation!=null)throw new InvalidOperationException("Merged encode preparation already attached");
             var frozen=new List<string>(stage.OriginalArguments);
             var cpu=BuildToSdr(input,"unused-inline-hdr.mkv",info,tonemap,false);
-            string device=string.IsNullOrWhiteSpace(gpuName)?"0":gpuName;
+            string device=VulkanDevicePolicy.DeviceName;
             stage.BeforeRunPreparation=delegate {
                 string notice;
                 var selected=SelectAutomatic(stage.ToolPath,cpu,tonemap,out notice,device);
@@ -267,7 +267,7 @@ namespace FilmGrainStudioPreview
         }
         static void AddDeinterlaceDevice(List<string> args,string filter)
         {
-            if(filter.Contains("bwdif_vulkan="))args.InsertRange(args.IndexOf("-i"),new[]{"-init_hw_device","vulkan=deintvk:0","-filter_hw_device","deintvk"});
+            if(filter.Contains("bwdif_vulkan="))args.InsertRange(args.IndexOf("-i"),new[]{"-init_hw_device",VulkanDevicePolicy.Spec("deintvk"),"-filter_hw_device","deintvk"});
         }
         internal static List<string> BuildDeinterlaced(string input,string output,MediaProbeInfo info,string filter)
         {

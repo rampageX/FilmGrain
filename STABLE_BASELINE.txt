@@ -1,15 +1,15 @@
 Film Grain Studio formal stable baseline
 
 Baseline:
-v5.0.44
+v5.0.45
 Supersedes:
-v5.0.43
+v5.0.44
 
 GitHub Release asset:
-FilmGrain_Studio_v5.0.44_Stable.zip
+FilmGrain_Studio_v5.0.45_Stable.zip
 
 Local source archive and workflow artifact:
-FilmGrain_Studio_v5.0.44_Source.zip
+FilmGrain_Studio_v5.0.45_Source.zip
 
 Application runtime: .NET Native-only. Stable contains runtime files only; Legacy is retained in Source.
 Acceptance applies only to explicitly tested combinations, not every container/timestamp/clip/hardware combination.

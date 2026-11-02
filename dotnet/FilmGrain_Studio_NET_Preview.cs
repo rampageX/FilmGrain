@@ -107,8 +107,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.44";
-        internal const string FileReleaseVersion = "5.0.44.0";
+        internal const string ReleaseVersion = "5.0.45";
+        internal const string FileReleaseVersion = "5.0.45.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -567,7 +567,7 @@ namespace FilmGrainStudioPreview
                 hardwareAppliedKey = hardwareCapabilityCore.LastLookupRequestKey;
                 hardwareActiveKey = hardwareAppliedKey;
                 ApplyHardwareCapabilities();
-                AppendLog("[Hardware] " + startupCaps.GpuName + " · AV1=" + (startupCaps.Av1Available ? "1" : "0") + " · HEVC=" + (startupCaps.HevcAvailable ? "1" : "0") + " · x264=" + (startupCaps.X264Available ? "1" : "0") + Environment.NewLine);
+                AppendLog("[Hardware] " + startupCaps.GpuName + " · AV1=" + (startupCaps.Av1Available ? "1" : "0") + " · HEVC=" + (startupCaps.HevcAvailable ? "1" : "0") + Environment.NewLine);
                 btnStart.Enabled = true;
                 StartupTiming.Mark("hardware.cache.restore", "full=" + fullStartupCache + " native=0 fruc=0 children=0");
             }
@@ -1905,16 +1905,45 @@ namespace FilmGrainStudioPreview
             strip.Items.Add(statusHardware);
             statusFfmpeg = new ToolStripStatusLabel("FFmpeg ?"); statusFfmpeg.ForeColor = ColorMuted;
             strip.Items.Add(statusFfmpeg);
-            foreach (string name in new string[]{"AV1", "UHQ", "HEVC", "H.264", "x264", "High10", "SVT-HDR", "SVP", "FRUC"})
-            {
-                ToolStripStatusLabel item = new ToolStripStatusLabel(name + " ?");
-                item.ForeColor = ColorMuted; item.Margin = new Padding(3, 0, 3, 0);
-                statusCapabilities[name] = item; strip.Items.Add(item);
-            }
+            AddCapabilityGroup(strip, "NVENC", UiText(
+                "硬件编码：NVIDIA 显卡 + 驱动 + FFmpeg NVENC 编码器；以实际编码检查为准。UHQ 是 AV1 编码模式。",
+                "Hardware encoding: NVIDIA GPU + driver + FFmpeg NVENC encoder; verified by an encode probe. UHQ is an AV1 mode."),
+                "H.264", "HEVC", "AV1", "UHQ");
+            AddCapabilityGroup(strip, UiText("GPU 插帧", "GPU interpolation"), UiText(
+                "软硬件协同：FRUC 需要所选 NVIDIA 显卡的光流能力及对应驱动/FFmpeg；SVP-GPU 需要 SVP 插件、CPU 与可用 GPU。",
+                "Hardware/software pipelines: FRUC needs optical-flow support on the selected NVIDIA GPU plus its driver and FFmpeg; SVP-GPU needs SVP plugins, CPU and an available GPU."),
+                "FRUC", "SVP");
+            AddCapabilityGroup(strip, UiText("软件编码", "Software encoding"), UiText(
+                "CPU 软件编码能力，与 NVENC 支持无关；由 FFmpeg 的编码器及对应参数检查决定。",
+                "CPU software encoding, independent of NVENC support; determined by the FFmpeg encoder and parameter checks."),
+                "SVT-HDR");
             statusCapabilities["FRUC"].Click += delegate { BeginHardwareDetection(true); };
             statusCapabilities["SVT-HDR"].Click += delegate { BeginHardwareDetection(true); };
             BuildThemeMenu(strip);
             strip.Items.Add(version); return strip;
+        }
+
+        private static string CapabilityDisplayName(string name)
+        {
+            if (name == "UHQ") return "AV1-UHQ";
+            if (name == "SVT-HDR") return "SVT-AV1";
+            if (name == "SVP") return "SVP-GPU";
+            return name;
+        }
+
+        private void AddCapabilityGroup(StatusStrip strip, string caption, string description, params string[] names)
+        {
+            // Static items preserve ordering while async capability results change only text/color.
+            var separator = new ToolStripStatusLabel("│");
+            separator.ForeColor = ColorMuted; separator.Margin = new Padding(5, 0, 5, 0); separator.ToolTipText = caption + " · " + description;
+            strip.Items.Add(separator);
+            foreach (string name in names)
+            {
+                var item = new ToolStripStatusLabel(CapabilityDisplayName(name) + " ?");
+                item.ForeColor = ColorMuted; item.Margin = new Padding(3, 0, 3, 0);
+                item.Tag = description; item.ToolTipText = description;
+                statusCapabilities[name] = item; strip.Items.Add(item);
+            }
         }
 
         private bool fittingFileColumns;
@@ -2712,7 +2741,7 @@ namespace FilmGrainStudioPreview
             if(hardwareCaps!=null && (hardwareFrucAppliedKey!=requestedFrucKey || !HardwareCapabilityCore.CanCacheFruc(hardwareCaps))) {
                 hardwareCaps=hardwareCaps.Clone();hardwareCaps.FrucReady=false;hardwareCaps.FrucAvailable=false;
                 if(statusCapabilities.ContainsKey("FRUC")) {statusCapabilities["FRUC"].Text="FRUC ?";statusCapabilities["FRUC"].ForeColor=ColorMuted;}
-                if(statusCapabilities.ContainsKey("SVT-HDR")) {statusCapabilities["SVT-HDR"].Text="SVT-HDR ?";statusCapabilities["SVT-HDR"].ForeColor=ColorMuted;}
+                if(statusCapabilities.ContainsKey("SVT-HDR")) {statusCapabilities["SVT-HDR"].Text=CapabilityDisplayName("SVT-HDR")+" ?";statusCapabilities["SVT-HDR"].ForeColor=ColorMuted;}
             }
             UpdateFrucAvailabilityUi();
             if (!hardwareCapsReady) SetCapabilityStatusPending();
@@ -2756,7 +2785,7 @@ namespace FilmGrainStudioPreview
                         if (log != null)
                             AppendDiagnosticLog("[Hardware .NET] " + caps.Diagnostics + Environment.NewLine);
                         if (log != null && nativeChanged)
-                            AppendLog("[Hardware] " + caps.GpuName + " · AV1=" + (caps.Av1Available ? "1" : "0") + " · HEVC=" + (caps.HevcAvailable ? "1" : "0") + " · x264=" + (caps.X264Available ? "1" : "0") + Environment.NewLine);
+                            AppendLog("[Hardware] " + caps.GpuName + " · AV1=" + (caps.Av1Available ? "1" : "0") + " · HEVC=" + (caps.HevcAvailable ? "1" : "0") + Environment.NewLine);
                     }
                     else
                     {
@@ -2798,8 +2827,6 @@ namespace FilmGrainStudioPreview
             SetCapabilityStatus("UHQ", hardwareCaps.Av1UhqAvailable);
             SetCapabilityStatus("HEVC", hardwareCaps.HevcAvailable);
             SetCapabilityStatus("H.264",hardwareCaps.H264Available);
-            SetCapabilityStatus("x264", hardwareCaps.X264Available);
-            SetCapabilityStatus("High10", hardwareCaps.X264Available && hardwareCaps.X264High10Available);
             SetCapabilityStatus("SVT-HDR",hardwareCaps.SvtHdrAvailable);
             if(statusCapabilities.ContainsKey("SVT-HDR"))statusCapabilities["SVT-HDR"].ToolTipText="SVT-AV1-HDR · "+hardwareCaps.FrucFfmpegPath+"\r\n"+hardwareCaps.SvtHdrReason;
             SetCapabilityStatus("SVP", hardwareCaps.OpenSvpGpuAvailable);
@@ -2813,20 +2840,16 @@ namespace FilmGrainStudioPreview
                 {
                     cmbCodec.Items[0] = hardwareCaps.Av1Available ? lang.T("codec.av1_default") : lang.T("codec.av1_unavailable");
                     cmbCodec.Items[1] = hardwareCaps.HevcAvailable ? lang.T("codec.hevc_scan") : lang.T("codec.hevc_unavailable");
-                    cmbCodec.Items[2] = hardwareCaps.X264Available ? lang.T("codec.x264_default") : lang.T("codec.x264_unavailable");
+                    cmbCodec.Items[2] = lang.T("codec.x264_default");
                     cmbCodec.Items[3] = hardwareCaps.H264Available ? "H.264 · NVENC" : UiText("H.264 · 不可用", "H.264 · unavailable");
                     if (!independentFiles && cmbCodec.SelectedIndex == 0 && !hardwareCaps.Av1Available)
-                        {if(!hardwareCaps.HevcAvailable&&hardwareCaps.X264Available)config.SaveValue("CPU_CODEC","X264");cmbCodec.SelectedIndex = hardwareCaps.HevcAvailable ? 1 : (hardwareCaps.X264Available ? 2 : 1);}
+                        {if(!hardwareCaps.HevcAvailable)config.SaveValue("CPU_CODEC","X264");cmbCodec.SelectedIndex = hardwareCaps.HevcAvailable ? 1 : 2;}
                     else if (!independentFiles && cmbCodec.SelectedIndex == 1 && !hardwareCaps.HevcAvailable)
                     {
                         if (hardwareCaps.Av1Available) cmbCodec.SelectedIndex = 0;
-                        else if (hardwareCaps.X264Available) {config.SaveValue("CPU_CODEC","X264");cmbCodec.SelectedIndex = 2;}
+                        else {config.SaveValue("CPU_CODEC","X264");cmbCodec.SelectedIndex = 2;}
                     }
-                    else if (!independentFiles && cmbCodec.SelectedIndex == 2 && !NewCpuSelected() && !hardwareCaps.X264Available)
-                    {
-                        if (hardwareCaps.HevcAvailable) cmbCodec.SelectedIndex = 1;
-                        else if (hardwareCaps.Av1Available) cmbCodec.SelectedIndex = 0;
-                    }
+
                 }
                 finally { changingCodecForHardware = false; }
             }
@@ -2838,16 +2861,16 @@ namespace FilmGrainStudioPreview
         private void SetCapabilityStatusPending()
         {
             foreach (KeyValuePair<string,ToolStripStatusLabel> pair in statusCapabilities)
-            { pair.Value.Text = pair.Key + " ?"; pair.Value.ForeColor = ColorMuted; }
+            { pair.Value.Text = CapabilityDisplayName(pair.Key) + " ?"; pair.Value.ForeColor = ColorMuted; }
         }
 
         private void SetCapabilityStatus(string name, bool available)
         {
             ToolStripStatusLabel item;
             if (!statusCapabilities.TryGetValue(name, out item)) return;
-            item.Text = name + (available ? " ✓" : " ✗");
+            item.Text = CapabilityDisplayName(name) + (available ? " ✓" : " ✗");
             item.ForeColor = available ? Color.FromArgb(25, 135, 65) : Color.FromArgb(190, 50, 45);
-            item.ToolTipText = name + " · " + lang.T(available ? "hardware.available" : "hardware.unavailable");
+            item.ToolTipText = CapabilityDisplayName(name) + " · " + lang.T(available ? "hardware.available" : "hardware.unavailable") + "\r\n" + Convert.ToString(item.Tag);
         }
 
         private string FrucUiSummary()
@@ -2856,7 +2879,7 @@ namespace FilmGrainStudioPreview
                 return UiText("FRUC Vulkan 正在检测，请稍后重试。", "FRUC Vulkan detection is pending.");
             string kind = hardwareCaps.FrucFailureKind;
             string summary = kind == "FFMPEG" ? UiText("FFmpeg 缺少 FRUC 滤镜或路径不可用", "FFmpeg filter/path unavailable") :
-                kind == "DEVICE" ? UiText("Vulkan 设备 0 / 驱动不支持 FRUC", "Vulkan device 0 / driver limitation") :
+                kind == "DEVICE" ? UiText("所选显卡 / 驱动不支持 FRUC", "Selected GPU / driver limitation") :
                 kind == "CONFIG" ? UiText("FRUC 参数无效", "Invalid FRUC configuration") :
                 kind == "UNSUPPORTED" ? UiText("当前构建或设备不支持此 FRUC 组合", "Unsupported FRUC build/device combination") :
                 UiText("FRUC 运行预检失败", "FRUC runtime preflight failed");
@@ -2936,7 +2959,7 @@ namespace FilmGrainStudioPreview
             int selected = cmbCodec.SelectedIndex;
             if (selected == 0 && !hardwareCaps.Av1Available)
             {
-                int fallback = hardwareCaps.HevcAvailable ? 1 : (hardwareCaps.X264Available ? 2 : -1);
+                int fallback = hardwareCaps.HevcAvailable ? 1 : 2;
                 if (fallback >= 0)
                 {
                     changingCodecForHardware = true;
@@ -2948,7 +2971,7 @@ namespace FilmGrainStudioPreview
             }
             if (selected == 1 && !hardwareCaps.HevcAvailable)
             {
-                int fallback = hardwareCaps.Av1Available ? 0 : (hardwareCaps.X264Available ? 2 : -1);
+                int fallback = hardwareCaps.Av1Available ? 0 : 2;
                 if (fallback >= 0)
                 {
                     changingCodecForHardware = true;
@@ -2958,23 +2981,8 @@ namespace FilmGrainStudioPreview
                 MessageBox.Show(this, lang.T("error.hevc_unavailable"), Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return true;
             }
-            if(selected==3&&!hardwareCaps.H264Available) { MessageBox.Show(this,UiText("当前 GPU/FFmpeg 不支持 H.264 NVENC。","H.264 NVENC is unavailable."),Text);changingCodecForHardware=true;try{cmbCodec.SelectedIndex=hardwareCaps.HevcAvailable?1:hardwareCaps.X264Available?2:0;}finally{changingCodecForHardware=false;}return true;}
-            if (selected == 2 && !NewCpuSelected() && !hardwareCaps.X264Available)
-            {
-                int fallback = hardwareCaps.HevcAvailable ? 1 : (hardwareCaps.Av1Available ? 0 : -1);
-                if (fallback >= 0)
-                {
-                    changingCodecForHardware = true;
-                    try { if(fallback==2)config.SaveValue("CPU_CODEC","X264");cmbCodec.SelectedIndex = fallback; }
-                    finally { changingCodecForHardware = false; }
-                    MessageBox.Show(this, lang.T(fallback == 1 ? "message.x264_fallback_hevc" : "message.x264_fallback_av1"), Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
-                }
-                else
-                {
-                    MessageBox.Show(this, lang.T("error.x264_unavailable"), Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
-                }
-                return true;
-            }
+            if(selected==3&&!hardwareCaps.H264Available) { MessageBox.Show(this,UiText("当前 GPU/FFmpeg 不支持 H.264 NVENC。","H.264 NVENC is unavailable."),Text);changingCodecForHardware=true;try{cmbCodec.SelectedIndex=hardwareCaps.HevcAvailable?1:2;}finally{changingCodecForHardware=false;}return true;}
+
             return false;
         }
 
@@ -2997,11 +3005,7 @@ namespace FilmGrainStudioPreview
                 return false;
             }
             if(cmbCodec.SelectedIndex==3&&!hardwareCaps.H264Available){MessageBox.Show(this,UiText("H.264 NVENC 不可用。","H.264 NVENC is unavailable."),Text);return false;}
-            if (cmbCodec.SelectedIndex == 2 && !NewCpuSelected() && !hardwareCaps.X264Available)
-            {
-                MessageBox.Show(this, lang.T("error.x264_unavailable"), Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return false;
-            }
+
             return true;
         }
 

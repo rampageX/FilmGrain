@@ -113,7 +113,7 @@ namespace FilmGrainStudioPreview
         {
             int c=int.Parse(p.Controls["cmbCodec"],CultureInfo.InvariantCulture);var caps=hardwareCaps;
             if(!hardwareCapsReady||caps==null)throw new InvalidOperationException("硬件能力缓存尚未就绪，请等待现有检测完成后应用。");
-            if(c==0&&!caps.Av1Available||c==1&&!caps.HevcAvailable||c==2&&p.Config["CPU_CODEC"]=="X264"&&!caps.X264Available||c==3&&!caps.H264Available)throw new InvalidOperationException("当前机器不支持预设编码器。");
+            if(c==0&&!caps.Av1Available||c==1&&!caps.HevcAvailable||c==3&&!caps.H264Available)throw new InvalidOperationException("当前机器不支持预设编码器。");
             if(p.Controls["chkInterpolation"]=="1") {
                 if(p.Controls["cmbInterpolationMode"]=="2") {
                     if(!caps.FrucReady||!caps.FrucAvailable)throw new InvalidOperationException("当前能力缓存未确认 FRUC Vulkan 可用；预设没有更换算法。");
@@ -121,7 +121,6 @@ namespace FilmGrainStudioPreview
                     if(grid!="auto"&&Array.IndexOf(supported.Split(','),grid)<0)throw new InvalidOperationException("FRUC 网格不兼容: "+grid+"；缓存支持: "+supported);
                 } else if(!caps.OpenSvpGpuAvailable)throw new InvalidOperationException("当前机器未确认 OpenSVPFlow 可用。");
             }
-            if(c==2&&p.Config["CPU_CODEC"]=="X264"&&p.Config["H264_HIGH10"]=="true"&&!caps.X264High10Available)throw new InvalidOperationException("当前 x264 不支持 High10。");
             if(c==0&&p.Controls["cmbSpeed"]=="2"&&!caps.Av1UhqAvailable)throw new InvalidOperationException("当前 AV1 不支持 UHQ。");
             if(c==0&&p.Controls["chkSfe"]=="1"&&p.Controls["chkGrainEnabled"]=="1"&&!caps.Grav1synthSfeCompatible)throw new InvalidOperationException("当前 Grav1synth 不支持颗粒与分割编码组合");
             if(p.Controls["chkSfe"]=="1"&&((c==0&&caps.Av1SplitEncodeMaxEngines<2)||(c==1&&caps.HevcSplitEncodeMaxEngines<2)||c==2||c==3))throw new InvalidOperationException("当前编码器不支持所选分割编码。");

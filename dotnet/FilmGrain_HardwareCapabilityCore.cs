@@ -11,6 +11,26 @@ using Microsoft.Win32;
 
 namespace FilmGrainStudioPreview
 {
+    // Vulkan indices are unrelated to NVENC/CUDA indices on hybrid-GPU systems.
+    // Reuse the existing GPU identity; choosing a device never launches a probe.
+    internal static class VulkanDevicePolicy
+    {
+        private static volatile string selectedName = "NVIDIA";
+        internal static string DeviceName { get { return selectedName; } }
+        internal static void Select(string gpuName)
+        {
+            string name = (gpuName ?? "").Trim();
+            // An unknown identity must never restore the old implicit adapter-zero fallback.
+            if (name.Length == 0 || name == "NVIDIA GPU") name = "NVIDIA";
+            if (name.IndexOf("NVIDIA", StringComparison.OrdinalIgnoreCase) < 0)
+                throw new InvalidOperationException("Selected NVIDIA GPU identity is invalid: " + name);
+            if (name.IndexOfAny(new char[] { '\r', '\n', '"', ',', ':', '@', '=' }) >= 0)
+                throw new InvalidOperationException("Invalid Vulkan adapter name.");
+            selectedName = name;
+        }
+        internal static string Spec(string alias) { return "vulkan=" + alias + ":" + DeviceName; }
+    }
+
     internal sealed class HardwareCapabilityRequest
     {
         public string AppRoot { get; set; }
@@ -83,9 +103,6 @@ namespace FilmGrainStudioPreview
         public bool HevcSceneCut { get; set; }
         public bool HevcMultipassQres { get; set; }
         public bool HevcMultipassFullres { get; set; }
-        public bool X264Available { get; set; }
-        public bool X264BStrategy2 { get; set; }
-        public bool X264High10Available { get; set; }
         public bool OpenSvpGpuAvailable { get; set; }
     }
 
@@ -139,13 +156,13 @@ namespace FilmGrainStudioPreview
         }
         internal static string NativeKey(HardwareCapabilityRequest r)
         {
-            var b = new StringBuilder("full-version-v1|"+ToolBundleStamp(r.FfmpegPath)).Append('|').Append(ToolStamp(r.Grav1synthPath)).Append('|').Append(ToolStamp(r.NvencQueryPath));
+            var b = new StringBuilder("full-version-v1|vulkan-selected-gpu-v1|no-x264-startup-probes-v1|"+ToolBundleStamp(r.FfmpegPath)).Append('|').Append(ToolStamp(r.Grav1synthPath)).Append('|').Append(ToolStamp(r.NvencQueryPath));
             foreach (string p in new string[] {".venv/Scripts/vspipe.exe", "Plugins/svpflow1_vs.dll", "Plugins/svpflow2_vs.dll", "Check_OpenSVPFlow.vpy", ".venv/pyvenv.cfg", "_UserConfig/vapoursynth/vapoursynth.toml"})
                 b.Append('|').Append(ToolStamp(Path.Combine(r.AppRoot, "_OpenSVPFlow", p)));
             return b.ToString();
         }
         internal static string FrucKey(HardwareCapabilityRequest r)
-        { return ToolBundleStamp(r.FrucFfmpegPath) + "|" + r.FrucPerf + "|" + r.FrucGrid + "|grid-policy-largest-v1|svt-hdr-probe-v1"; }
+        { return ToolBundleStamp(r.FrucFfmpegPath) + "|" + r.FrucPerf + "|" + r.FrucGrid + "|vulkan-selected-gpu-v1|grid-policy-largest-v1|svt-hdr-probe-v1"; }
         internal static string RequestKey(HardwareCapabilityRequest r) { return NativeKey(r) + "|FRUC|" + FrucKey(r); }
         private static HardwareCapabilitySnapshot Copy(HardwareCapabilitySnapshot s)
         { return s.Clone(); }
@@ -248,7 +265,7 @@ namespace FilmGrainStudioPreview
                 LastLookupNativeKey=nk;LastLookupFrucKey=fk;LastLookupRequestKey=nk+"|FRUC|"+fk;
                 bool native=ValidStoredNative(saved.Native) && saved.NativeSignature==nk && File.Exists(request.FfmpegPath);
                 bool fruc=ValidStoredFruc(saved.Fruc,request) && saved.FrucSignature==fk;
-                if(native) {nativeCached=Copy(saved.Native);nativeKey=nk;snapshot=Copy(nativeCached);snapshot.CacheState="Cached";snapshot.FrucReady=false;}
+                if(native) {VulkanDevicePolicy.Select(saved.Native.GpuName);nativeCached=Copy(saved.Native);nativeKey=nk;snapshot=Copy(nativeCached);snapshot.CacheState="Cached";snapshot.FrucReady=false;}
                 if(fruc) {frucCached=Copy(saved.Fruc);frucKey=fk;if(snapshot==null)snapshot=new HardwareCapabilitySnapshot();CopyFruc(frucCached,snapshot);}
                 if(fruc && snapshot.FrucAvailable)SharedFrucCore.RestoreVerifiedPreflight(request.FrucFfmpegPath,request.FrucPerf,request.FrucGrid,snapshot.FrucVersion,snapshot.FrucEvidence);
                 if(snapshot!=null)snapshot.Diagnostics="Startup disk cache restored; no hardware probe subprocesses.";
@@ -359,6 +376,7 @@ namespace FilmGrainStudioPreview
                 catch (OperationCanceledException) { throw; }
                 catch (Exception ex) { snapshot.Ready=false; snapshot.Error=ex.Message; }
                 if (cancelRequested) throw new OperationCanceledException();
+                if (snapshot.Ready) VulkanDevicePolicy.Select(snapshot.GpuName);
                 if (!cancelRequested) {
                     string key = FrucKey(request);
                     if (request.ForceDetection) frucCached = null;
@@ -448,7 +466,6 @@ namespace FilmGrainStudioPreview
             Dictionary<string, object> av1 = Child(caps, "av1");
             Dictionary<string, object> hevc = Child(caps, "hevc");
             Dictionary<string,object> h264 = Child(caps,"h264");
-            Dictionary<string, object> x264 = Child(caps, "x264");
             Dictionary<string, object> svp = Child(caps, "openSvp");
 
             HardwareCapabilitySnapshot result = new HardwareCapabilitySnapshot();
@@ -492,9 +509,6 @@ namespace FilmGrainStudioPreview
             result.HevcSceneCut = GetBool(hevc, "sceneCut");
             result.HevcMultipassQres = GetBool(hevc, "multipassQres");
             result.HevcMultipassFullres = GetBool(hevc, "multipassFullres");
-            result.X264Available = GetBool(caps, "x264Pipeline");
-            result.X264BStrategy2 = GetBool(x264, "bStrategy2");
-            result.X264High10Available = GetBool(x264, "high10");
             result.OpenSvpGpuAvailable = GetBool(svp, "gpu");
             return result;
         }
@@ -898,21 +912,6 @@ namespace FilmGrainStudioPreview
             if((bool)caps["lookahead"]){caps["adaptiveB"]=Option(encoder,"-rc-lookahead","32","-b_adapt","1");caps["sceneCut"]=Option(encoder,"-rc-lookahead","32","-no-scenecut","0");}
             return caps;
         }
-        private Dictionary<string,object> X264()
-        {
-            var caps=Map("available",false,"tuneGrain",false,"high10",false,"errorDiffusionDither",false,"bStrategy2",false);
-            var baseArgs=new List<string>{"-hide_banner","-loglevel","error","-f","lavfi","-i","testsrc2=size=320x180:rate=30",
-                "-frames:v","2","-an","-c:v","libx264","-preset","veryfast"};
-            Func<string[],bool> check=delegate(string[] extra){var a=new List<string>(baseArgs);a.AddRange(extra);a.AddRange(new string[]{"-f","null",NullOutput});return FF(a);};
-            caps["available"]=check(new string[]{"-pix_fmt","yuv420p","-profile:v","high"});if(!(bool)caps["available"])return caps;
-            caps["tuneGrain"]=check(new string[]{"-tune","grain","-pix_fmt","yuv420p","-profile:v","high"});
-            caps["bStrategy2"]=check(new string[]{"-tune","grain","-b_strategy","2","-pix_fmt","yuv420p","-profile:v","high"});
-            caps["high10"]=FF(new string[]{"-hide_banner","-loglevel","error","-f","lavfi","-i","testsrc2=size=320x180:rate=30",
-                "-frames:v","2","-an","-vf","format=yuv420p10le","-c:v","libx264","-preset","veryfast","-tune","grain",
-                "-pix_fmt","yuv420p10le","-profile:v","high10","-f","null",NullOutput});
-            caps["errorDiffusionDither"]=FF(new string[]{"-hide_banner","-loglevel","error","-f","lavfi","-i","testsrc2=size=320x180:rate=30",
-                "-frames:v","1","-an","-vf","format=yuv420p10le,zscale=dither=error_diffusion,format=yuv420p","-f","null",NullOutput});return caps;
-        }
         private static string FindSmi()
         {
             var paths=new List<string>();foreach(string dir in (Environment.GetEnvironmentVariable("PATH")??"").Split(Path.PathSeparator))
@@ -988,11 +987,11 @@ namespace FilmGrainStudioPreview
         }
         private Dictionary<string,object> DetectProfile(string version, Dictionary<string,object> gpu, Dictionary<string,object> grav, string signature, string svpRoot)
         {
-            var av1=Encoder("av1_nvenc");var hevc=Encoder("hevc_nvenc");var h264=Encoder("h264_nvenc");var x264=X264();
-            bool vulkan=FF(new string[]{"-hide_banner","-loglevel","error","-init_hw_device","vulkan=vk:0","-filter_hw_device","vk",
+            var av1=Encoder("av1_nvenc");var hevc=Encoder("hevc_nvenc");var h264=Encoder("h264_nvenc");
+            bool vulkan=FF(new string[]{"-hide_banner","-loglevel","error","-init_hw_device",VulkanDevicePolicy.Spec("vk"),"-filter_hw_device","vk",
                 "-f","lavfi","-i","color=c=black:s=128x128:r=30","-vf","format=p010le,hwupload,scale_vulkan=w=64:h=64,hwdownload,format=p010le",
                 "-frames:v","1","-f","null",NullOutput});
-            bool grain=FF(new string[]{"-hide_banner","-loglevel","error","-init_hw_device","vulkan=vk:0","-filter_hw_device","vk",
+            bool grain=FF(new string[]{"-hide_banner","-loglevel","error","-init_hw_device",VulkanDevicePolicy.Spec("vk"),"-filter_hw_device","vk",
                 "-f","lavfi","-i","color=c=black:s=128x128:r=30","-f","lavfi","-i","color=c=gray:s=128x128:r=30",
                 "-filter_complex","[0:v]format=p010le,hwupload[a];[1:v]format=p010le,hwupload[b];[a][b]blend_vulkan=all_mode=overlay:all_opacity=0.5,hwdownload,format=p010le",
                 "-frames:v","1","-f","null",NullOutput});
@@ -1003,8 +1002,8 @@ namespace FilmGrainStudioPreview
             var info=new FileInfo(request.FfmpegPath);
             return Map("schemaVersion",10,"detector","Native.NET.Q7H4NV","signature",signature,"generatedAt",DateTime.UtcNow.ToString("o"),"cacheState","Detected",
                 "ffmpeg",Map("path",info.FullName,"version",version,"size",info.Length,"lastWriteTimeUtc",info.LastWriteTimeUtc.ToString("o")),"gpu",gpu,"grav1synth",grav,
-                "caps",Map("av1",av1,"hevc",hevc,"h264",h264,"x264",x264,"nvdec",nvdec,"vulkan",vulkan,"vulkanGrain",grain,
-                    "hevcPipeline",(bool)hevc["available"]&&vulkan,"x264Pipeline",(bool)x264["available"]&&(bool)x264["tuneGrain"]&&vulkan&&grain,"openSvp",Svp(svpRoot)));
+                "caps",Map("av1",av1,"hevc",hevc,"h264",h264,"nvdec",nvdec,"vulkan",vulkan,"vulkanGrain",grain,
+                    "hevcPipeline",(bool)hevc["available"]&&vulkan,"openSvp",Svp(svpRoot)));
         }
         private HardwareCapabilitySnapshot Detect()
         {
@@ -1014,8 +1013,8 @@ namespace FilmGrainStudioPreview
             foreach(string line in (versionProbe.Output??"").Split(new char[]{'\r','\n'},StringSplitOptions.RemoveEmptyEntries))
                 if(line.StartsWith("ffmpeg version ",StringComparison.OrdinalIgnoreCase)){version=line;break;}
             if(version.Length==0)throw new InvalidOperationException("FFmpeg version probe returned no version line.");
-            var gpu=Gpu();var grav=Grav();string svp=Path.Combine(request.AppRoot,"_OpenSVPFlow");
-            var signature=new StringBuilder("schema=10|Native.NET.Q7H4NV|gpu=0|cuda=0|vulkan=0|").Append(HardwareCapabilityCore.ToolBundleStamp(request.FfmpegPath)).Append('|').Append(version)
+            var gpu=Gpu();VulkanDevicePolicy.Select(Convert.ToString(gpu["name"],CultureInfo.InvariantCulture));var grav=Grav();string svp=Path.Combine(request.AppRoot,"_OpenSVPFlow");
+            var signature=new StringBuilder("schema=10|Native.NET.Q7H4NV|gpu=0|cuda=0|vulkan-selected-gpu-v1|no-x264-startup-probes-v1|").Append(HardwareCapabilityCore.ToolBundleStamp(request.FfmpegPath)).Append('|').Append(version)
                 .Append('|').Append(gpu["identity"]).Append('|').Append(Tag(request.Grav1synthPath)).Append('|').Append(grav["version"]).Append('|').Append(Tag(request.NvencQueryPath));
             foreach(string rel in new string[]{".venv/Scripts/vspipe.exe","Plugins/svpflow1_vs.dll","Plugins/svpflow2_vs.dll","Check_OpenSVPFlow.vpy",".venv/pyvenv.cfg","_UserConfig/vapoursynth/vapoursynth.toml"})signature.Append('|').Append(Tag(Path.Combine(svp,rel)));
             string hash=Hash(signature.ToString()),cache=Path.Combine(request.AppRoot,"Utils","_HardwareCaps_NET.json");
