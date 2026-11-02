@@ -473,7 +473,7 @@ namespace FilmGrainStudioPreview
                     if (parts.Length == 5 && int.TryParse(parts[0], out x) && int.TryParse(parts[1], out y)
                         && int.TryParse(parts[2], out w) && int.TryParse(parts[3], out h)
                         && Math.Abs((long)x) <= 100000 && Math.Abs((long)y) <= 100000
-                        && w >= MinimumSize.Width && h >= MinimumSize.Height && w <= 32767 && h <= 32767
+                        && w > 0 && h > 0 && w <= 32767 && h <= 32767
                         && (parts[4] == "Normal" || parts[4] == "Maximized")) {
                         var workingAreas = new List<Rectangle>();
                         foreach (Screen display in Screen.AllScreens) workingAreas.Add(display.WorkingArea);
@@ -636,7 +636,8 @@ namespace FilmGrainStudioPreview
             Text = "Film Grain Studio";
             StartPosition = FormStartPosition.CenterScreen;
             ClientSize = new Size(1320, 994);
-            MinimumSize = new Size(1280, 984);
+            // The default layout is the smallest supported layout (includes window borders).
+            MinimumSize = Size;
             AutoScaleMode = AutoScaleMode.Dpi;
             Font = UiFont(9f, FontStyle.Regular);
             AllowDrop = true;

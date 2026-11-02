@@ -63,16 +63,26 @@ namespace FilmGrainStudioPreview
         private void ShowPreprocessDialog()
         {
             using(var dialog=new Form()) {
-                dialog.Text=UiText("前处理 · Bilateral / Resize","Preprocessing · Bilateral / Resize");dialog.Font=Font;
+                dialog.Text=UiText("前处理","Preprocessing");dialog.Font=Font;
                 dialog.AutoScaleMode=AutoScaleMode.Dpi;dialog.StartPosition=FormStartPosition.CenterParent;
-                dialog.Size=new Size(720,640);dialog.MinimumSize=new Size(680,620);
-                var grid=new TableLayoutPanel {Dock=DockStyle.Fill,Padding=new Padding(14),ColumnCount=2,RowCount=11};
+                dialog.Size=new Size(820,450);dialog.MinimumSize=new Size(780,430);
+                var shell=new TableLayoutPanel {Dock=DockStyle.Fill,Padding=new Padding(10),ColumnCount=1,RowCount=2};
+                shell.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));
+                shell.RowStyles.Add(new RowStyle(SizeType.Percent,100));shell.RowStyles.Add(new RowStyle(SizeType.Absolute,42));
+                var tabs=new ThemeTabControl {Name="PREPROCESS_TABS",Dock=DockStyle.Fill};
+                var filterPage=new TabPage(UiText("滤波","Filtering")) {Name="PREPROCESS_FILTER_PAGE"};
+                var resizePage=new TabPage(UiText("缩放","Resize")) {Name="PREPROCESS_RESIZE_PAGE"};
+                tabs.TabPages.Add(filterPage);tabs.TabPages.Add(resizePage);shell.Controls.Add(tabs,0,0);
+                var grid=new TableLayoutPanel {Dock=DockStyle.Fill,Padding=new Padding(14),ColumnCount=2,RowCount=5};
                 grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,68));grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,32));
                 grid.RowStyles.Add(new RowStyle(SizeType.Absolute,36));
                 for(int i=0;i<3;i++)grid.RowStyles.Add(new RowStyle(SizeType.Absolute,44));
-                grid.RowStyles.Add(new RowStyle(SizeType.Absolute,100));
-                for(int i=0;i<4;i++)grid.RowStyles.Add(new RowStyle(SizeType.Absolute,38));
-                grid.RowStyles.Add(new RowStyle(SizeType.Percent,100));grid.RowStyles.Add(new RowStyle(SizeType.Absolute,38));
+                grid.RowStyles.Add(new RowStyle(SizeType.Percent,100));
+                filterPage.Controls.Add(grid);
+                var resizeGrid=new TableLayoutPanel {Dock=DockStyle.Fill,Padding=new Padding(14),ColumnCount=2,RowCount=5};
+                resizeGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,68));resizeGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,32));
+                for(int i=0;i<4;i++)resizeGrid.RowStyles.Add(new RowStyle(SizeType.Absolute,40));
+                resizeGrid.RowStyles.Add(new RowStyle(SizeType.Percent,100));resizePage.Controls.Add(resizeGrid);
                 var enabled=new ThemeCheckBox {Name="BILATERAL_ENABLED",Text=UiText("启用 Bilateral（CPU 双边滤波）","Enable Bilateral (CPU)"),Dock=DockStyle.Fill,Checked=config.GetBool("PRE_BILATERAL_ENABLED")};
                 grid.Controls.Add(enabled,0,0);grid.SetColumnSpan(enabled,2);
                 var spatial=new ThemeTextBox {Name="BILATERAL_SIGMA_S",Dock=DockStyle.Fill,Text=config.Get("PRE_BILATERAL_SIGMA_S")};
@@ -82,7 +92,7 @@ namespace FilmGrainStudioPreview
                 grid.Controls.Add(new ThemeLabel {Text=UiText("sigmaS · 空间平滑范围（0–512）","sigmaS · Spatial range (0–512)"),Dock=DockStyle.Fill,TextAlign=ContentAlignment.MiddleLeft},0,1);grid.Controls.Add(spatial,1,1);
                 grid.Controls.Add(new ThemeLabel {Text=UiText("sigmaR · 亮度差异容忍度（0–1）","sigmaR · Range tolerance (0–1)"),Dock=DockStyle.Fill,TextAlign=ContentAlignment.MiddleLeft},0,2);grid.Controls.Add(range,1,2);
                 grid.Controls.Add(new ThemeLabel {Text=UiText("planes · 通道位掩码（0–15）","planes · Plane bitmask (0–15)"),Dock=DockStyle.Fill,TextAlign=ContentAlignment.MiddleLeft},0,3);grid.Controls.Add(planes,1,3);
-                var help=new ThemeLabel {Dock=DockStyle.Fill,Text=UiText("默认 3 / 0.05 / 1：仅柔化亮度通道。sigmaS 越大影响范围越广；sigmaR 越大越容易抹平纹理。\nplanes：1=Y，2=U，4=V，6=UV，7=YUV；0=不处理。CPU 滤镜可能降低处理速度；GPU 解码仍按原设置运行。","Default 3 / 0.05 / 1: luma only. Larger sigmaS widens smoothing; larger sigmaR removes more texture.\nplanes: 1=Y, 2=U, 4=V, 6=UV, 7=YUV; 0=none. CPU filtering may reduce speed; GPU decode remains available.")};
+                var help=new ThemeLabel {Name="PREPROCESS_FILTER_HELP",Dock=DockStyle.Fill,ForeColor=ColorMuted,Padding=new Padding(0,8,0,0),Text=UiText("默认 3 / 0.05 / 1：仅柔化亮度通道。sigmaS 越大影响范围越广；sigmaR 越大越容易抹平纹理。\nplanes：1=Y，2=U，4=V，6=UV，7=YUV；0=不处理。CPU 滤镜可能降低处理速度；GPU 解码仍按原设置运行。","Default 3 / 0.05 / 1: luma only. Larger sigmaS widens smoothing; larger sigmaR removes more texture.\nplanes: 1=Y, 2=U, 4=V, 6=UV, 7=YUV; 0=none. CPU filtering may reduce speed; GPU decode remains available.")};
                 grid.Controls.Add(help,0,4);grid.SetColumnSpan(help,2);
                 var resizeMode=new ThemeComboBox {Name="RESIZE_MODE",Dock=DockStyle.Fill,DropDownStyle=ComboBoxStyle.DropDownList};
                 string[] modes={"OFF","720","1080","1440","2160","CUSTOM"};
@@ -91,11 +101,11 @@ namespace FilmGrainStudioPreview
                 var resizeWidth=new ThemeTextBox {Name="RESIZE_WIDTH",Dock=DockStyle.Fill,Text=config.Get("RESIZE_WIDTH")};
                 var resizeHeight=new ThemeTextBox {Name="RESIZE_HEIGHT",Dock=DockStyle.Fill,Text=config.Get("RESIZE_HEIGHT")};
                 var keepAspect=new ThemeCheckBox {Name="RESIZE_KEEP_ASPECT",Text=UiText("保持显示宽高比（取消可能拉伸）","Keep display aspect ratio (uncheck to stretch)"),Dock=DockStyle.Fill,Checked=config.GetBool("RESIZE_KEEP_ASPECT")};
-                grid.Controls.Add(new ThemeLabel {Text=UiText("画面缩放 · Vulkan / Lanczos","Resize · Vulkan / Lanczos"),Dock=DockStyle.Fill,TextAlign=ContentAlignment.MiddleLeft},0,5);grid.Controls.Add(resizeMode,1,5);
-                grid.Controls.Add(new ThemeLabel {Text=UiText("自定义宽度（2–16384）","Custom width (2–16384)"),Dock=DockStyle.Fill,TextAlign=ContentAlignment.MiddleLeft},0,6);grid.Controls.Add(resizeWidth,1,6);
-                grid.Controls.Add(new ThemeLabel {Text=UiText("自定义高度（2–16384）","Custom height (2–16384)"),Dock=DockStyle.Fill,TextAlign=ContentAlignment.MiddleLeft},0,7);grid.Controls.Add(resizeHeight,1,7);
-                grid.Controls.Add(keepAspect,0,8);grid.SetColumnSpan(keepAspect,2);
-                var resizeSummary=new ThemeLabel {Name="RESIZE_SUMMARY",Dock=DockStyle.Fill};grid.Controls.Add(resizeSummary,0,9);grid.SetColumnSpan(resizeSummary,2);
+                resizeGrid.Controls.Add(new ThemeLabel {Text=UiText("画面缩放 · Vulkan / Lanczos","Resize · Vulkan / Lanczos"),Dock=DockStyle.Fill,TextAlign=ContentAlignment.MiddleLeft},0,0);resizeGrid.Controls.Add(resizeMode,1,0);
+                resizeGrid.Controls.Add(new ThemeLabel {Text=UiText("自定义宽度（2–16384）","Custom width (2–16384)"),Dock=DockStyle.Fill,TextAlign=ContentAlignment.MiddleLeft},0,1);resizeGrid.Controls.Add(resizeWidth,1,1);
+                resizeGrid.Controls.Add(new ThemeLabel {Text=UiText("自定义高度（2–16384）","Custom height (2–16384)"),Dock=DockStyle.Fill,TextAlign=ContentAlignment.MiddleLeft},0,2);resizeGrid.Controls.Add(resizeHeight,1,2);
+                resizeGrid.Controls.Add(keepAspect,0,3);resizeGrid.SetColumnSpan(keepAspect,2);
+                var resizeSummary=new ThemeLabel {Name="RESIZE_SUMMARY",Dock=DockStyle.Fill,ForeColor=ColorMuted,Padding=new Padding(0,8,0,0)};resizeGrid.Controls.Add(resizeSummary,0,4);resizeGrid.SetColumnSpan(resizeSummary,2);
                 Func<Dictionary<string,string>> resizeValues=delegate {return new Dictionary<string,string>{{"RESIZE_MODE",modes[resizeMode.SelectedIndex]},{"RESIZE_WIDTH",resizeWidth.Text.Trim()},{"RESIZE_HEIGHT",resizeHeight.Text.Trim()},{"RESIZE_KEEP_ASPECT",keepAspect.Checked?"true":"false"}};};
                 Action updateResize=delegate {
                     resizeWidth.Enabled=resizeHeight.Enabled=resizeMode.SelectedIndex==5;keepAspect.Enabled=resizeMode.SelectedIndex!=0;
@@ -116,7 +126,7 @@ namespace FilmGrainStudioPreview
                 var buttons=new FlowLayoutPanel {Dock=DockStyle.Fill,FlowDirection=FlowDirection.RightToLeft,WrapContents=false};
                 var cancel=new ThemeButton {Name="PREPROCESS_CANCEL",Text=UiText("取消","Cancel"),DialogResult=DialogResult.Cancel,Width=88};
                 var ok=new ThemeButton {Name="PREPROCESS_OK",Text=UiText("确定","OK"),Width=88};var reset=new ThemeButton {Name="PREPROCESS_DEFAULTS",Text=UiText("恢复默认值","Defaults"),Width=118};
-                reset.Click+=delegate {enabled.Checked=false;spatial.Text="3";range.Text="0.05";planes.Value=1;resizeMode.SelectedIndex=0;resizeWidth.Text="1920";resizeHeight.Text="1080";keepAspect.Checked=true;};
+                reset.Click+=delegate {if(tabs.SelectedTab==filterPage){enabled.Checked=false;spatial.Text="3";range.Text="0.05";planes.Value=1;}else{resizeMode.SelectedIndex=0;resizeWidth.Text="1920";resizeHeight.Text="1080";keepAspect.Checked=true;}};
                 enabled.CheckedChanged+=delegate {spatial.Enabled=range.Enabled=planes.Enabled=enabled.Checked;};
                 spatial.Enabled=range.Enabled=planes.Enabled=enabled.Checked;
                 ok.Click+=delegate {
@@ -128,8 +138,8 @@ namespace FilmGrainStudioPreview
                         config.Save(values);RefreshPreprocessButton();UpdateBitrateDisplays();dialog.DialogResult=DialogResult.OK;dialog.Close();
                     }catch(Exception ex){MessageBox.Show(dialog,ex.Message,dialog.Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);}
                 };
-                buttons.Controls.Add(cancel);buttons.Controls.Add(ok);buttons.Controls.Add(reset);grid.Controls.Add(buttons,0,10);grid.SetColumnSpan(buttons,2);
-                dialog.Controls.Add(grid);dialog.AcceptButton=ok;dialog.CancelButton=cancel;
+                buttons.Controls.Add(cancel);buttons.Controls.Add(ok);buttons.Controls.Add(reset);shell.Controls.Add(buttons,0,1);
+                dialog.Controls.Add(shell);dialog.AcceptButton=ok;dialog.CancelButton=cancel;
                 AttachThemeWindow(dialog);AttachPreprocessWindowMemory(dialog);dialog.ShowDialog(this);
             }
         }

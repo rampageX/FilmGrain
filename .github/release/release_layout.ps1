@@ -297,6 +297,7 @@ $ExcludedRecursiveDirectoryNames = @(
 )
 $ExcludedRootDeliveryPatterns = @(
     'FGS_v5.0.45_ReleasePrep_*.zip',
+    'FGS_v5.0.45_StartupListFix_*.zip',
     'FGS_Flicker_*.zip',
     'FGS_SelectedGPU_Test_*_Logs.zip',
     'FGS_Vulkan_SelectedGPU_*.zip',
