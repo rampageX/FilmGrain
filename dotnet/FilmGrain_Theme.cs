@@ -272,7 +272,7 @@ namespace FilmGrainStudioPreview
                 IThemeSurface custom = c as IThemeSurface;
                 if (custom != null) custom.DarkTheme = dark;
                 ListView list = c as ListView;
-                if (list != null && !s.OwnerDraw) { list.OwnerDraw = dark; list.GridLines = dark ? false : s.GridLines; }
+                if (list != null && !s.OwnerDraw) { list.OwnerDraw = dark || MiddleFilename(list); list.GridLines = dark ? false : s.GridLines; }
                 Button b = c as Button;
                 if (b != null) {
                     b.FlatStyle = dark ? FlatStyle.Flat : s.Flat;
@@ -334,21 +334,39 @@ namespace FilmGrainStudioPreview
             using (Pen p = new Pen(Border)) e.Graphics.DrawRectangle(p, e.Bounds.X, e.Bounds.Y, Math.Max(0,e.Bounds.Width-1), Math.Max(0,e.Bounds.Height-1));
             ThemeDrawing.DrawText(e.Graphics, e.Header.Text, ((ListView)sender).Font, Rectangle.Inflate(e.Bounds,-5,0), TextColor, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
         }
+        private static bool MiddleFilename(ListView list)
+        { var custom=list as ThemeListView;return custom!=null && custom.MiddleEllipsisFirstColumn; }
         private void DrawListItem(object sender, DrawListViewItemEventArgs e)
         {
-            if (!dark || ((ListView)sender).View != View.Details) e.DrawDefault = true;
+            var list=(ListView)sender;
+            if ((!dark && !MiddleFilename(list)) || list.View != View.Details) e.DrawDefault = true;
         }
         private void DrawSubItem(object sender, DrawListViewSubItemEventArgs e)
         {
-            if (!dark) { e.DrawDefault = true; return; }
             ListView list = (ListView)sender;
-            Color back = e.Item.Selected ? Color.FromArgb(35,78,66) : Input;
+            bool middle=MiddleFilename(list);
+            if (!dark && !middle) { e.DrawDefault = true; return; }
+            Color back = dark ? (e.Item.Selected ? Color.FromArgb(35,78,66) : Input) :
+                e.Item.Selected ? (list.Focused ? SystemColors.Highlight : SystemColors.Control) : list.BackColor;
+            Color ink = !list.Enabled ? (dark ? Muted : SystemColors.GrayText) : dark ? TextColor :
+                e.Item.Selected && list.Focused ? SystemColors.HighlightText : list.ForeColor;
             using (Brush b = new SolidBrush(back)) e.Graphics.FillRectangle(b,e.Bounds);
-            using (Pen p = new Pen(Border)) { e.Graphics.DrawLine(p,e.Bounds.Left,e.Bounds.Bottom-1,e.Bounds.Right,e.Bounds.Bottom-1); e.Graphics.DrawLine(p,e.Bounds.Right-1,e.Bounds.Top,e.Bounds.Right-1,e.Bounds.Bottom); }
+            using (Pen p = new Pen(dark ? Border : SystemColors.ControlLight)) { e.Graphics.DrawLine(p,e.Bounds.Left,e.Bounds.Bottom-1,e.Bounds.Right,e.Bounds.Bottom-1); e.Graphics.DrawLine(p,e.Bounds.Right-1,e.Bounds.Top,e.Bounds.Right-1,e.Bounds.Bottom); }
             TextFormatFlags flags = TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix;
             flags |= e.Header.TextAlign == HorizontalAlignment.Right ? TextFormatFlags.Right : e.Header.TextAlign == HorizontalAlignment.Center ? TextFormatFlags.HorizontalCenter : TextFormatFlags.Left;
-            ThemeDrawing.DrawText(e.Graphics,e.SubItem.Text,list.Font,Rectangle.Inflate(e.Bounds,-4,0),list.Enabled ? TextColor : Muted,flags);
-            if (e.ColumnIndex == 0 && e.Item.Focused && list.Focused) ControlPaint.DrawFocusRectangle(e.Graphics, e.Bounds, TextColor,back);
+            Rectangle bounds=Rectangle.Inflate(e.Bounds,-4,0);string text=e.SubItem.Text;
+            // Display only: keep the full item text, sort key, path Tag and tooltip untouched.
+            if(middle && e.ColumnIndex==0) {
+                using(var format=new StringFormat()) {
+                    format.FormatFlags=StringFormatFlags.NoWrap | StringFormatFlags.MeasureTrailingSpaces;
+                    text=FilenameEllipsisCore.Fit(text,bounds.Width,delegate(string value) {
+                        return e.Graphics.MeasureString(value,list.Font,new SizeF(1000000f,1000000f),format).Width;
+                    });
+                }
+                flags &= ~TextFormatFlags.EndEllipsis;
+            }
+            ThemeDrawing.DrawText(e.Graphics,text,list.Font,bounds,ink,flags);
+            if (e.ColumnIndex == 0 && e.Item.Focused && list.Focused) ControlPaint.DrawFocusRectangle(e.Graphics, e.Bounds, ink,back);
         }
         internal void CorrectionState(Button button, bool enabled)
         {
@@ -1052,7 +1070,10 @@ namespace FilmGrainStudioPreview
     {
         private Form restoreOwner;
         private bool restorePaintPending;
+        internal bool MiddleEllipsisFirstColumn;
         internal ThemeListView() { DoubleBuffered=true; }
+        protected override void OnColumnWidthChanged(ColumnWidthChangedEventArgs e)
+        { base.OnColumnWidthChanged(e);if(MiddleEllipsisFirstColumn)Invalidate(); }
         private void BindRestoreOwner()
         {
             Form owner=FindForm();if(restoreOwner==owner)return;
@@ -1646,6 +1667,30 @@ namespace FilmGrainStudioPreview
             if(!Enabled)return;
             int value;
             if(ValidateInput() && TryGetValue(out value))Text=FormatValue(value);
+        }
+    }
+}
+
+namespace FilmGrainStudioPreview
+{
+    internal static class FilenameEllipsisCore
+    {
+        // Keep ~40% of retained text elements at the front, ~60% at the end.
+        // Measure with the same GDI+ paint surface/font; never acquire a paint HDC.
+        internal static string Fit(string text,int width,Func<string,float> measure)
+        {
+            if(string.IsNullOrEmpty(text) || width<=0)return "";
+            if(measure(text)<=width)return text;
+            const string dots="...";if(measure(dots)>width)return "";
+            int[] starts=System.Globalization.StringInfo.ParseCombiningCharacters(text);
+            string best=dots;int low=1,high=starts.Length-1;
+            while(low<=high) {
+                int keep=low+(high-low)/2;
+                int head=keep<2?0:Math.Max(1,keep*2/5),tail=keep-head;
+                string candidate=text.Substring(0,head==0?0:starts[head])+dots+text.Substring(starts[starts.Length-tail]);
+                if(measure(candidate)<=width){best=candidate;low=keep+1;}else high=keep-1;
+            }
+            return best;
         }
     }
 }

@@ -154,9 +154,12 @@ namespace FilmGrainStudioPreview
             } catch { }
             return b.ToString();
         }
+        // Change only when native probe semantics/required capabilities change, not on product releases.
+        // A successful cache write acknowledges the contract; ordinary EXE replacement is irrelevant.
+        internal const string NativeProbeContract = "native-probe-contract-v1";
         internal static string NativeKey(HardwareCapabilityRequest r)
         {
-            var b = new StringBuilder("full-version-v1|vulkan-selected-gpu-v1|no-x264-startup-probes-v1|"+ToolBundleStamp(r.FfmpegPath)).Append('|').Append(ToolStamp(r.Grav1synthPath)).Append('|').Append(ToolStamp(r.NvencQueryPath));
+            var b = new StringBuilder("full-version-v1|vulkan-selected-gpu-v1|no-x264-startup-probes-v1|"+ToolBundleStamp(r.FfmpegPath)).Append('|').Append(ToolStamp(r.Grav1synthPath)).Append('|').Append(NativeProbeContract);
             foreach (string p in new string[] {".venv/Scripts/vspipe.exe", "Plugins/svpflow1_vs.dll", "Plugins/svpflow2_vs.dll", "Check_OpenSVPFlow.vpy", ".venv/pyvenv.cfg", "_UserConfig/vapoursynth/vapoursynth.toml"})
                 b.Append('|').Append(ToolStamp(Path.Combine(r.AppRoot, "_OpenSVPFlow", p)));
             return b.ToString();
@@ -249,6 +252,21 @@ namespace FilmGrainStudioPreview
             var strings=value as string[];if(strings!=null)return string.Join(";",strings);
             return Convert.ToString(value,CultureInfo.InvariantCulture)??"";
         }
+        internal static bool NativeSignatureMatches(string saved,HardwareCapabilityRequest request)
+        {
+            string current=NativeKey(request);if(saved==current)return true;
+            // Schema-1 legacy ordering ends with: grav, self-EXE stamp, six SVP file stamps.
+            // Ignore ONLY that old self-EXE field; every actual tool/policy field must still match.
+            // Do not allow this migration after a future probe-contract revision.
+            if(!string.Equals(NativeProbeContract,"native-probe-contract-v1",StringComparison.Ordinal) || string.IsNullOrEmpty(saved))return false;
+            string[] fields=saved.Split('|');int at=fields.Length-7;
+            if(at<2)return false;
+            string self=fields[at];int ticks=self.LastIndexOf(':'),size=ticks>0?self.LastIndexOf(':',ticks-1):-1;long length,time;
+            if(size<1 || !self.Substring(0,size).EndsWith(".exe",StringComparison.OrdinalIgnoreCase) ||
+                !long.TryParse(self.Substring(size+1,ticks-size-1),NumberStyles.None,CultureInfo.InvariantCulture,out length) ||
+                !long.TryParse(self.Substring(ticks+1),NumberStyles.None,CultureInfo.InvariantCulture,out time) || time>DateTime.MaxValue.Ticks)return false;
+            fields[at]=NativeProbeContract;return string.Join("|",fields)==current;
+        }
         internal bool TryRestorePersistent(HardwareCapabilityRequest request,out HardwareCapabilitySnapshot snapshot) {
             snapshot=null;
             if(!PersistentEnabled || request==null || request.ForceDetection)return false;
@@ -263,7 +281,7 @@ namespace FilmGrainStudioPreview
                 cachedEnvironment=environment;
                 string nk=NativeKey(request),fk=FrucKey(request);
                 LastLookupNativeKey=nk;LastLookupFrucKey=fk;LastLookupRequestKey=nk+"|FRUC|"+fk;
-                bool native=ValidStoredNative(saved.Native) && saved.NativeSignature==nk && File.Exists(request.FfmpegPath);
+                bool native=ValidStoredNative(saved.Native) && NativeSignatureMatches(saved.NativeSignature,request) && File.Exists(request.FfmpegPath);
                 bool fruc=ValidStoredFruc(saved.Fruc,request) && saved.FrucSignature==fk;
                 if(native) {VulkanDevicePolicy.Select(saved.Native.GpuName);nativeCached=Copy(saved.Native);nativeKey=nk;snapshot=Copy(nativeCached);snapshot.CacheState="Cached";snapshot.FrucReady=false;}
                 if(fruc) {frucCached=Copy(saved.Fruc);frucKey=fk;if(snapshot==null)snapshot=new HardwareCapabilitySnapshot();CopyFruc(frucCached,snapshot);}
@@ -1005,6 +1023,13 @@ namespace FilmGrainStudioPreview
                 "caps",Map("av1",av1,"hevc",hevc,"h264",h264,"nvdec",nvdec,"vulkan",vulkan,"vulkanGrain",grain,
                     "hevcPipeline",(bool)hevc["available"]&&vulkan,"openSvp",Svp(svpRoot)));
         }
+        internal static string ProfileSignature(HardwareCapabilityRequest request,string version,string gpuIdentity,string gravVersion)
+        {
+            var signature=new StringBuilder("schema=10|Native.NET.Q7H4NV|gpu=0|cuda=0|vulkan-selected-gpu-v1|no-x264-startup-probes-v1|").Append(HardwareCapabilityCore.ToolBundleStamp(request.FfmpegPath)).Append('|').Append(version)
+                .Append('|').Append(gpuIdentity).Append('|').Append(Tag(request.Grav1synthPath)).Append('|').Append(gravVersion).Append('|').Append(HardwareCapabilityCore.NativeProbeContract);
+            foreach(string rel in new string[]{".venv/Scripts/vspipe.exe","Plugins/svpflow1_vs.dll","Plugins/svpflow2_vs.dll","Check_OpenSVPFlow.vpy",".venv/pyvenv.cfg","_UserConfig/vapoursynth/vapoursynth.toml"})signature.Append('|').Append(Tag(Path.Combine(request.AppRoot,"_OpenSVPFlow",rel)));
+            return Hash(signature.ToString());
+        }
         private HardwareCapabilitySnapshot Detect()
         {
             if(!File.Exists(request.FfmpegPath))throw new FileNotFoundException("FFmpeg was not found.",request.FfmpegPath);
@@ -1014,10 +1039,7 @@ namespace FilmGrainStudioPreview
                 if(line.StartsWith("ffmpeg version ",StringComparison.OrdinalIgnoreCase)){version=line;break;}
             if(version.Length==0)throw new InvalidOperationException("FFmpeg version probe returned no version line.");
             var gpu=Gpu();VulkanDevicePolicy.Select(Convert.ToString(gpu["name"],CultureInfo.InvariantCulture));var grav=Grav();string svp=Path.Combine(request.AppRoot,"_OpenSVPFlow");
-            var signature=new StringBuilder("schema=10|Native.NET.Q7H4NV|gpu=0|cuda=0|vulkan-selected-gpu-v1|no-x264-startup-probes-v1|").Append(HardwareCapabilityCore.ToolBundleStamp(request.FfmpegPath)).Append('|').Append(version)
-                .Append('|').Append(gpu["identity"]).Append('|').Append(Tag(request.Grav1synthPath)).Append('|').Append(grav["version"]).Append('|').Append(Tag(request.NvencQueryPath));
-            foreach(string rel in new string[]{".venv/Scripts/vspipe.exe","Plugins/svpflow1_vs.dll","Plugins/svpflow2_vs.dll","Check_OpenSVPFlow.vpy",".venv/pyvenv.cfg","_UserConfig/vapoursynth/vapoursynth.toml"})signature.Append('|').Append(Tag(Path.Combine(svp,rel)));
-            string hash=Hash(signature.ToString()),cache=Path.Combine(request.AppRoot,"Utils","_HardwareCaps_NET.json");
+            string hash=ProfileSignature(request,version,Convert.ToString(gpu["identity"],CultureInfo.InvariantCulture),Convert.ToString(grav["version"],CultureInfo.InvariantCulture)),cache=Path.Combine(request.AppRoot,"Utils","_HardwareCaps_NET.json");
             var serializer=new JavaScriptSerializer();Dictionary<string,object> profile=null;
             if(!request.ForceDetection && (string)gpu["identity"]!="unknown" && File.Exists(cache))
             {

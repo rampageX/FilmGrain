@@ -107,8 +107,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.45";
-        internal const string FileReleaseVersion = "5.0.45.0";
+        internal const string ReleaseVersion = "5.0.46";
+        internal const string FileReleaseVersion = "5.0.46.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -567,7 +567,7 @@ namespace FilmGrainStudioPreview
                 hardwareAppliedKey = hardwareCapabilityCore.LastLookupRequestKey;
                 hardwareActiveKey = hardwareAppliedKey;
                 ApplyHardwareCapabilities();
-                AppendLog("[Hardware] " + startupCaps.GpuName + " · AV1=" + (startupCaps.Av1Available ? "1" : "0") + " · HEVC=" + (startupCaps.HevcAvailable ? "1" : "0") + Environment.NewLine);
+                AppendLog("[Hardware] " + startupCaps.GpuName + Environment.NewLine);
                 btnStart.Enabled = true;
                 StartupTiming.Mark("hardware.cache.restore", "full=" + fullStartupCache + " native=0 fruc=0 children=0");
             }
@@ -825,7 +825,7 @@ namespace FilmGrainStudioPreview
             inputBars.Controls.Add(buttons,0,0);inputBars.Controls.Add(BuildFileSettingsBar(),0,1);
             layout.Controls.Add(inputBars, 0, 0);
 
-            listFiles = new ThemeListView();
+            listFiles = new ThemeListView { MiddleEllipsisFirstColumn = true };
             listFiles.Dock = DockStyle.Fill;
             listFiles.View = View.Details;
             listFiles.FullRowSelect = true;
@@ -2786,7 +2786,7 @@ namespace FilmGrainStudioPreview
                         if (log != null)
                             AppendDiagnosticLog("[Hardware .NET] " + caps.Diagnostics + Environment.NewLine);
                         if (log != null && nativeChanged)
-                            AppendLog("[Hardware] " + caps.GpuName + " · AV1=" + (caps.Av1Available ? "1" : "0") + " · HEVC=" + (caps.HevcAvailable ? "1" : "0") + Environment.NewLine);
+                            AppendLog("[Hardware] " + caps.GpuName + Environment.NewLine);
                     }
                     else
                     {

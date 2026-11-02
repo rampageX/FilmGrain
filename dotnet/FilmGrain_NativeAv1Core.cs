@@ -192,7 +192,11 @@ namespace FilmGrainStudioPreview
             string frucGrid = Get(state, "FG_FRUC_GRID").ToLowerInvariant();
             if (fruc && !SharedFrucCore.TryPreflight(frucFfmpeg, frucPerf, frucGrid, out reason)) return false;
             if (fruc && hdrPreserve && !SharedFrucCore.TryPreflight10(frucFfmpeg, frucPerf, frucGrid, out reason)) return false;
-            if (interpolate)
+            bool simpleRoute=Av1RouteOptimizationCore.SimpleSource(input,info,state,sfeEngines);
+            bool directOutput=simpleRoute && !interpolate && !grainEnabled;
+            bool directFruc=simpleRoute && fruc && !grainEnabled &&
+                string.Equals(Path.GetFullPath(frucFfmpeg),Path.GetFullPath(ffmpeg),StringComparison.OrdinalIgnoreCase);
+            if (interpolate && !directFruc)
             {
                 string encoderHelp;
                 if (!SharedFrucCore.Run(fruc ? frucFfmpeg : ffmpeg, "-hide_banner -h encoder=ffv1", 5000, out encoderHelp, out reason)) return false;
@@ -235,7 +239,7 @@ namespace FilmGrainStudioPreview
             string hdrWorkfile = needsHdrWorkfile || separateDeint ? Path.Combine(tempRoot, job + (hdrToSdr ? "_hdr2sdr.mkv" : "_fields.mkv")) : "";
             string frucInput = needsHdrWorkfile || separateDeint ? hdrWorkfile : input;
             string frucWorkfile = interpolate ? Path.Combine(tempRoot, job + (fruc ? "_fruc.mkv" : "_svp.mkv")) : "";
-            string encodeInput = interpolate ? frucWorkfile : frucInput;
+            string encodeInput = interpolate && !directFruc ? frucWorkfile : frucInput;
 
             string preset = Eq(state, "FG_SPEED", "STANDARD") ? "p7" : Eq(state, "FG_SPEED", "UHQ") ? "p4" : "p5";
             string tune = Eq(state, "FG_SPEED", "UHQ") ? "uhq" : "hq";
@@ -276,7 +280,7 @@ namespace FilmGrainStudioPreview
             }
             List<string> encode = new List<string>();
             Add(encode, "-hide_banner", "-stats", "-progress", "pipe:2", "-stats_period", "0.5", "-y");
-            if (resize.Enabled || fgsimGrain || (bwdifVulkan && !fieldWorkfile && !separateDeint)) Add(encode, "-init_hw_device", VulkanDevicePolicy.Spec("vk"), "-filter_hw_device", "vk");
+            if (directFruc || resize.Enabled || fgsimGrain || (bwdifVulkan && !fieldWorkfile && !separateDeint)) Add(encode, "-init_hw_device", VulkanDevicePolicy.Spec("vk"), "-filter_hw_device", "vk");
             if (interpolate) Add(encode, "-copyts");
             Add(encode, "-i", encodeInput);
             if (!string.IsNullOrWhiteSpace(filterGraph)) Add(encode, "-filter_complex", filterGraph, "-map", "[vout]");
@@ -355,21 +359,21 @@ namespace FilmGrainStudioPreview
             
             request.TemporaryFiles = metadataGrain ? new List<string> { cleanIvf, grainIvf } : new List<string> { cleanIvf };
             if (needsHdrWorkfile || separateDeint) request.TemporaryFiles.Add(hdrWorkfile);
-            if (interpolate) request.TemporaryFiles.Add(frucWorkfile);
+            if (interpolate && !directFruc) request.TemporaryFiles.Add(frucWorkfile);
             if (hdrPreserve) request.PostRunValidation = delegate { return VerifyHdrOutput(ffprobe, output, info); };
             if (!string.IsNullOrEmpty(lutCompatPath)) request.TemporaryFiles.Add(lutCompatPath);
             if (!string.IsNullOrEmpty(subtitleAss)) request.TemporaryFiles.Add(subtitleAss);
             if (!string.IsNullOrEmpty(subtitleFilterPath)&&subtitleFilterPath!=subtitleAss) request.TemporaryFiles.Add(subtitleFilterPath);
             request.ProgressDurationSeconds = ParseDuration(info.Duration);
             double duration = request.ProgressDurationSeconds;
-            int preStages = (needsHdrWorkfile || separateDeint ? 1 : 0) + (interpolate ? 1 : 0);
+            int preStages = (needsHdrWorkfile || separateDeint ? 1 : 0) + (interpolate && !directFruc ? 1 : 0);
             int encodeStages = metadataGrain ? 3 : 2;
             
             int totalStages = preStages + encodeStages;
             List<BridgeExecutionStage> directStages = new List<BridgeExecutionStage>();
             if (needsHdrWorkfile || separateDeint) directStages.Add(Stage(ffmpeg, tempRoot, hdrToSdr ? SharedHdrPreprocessCore.BuildToSdr(input,hdrWorkfile,info,tonemap,fieldWorkfile || hdrOffSdr,fieldWorkfile?fieldFilter:"") : SharedHdrPreprocessCore.BuildDeinterlaced(input,hdrWorkfile,info,fieldFilter), duration, 1, totalStages, hdrToSdr ? "HDR 转 SDR / " + tonemapLabel : "Shared field deinterlace / separate Vulkan device"));
             if(needsHdrWorkfile)SharedHdrPreprocessCore.AttachAutomatic(directStages[directStages.Count-1],tonemap);
-            if (fruc)
+            if (fruc && !directFruc)
             {
                 BridgeExecutionStage preprocess = SharedFrucCore.CreateVideoPreprocess(frucFfmpeg, ffprobe, frucInput, frucWorkfile,
                     tempRoot, fpsText, frucPerf, frucGrid, duration, needsHdrWorkfile ? 2 : 1, totalStages, hdrPreserve);
@@ -391,8 +395,17 @@ namespace FilmGrainStudioPreview
                 var applyGrainStage=Stage(grav1synth, tempRoot, apply, duration, preStages + 2, totalStages, "AV1 Film Grain metadata");
                 if(directTableScale)Av1GrainStrengthCore.AttachTableScale(applyGrainStage,apply,Get(state,"FG_AV1_GRAIN_TABLE"),grainIvf+".scaled.tbl",grainPercent,request.TemporaryFiles);
                 if(directPresetScale)Av1GrainStrengthCore.AttachPresetScale(applyGrainStage,apply,grainIvf+".preset-scaled.tbl",grainPercent,request.TemporaryFiles);
+                var strengthStages=postScale?Av1GrainStrengthCore.Stages(grav1synth,tempRoot,delegate { return grainIvf; },strengthIvf,grainPercent,request.TemporaryFiles):new List<BridgeExecutionStage>();
+                if(postScale && Eq(state,"FG_AV1_GRAIN_MODE","ISO") && !info.IsHdr && !info.IsInterlaced && !interpolate && caps.Grav1synthVersion=="0.2.2" && Av1RouteOptimizationCore.Enabled())
+                {
+                    directStages[directStages.Count-1].StageText+=" / ISO: provisional stage total until model check";
+                    Av1IsoStrengthCore.Attach(applyGrainStage,strengthStages,ffmpeg,grav1synth,tempRoot,cleanIvf,grainIvf,strengthIvf,grainArgs.Split(new char[]{'\n'},StringSplitOptions.RemoveEmptyEntries),grainPercent,request.TemporaryFiles,null,delegate {
+                        int count=0;foreach(var active in directStages)if(!strengthStages.Contains(active))active.StageCurrent=++count;
+                        foreach(var active in directStages)if(!strengthStages.Contains(active))active.StageTotal=count;
+                    });
+                }
                 directStages.Add(applyGrainStage);
-                if (postScale) directStages.AddRange(Av1GrainStrengthCore.Stages(grav1synth,tempRoot,delegate { return grainIvf; },strengthIvf,grainPercent,request.TemporaryFiles));
+                directStages.AddRange(strengthStages);
                 directStages.Add(Stage(ffmpeg, tempRoot, remux, duration, preStages + 3, totalStages, "AV1 container remux"));
             }
             else
@@ -402,6 +415,29 @@ namespace FilmGrainStudioPreview
                 directStages.Add(Stage(ffmpeg, tempRoot, remux, duration, preStages + 2, totalStages, "AV1 container remux"));
             }
             
+            if(directOutput) {
+                var direct=Av1RouteOptimizationCore.DirectContainer(encode,output,state,info,container=="MKV");
+                var stage=Stage(ffmpeg,encodeWorkingDirectory,direct,duration,1,1,"AV1 direct container / no IVF");
+                SharedOrdinaryTimelineCore.Attach(stage,ffprobe,input);
+                directStages.Clear();directStages.Add(stage);
+                request.PixelGrainEncodeArguments=direct;
+                request.TemporaryFiles.Remove(cleanIvf);
+                request.ExecutionNotice="[AV1 route] direct container; no clean IVF/remux; existing audio policy and shared source clock.";
+            } else if(directFruc) {
+                var stage=directStages[0];
+                var direct=new List<string>(encode);int graph=direct.IndexOf("-filter_complex");
+                // Reproduce the old SDR FFV1/MKV boundary: 8-bit 4:2:0 and millisecond time base.
+                // This pilot does not change the existing FRUC precision policy.
+                direct[graph+1]=direct[graph+1].Replace("[0:v:0]","[0:v:0]"+SharedFrucCore.InputFilter(fpsText,frucPerf,frucGrid,false)+"format=yuv420p,settb=expr=1/1000,");
+                stage.OriginalArguments=new List<string>(direct);stage.DirectArguments=SharedFrucCore.JoinArguments(direct);
+                stage.FrucArguments=new List<string>(direct);stage.FrucProbePath=ffprobe;
+                stage.StageText+=" / FRUC direct, no FFV1";
+                request.PixelGrainEncodeArguments=direct;
+                request.ExecutionNotice="[AV1 route] FRUC direct to AV1; no FFV1; IVF/remux retained; pixel effects disabled on this route.";
+            } else if(Av1RouteOptimizationCore.Enabled()) {
+                request.ExecutionNotice="[AV1 encode route] IVF encode/container stages retained; direct-output/FRUC eligibility not met. Grain metadata optimization is selected independently.";
+            }
+
             if(mergedHdr) {
                 SharedHdrPreprocessCore.AttachMergedEncode(directStages[preStages],ffprobe,input,info,tonemap,caps.GpuName,true,Eq(state,"FG_FPS_MODE","SOURCE"));
                 directStages[preStages].StageText+=" / HDR merged";
@@ -981,5 +1017,48 @@ namespace FilmGrainStudioPreview
         {return string.IsNullOrWhiteSpace(source)||source=="unknown"||source=="unspecified"||source==actual;}
         private static void Stamp(List<string> args,string option,string value)
         {if(!string.IsNullOrWhiteSpace(value)&&value!="unknown"&&value!="unspecified")args.InsertRange(args.Count-1,new[]{option,value});}
+    }
+}
+
+namespace FilmGrainStudioPreview
+{
+    internal static class Av1RouteOptimizationCore
+    {
+        internal static bool Enabled()
+        { return Environment.GetEnvironmentVariable("FGS_AV1_ROUTES_LEGACY") != "1"; }
+        static string Get(IDictionary<string,string> s,string k) {string v;return s.TryGetValue(k,out v)?v:"";}
+        internal static bool SimpleSource(string input,MediaProbeInfo info,IDictionary<string,string> state,int sfe)
+        {
+            if(!Enabled() || info==null || info.IsHdr || info.IsInterlaced || sfe!=0 ||
+                Get(state,"FG_FPS_MODE")!="SOURCE" || PreprocessingCore.Enabled(state) || ResizeCore.Enabled(state) ||
+                Get(state,"FG_COLOR_ENABLED")=="1" || !string.IsNullOrWhiteSpace(Get(state,"FG_LUT_PATH")) ||
+                Get(state,"FG_CINEMATIC_FRAME")=="1" || Get(state,"FG_SUBTITLE")=="1")return false;
+            // Reuse the bounded MOV timing-table proof. Average FPS alone cannot rule out VFR.
+            // Other containers/edits/reordered timing retain the old route without extra probes.
+            return MovFieldOrderCore.HasRegularTimeline(input,info.AvgFrameRate);
+        }
+        internal static string Clock(string rate)
+        {
+            string[] p=rate.Split('/');long n,d;
+            if(p.Length!=2 || !long.TryParse(p[0],out n) || !long.TryParse(p[1],out d) || n<=0 || d<=0)
+                throw new InvalidDataException("AV1 source rate is not rational");
+            return d.ToString(CultureInfo.InvariantCulture)+"/"+n.ToString(CultureInfo.InvariantCulture);
+        }
+        internal static List<string> DirectContainer(IList<string> encode,string output,IDictionary<string,string> state,MediaProbeInfo info,bool mkv)
+        {
+            var args=new List<string>(encode);int f=args.LastIndexOf("-f");
+            if(f!=args.Count-3 || args[f+1]!="ivf")throw new InvalidOperationException("AV1 output boundary changed");
+            args.RemoveRange(f,3);
+            args.Remove("-an");args.Remove("-sn");args.Remove("-dn");
+            args.AddRange(new[]{"-map","0:a?"});
+            if(mkv)args.AddRange(new[]{"-map","0:s?","-map","0:t?","-map","0:d?"});
+            args.AddRange(new[]{"-map_metadata","0","-map_chapters","0"});
+            // Never copy remux's global -c copy over av1_nvenc.
+            if(mkv)args.AddRange(new[]{"-c:a","copy","-c:s","copy","-c:t","copy","-c:d","copy"});
+            else args.AddRange(new[]{"-c:a","aac","-b:a","256k","-movflags","+faststart"});
+            args.AddRange(new[]{"-enc_time_base:v",Clock(info.AvgFrameRate),output});
+            AudioOutputCore.Apply(args,state,info,mkv,false,false);
+            return args;
+        }
     }
 }

@@ -1657,3 +1657,93 @@ SOFTWARE.
         }
     }
 }
+
+namespace FilmGrainStudioPreview
+{
+    internal static class Av1IsoStrengthCore
+    {
+        internal delegate string SmallTool(string tool,IList<string> args,Func<bool> cancelled);
+        internal static string RunSmall(string tool,IList<string> args,Func<bool> cancelled)
+        {
+            var text=new System.Text.StringBuilder();object gate=new object();
+            using(var p=new System.Diagnostics.Process()) {
+                p.StartInfo=new System.Diagnostics.ProcessStartInfo(tool,SharedFrucCore.JoinArguments(args)) {
+                    UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true };
+                System.Diagnostics.DataReceivedEventHandler receive=delegate(object sender,System.Diagnostics.DataReceivedEventArgs e) {
+                    if(e.Data!=null)lock(gate)if(text.Length<65536)text.AppendLine(e.Data);
+                };
+                p.OutputDataReceived+=receive;p.ErrorDataReceived+=receive;p.Start();p.BeginOutputReadLine();p.BeginErrorReadLine();
+                var watch=System.Diagnostics.Stopwatch.StartNew();
+                while(!p.WaitForExit(100)) {
+                    if(cancelled() || watch.Elapsed.TotalSeconds>20) {
+                        try {p.Kill();p.WaitForExit(2000);}catch{}
+                        if(cancelled())throw new OperationCanceledException();
+                        throw new IOException("ISO small-model stage timed out");
+                    }
+                }
+                p.WaitForExit();if(cancelled())throw new OperationCanceledException();
+                if(p.ExitCode!=0)throw new IOException("ISO small-model tool failed: "+text.ToString());
+                return text.ToString();
+            }
+        }
+        internal static string ExtendStaticModel(string text,int percent)
+        {
+            if(text==null || text.Length>131072)throw new InvalidDataException("ISO model missing/oversized");
+            var events=System.Text.RegularExpressions.Regex.Matches(text,@"(?m)^E[^\r\n]*");
+            if(events.Count!=1)throw new InvalidDataException("ISO model is not one static event");
+            string[] p=events[0].Value.Split((char[])null,StringSplitOptions.RemoveEmptyEntries);ulong end;int seed;
+            if(p.Length!=6 || p[1]!="0" || !ulong.TryParse(p[2],out end) || end==0 || p[3]!="1" || p[5]!="1" ||
+                !int.TryParse(p[4],out seed) || seed<0 || seed>65535)throw new InvalidDataException("Unsupported ISO event");
+            // This applies only to the ISO-generated single model, never an arbitrary TABLE.
+            p[2]=long.MaxValue.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            string full=text.Substring(0,events[0].Index)+string.Join(" ",p)+text.Substring(events[0].Index+events[0].Length);
+            return Av1GrainStrengthCore.ScaleTable(full,percent);
+        }
+        internal static void Attach(BridgeExecutionStage apply,IList<BridgeExecutionStage> later,string ffmpeg,string grav,string cwd,
+            string clean,string grain,string strength,IList<string> iso,int percent,IList<string> temporary,SmallTool run=null,Action activated=null)
+        {
+            bool fast=false;bool decided=false;string notice="";
+            string prefix=clean+".iso-prefix.ivf",model=clean+".iso-model.ivf",table=clean+".iso-model.tbl",scaled=clean+".iso-scaled.tbl";
+            foreach(string p in new[]{prefix,model,table,scaled})temporary.Add(p);
+            var previous=apply.PrepareWithCancellation;var baseline=new List<string>(apply.OriginalArguments);
+            if(run==null)run=RunSmall;
+            apply.PrepareWithCancellation=delegate(Func<bool> cancelled) {
+                if(decided)return notice;
+                if(previous!=null)previous(cancelled);
+                try {
+                    run(ffmpeg,new[]{"-hide_banner","-nostdin","-v","error","-y","-i",clean,"-map","0:v:0","-frames:v","4","-c:v","copy","-f","ivf",prefix},cancelled);
+                    if(!File.Exists(prefix)||new FileInfo(prefix).Length==0 || new FileInfo(prefix).Length>64L*1024*1024)throw new InvalidDataException("Invalid ISO prefix");
+                    // Demuxer context is part of ISO generation: compare the actual clean and prefix.
+                    string probe=Path.Combine(Path.GetDirectoryName(ffmpeg),"ffprobe.exe");
+                    string[] fields={"-v","error","-select_streams","v:0","-show_entries","stream=width,height,color_transfer,color_range","-of","default=noprint_wrappers=1"};
+                    var original=new List<string>(fields);original.Add(clean);var sample=new List<string>(fields);sample.Add(prefix);
+                    string a=run(probe,original,cancelled).Trim(),b=run(probe,sample,cancelled).Trim();
+                    if(a.Length==0 || a!=b)throw new InvalidDataException("ISO prefix color/size context mismatch");
+                    var args=new List<string>{"apply",prefix,"-o",model};foreach(string v in iso)args.Add(v);args.AddRange(new[]{"--replace","-y"});
+                    run(grav,args,cancelled);run(grav,new[]{"inspect",model,"-o",table,"-y"},cancelled);
+                    if(!File.Exists(table)||new FileInfo(table).Length>131072)throw new InvalidDataException("ISO model missing/oversized");
+                    File.WriteAllText(scaled,ExtendStaticModel(File.ReadAllText(table),percent),new System.Text.UTF8Encoding(false));
+                    var direct=new List<string>{"apply",clean,"-o",strength,"--grain",scaled,"--replace","-y"};
+                    apply.DirectArguments=SharedFrucCore.JoinArguments(direct);apply.OriginalArguments=direct;
+                    fast=true;foreach(var skipped in later)skipped.BeforeRunPreparation=null;
+                    if(activated!=null)activated();
+                    notice="[AV1 ISO route] equivalent prefix context; model scaled before one full apply; no full grain IVF/inspect/reapply; post-strength stages skipped and active stage total updated.";
+                }catch(OperationCanceledException){throw;}
+                catch(Exception ex){
+                    if(cancelled())throw new OperationCanceledException();
+                    apply.OriginalArguments=baseline;apply.DirectArguments=SharedFrucCore.JoinArguments(baseline);
+                    notice="[AV1 ISO route] old route selected before full apply: "+ex.Message;
+                }
+                decided=true;
+                // Conditional post-strength stages are numbered by the original plan, and explicitly skipped below.
+                return notice;
+            };
+            foreach(var stage in later) {
+                var old=stage.ShouldRun;stage.ShouldRun=delegate {return !fast&&(old==null||old());};
+                // The executor runs preparation BEFORE ShouldRun. Suppress inspect/apply preparation too.
+                var prepare=stage.BeforeRunPreparation;
+                stage.BeforeRunPreparation=delegate {return fast?"[AV1 ISO route] post-strength stage skipped":prepare==null?"":prepare();};
+            }
+        }
+    }
+}
