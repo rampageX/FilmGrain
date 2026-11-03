@@ -91,6 +91,7 @@ namespace FilmGrainStudioPreview
                 throw new InvalidOperationException("Input or FFprobe changed; reselect and probe again: "+SourceIdentity.Input);
         }
         internal bool PixelGrainHdr { get; set; }
+        internal SvtHdr10Proof Hdr10Proof { get; set; }
         internal IList<string> PixelGrainEncodeArguments { get; set; }
         internal string PixelGrainFullFilter { get; set; }
         internal string PixelGrainCleanFilter { get; set; }

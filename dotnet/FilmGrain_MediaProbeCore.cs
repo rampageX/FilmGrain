@@ -230,6 +230,7 @@ namespace FilmGrainStudioPreview
         public string ColorSpace = "";
         public string ColorTransfer = "";
         public string ColorPrimaries = "";
+        public string OriginalColorPrimaries = "", OriginalColorTransfer = "", ColorSignalSource = "ffprobe-stream";
 
         public readonly List<AudioTrackInfo> AudioTracks = new List<AudioTrackInfo>();
         public bool HasAudio;
@@ -311,6 +312,7 @@ namespace FilmGrainStudioPreview
                             info.ColorSpace = GetString(stream, "color_space");
                             info.ColorTransfer = GetString(stream, "color_transfer");
                             info.ColorPrimaries = GetString(stream, "color_primaries");
+                            info.OriginalColorPrimaries=info.ColorPrimaries;info.OriginalColorTransfer=info.ColorTransfer;
                         }
                         else if (type == "audio" && !info.HasAudio)
                         {
@@ -516,6 +518,7 @@ namespace FilmGrainStudioPreview
 
             DisposeProcess(process);
             if (!IsCurrent(serial)) return;
+            if(info!=null && info.HasVideo) { HevcVuiFallbackCore.TryRecover(info,path,ffprobePath);if(!IsCurrent(serial))return; }
             if (info != null && info.HasVideo && NeedsFrameFieldOrder(info.FieldOrder))
             {
                 string frameOrder = ProbeFrameFieldOrder(path, ffprobePath, serial);
@@ -643,6 +646,43 @@ namespace FilmGrainStudioPreview
                 Completed = null;
             }
             KillProcessAsync(process);
+        }
+    }
+}
+
+namespace FilmGrainStudioPreview
+{
+    // Only recover missing HEVC color descriptions; keep raw stream results and provenance.
+    internal static class HevcVuiFallbackCore
+    {
+        private static bool Missing(string value) {return string.IsNullOrEmpty(value)||value=="unknown"||value=="reserved";}
+        internal static bool Apply(MediaProbeInfo info,string trace)
+        {
+            if(info==null || info.VideoCodec!="hevc" || (!Missing(info.ColorPrimaries)&&!Missing(info.ColorTransfer)))return false;
+            string[] fields={"colour_primaries","transfer_characteristics","matrix_coefficients"};
+            int[] codes=new int[3];
+            for(int i=0;i<fields.Length;i++) {
+                var matches=System.Text.RegularExpressions.Regex.Matches(trace??"",@"(?m)\b"+fields[i]+@"\s+[01]+\s*=\s*(\d+)\s*$");
+                if(matches.Count==0 || !int.TryParse(matches[0].Groups[1].Value,out codes[i]))return false;
+                foreach(System.Text.RegularExpressions.Match match in matches)if(match.Groups[1].Value!=matches[0].Groups[1].Value)return false;
+            }
+            string primaries=codes[0]==9?"bt2020":codes[0]==1?"bt709":"";
+            string transfer=codes[1]==16?"smpte2084":codes[1]==18?"arib-std-b67":codes[1]==1?"bt709":codes[1]==14?"bt2020-10":codes[1]==15?"bt2020-12":"";
+            string matrix=codes[2]==9?"bt2020nc":codes[2]==1?"bt709":"";
+            if(primaries==""||transfer==""||matrix=="")return false;
+            if(!Missing(info.ColorPrimaries)&&info.ColorPrimaries!=primaries || !Missing(info.ColorTransfer)&&info.ColorTransfer!=transfer || !Missing(info.ColorSpace)&&info.ColorSpace!=matrix)return false;
+            if(Missing(info.ColorPrimaries))info.ColorPrimaries=primaries;
+            if(Missing(info.ColorTransfer))info.ColorTransfer=transfer;
+            if(Missing(info.ColorSpace))info.ColorSpace=matrix;
+            info.ColorSignalSource="HEVC VUI fallback (stream color fields missing)";return true;
+        }
+        internal static void TryRecover(MediaProbeInfo info,string input,string ffprobe)
+        {
+            if(info.VideoCodec!="hevc" || (!Missing(info.ColorPrimaries)&&!Missing(info.ColorTransfer)))return;
+            string ffmpeg=Path.Combine(Path.GetDirectoryName(ffprobe),"ffmpeg.exe");if(!File.Exists(ffmpeg))return;
+            string trace,error;
+            string args="-hide_banner -nostdin -loglevel info -i "+SharedFrucCore.Quote(input)+" -map 0:v:0 -an -sn -dn -c:v copy -frames:v 1 -bsf:v trace_headers -f null -";
+            if(SharedFrucCore.Run(ffmpeg,args,8000,out trace,out error))Apply(info,trace);
         }
     }
 }

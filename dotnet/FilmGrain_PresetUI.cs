@@ -93,12 +93,20 @@ namespace FilmGrainStudioPreview
             if(p.SubtitlePolicy!="TARGET"){value.Subtitle.Enabled=p.SubtitlePolicy=="AUTO";value.Subtitle.Mode=p.SubtitlePolicy;value.Subtitle.Label=p.SubtitlePolicy=="AUTO"?"自动匹配":"关闭";}
             if(value.Controls["chkLut"]=="1"&&value.Controls["trackLutStrength"]!="0"&&string.IsNullOrEmpty((string)value.Fields["selectedLutPath"]))throw new InvalidDataException("LUT 已启用但缺少资源引用");
             int codec=int.Parse(value.Controls["cmbCodec"],CultureInfo.InvariantCulture);
-            if(value.Controls["chkGrainEnabled"]=="1"&&((codec==0||codec==4)?(int)value.Fields["av1GrainModeIndex"]==2:(int)value.Fields["pixelGrainModeIndex"]==1)) {
-                string resource=(string)value.Fields[codec==0||codec==4?"selectedAv1GrainTable":"selectedGrainPlatePath"];
+            if(value.Controls["chkGrainEnabled"]=="1"&&SelectedGrainResource(value)!="") {
+                string resource=(string)value.Fields[SelectedGrainResource(value)];
                 if(string.IsNullOrEmpty(resource))throw new InvalidDataException("所选颗粒算法缺少资源引用");
             }
             string error;if(!SharedSvpCore.TryValidateOptions(value.Config["SVP_SPEED"],value.Config["SVP_TUNING"],value.Config["SVP_BLOCK_SIZE"],value.Config["SVP_ANALYSE"],out error))throw new InvalidDataException(error);
             ValidatePresetHardware(value);return value;
+        }
+        private static string SelectedGrainResource(FileEditorSettings value)
+        {
+            int codec=int.Parse(value.Controls["cmbCodec"],CultureInfo.InvariantCulture);
+            if(codec==0||codec==4)return (int)value.Fields["av1GrainModeIndex"]==2?"selectedAv1GrainTable":"";
+            bool svt=codec==2&&value.Config.ContainsKey("CPU_CODEC")&&value.Config["CPU_CODEC"]=="SVT";
+            int mode=(int)value.Fields["pixelGrainModeIndex"];
+            return svt&&mode==5?"selectedAv1GrainTable":mode==1?"selectedGrainPlatePath":"";
         }
         private void ValidateEditorResources(FileEditorSettings value)
         {
@@ -107,7 +115,7 @@ namespace FilmGrainStudioPreview
             }
             if(value.Controls["chkLut"]=="1"&&value.Controls["trackLutStrength"]!="0"&&string.IsNullOrEmpty((string)value.Fields["selectedLutPath"]))throw new InvalidDataException("LUT 已启用但缺少资源");
             int c=int.Parse(value.Controls["cmbCodec"],CultureInfo.InvariantCulture);
-            if(value.Controls["chkGrainEnabled"]=="1"&&((c==0||c==4)?(int)value.Fields["av1GrainModeIndex"]==2:(int)value.Fields["pixelGrainModeIndex"]==1)&&string.IsNullOrEmpty((string)value.Fields[c==0||c==4?"selectedAv1GrainTable":"selectedGrainPlatePath"]))throw new InvalidDataException("所选颗粒类型缺少资源");
+            if(value.Controls["chkGrainEnabled"]=="1"&&SelectedGrainResource(value)!=""&&string.IsNullOrEmpty((string)value.Fields[SelectedGrainResource(value)]))throw new InvalidDataException("所选颗粒类型缺少资源");
         }
         private void ValidatePresetHardware(FileEditorSettings p)
         {

@@ -31,6 +31,50 @@ internal static class UIStartupSmoke {
    var update=type.GetMethod("UpdateSfeUi",flags);
    var codec=(ComboBox)type.GetField("cmbCodec",flags).GetValue(form);
    var speed=(ComboBox)type.GetField("cmbSpeed",flags).GetValue(form);
+   // Capability fixtures exercise actual MainForm transitions without detector processes.
+   var grain=(ComboBox)type.GetField("cmbGrainMode",flags).GetValue(form);
+   var family=(ComboBox)type.GetField("cmbCodecFamily",flags).GetValue(form);
+   var cpu=(CheckBox)type.GetField("chkCpuEncoder",flags).GetValue(form);
+   string av1Title=((GroupBox)type.GetField("grpGrain",flags).GetValue(form)).Text;
+   if(codec.SelectedIndex!=0||family.SelectedIndex!=0||grain.SelectedIndex!=0)
+    throw new Exception("Fresh AV1 / recommended Film Preset default changed");
+   var capsType=asm.GetType("FilmGrainStudioPreview.HardwareCapabilitySnapshot",true);
+   object fixture=Activator.CreateInstance(capsType,true);
+   foreach(string key in new[]{"Ready","SvtHdrReady","SvtHdrAvailable","HevcAvailable","H264Available"})capsType.GetProperty(key).SetValue(fixture,true,null);
+   capsType.GetProperty("GpuName").SetValue(fixture,"T600 UI fixture",null);
+   capsType.GetProperty("Av1Available").SetValue(fixture,false,null);
+   type.GetField("hardwareCaps",flags).SetValue(form,fixture);
+   type.GetField("hardwareCapsReady",flags).SetValue(form,true);
+   type.GetMethod("ApplyHardwareCapabilities",flags).Invoke(form,null);
+   if(codec.SelectedIndex!=2||family.SelectedIndex!=0||!cpu.Checked||grain.SelectedIndex!=0)
+    throw new Exception("T600 must keep AV1 family with SVT and recommended Film Preset");
+   if(((GroupBox)type.GetField("grpGrain",flags).GetValue(form)).Text!=av1Title)
+    throw new Exception("AV1 grain group title differs between CPU and NVENC");
+   grain.SelectedIndex=1; // ISO is a shared AV1 effect; only backend is changing below.
+   capsType.GetProperty("Av1Available").SetValue(fixture,true,null);
+   capsType.GetProperty("GpuName").SetValue(fixture,"RTX4080 UI fixture",null);
+   codec.SelectedIndex=0;
+   if(family.SelectedIndex!=0||cpu.Checked||grain.SelectedIndex!=1)throw new Exception("SVT to NVENC lost shared ISO selection");
+   cpu.Checked=true;
+   if(codec.SelectedIndex!=2||grain.SelectedIndex!=1)throw new Exception("NVENC to SVT lost shared ISO selection");
+   grain.SelectedIndex=0;
+   codec.SelectedIndex=1;grain.SelectedIndex=0; // An unrelated HEVC plate choice must not become SVT's default.
+   isolatedConfig.GetType().GetMethod("SaveValue",flags).Invoke(isolatedConfig,new object[]{"CPU_CODEC","SVT"});
+   codec.SelectedIndex=2;
+   if(grain.SelectedIndex!=0)throw new Exception("HEVC plate choice leaked into AV1 SVT");
+   grain.SelectedIndex=2;
+   object saved=type.GetMethod("CaptureFileEditor",flags).Invoke(form,null);
+   grain.SelectedIndex=0;
+   type.GetMethod("ApplyFileEditor",flags).Invoke(form,new object[]{saved,false});
+   if(grain.SelectedIndex!=2)throw new Exception("Explicit saved SVT plate selection was reset to default");
+   lines.Add("PASS T600/RTX4080 AV1 backend defaults, common recommended Film Preset/title, shared selection, isolated HEVC choice, saved SVT plate restoration");
+   // Restore the original audit's capability-neutral setup.
+   type.GetField("hardwareCapsReady",flags).SetValue(form,false);
+   type.GetField("hardwareCaps",flags).SetValue(form,null);
+   isolatedConfig.GetType().GetMethod("SaveValue",flags).Invoke(isolatedConfig,new object[]{"CPU_CODEC","X264"});
+   type.GetField("av1GrainModeIndex",flags).SetValue(form,0);
+   type.GetField("svtGrainModeIndex",flags).SetValue(form,3);
+   type.GetField("pixelOnlyGrainModeIndex",flags).SetValue(form,1);
    for(int i=0;i<4;i++) {
     codec.SelectedIndex=i;update.Invoke(form,null);
     if(codec.SelectedIndex!=i)throw new Exception("Codec selection did not remain at "+i);

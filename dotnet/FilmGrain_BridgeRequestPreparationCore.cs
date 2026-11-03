@@ -146,6 +146,7 @@ namespace FilmGrainStudioPreview
                 }
                 if(success && prepared!=null && prepared.ExecutionRequest!=null)
                 {
+                    if(info.ColorSignalSource!="ffprobe-stream")prepared.ExecutionRequest.ExecutionNotice=(prepared.ExecutionRequest.ExecutionNotice??"")+Environment.NewLine+"[Color probe] "+info.ColorSignalSource+"; raw primaries="+info.OriginalColorPrimaries+"; raw transfer="+info.OriginalColorTransfer;
                     if(ResizeCore.Enabled(state))prepared.ExecutionRequest.ExecutionNotice=(prepared.ExecutionRequest.ExecutionNotice??"")+Environment.NewLine+"[Resize] Vulkan/libplacebo Lanczos; crop and resize before added grain; output dimensions in _RS filename; original cadence retained.";
                     if(!noReencode && PreprocessingCore.Enabled(state))prepared.ExecutionRequest.ExecutionNotice=(prepared.ExecutionRequest.ExecutionNotice??"")+Environment.NewLine+"[Preprocessing] CPU bilateral / 10-bit software frames / before color, LUT and grain"; info.Identity.RequireCurrent(); string rateNotice=NvencRateControlCore.Notice(state);if(rateNotice.Length>0)prepared.ExecutionRequest.ExecutionNotice=(prepared.ExecutionRequest.ExecutionNotice??"")+Environment.NewLine+rateNotice; string audioNotice=AudioOutputCore.Notice(info,state);if(audioNotice.Length>0)prepared.ExecutionRequest.ExecutionNotice=(prepared.ExecutionRequest.ExecutionNotice??"")+Environment.NewLine+audioNotice; prepared.ExecutionRequest.SourceIdentity=info.Identity; prepared.ExecutionRequest.SourceConfigRoot=appRoot; NativeProcessPolicy.ValidateRequest(prepared.ExecutionRequest);return true; }
                 if(success)reason="Native preparation returned no execution request";
@@ -423,6 +424,10 @@ namespace FilmGrainStudioPreview
             var b=new System.Text.StringBuilder("\"");int slashes=0;
             foreach(char c in s){if(c=='\\'){slashes++;continue;}if(c=='"'){b.Append('\\',slashes*2+1);b.Append(c);}else {b.Append('\\',slashes);b.Append(c);}slashes=0;}
             b.Append('\\',slashes*2);return b.Append('"').ToString();
+        }
+        internal static List<string> SplitArguments(string command)
+        {
+            var result=new List<string>();foreach(var token in Tokens(command))result.Add(token.Value);return result;
         }
         private sealed class Token {internal string Value;internal int Start;}
         private static List<Token> Tokens(string args)

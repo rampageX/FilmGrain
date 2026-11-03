@@ -117,7 +117,7 @@ namespace FilmGrainStudioPreview
                 if(k.StartsWith("selected")){ValidateResource(v);if(v!=""){string kind=k=="selectedLutPath"?"lut":k=="selectedAv1GrainTable"?"table":"plate";Require(v.StartsWith(kind+":",StringComparison.Ordinal)||v.StartsWith("external:",StringComparison.Ordinal),"资源类型不匹配: "+k);string ext=Path.GetExtension(v).ToLowerInvariant();Require(kind=="lut"?ext==".cube":kind=="table"?ext==".tbl"||ext==".txt":ext==".mov","不支持的资源扩展名: "+k);}continue;}
                 if(Contains("ordinaryGrainEnabled av1ChromaEnabled colorCorrectionEnabled colorBlackWhite",k)){Choice(v,"True False",k);continue;}
                 if(k.StartsWith("color")){Number(v,k=="colorContrast"?-2:k=="colorBrightness"?-1:k=="colorGamma"?.01:0,k=="colorBrightness"?1:k=="colorContrast"?2:3,k);continue;}
-                int max=k=="av1IsoValue"?1000000:k=="av1FormatIndex"?4:k=="av1StockIndex"||k=="fgsimPresetIndex"?3:k=="av1GrainModeIndex"?4:k=="pixelGrainModeIndex"?2:100;
+                int max=k=="av1IsoValue"?1000000:k=="av1FormatIndex"?4:k=="av1StockIndex"||k=="fgsimPresetIndex"?3:k=="av1GrainModeIndex"?4:k=="pixelGrainModeIndex"?5:100;
                 Integer(v,k=="av1IsoValue"?1:k=="proceduralStrength"||k=="scannedGrainStrengthPercent"?10:0,max,k);
             }
             foreach(string key in Controls.Split(' '))Require(p.Controls.ContainsKey(key),"缺少控件字段: "+key);
@@ -193,7 +193,7 @@ namespace FilmGrainStudioPreview
             if(p.Controls["chkInterpolation"]=="1")effects.Add((p.Controls["cmbInterpolationMode"]=="2"?"FRUC":"OpenSVPFlow")+" → "+p.Controls["cmbInterpolationFps"]+" fps");
             if(p.Controls["chkGrainEnabled"]=="1"){
                 int index=int.Parse(p.Fields[c==0||c==4?"av1GrainModeIndex":"pixelGrainModeIndex"],CultureInfo.InvariantCulture);
-                string[] names=c==0||c==4?new[]{"胶片合成颗粒","ISO 颗粒","颗粒表","Digital Grain","FGSIM"}:new[]{"Digital Grain","扫描颗粒","FGSIM"};effects.Add(names[index]);
+                string[] names=c==0||c==4?new[]{"胶片合成颗粒","ISO 颗粒","颗粒表","Digital Grain","FGSIM"}:new[]{"Digital Grain","扫描颗粒","FGSIM","胶片合成颗粒","ISO 颗粒","颗粒表"};effects.Add(names[index]);
             }
             if(effects.Count>0)lines.Add(string.Join(" · ",effects.ToArray()));
             string hdr=p.Config["HDR_POLICY"],audio=p.Config["AUDIO_MODE"];
@@ -226,7 +226,7 @@ namespace FilmGrainStudioPreview
         {
             if(key.StartsWith("PRE_BILATERAL_") && key!="PRE_BILATERAL_ENABLED" && p.Config["PRE_BILATERAL_ENABLED"]!="true")return false;
             if(key=="GRAIN_ENABLED"||key.StartsWith("COLOR_")||key=="HDR_POLICY"||key=="AUDIO_MODE"||key=="AUDIO_BITRATE"||key=="INTERPOLATION_TARGET_FPS")return false;
-            if(key=="AV1_GRAIN_STRENGTH")return p.Controls["chkGrainEnabled"]=="1"&&(codec==0||codec==4)&&int.Parse(p.Fields["av1GrainModeIndex"])<=2;
+            if(key=="AV1_GRAIN_STRENGTH")return p.Controls["chkGrainEnabled"]=="1"&&((codec==0||codec==4)&&int.Parse(p.Fields["av1GrainModeIndex"])<=2||codec==2&&p.Config.ContainsKey("CPU_CODEC")&&p.Config["CPU_CODEC"]=="SVT"&&int.Parse(p.Fields["pixelGrainModeIndex"])>=3);
             if(key.StartsWith("CINEMATIC_"))return p.Controls["chkCinematic"]=="1"&&(key=="CINEMATIC_NO_CROP"||p.Config["CINEMATIC_NO_CROP"]!="1");
             if(key.StartsWith("FRUC_"))return p.Controls["chkInterpolation"]=="1"&&p.Controls["cmbInterpolationMode"]=="2";
             if(key.StartsWith("SVP_")){
@@ -264,6 +264,7 @@ namespace FilmGrainStudioPreview
             s.AppendLine("颗粒："+(p.Controls["chkGrainEnabled"]=="1"?"开启":"关闭"));
             if(p.Controls["chkGrainEnabled"]=="1"){
                 bool av1=codec==0||codec==4;int mode=int.Parse(p.Fields[av1?"av1GrainModeIndex":"pixelGrainModeIndex"]);
+                if(codec==2&&p.Config.ContainsKey("CPU_CODEC")&&p.Config["CPU_CODEC"]=="SVT"&&mode>=3){av1=true;mode-=3;}
                 s.AppendLine("颗粒类型："+(av1?new[]{"胶片","ISO","颗粒表","Digital Grain","FGSIM"}:new[]{"Digital Grain","扫描颗粒","FGSIM"})[mode]);
                 var keys=new List<string>();
                 if(av1&&mode==0){s.AppendLine("颗粒画幅："+new[]{"Classic35","Modern35","16mm","Super8","MaxMid"}[int.Parse(p.Fields["av1FormatIndex"])]);s.AppendLine("胶片："+new[]{"Eterna250D","Eterna500T","Vision3 250D","Vision3 200T"}[int.Parse(p.Fields["av1StockIndex"])]);}
@@ -312,7 +313,7 @@ namespace FilmGrainStudioPreview
             default:
                 var labels=new Dictionary<string,string> {
                     {"ordinaryGrainEnabled","颗粒总开关"},{"av1GrainModeIndex","AV1 颗粒类型 [0 胶片 / 1 ISO / 2 表 / 3 Digital / 4 FGSIM]"},
-                    {"pixelGrainModeIndex","像素颗粒类型 [0 Digital / 1 扫描 / 2 FGSIM]"},{"av1FormatIndex","颗粒画幅 [0 Classic35 / 1 Modern35 / 2 16mm / 3 Super8 / 4 MaxMid]"},
+                    {"pixelGrainModeIndex","CPU/像素颗粒类型 [0 Digital / 1 扫描 / 2 FGSIM / SVT: 3 胶片 / 4 ISO / 5 表]"},{"av1FormatIndex","颗粒画幅 [0 Classic35 / 1 Modern35 / 2 16mm / 3 Super8 / 4 MaxMid]"},
                     {"av1StockIndex","胶片 [0 Eterna250D / 1 Eterna500T / 2 Vision3 250D / 3 Vision3 200T]"},{"av1IsoValue","ISO"},{"av1ChromaEnabled","彩色颗粒"},
                     {"proceduralStrength","Digital Grain 强度"},{"fgsimPresetIndex","FGSIM [0 light / 1 normal / 2 medium / 3 heavy]"},{"scannedGrainStrengthPercent","扫描颗粒强度 (%)"},
                     {"colorCorrectionEnabled","调色开关"},{"colorContrast","对比度"},{"colorBrightness","亮度"},{"colorSaturation","饱和度"},{"colorGamma","Gamma"},{"colorBlackWhite","黑白"},

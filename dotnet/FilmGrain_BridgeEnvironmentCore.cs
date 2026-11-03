@@ -233,7 +233,18 @@ namespace FilmGrainStudioPreview
             }
 
             string[] fgsimPresets = GrainControlCore.FgsimPresets;
-            if (av1)
+            if(snapshot.Mode=="SVT" && grainMode>=3)
+            {
+                if(grainMode>5)throw new InvalidDataException("Invalid SVT grain mode");
+                state["FG_GRAIN_ENGINE"]="AV1_METADATA";
+                state["FG_AV1_GRAIN_MODE"]=new[]{"PRESET","ISO","TABLE"}[grainMode-3];
+                state["FG_AV1_FORMAT"]=(snapshot.Av1FormatIndex+1).ToString(CultureInfo.InvariantCulture);
+                state["FG_AV1_STOCK"]=(snapshot.Av1StockIndex+1).ToString(CultureInfo.InvariantCulture);
+                state["FG_AV1_ISO"]=snapshot.Av1IsoValue.ToString(CultureInfo.InvariantCulture);
+                state["FG_AV1_CHROMA"]=snapshot.Av1ChromaEnabled?"1":"0";
+                if(grainMode==5)state["FG_AV1_GRAIN_TABLE"]=snapshot.Av1GrainTable;
+            }
+            else if (av1)
             {
                 if (grainMode == 3)
                 {
@@ -628,4 +639,29 @@ namespace FilmGrainStudioPreview
         }
     }
 
+}
+
+namespace FilmGrainStudioPreview
+{
+    // Presentation order only. Stored indexes remain compatible with existing presets/queues.
+    internal static class SvtGrainOrderCore
+    {
+        private static readonly int[] DisplayToStored={3,4,1,5,0,2};
+        // Cross-backend conversion uses semantic IDs, never presentation positions.
+        internal static int FromAv1(int stored) { return new[]{3,4,5,0,2}[stored]; }
+        internal static int ToAv1(int stored) { return new[]{3,5,4,0,1,2}[stored]; }
+        // The pixel-only menu swaps Scan and Digital; applying twice restores the stored ID.
+        internal static int PixelIndex(int index) { return new[]{1,0,2}[index]; }
+        internal static int StoredIndex(int display)
+        {
+            if(display<0||display>=DisplayToStored.Length)throw new System.ArgumentOutOfRangeException("display");
+            return DisplayToStored[display];
+        }
+        internal static int DisplayIndex(int stored)
+        {
+            int result=System.Array.IndexOf(DisplayToStored,stored);
+            if(result<0)throw new System.ArgumentOutOfRangeException("stored");
+            return result;
+        }
+    }
 }

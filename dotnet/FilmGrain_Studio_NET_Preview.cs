@@ -107,8 +107,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.46";
-        internal const string FileReleaseVersion = "5.0.46.0";
+        internal const string ReleaseVersion = "5.0.47";
+        internal const string FileReleaseVersion = "5.0.47.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -393,6 +393,9 @@ namespace FilmGrainStudioPreview
         private bool updatingGrainUi;
         private int av1GrainModeIndex = 0;
         private int pixelGrainModeIndex = 1;
+        // Runtime editor memories; persisted preset/queue identities remain unchanged.
+        private int svtGrainModeIndex = 3; // Film Preset, same semantic default as NVENC AV1.
+        private int pixelOnlyGrainModeIndex = 1;
         private int av1FormatIndex = 0;
         private int av1StockIndex = 0;
         private int av1IsoValue = 1600;
@@ -1193,8 +1196,14 @@ namespace FilmGrainStudioPreview
             cmbGrainMode.SelectedIndexChanged += delegate
             { if(restoringFileEditor)return;
                 if (updatingGrainUi) return;
-                if (cmbCodec != null && (cmbCodec.SelectedIndex == 0 || cmbCodec.SelectedIndex == 4)) av1GrainModeIndex = Math.Max(0, cmbGrainMode.SelectedIndex);
-                else pixelGrainModeIndex = Math.Max(0, cmbGrainMode.SelectedIndex);
+                if (cmbCodec != null && (cmbCodec.SelectedIndex == 0 || cmbCodec.SelectedIndex == 4)) {
+                    av1GrainModeIndex = Math.Max(0, cmbGrainMode.SelectedIndex);
+                    svtGrainModeIndex=SvtGrainOrderCore.FromAv1(av1GrainModeIndex);
+                } else if(SvtSelected()) {
+                    pixelGrainModeIndex=svtGrainModeIndex=CurrentGrainMode();
+                    int common=SvtGrainOrderCore.ToAv1(svtGrainModeIndex);
+                    if(common<5)av1GrainModeIndex=common;
+                } else pixelGrainModeIndex=pixelOnlyGrainModeIndex=CurrentGrainMode();
                 EnsureCurrentGrainCatalog(false);
                 BuildGrainContent();
                 UpdateSfeUi();
@@ -1271,7 +1280,7 @@ namespace FilmGrainStudioPreview
         {
             if (!IsGrainEnabled() || cmbCodec == null || cmbGrainMode == null) return 0;
             bool av1 = cmbCodec.SelectedIndex == 0 || cmbCodec.SelectedIndex == 4;
-            return av1 && cmbGrainMode.SelectedIndex == 2 ? 1 : (!av1 && cmbGrainMode.SelectedIndex == 1 ? 2 : 0);
+            return (av1 && cmbGrainMode.SelectedIndex == 2 || SvtSelected() && CurrentGrainMode()==5) ? 1 : (!av1 && CurrentGrainMode() == 1 ? 2 : 0);
         }
 
         private bool RequiredGrainCatalogReady()
@@ -1412,7 +1421,7 @@ namespace FilmGrainStudioPreview
         private void RefreshAv1GrainTableForMedia()
         {
             if (cmbCodec == null || cmbGrainMode == null || grainContent == null) return;
-            if ((cmbCodec.SelectedIndex == 0 || cmbCodec.SelectedIndex == 4) && cmbGrainMode.SelectedIndex == 2) BuildGrainContent();
+            if ((cmbCodec.SelectedIndex == 0 || cmbCodec.SelectedIndex == 4) && cmbGrainMode.SelectedIndex == 2 || SvtSelected() && CurrentGrainMode()==5) BuildGrainContent();
         }
 
         private void BuildGrainContent()
@@ -1429,8 +1438,9 @@ namespace FilmGrainStudioPreview
             for (int i = 0; i < 4; i++) t.RowStyles.Add(new RowStyle(SizeType.Percent, 25));
 
             bool av1 = cmbCodec.SelectedIndex == 0 || cmbCodec.SelectedIndex == 4;
-            int mode = cmbGrainMode.SelectedIndex;
+            int mode = CurrentGrainMode();
             if (mode < 0) mode = 0;
+            if(SvtSelected() && mode>=3) { av1=true; mode-=3; }
 
             if (av1 && mode == 0)
             {
@@ -1697,9 +1707,16 @@ namespace FilmGrainStudioPreview
                 }
                 else
                 {
-                    cmbGrainMode.Items.AddRange(new object[] { lang.T("grain.mode.digital"), UiText("扫描颗粒文件", "Scanned Grain Plate"), lang.T("grain.mode.fgsim") });
-                    cmbGrainMode.SelectedIndex = Math.Max(0, Math.Min(2, pixelGrainModeIndex));
-                    grpGrain.Text = NewCpuSelected()?CpuCodec()+" 像素颗粒":cmbCodec.SelectedIndex == 1 ? lang.T("grain.hevc") : cmbCodec.SelectedIndex == 3 ? UiText("H.264 像素颗粒", "H.264 pixel grain") : lang.T("grain.x264");
+                    if(SvtSelected()) {
+                        cmbGrainMode.Items.AddRange(new object[]{lang.T("grain.mode.film"),lang.T("grain.mode.iso"),UiText("扫描颗粒文件","Scanned Grain Plate"),lang.T("grain.mode.table"),lang.T("grain.mode.digital"),lang.T("grain.mode.fgsim")});
+                        pixelGrainModeIndex=svtGrainModeIndex;
+                        cmbGrainMode.SelectedIndex=SvtGrainOrderCore.DisplayIndex(Math.Max(0,Math.Min(5,svtGrainModeIndex)));
+                    } else {
+                        cmbGrainMode.Items.AddRange(new object[] { UiText("扫描颗粒文件", "Scanned Grain Plate"), lang.T("grain.mode.digital"), lang.T("grain.mode.fgsim") });
+                        pixelGrainModeIndex=pixelOnlyGrainModeIndex;
+                        cmbGrainMode.SelectedIndex = SvtGrainOrderCore.PixelIndex(Math.Max(0, Math.Min(2, pixelOnlyGrainModeIndex)));
+                    }
+                    grpGrain.Text = SvtSelected()?lang.T("grain.av1_metadata"):NewCpuSelected()?CpuCodec()+" 像素颗粒":cmbCodec.SelectedIndex == 1 ? lang.T("grain.hevc") : cmbCodec.SelectedIndex == 3 ? UiText("H.264 像素颗粒", "H.264 pixel grain") : lang.T("grain.x264");
                 }
             }
             finally { updatingGrainUi = false; }
@@ -2844,7 +2861,7 @@ namespace FilmGrainStudioPreview
                     cmbCodec.Items[2] = lang.T("codec.x264_default");
                     cmbCodec.Items[3] = hardwareCaps.H264Available ? "H.264 · NVENC" : UiText("H.264 · 不可用", "H.264 · unavailable");
                     if (!independentFiles && cmbCodec.SelectedIndex == 0 && !hardwareCaps.Av1Available)
-                        {if(!hardwareCaps.HevcAvailable)config.SaveValue("CPU_CODEC","X264");cmbCodec.SelectedIndex = hardwareCaps.HevcAvailable ? 1 : 2;}
+                        {config.SaveValue("CPU_CODEC","SVT");cmbCodec.SelectedIndex=2;}
                     else if (!independentFiles && cmbCodec.SelectedIndex == 1 && !hardwareCaps.HevcAvailable)
                     {
                         if (hardwareCaps.Av1Available) cmbCodec.SelectedIndex = 0;
@@ -2960,14 +2977,10 @@ namespace FilmGrainStudioPreview
             int selected = cmbCodec.SelectedIndex;
             if (selected == 0 && !hardwareCaps.Av1Available)
             {
-                int fallback = hardwareCaps.HevcAvailable ? 1 : 2;
-                if (fallback >= 0)
-                {
-                    changingCodecForHardware = true;
-                    try { if(fallback==2)config.SaveValue("CPU_CODEC","X264");cmbCodec.SelectedIndex = fallback; }
-                    finally { changingCodecForHardware = false; }
-                }
-                MessageBox.Show(this, fallback < 0 ? lang.T("error.av1_unavailable") : lang.T(fallback == 1 ? "message.av1_fallback_hevc" : "message.av1_fallback_x264"), Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                // AV1 remains AV1: hardware availability changes only its encoder backend.
+                changingCodecForHardware=true;
+                try {config.SaveValue("CPU_CODEC","SVT");cmbCodec.SelectedIndex=2;}
+                finally {changingCodecForHardware=false;}
                 return true;
             }
             if (selected == 1 && !hardwareCaps.HevcAvailable)
@@ -3698,7 +3711,22 @@ namespace FilmGrainStudioPreview
                 else if (policy == "PRESERVE")
                 {
                     bool av1FgsimPreserveReady = av1;
-                    if (x264)
+                    if(SvtSelected())
+                    {
+                        string scopeError;var captured=BuildBridgeEnvironment(out scopeError);
+                        IDictionary<string,string> checkedState=captured,normalized;string bypass;
+                        bool ready=captured!=null;
+                        if(ready) {
+                            ready=SharedInterpolationBypassCore.TryResolve(info,captured,out normalized,out bypass,out scopeError);
+                            if(normalized!=null)checkedState=normalized;
+                        }
+                        if(ready)ready=SvtHdr10Core.CheckScope(info,checkedState,
+                            SharedGrainCore.IsEnabled(checkedState)&&SharedGrainCore.Engine(checkedState)!="AV1_METADATA",
+                            checkedState.ContainsKey("FG_SVP_INTERPOLATE")&&checkedState["FG_SVP_INTERPOLATE"]=="1",out scopeError);
+                        unsupported=!ready;preserve=ready;
+                        detail=ready?UiText("SVT HDR10 条件保留：执行前验证源 SEI，编码/颗粒/封装后验证 metadata OBU；额外画面处理尚未开放。","Conditional SVT HDR10 preservation: source SEI and encode/grain/mux metadata OBUs are checked; extra image processing is not open."):scopeError;
+                    }
+                    else if (x264)
                     {
                         unsupported = true;
                         detail = x264
@@ -4153,7 +4181,8 @@ namespace FilmGrainStudioPreview
             string input = GetPreviewVideoPath();
             MediaProbeInfo info = null;
             if (!string.IsNullOrEmpty(input)) mediaProbeCache.TryGetValue(input, out info);
-            bool metadata = (cmbCodec.SelectedIndex == 0 || cmbCodec.SelectedIndex == 4) && cmbGrainMode.SelectedIndex <= 2;
+            if(!IsGrainEnabled()){MessageBox.Show(this,UiText("请先启用颗粒。","Enable grain first."));return;}
+            bool metadata = ParameterGrainSelected();
             if (string.IsNullOrEmpty(input) || info == null)
             { MessageBox.Show(this, UiText("请选择一个已完成探测的视频。", "Select one fully probed video.")); return; }
             if (!metadata)
@@ -4178,9 +4207,9 @@ namespace FilmGrainStudioPreview
             state["FG_AV1_CHROMA"] = av1ChromaEnabled ? "1" : "0";
             state["FG_AV1_GRAIN_TABLE"] = selectedAv1GrainTable;
             var args = new List<string>(); string tag, reason;
-            string mode = new string[] { "PRESET", "ISO", "TABLE" }[cmbGrainMode.SelectedIndex];
+            string mode = new string[] { "PRESET", "ISO", "TABLE" }[SvtSelected()?CurrentGrainMode()-3:CurrentGrainMode()];
             if (!NativeAv1GrainReplaceCore.TryBuildGrainArgs(mode, state, args, out tag, out reason)) { MessageBox.Show(this, reason); return; }
-            using (var window = new NativeGrainPreviewForm(Path.Combine(config.Get("FFMPEG_DIR"), "ffmpeg.exe"), config.Get("GRAV1SYNTH"), input, args, info, lang.Code, hardwareCaps, PreprocessEnvironment()))
+            using (var window = new NativeGrainPreviewForm(Path.Combine(config.Get("FFMPEG_DIR"), "ffmpeg.exe"), config.Get("GRAV1SYNTH"), input, args, info, lang.Code, SvtSelected()?null:hardwareCaps, PreprocessEnvironment()))
             {
                 window.ShowDialog(this);
                 if (window.SelectedStrength > 0 && av1StrengthControl != null) av1StrengthControl.Value = window.SelectedStrength/5;
@@ -4402,6 +4431,13 @@ namespace FilmGrainStudioPreview
         private ComboBox cmbCodecFamily;
         private CheckBox chkCpuEncoder;
         private bool syncingCodecPicker;
+        private int CurrentGrainMode()
+        {
+            int display=cmbGrainMode==null?0:Math.Max(0,cmbGrainMode.SelectedIndex);
+            return SvtSelected()?SvtGrainOrderCore.StoredIndex(display):cmbCodec!=null&&(cmbCodec.SelectedIndex==0||cmbCodec.SelectedIndex==4)?display:SvtGrainOrderCore.PixelIndex(display);
+        }
+        private bool SvtSelected() { return cmbCodec!=null && cmbCodec.SelectedIndex==2 && CpuCodec()=="SVT"; }
+        private bool ParameterGrainSelected() { return cmbCodec!=null && cmbGrainMode!=null && ((cmbCodec.SelectedIndex==0 || cmbCodec.SelectedIndex==4) && cmbGrainMode.SelectedIndex<=2 || SvtSelected() && CurrentGrainMode()>=3); }
         private string CpuCodec() {string c=config.Get("CPU_CODEC");return c=="SVT"||c=="X265"?c:"X264";}
         private bool NewCpuSelected() {return cmbCodec!=null&&cmbCodec.SelectedIndex==2&&CpuCodec()!="X264";}
         private Control BuildCodecPicker()

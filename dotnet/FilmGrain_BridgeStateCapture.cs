@@ -53,8 +53,8 @@ namespace FilmGrainStudioPreview
 
             string mode = cmbCodec.SelectedIndex == 2 ? CpuCodec() : cmbCodec.SelectedIndex == 0 ? "AV1" : (cmbCodec.SelectedIndex == 1 ? "HEVC" : cmbCodec.SelectedIndex == 3 ? "H264" : "X264");
             bool av1 = mode == "AV1";
-            int grainMode = cmbGrainMode == null ? 0 : Math.Max(0, cmbGrainMode.SelectedIndex);
-            if (IsGrainEnabled() && av1 && grainMode == 2)
+            int grainMode = CurrentGrainMode();
+            if (IsGrainEnabled() && (av1 && grainMode == 2 || mode=="SVT" && grainMode==5))
             {
                 if (string.IsNullOrWhiteSpace(selectedAv1GrainTable) || !File.Exists(selectedAv1GrainTable))
                 {
@@ -215,7 +215,7 @@ namespace FilmGrainStudioPreview
                 error = LF("error.grav_missing", grav);
                 return null;
             }
-            int grainMode = cmbGrainMode == null ? 0 : Math.Max(0, cmbGrainMode.SelectedIndex);
+            int grainMode = CurrentGrainMode();
             if (grainMode >= 3)
             {
                 error = lang.T("error.digital_requires_encode");
@@ -342,6 +342,14 @@ namespace FilmGrainStudioPreview
                 if(fileCopyFastMenu!=null)fileCopyFastMenu.Checked=config.Get("AV1_COPY_FAST")!="false";
                 if(fileCopyVerifyMenu!=null)fileCopyVerifyMenu.Checked=config.GetBool("AV1_COPY_FULL_VERIFY");
                 foreach(var pair in value.Fields)EditorField(pair.Key).SetValue(this,pair.Value);
+                int grainCodec=int.Parse(value.Controls["cmbCodec"],CultureInfo.InvariantCulture);
+                if(grainCodec==2 && value.Config.ContainsKey("CPU_CODEC") && value.Config["CPU_CODEC"]=="SVT") {
+                    svtGrainModeIndex=Math.Max(0,Math.Min(5,pixelGrainModeIndex));
+                    int common=SvtGrainOrderCore.ToAv1(svtGrainModeIndex);
+                    if(common<5)av1GrainModeIndex=common;
+                } else if(grainCodec==0||grainCodec==4) {
+                    svtGrainModeIndex=SvtGrainOrderCore.FromAv1(Math.Max(0,Math.Min(4,av1GrainModeIndex)));
+                } else pixelOnlyGrainModeIndex=Math.Max(0,Math.Min(2,pixelGrainModeIndex));
                 Array.Copy(value.Bitrates,modeBitrate,modeBitrate.Length);Array.Copy(value.Automatic,modeBitrateAuto,modeBitrateAuto.Length);
                 if (int.Parse(value.Controls["cmbCodec"], CultureInfo.InvariantCulture) == 4 && !CanSelectNoReencode())
                     value.Controls["cmbCodec"] = Math.Max(0, Math.Min(3, lastCodecIndex)).ToString(CultureInfo.InvariantCulture);

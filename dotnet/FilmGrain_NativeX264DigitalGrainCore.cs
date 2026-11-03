@@ -25,12 +25,126 @@ namespace FilmGrainStudioPreview
                 if (success) SharedInterpolationBypassCore.Attach(prepared,bypassNotice);
                 return success;
             }
+            if(Eq(state,"FG_MODE","SVT") && SharedGrainCore.Engine(state)=="AV1_METADATA")return TryPrepareMetadata(appRoot,input,info,state,out prepared,out reason,gpuName);
             if (!SharedGrainCore.IsEnabled(state)) return TryPrepareEngine(appRoot, input, info, state, false, out prepared, out reason, gpuName);
             if (SharedGrainCore.Engine(state) == "PROCEDURAL") return TryPrepareEngine(appRoot, input, info, state, false, out prepared, out reason, gpuName);
             if (SharedGrainCore.Engine(state) == "NATIVE") return TryPrepareEngine(appRoot, input, info, state, true, out prepared, out reason, gpuName);
             if (SharedGrainCore.Engine(state) == "FGSIM") return TryPrepareEngine(appRoot, input, info, state, false, out prepared, out reason, gpuName);
             reason = "unsupported native x264 grain engine";
             return false;
+        }
+
+        internal static string RetargetMetadataEncode(string command,string oldOutput,string cleanOutput)
+        {
+            // Timeline/device adapters may serialize the same tokens with different quoting.
+            // Compare parsed arguments, never raw command text; paths/filters stay intact.
+            var args=HardwareDecodeCore.SplitArguments(command);
+            if(args.Count==0 || args[args.Count-1]!=oldOutput)throw new InvalidOperationException("SVT metadata encode boundary changed");
+            for(int i=0;i+1<args.Count;i++)if(args[i]=="-movflags") {
+                if(args[i+1]!="+faststart")throw new InvalidOperationException("Unexpected SVT MP4 mux flags");
+                args.RemoveRange(i,2);i--;
+            }
+            args[args.Count-1]=cleanOutput;
+            args.InsertRange(args.Count-1,new[]{"-f","matroska"});
+            return SharedFrucCore.JoinArguments(args);
+        }
+
+        // CPU encoding remains on its established route. Only selected AV1 parameter grain
+        // adds container postprocessing; NVENC routes and hardware cache rules are untouched.
+        private static bool TryPrepareMetadata(string appRoot,string input,MediaProbeInfo info,IDictionary<string,string> state,
+            out BridgePreparedExecution prepared,out string reason,string gpuName)
+        {
+            prepared=null;reason="";
+            if(string.Equals(info.VideoCodec,"av1",StringComparison.OrdinalIgnoreCase)) {
+                reason="SVT 参数颗粒首轮接入暂不接受源 AV1，避免解码时烘焙旧模型后再叠加。可使用独立不重编码替换功能。";return false;
+            }
+            var config=new FgsConfig(appRoot,null);config.Load();
+            string grav=config.Get("GRAV1SYNTH");
+            if(!File.Exists(grav)){reason="grav1synth not found: "+grav;return false;}
+            string version,error;
+            if(!SharedFrucCore.Run(grav,"--version",5000,out version,out error) || version.Trim()!="grav1synth 0.2.2") {
+                reason="SVT container grain route requires verified grav1synth 0.2.2: "+version+" "+error;return false;
+            }
+            var model=new List<string>();string tag;
+            string mode=Get(state,"FG_AV1_GRAIN_MODE").ToUpperInvariant();
+            if(!NativeAv1GrainReplaceCore.TryBuildGrainArgs(mode,state,model,out tag,out reason))return false;
+            int percent=Av1GrainStrengthCore.Read(state);
+            string root;if(!TryResolveTempRoot(input,state,out root,out reason))return false;
+            string job=Path.Combine(root,"__FGS_SVT_MODEL_"+Guid.NewGuid().ToString("N"));
+            var cleanState=new Dictionary<string,string>(state,StringComparer.OrdinalIgnoreCase);
+            cleanState["FG_GRAIN_ENABLED"]="0";
+            cleanState["FG_OUTPUT_MODE"]="CUSTOM";cleanState["FG_OUTPUT_CUSTOM_DIR"]=job;
+            BridgePreparedExecution baseline;
+            if(!TryPrepareEngine(appRoot,input,info,cleanState,false,out baseline,out reason,gpuName)) {
+                try{if(Directory.Exists(job))Directory.Delete(job,false);}catch{}return false;
+            }
+            var request=baseline.ExecutionRequest;
+            try {
+                string old=request.OutputFiles[0];
+                string output=Path.Combine(ResolveOutputDirectory(input,state),Path.GetFileNameWithoutExtension(old)+"_GS_"+tag+(percent==100?"":"_GS"+percent.ToString(CultureInfo.InvariantCulture))+Path.GetExtension(old));
+                if(File.Exists(output))throw new IOException("Output already exists: "+output);
+                string clean=Path.ChangeExtension(old,".clean.mkv"),grain=Path.ChangeExtension(old,".grain.mkv"),strength=Path.ChangeExtension(old,".strength.mkv");
+                var temps=new List<string>();if(request.TemporaryFiles!=null)temps.AddRange(request.TemporaryFiles);
+                temps.Add(clean);temps.Add(grain);temps.Add(old);
+                request.TemporaryFiles=temps;
+                request.TemporaryDirectories=new List<string>{job};
+                int encodeCount=0;
+                foreach(var stage in request.DirectStages) {
+                    if(stage.OriginalArguments==null || stage.OriginalArguments.Count==0 || stage.OriginalArguments[stage.OriginalArguments.Count-1]!=old)continue;
+                    encodeCount++;
+                    var encode=stage;
+                    Action observer=encode.PreparedObserver;
+                    encode.PreparedObserver=delegate {
+                        if(observer!=null)observer();
+                        encode.DirectArguments=RetargetMetadataEncode(encode.DirectArguments,old,clean);
+                    };
+                    encode.StageText+=" / clean MKV for parameter grain (one encode)";
+                }
+                if(encodeCount!=1)throw new InvalidOperationException("SVT metadata plan requires exactly one final encode");
+                var stages=new List<BridgeExecutionStage>(request.DirectStages);
+                var applyArgs=new List<string>{"apply",clean,"-o",grain};applyArgs.AddRange(model);applyArgs.AddRange(new[]{"--replace","-y"});
+                var apply=MakeStage(grav,job,applyArgs,request.ProgressDurationSeconds,0,0,"SVT AV1 parameter grain / "+mode);
+                if(percent!=100 && mode=="PRESET")Av1GrainStrengthCore.AttachPresetScale(apply,applyArgs,grain+".preset.tbl",percent,temps);
+                if(percent!=100 && mode=="TABLE")Av1GrainStrengthCore.AttachTableScale(apply,applyArgs,Get(state,"FG_AV1_GRAIN_TABLE"),grain+".scaled.tbl",percent,temps);
+                if(request.Hdr10Proof!=null)SvtHdr10Core.Before(apply,delegate {
+                    request.Hdr10Proof.Verify(request.ToolPath,clean);
+                    return "[SVT HDR10] clean encode: prefix metadata OBU/format/color verified before grain apply";
+                });
+                var later=percent!=100&&mode=="ISO"?Av1GrainStrengthCore.Stages(grav,job,delegate{return grain;},strength,percent,temps):new List<BridgeExecutionStage>();
+                if(later.Count>0 && !info.IsHdr && !info.IsInterlaced && Get(state,"FG_SVP_INTERPOLATE")!="1" && Av1RouteOptimizationCore.Enabled())
+                    Av1IsoStrengthCore.Attach(apply,later,request.ToolPath,grav,job,clean,grain,strength,model,percent,temps);
+                stages.Add(apply);stages.AddRange(later);
+                var mux=new List<string>{"-hide_banner","-nostdin","-y","-copyts","-avoid_negative_ts","disabled","-i",later.Count>0?strength:grain,"-i",clean,
+                    "-map","0:v:0","-map","1:a?"};
+                if(Eq(state,"FG_CONTAINER","MKV"))mux.AddRange(new[]{"-map","1:s?","-map","1:t?"});
+                mux.AddRange(new[]{"-map_metadata","1","-map_chapters","1","-c","copy"});
+                if(Eq(state,"FG_CONTAINER","MP4"))mux.AddRange(new[]{"-movflags","+faststart"});
+                mux.Add(output);
+                var finalize=MakeStage(request.ToolPath,job,mux,request.ProgressDurationSeconds,0,0,"SVT final container / stream copy, audio from clean encode");
+                finalize.BeforeRunPreparation=delegate {
+                    string coded=later.Count>0?strength:grain;
+                    if(request.Hdr10Proof!=null)request.Hdr10Proof.Verify(request.ToolPath,coded);
+                    string probe=Path.Combine(Path.GetDirectoryName(request.ToolPath),"ffprobe.exe");
+                    var before=SharedFrucCore.ProbeTimeline(probe,clean);var after=SharedFrucCore.ProbeTimeline(probe,coded);
+                    if(Math.Abs(before.VideoOrigin-after.VideoOrigin)>0.0011)throw new InvalidDataException("SVT grain processing changed the video clock; stopped before final mux");
+                    string fields="-v error -select_streams v:0 -show_entries stream=width,height,pix_fmt,color_range,color_primaries,color_transfer,color_space -of default=noprint_wrappers=1 ";
+                    string a,b,why;
+                    if(!SharedFrucCore.Run(probe,fields+Quote(clean),8000,out a,out why)||!SharedFrucCore.Run(probe,fields+Quote(coded),8000,out b,out why)||a.Trim()!=b.Trim())
+                        throw new InvalidDataException("SVT grain processing changed or failed format/color verification: "+why);
+                    long bytes=0;int files=0;var inventory=new List<string>();
+                    foreach(string file in temps)if(File.Exists(file)){long length=new FileInfo(file).Length;bytes+=length;files++;inventory.Add(Path.GetFileName(file)+"="+length.ToString(CultureInfo.InvariantCulture));}
+                    return "[SVT container] video origin and probed format/color match clean encode; copy mux retains clean audio clock. Temporary files generated before final mux: "+files+"; logical bytes="+bytes.ToString(CultureInfo.InvariantCulture)+"; "+string.Join("; ",inventory.ToArray())+". Full frame cadence and grain validation remain acceptance-test checks.";
+                };
+                stages.Add(finalize);
+                Av1GrainStrengthCore.NumberStages(stages);
+                request.DirectStages=stages;request.OutputFiles=new List<string>{output};
+                request.Environment=new Dictionary<string,string>(state,StringComparer.OrdinalIgnoreCase);
+                request.ExecutionNotice=(request.ExecutionNotice??"").Replace("颗粒：关闭 / Grain: disabled (no grain removal)","颗粒：开启 / Grain: enabled (external AV1 model)").Replace("pixel grain baked before encoding","external parameter grain applied after encoding").Replace("no added pixel grain","external parameter grain applied after encoding")+Environment.NewLine+
+                    "[SVT parameter grain] external "+mode+" / "+percent+"%; internal film-grain=0; no pixel-grain filter. One CPU encode -> clean MKV -> model apply -> final copy mux. Audio encoded/copied once. ISO fallback may require an extra model rewrite; no retry after full apply failure.";
+                prepared=baseline;return true;
+            } catch(Exception ex) {
+                BridgeExecutionCore.CleanupTemporaryFiles(request);reason="SVT metadata preparation failed: "+ex.Message;return false;
+            }
         }
 
         private static bool TryPrepareEngine(string appRoot, string input, MediaProbeInfo info, IDictionary<string,string> state, bool plateMode, out BridgePreparedExecution prepared, out string reason, string gpuName = "")
@@ -57,7 +171,8 @@ namespace FilmGrainStudioPreview
             if (fruc && info.IsInterlaced) { reason = "interlaced FRUC is not supported"; return false; }
             bool transportSvp = svp && !info.IsHdr && IsTransportInput(input);
             bool hdrToSdr = info.IsHdr && !Eq(state, "FG_HDR_POLICY", "PRESERVE");
-            if (info.IsHdr && !hdrToSdr) { reason = newCpu ? "当前 CPU 路线暂未开放 HDR 保留；请选择 AUTO/转 SDR。" : "HDR preservation is unavailable for x264"; return false; }
+            bool hdrPreserve=info.IsHdr&&!hdrToSdr;
+            if(hdrPreserve && !SvtHdr10Core.CheckScope(info,state,grainEnabled,interpolate,out reason))return false;
             string tonemap = Get(state, "FG_TONEMAP_ALGO").ToLowerInvariant();
             if (tonemap != "mobius" && tonemap != "reinhard" && tonemap != "gamma" && tonemap != "linear" && tonemap != "clip") tonemap = "hable";
             string tonemapLabel = char.ToUpperInvariant(tonemap[0]) + tonemap.Substring(1);
@@ -109,6 +224,11 @@ namespace FilmGrainStudioPreview
             if (fruc && Get(state, "FG_FRUC_USE_MAIN_FFMPEG") == "0" && string.IsNullOrWhiteSpace(Get(state, "FG_FRUC_FFMPEG_PATH")))
             { reason = "custom FRUC FFmpeg directory is empty"; return false; }
             if (fruc && !string.IsNullOrWhiteSpace(Get(state, "FG_FRUC_FFMPEG_PATH"))) ffmpeg = Get(state, "FG_FRUC_FFMPEG_PATH");
+            if(Eq(state,"FG_MODE","SVT") && Get(state,"FG_FRUC_USE_MAIN_FFMPEG")=="0") {
+                string selected=Get(state,"FG_FRUC_FFMPEG_PATH");
+                if(string.IsNullOrWhiteSpace(selected)){reason="SVT special FFmpeg path is empty";return false;}
+                ffmpeg=selected;
+            }
             if (!File.Exists(ffmpeg)) { reason = "ffmpeg.exe not found: " + ffmpeg; return false; }
             if (fruc && !SharedFrucCore.TryPreflight(ffmpeg, Get(state, "FG_FRUC_PERF").ToLowerInvariant(), Get(state, "FG_FRUC_GRID").ToLowerInvariant(), out reason)) return false;
             string vspipe = Path.Combine(appRoot, "_OpenSVPFlow", ".venv", "Scripts", "vspipe.exe");
@@ -250,6 +370,14 @@ namespace FilmGrainStudioPreview
                     filter = baseFilter + ";[procbase]split=4[seed][masksrc][base][blacksrc];[seed]scale=" + pw.ToString(CultureInfo.InvariantCulture) + ":" + ph.ToString(CultureInfo.InvariantCulture) + ",lutyuv=y=128:u=128:v=128,noise=c0s=100:c0f=t+u,deflate=threshold0=15,dilation=threshold0=10,eq=contrast=3,scale=" + processingWidth.ToString(CultureInfo.InvariantCulture) + ":" + processingHeight.ToString(CultureInfo.InvariantCulture) + "[n];[masksrc]lutyuv=y='" + procMask + "*(182-abs(75-val))':u=128:v=128[o];[n][o]blend=c0_mode=multiply,negate[a];[base][a]alphamerge[c];[blacksrc]drawbox=color=black:t=fill[black];[black][c]overlay=shortest=1" + frame.Filter + subtitleFilter + ",format=" + (high10 ? "yuv420p10le" : "yuv420p") + "[vout]";
                 }
 
+                if(hdrPreserve) {
+                    // Prefix acceptance is intentionally a plain, software-decoded HDR10 route.
+                    // Do not open effects/interpolation by merely stamping HDR color tags.
+                    if(filter!="[0:v:0]format=p010le,format=yuv420p10le[vout]") {
+                        reason="SVT HDR10 保留首轮仅支持无额外画面处理的普通路线；请关闭前处理、缩放、画幅和字幕烧录。";return false;
+                    }
+                    filter="[0:v:0]format=yuv420p10le,setparams=range="+info.ColorRange+":color_primaries=bt2020:color_trc=smpte2084:colorspace=bt2020nc[vout]";
+                }
                 filter=LutStrengthCore.OptimizeGraph(filter);
                 string pixelFull = grainEnabled ? filter : null;
                 string pixelClean = grainEnabled ? SharedGrainCore.BuildWithoutGrain(deinterlaceFilter + fpsFilter + colorFilter,
@@ -371,8 +499,10 @@ namespace FilmGrainStudioPreview
                     for(int i=stageOffset;i<stages.Count;i++)
                         SharedHdrPreprocessCore.AttachSharedWorkfileEncode(stages[i],ffprobe,encodeInput,gpuName);
 
+                if(hdrPreserve)SvtHdr10Core.Attach(request,input,info);
+
                 if(info.IsHdr && info.IsInterlaced && !deinterlace)request.ExecutionNotice="[Native .NET] 反交错 OFF：沿用不反交错的逐帧处理，不启用 bob/光流或双倍场率；不保证隔行编码标记。 / Deinterlace OFF: frame processing without bob/interpolation; no interlaced-encoding flags are added.";
-            if(newCpu)request.ExecutionNotice=(request.ExecutionNotice??"")+Environment.NewLine+"[CPU] "+Get(state,"FG_MODE")+" "+(CpuEncoderCore.IsCrf(state)?"CRF "+Get(state,"FG_NVENC_CQ"):"VBR")+" preset="+CpuEncoderCore.Preset(state)+"; pixel grain baked before encoding; GPU preprocessing may still be used.";
+            if(newCpu)request.ExecutionNotice=(request.ExecutionNotice??"")+Environment.NewLine+"[CPU] "+Get(state,"FG_MODE")+" "+(CpuEncoderCore.IsCrf(state)?"CRF "+Get(state,"FG_NVENC_CQ"):"VBR")+" preset="+CpuEncoderCore.Preset(state)+"; "+(grainEnabled?"pixel grain baked before encoding":"no added pixel grain")+"; GPU preprocessing may still be used.";
             if (fgsimMode) FgsimTextureCore.AttachVerifiedDevice(request, fgsimHook, false);
             prepared = new BridgePreparedExecution(request, false, ffmpeg, requestInputs);
                 lutCompatPath = "";
@@ -494,7 +624,9 @@ namespace FilmGrainStudioPreview
             }
             }
             if (!filter.Contains("fruc_vulkan=") && (autoFps || deinterlace || plateMode || passNumber > 0)) { a.Add("-r"); a.Add(fps); }
-            a.Add("-fps_mode:v"); a.Add(filter.Contains("fruc_vulkan=") ? "passthrough" : "cfr");
+            bool svtHdr=Eq(audioState,"FG_MODE","SVT")&&audioInfo!=null&&audioInfo.IsHdr&&Eq(audioState,"FG_HDR_POLICY","PRESERVE");
+            a.Add("-fps_mode:v"); a.Add(svtHdr||filter.Contains("fruc_vulkan=") ? "passthrough" : "cfr");
+            if(svtHdr)a.AddRange(new[]{"-enc_time_base:v","demux","-color_range",audioInfo.ColorRange,"-color_primaries","bt2020","-color_trc","smpte2084","-colorspace","bt2020nc"});
             if (plateMode && !string.IsNullOrEmpty(duration)) { a.Add("-t"); a.Add(duration); }
             else if (passNumber > 0 && !string.IsNullOrEmpty(duration)) { a.Add("-t"); a.Add(duration); }
             if (finalOutput)
@@ -811,5 +943,146 @@ namespace FilmGrainStudioPreview
         }
         private static string Join(List<string> args)
         {var a=new List<string>();foreach(string value in args)a.Add(SharedEncodePreviewCore.Quote(value));return string.Join(" ",a.ToArray());}
+    }
+}
+
+namespace FilmGrainStudioPreview
+{
+    // Bounded first-access-unit proof, not a scan or promise about dynamic metadata.
+    internal sealed class SvtHdr10Proof
+    {
+        internal Dictionary<string,long> Expected;
+        internal int Range;
+        internal void Verify(string ffmpeg,string path)
+        {
+            var actual=SvtHdr10Core.ReadAv1(SvtHdr10Core.Trace(ffmpeg,path));
+            if(Expected==null)throw new InvalidDataException("SVT HDR10 source proof was not prepared");
+            foreach(var kv in Expected)if(actual[kv.Key]!=kv.Value)
+                throw new InvalidDataException("SVT HDR10 metadata OBU mismatch: "+kv.Key+" expected="+kv.Value+" actual="+actual[kv.Key]);
+            if(actual["color_range"]!=Range)throw new InvalidDataException("SVT HDR10 AV1 range changed");
+            // Stream view is checked separately from the actual metadata OBUs.
+            string ffprobe=Path.Combine(Path.GetDirectoryName(ffmpeg),"ffprobe.exe"),text,error;
+            if(!SharedFrucCore.Run(ffprobe,"-v error -select_streams v:0 -show_entries stream=pix_fmt,color_range,color_primaries,color_transfer,color_space -of default=noprint_wrappers=1 "+SharedFrucCore.Quote(path),8000,out text,out error))
+                throw new InvalidDataException("SVT HDR10 output stream probe failed: "+error);
+            foreach(string line in new[]{"pix_fmt=yuv420p10le","color_range="+(Range==1?"pc":"tv"),"color_primaries=bt2020","color_transfer=smpte2084","color_space=bt2020nc"})
+                if(Array.IndexOf(text.Split(new[]{'\r','\n'},StringSplitOptions.RemoveEmptyEntries),line)<0)
+                    throw new InvalidDataException("SVT HDR10 output stream signaling missing: "+line);
+        }
+    }
+
+    internal static class SvtHdr10Core
+    {
+        private static string Get(IDictionary<string,string> s,string k){string v;return s.TryGetValue(k,out v)?v:"";}
+        internal static bool CheckScope(MediaProbeInfo info,IDictionary<string,string> s,bool grain,bool interpolate,out string reason)
+        {
+            reason="";
+            if(Get(s,"FG_MODE")!="SVT")reason="当前 CPU HDR 保留仅接入 SVT-AV1；x264/x265 未开放。";
+            else if(info.VideoCodec!="hevc"||info.ColorTransfer!="smpte2084"||info.ColorPrimaries!="bt2020"||info.ColorSpace!="bt2020nc"||info.PixelFormat!="yuv420p10le"||(info.ColorRange!="tv"&&info.ColorRange!="pc"))
+                reason="SVT HDR 保留首轮要求 HEVC HDR10 / 10-bit 4:2:0 / BT.2020 PQ，以及明确 range；HLG、DV 和源 AV1 不在本轮范围。";
+            else if(info.IsInterlaced||info.FieldOrder!="progressive"||interpolate)
+                reason="SVT HDR10 保留首轮要求明确逐行且不插帧。";
+            else if(grain)reason="SVT HDR10 保留仅支持颗粒 OFF 或外部 AV1 参数颗粒，暂不开放像素颗粒。";
+            else if(Get(s,"FG_FPS_MODE")!="SOURCE"&&Get(s,"FG_FPS_MODE")!="KEEP")reason="SVT HDR10 保留首轮请选择源帧率；不会静默转为 CFR。";
+            else if(Get(s,"FG_GPU_DECODE")=="1")reason="SVT HDR10 保留首轮请明确关闭 GPU 硬解；不静默改变硬解选择。";
+            return reason.Length==0;
+        }
+        internal static void Before(BridgeExecutionStage stage,Func<string> check)
+        {
+            var prior=stage.BeforeRunPreparation;
+            stage.BeforeRunPreparation=delegate {string first=prior==null?"":prior();return first+Environment.NewLine+check();};
+        }
+        internal static void Attach(BridgeExecutionRequest request,string input,MediaProbeInfo info)
+        {
+            if(request.DirectStages==null||request.DirectStages.Count!=1)throw new InvalidDataException("SVT HDR10 ordinary plan requires one encode stage");
+            var proof=new SvtHdr10Proof{Range=info.ColorRange=="pc"?1:0};request.Hdr10Proof=proof;
+            SharedOrdinaryTimelineCore.Attach(request.DirectStages[0],Path.Combine(Path.GetDirectoryName(request.ToolPath),"ffprobe.exe"),input);
+            Before(request.DirectStages[0],delegate {
+                proof.Expected=ReadHevc(Trace(request.ToolPath,input),proof.Range);
+                return "[SVT HDR10] source prefix HEVC SEI: MDCV + CLLI proven; PQ/10-bit/4:2:0. Expected AV1 integer fields: "+Describe(proof.Expected)+". First access unit only; dynamic metadata and whole-file changes are not validated.";
+            });
+            var prior=request.PostRunValidation;
+            request.PostRunValidation=delegate {
+                string error=prior==null?null:prior();if(!string.IsNullOrEmpty(error))return error;
+                proof.Verify(request.ToolPath,request.OutputFiles[0]);return null;
+            };
+            request.ExecutionNotice=(request.ExecutionNotice??"")+Environment.NewLine+"[SVT HDR10] PRESERVE: one software encode, source cadence passthrough; bounded source SEI and output metadata OBU checks; no added media workfile. Missing/conflicting prefix proof stops execution, without SDR fallback. No HLG/DV/HDR10+ preservation claim.";
+        }
+        private static string Describe(Dictionary<string,long> values)
+        {
+            var parts=new List<string>();foreach(var kv in values)parts.Add(kv.Key+"="+kv.Value.ToString(CultureInfo.InvariantCulture));return string.Join("; ",parts.ToArray());
+        }
+        internal static long Field(string text,string name)
+        {
+            var matches=System.Text.RegularExpressions.Regex.Matches(text,@"(?m)^.*?\]\s+\d+\s+"+System.Text.RegularExpressions.Regex.Escape(name)+@"\s+[01]+\s*=\s*(\d+)\s*$");
+            if(matches.Count==0)throw new InvalidDataException("HDR prefix field missing: "+name);
+            long value=-1;
+            foreach(System.Text.RegularExpressions.Match m in matches) {
+                long next=long.Parse(m.Groups[1].Value,CultureInfo.InvariantCulture);
+                if(value>=0&&value!=next)throw new InvalidDataException("HDR prefix conflicting field: "+name);value=next;
+            }
+            return value;
+        }
+        private static void Require(string text,string key,long value)
+        {if(Field(text,key)!=value)throw new InvalidDataException("HDR prefix unsupported "+key);}
+        private static long ConvertUnits(long raw,long inputScale,long outputScale)
+        {return checked((long)Math.Round((decimal)raw*outputScale/inputScale,0,MidpointRounding.AwayFromZero));}
+        internal static Dictionary<string,long> ReadHevc(string text,int range)
+        {
+            Require(text,"chroma_format_idc",1);Require(text,"bit_depth_luma_minus8",2);Require(text,"bit_depth_chroma_minus8",2);
+            Require(text,"colour_primaries",9);Require(text,"transfer_characteristics",16);Require(text,"matrix_coefficients",9);Require(text,"video_full_range_flag",range);
+            // Reject DV RPU/enhancement NAL and registered user data in this prefix.
+            // Later access units are deliberately outside this bounded proof.
+            if(System.Text.RegularExpressions.Regex.IsMatch(text,@"(?:nal_unit_type\s+[01]+\s*=\s*(?:62|63)|payload_type\s+[01]+\s*=\s*4)\s*(?:\r?\n|$)"))
+                throw new InvalidDataException("SVT HDR10 prefix contains dynamic/registered metadata outside this route");
+            var result=new Dictionary<string,long>();
+            // HEVC ordering G,B,R; AV1 ordering R,G,B.
+            int[] map={2,0,1};
+            for(int i=0;i<3;i++)foreach(string xy in new[]{"x","y"}) {
+                long raw=Field(text,"display_primaries_"+xy+"["+map[i]+"]");
+                if(raw>50000)throw new InvalidDataException("HDR source chromaticity outside range");
+                result["primary_chromaticity_"+xy+"["+i+"]"]=ConvertUnits(raw,50000,65536);
+            }
+            foreach(string xy in new[]{"x","y"}) {
+                long raw=Field(text,"white_point_"+xy);if(raw>50000)throw new InvalidDataException("HDR source white point outside range");
+                result["white_point_chromaticity_"+xy]=ConvertUnits(raw,50000,65536);
+            }
+            result["luminance_max"]=ConvertUnits(Field(text,"max_display_mastering_luminance"),10000,256);
+            result["luminance_min"]=ConvertUnits(Field(text,"min_display_mastering_luminance"),10000,16384);
+            result["max_cll"]=Field(text,"max_content_light_level");result["max_fall"]=Field(text,"max_pic_average_light_level");
+            foreach(var kv in result)if(kv.Value<0||kv.Value>(kv.Key.StartsWith("luminance_",StringComparison.Ordinal)?uint.MaxValue:65535))
+                throw new InvalidDataException("HDR value cannot be represented in AV1: "+kv.Key);
+            return result;
+        }
+        internal static Dictionary<string,long> ReadAv1(string text)
+        {
+            Require(text,"seq_profile",0);Require(text,"high_bitdepth",1);Require(text,"mono_chrome",0);
+            Require(text,"color_primaries",9);Require(text,"transfer_characteristics",16);Require(text,"matrix_coefficients",9);
+            // metadata_type may legitimately contain both CLL(1) and MDCV(2).
+            foreach(int type in new[]{1,2})if(!System.Text.RegularExpressions.Regex.IsMatch(text,@"metadata_type\s+[01]+\s*=\s*"+type+@"\s*(?:\r?\n|$)"))
+                throw new InvalidDataException("AV1 HDR metadata OBU missing: type "+type);
+            var result=new Dictionary<string,long>();
+            for(int i=0;i<3;i++)foreach(string xy in new[]{"x","y"}) {string key="primary_chromaticity_"+xy+"["+i+"]";result[key]=Field(text,key);}
+            foreach(string key in new[]{"white_point_chromaticity_x","white_point_chromaticity_y","luminance_max","luminance_min","max_cll","max_fall","color_range"})result[key]=Field(text,key);
+            return result;
+        }
+        internal static string Trace(string ffmpeg,string path)
+        {
+            // One compressed access unit, no pixel decode or media output; separate bounded log.
+            // Use a complete capped capture, never SharedFruc.Run's silently clipped 64 KiB.
+            var text=new StringBuilder();bool overflow=false;object sync=new object();
+            using(var process=new Process()) {
+                process.StartInfo=new ProcessStartInfo(ffmpeg,"-hide_banner -nostdin -v info -i "+SharedFrucCore.Quote(path)+" -map 0:v:0 -c:v copy -frames:v 1 -bsf:v trace_headers -f null -") {
+                    UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true};
+                DataReceivedEventHandler capture=delegate(object sender,DataReceivedEventArgs e) {
+                    if(e.Data==null)return;lock(sync) {if(text.Length+e.Data.Length+2>4*1024*1024)overflow=true;else text.AppendLine(e.Data);}
+                };
+                process.OutputDataReceived+=capture;process.ErrorDataReceived+=capture;
+                process.Start();process.BeginOutputReadLine();process.BeginErrorReadLine();
+                if(!process.WaitForExit(8000)) {try{process.Kill();process.WaitForExit();}catch{}throw new InvalidDataException("HDR prefix trace timed out");}
+                process.WaitForExit();
+                if(process.ExitCode!=0||overflow)throw new InvalidDataException("HDR prefix trace failed or exceeded complete-log limit");
+            }
+            return text.ToString();
+        }
     }
 }
