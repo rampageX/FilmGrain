@@ -296,6 +296,16 @@ $ExcludedRecursiveDirectoryNames = @(
     '__pycache__'
 )
 $ExcludedRootDeliveryPatterns = @(
+    'APPLY_SVT_HDR_*.txt',
+    'FILES_SVT_HDR_*.json',
+    'APPLY_X265_HDR_*.txt',
+    'FILES_X265_HDR_*.json',
+    'PATH_AUDIT_*.txt',
+    'FGS_SVT_HDR_*.zip',
+    'FGS_X265_HDR_*.zip',
+    'APPLY_RELEASE_*.txt',
+    'FILES_RELEASE_*.json',
+    'FGS_v5.0.49_*.zip',
     'APPLY_HDR_F4M8QX.txt',
     'FGS_v5.0.48_*.zip',
     'FGS_v5.0.45_ReleasePrep_*.zip',

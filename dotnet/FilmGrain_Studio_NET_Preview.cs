@@ -107,8 +107,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.48";
-        internal const string FileReleaseVersion = "5.0.48.0";
+        internal const string ReleaseVersion = "5.0.49";
+        internal const string FileReleaseVersion = "5.0.49.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -3650,6 +3650,18 @@ namespace FilmGrainStudioPreview
         {
             if (lblHdrRoute == null) return;
             if (btnHdrShortcut != null) btnHdrShortcut.Visible = info != null && info.IsHdr && (listFiles == null || listFiles.SelectedItems.Count <= 1);
+            if(info!=null&&info.IsHdr&&NewCpuSelected()&&(listFiles==null||listFiles.SelectedItems.Count<=1)) {
+                string error;var state=BuildBridgeEnvironment(out error);
+                if(state!=null) {
+                    bool toSdr=SharedGrainCore.CpuHdrToSdr(info,state);
+                    bool allowed=toSdr||(SharedGrainCore.ValidateHdr(info,state,out error)&&SvtHdr10Core.CheckScope(info,state,SharedGrainCore.IsEnabled(state)&&SharedGrainCore.Engine(state)!="AV1_METADATA",state["FG_SVP_INTERPOLATE"]=="1",out error));
+                    string tone=config.Get("TONE_MAP_ALGO");if(string.IsNullOrWhiteSpace(tone))tone="hable";
+                    lblHdrRoute.Text=!allowed?lang.T("input.hdr_route_unsupported"):toSdr?LF("input.hdr_route_tosdr",tone):lang.T("input.hdr_route_passthrough");
+                    lutToolTip.SetToolTip(lblHdrRoute,!allowed?error:toSdr?UiText("按明确的转SDR选择或当前SDR处理路线转换。","SDR selected or required by the chosen SDR processing."):UiText("SVT/x265默认保留HDR；硬解、缩放和缺失静态信息不阻止保留。","SVT/x265 preserve HDR by default; hardware decode, resize and missing static metadata do not block it."));
+                    return;
+                }
+            }
+
             string text;
             string detail;
             if (listFiles != null && listFiles.SelectedItems.Count > 1)
@@ -3713,26 +3725,11 @@ namespace FilmGrainStudioPreview
                 else if (policy == "PRESERVE")
                 {
                     bool av1FgsimPreserveReady = av1;
-                    if(SvtSelected())
-                    {
-                        string scopeError;var captured=BuildBridgeEnvironment(out scopeError);
-                        IDictionary<string,string> checkedState=captured,normalized;string bypass;
-                        bool ready=captured!=null;
-                        if(ready) {
-                            ready=SharedInterpolationBypassCore.TryResolve(info,captured,out normalized,out bypass,out scopeError);
-                            if(normalized!=null)checkedState=normalized;
-                        }
-                        if(ready)ready=SvtHdr10Core.CheckScope(info,checkedState,
-                            SharedGrainCore.IsEnabled(checkedState)&&SharedGrainCore.Engine(checkedState)!="AV1_METADATA",
-                            checkedState.ContainsKey("FG_SVP_INTERPOLATE")&&checkedState["FG_SVP_INTERPOLATE"]=="1",out scopeError);
-                        unsupported=!ready;preserve=ready;
-                        detail=ready?UiText("SVT HDR10 条件保留：执行前验证源 SEI，编码/颗粒/封装后验证 metadata OBU；额外画面处理尚未开放。","Conditional SVT HDR10 preservation: source SEI and encode/grain/mux metadata OBUs are checked; extra image processing is not open."):scopeError;
-                    }
-                    else if (x264)
+                    if (x264)
                     {
                         unsupported = true;
                         detail = x264
-                            ? (codec==3?UiText("H.264 NVENC 本线输出8bit，不能保留HDR10；请选择AUTO或转SDR。","This H.264 NVENC path outputs 8-bit and cannot preserve HDR10; select AUTO or SDR."):(NewCpuSelected()?"当前 CPU 路线支持 SDR / HDR 转 SDR；HDR 保留尚未开放，显式保留会停止。":lang.T("input.hdr_route_detail_x264")))
+                            ? (codec==3?UiText("H.264 NVENC 本线输出8bit，不能保留HDR10；请选择AUTO或转SDR。","This H.264 NVENC path outputs 8-bit and cannot preserve HDR10; select AUTO or SDR."):(NewCpuSelected()?"当前 CPU 路线按实际 HDR 策略处理；SVT/x265 默认保留，x264 尚未开放。":lang.T("input.hdr_route_detail_x264")))
 : lang.T("input.hdr_route_detail_fruc");
                     }
                     else if (fgsim && !hevc && !av1FgsimPreserveReady)

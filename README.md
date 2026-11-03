@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.0.48 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.49 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 
 ## AV1 / SVT 颗粒与 HDR10
@@ -13,13 +13,13 @@ SVT 的 Film Preset / Photon ISO / Grain Table 复用 grav1synth 0.2.2 与现有
 
 源 AV1 的重新编码参数颗粒暂不开放；独立 AV1 不重编码添加/替换功能保持原有独立路线。
 
-### SVT 普通 HDR10 保留条件
+### SVT / x265 默认保留 HDR
 
-显式选择 PRESERVE，输入须为 HEVC、10-bit 4:2:0、BT.2020/PQ、明确逐行及 range；保持源帧率，关闭 GPU 硬解、插帧、前处理、缩放、画幅、字幕烧录、调色/LUT。颗粒可关闭，或使用 Film Preset / Photon ISO / Grain Table。像素颗粒不在此保留范围，x265/x264 HDR 保留仍未开放。AUTO/转 SDR 维持原行为。
+SVT / x265 的 AUTO 默认保留源 HDR。硬解、源编码/位深/采样、帧率、缩放、画幅、字幕及静态 metadata 缺失不再作为拒绝保留的条件。最终视频按当前 CPU 编码器的 10-bit 4:2:0 编码，沿用已知源颜色标记；这不表示源采样或位深逐字节不变。GUI、CLI、统一和独立队列使用同一策略。
 
-编码前检查输入首个压缩访问单元的 MDCV/CLLI，按 HEVC 与 AV1 的精度换算；编码后、颗粒处理后及最终封装后检查实际 AV1 metadata OBU、位深、采样和颜色标签。缺失或冲突时停止，不伪造亮度值，不自动转 SDR 或重编码。HEVC 探测缺少颜色字段时，只在有一致 VUI 证据时补全缺失字段，不覆盖明确冲突。
+明确选择转 SDR 时仍转换。当前 SDR 调色/LUT、CPU FGSIM shader 与 OpenSVPFlow 是已知 SDR 处理路线，AUTO 会转 SDR；显式保留与不兼容处理冲突时说明原因。FRUC 保留已有 P010 精度检查和失败停止，不以未经测试为由增加门限。x264 的既有 HDR 策略不变。
 
-此检查不覆盖整片元数据变化、HLG、Dolby Vision、HDR10+ 或所有容器标记。DV P5 识别／转换问题保持独立。
+HEVC PQ/BT.2020 源在编码前尝试读取已有 MDCV/CLLI，分别经 mastering-display/content-light 参数交给 SVT，或经原始整数单位的 master-display/max-cll 参数交给 x265；源中没有的值不编造，读取不到也不阻止保留 HDR。最终检查已知颜色标记的明确冲突；静态信息不完整不再判失败。此处不承诺所有输入格式的静态信息提取，也不承诺 Dolby Vision/HDR10+ 动态信息保留。
 
 ### NVENC AV1 静态 HDR 信息保留
 
@@ -32,6 +32,8 @@ HEVC HDR10 输入保持 HDR 输出时，FGS 在开始读取源中的 mastering-d
 帧率处理维持原规则。本次只拆开静态信息保留与帧率准入条件，没有扩大帧率修复。既有普通 SOURCE/KEEP 分支及 MP4 末包时长处理保留；NVENC HDR ISO 非100%仍沿用原 CFR。
 
 ### 中间文件与颗粒强度
+
+SVT 参数颗粒的任务目录使用唯一随机名称，内部媒体固定短名 video.clean.mkv、video.grain.mkv、video.strength.mkv，避免重复拼接源文件长名称。正式输出仍使用原有命名。 共用关键帧预览裁剪与正式输出仍继承源名称，极深目录或极长名称加处理后缀仍可能触及 Windows/.NET 路径限制；内部短名修复不代表全程序支持任意长路径。
 
 SVT 颗粒 OFF 为一次编码直接输出。外部参数颗粒通常为 clean MKV → 应用颗粒 MKV → 最终复制封装，Film/Table 非100%先缩放参数表。SDR ISO 非100%仅在符合原严格条件时使用小前缀建模；HDR 不符合该优化条件，可能沿用整片 grain MKV → inspect → 强度表 → strength MKV 的回退，再最终封装。不会因此增加第二次视频编码，模型应用失败不重试。
 
@@ -61,7 +63,7 @@ Film Grain Studio 的目标不是只提供一种“加颗粒”方法，而是�
 | **HEVC** | HEVC Main10 NVENC | x265，10bit | 数字颗粒、FGSIM、真实扫描 Grain Plate |
 | **H264** | H.264 NVENC High，8bit | x264，可选 High10 | 数字颗粒、FGSIM、真实扫描 Grain Plate |
 
-SVT / x265 提供 VBR 与 CRF；x264 沿用单遍／两遍／三遍 VBR。CPU 表示最终压缩编码使用软件，插帧、扫描颗粒或 HDR 转 SDR 等前处理仍可能使用 GPU。SVT / x265 支持 SDR 与 HDR 转 SDR。SVT 有条件接入普通 HDR10 保留，条件及失败规则见下；x265 显式保留 HDR 仍停止。
+SVT / x265 提供 VBR 与 CRF；x264 沿用单遍／两遍／三遍 VBR。CPU 表示最终压缩编码使用软件，插帧、扫描颗粒或 HDR 转 SDR 等前处理仍可能使用 GPU。SVT / x265 支持 SDR 与 HDR 转 SDR。SVT 默认保留 HDR，已知 SDR 处理及显式转 SDR 除外，详见前述说明；x265 同样默认保留 HDR。
 
 默认配置为 **AV1 Main10 + MP4 + AAC 256k**，输出帧率默认「保持原帧率」。已保存预设按预设自己的帧率选择恢复。
 
@@ -351,7 +353,7 @@ SVT 要求主 FFmpeg 实际链接 SVT-AV1-HDR；执行前用短片检查 10bit�
 
 x265 Threaded ME 为实验开关，默认关闭。官方说明其要求至少 32 个逻辑处理器，且与 VBV 不兼容；本版仅允许 CRF 组合，条件不满足直接提示，不假装启用。高频 CPU / 4K 不保证加速；13600K / 5800H 不满足上述线程门槛。
 
-当前 CPU 路线支持 SDR 和 HDR 转 SDR；SVT 对本节限定的普通 HDR10 有条件保留，x265 显式保留仍停止。扫描颗粒、FRUC、部分反交错／FGSIM 等预处理仍可能使用 GPU，CPU 开关指最终视频压缩。GPU AV1 / HEVC 已有的 P010 HDR 路线维持原有实现。
+CPU 路线支持 SDR 和 HDR 转 SDR；SVT 的 AUTO 默认保留 HDR，x265 同样默认保留 HDR。扫描颗粒、FRUC、部分反交错／FGSIM 等预处理仍可能使用 GPU，CPU 开关指最终视频压缩。GPU AV1 / HEVC 已有的 P010 HDR 路线维持原有实现。
 
 简单预设包含 CPU 编码器及 CRF／码率模式；CPU preset、Threaded ME 为高级设置，简单预设保留目标值，完整预设保存它们。旧格式预设缺少 CPU 编码器标识时，原 slot 2 仍解释为 x264。
 

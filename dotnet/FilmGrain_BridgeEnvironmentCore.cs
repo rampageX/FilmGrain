@@ -389,6 +389,20 @@ namespace FilmGrainStudioPreview
                 lutEscaped + "':interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=" +
                 opacity + ",format=p010le" + after + "[vout]");
         }
+        // AUTO preserves HDR for SVT/x265 unless the selected processing actually uses an SDR path.
+        internal static bool CpuHdrToSdr(MediaProbeInfo info,IDictionary<string,string> state)
+        {
+            if(info==null||!info.IsHdr)return false;
+            string policy,mode,color,lut,interpolate,engine;
+            state.TryGetValue("FG_HDR_POLICY",out policy);state.TryGetValue("FG_MODE",out mode);
+            if(string.Equals(policy,"SDR",StringComparison.OrdinalIgnoreCase))return true;
+            if(string.Equals(policy,"PRESERVE",StringComparison.OrdinalIgnoreCase))return false;
+            if(mode!="SVT"&&mode!="X265")return true; // x264 keeps its established policy.
+            state.TryGetValue("FG_COLOR_ENABLED",out color);state.TryGetValue("FG_LUT_PATH",out lut);
+            state.TryGetValue("FG_SVP_INTERPOLATE",out interpolate);state.TryGetValue("FG_INTERPOLATION_ENGINE",out engine);
+            return color=="1"||!string.IsNullOrWhiteSpace(lut)||Engine(state)=="FGSIM"||
+                (interpolate=="1"&&!string.Equals(engine,"FRUC",StringComparison.OrdinalIgnoreCase));
+        }
         internal static bool ValidateHdr(MediaProbeInfo info, IDictionary<string,string> state, out string reason)
         {
             reason=""; string policy, color, lut;

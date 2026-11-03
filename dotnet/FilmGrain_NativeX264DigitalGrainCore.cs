@@ -83,7 +83,8 @@ namespace FilmGrainStudioPreview
                 string old=request.OutputFiles[0];
                 string output=Path.Combine(ResolveOutputDirectory(input,state),Path.GetFileNameWithoutExtension(old)+"_GS_"+tag+(percent==100?"":"_GS"+percent.ToString(CultureInfo.InvariantCulture))+Path.GetExtension(old));
                 if(File.Exists(output))throw new IOException("Output already exists: "+output);
-                string clean=Path.ChangeExtension(old,".clean.mkv"),grain=Path.ChangeExtension(old,".grain.mkv"),strength=Path.ChangeExtension(old,".strength.mkv");
+                // Job directory already isolates tasks; source names must not inflate internal paths.
+                string clean=Path.Combine(job,"video.clean.mkv"),grain=Path.Combine(job,"video.grain.mkv"),strength=Path.Combine(job,"video.strength.mkv");
                 var temps=new List<string>();if(request.TemporaryFiles!=null)temps.AddRange(request.TemporaryFiles);
                 temps.Add(clean);temps.Add(grain);temps.Add(old);
                 request.TemporaryFiles=temps;
@@ -108,7 +109,7 @@ namespace FilmGrainStudioPreview
                 if(percent!=100 && mode=="TABLE")Av1GrainStrengthCore.AttachTableScale(apply,applyArgs,Get(state,"FG_AV1_GRAIN_TABLE"),grain+".scaled.tbl",percent,temps);
                 if(request.Hdr10Proof!=null)SvtHdr10Core.Before(apply,delegate {
                     request.Hdr10Proof.Verify(request.ToolPath,clean);
-                    return "[SVT HDR10] clean encode: prefix metadata OBU/format/color verified before grain apply";
+                    return "[SVT HDR10] clean encode: HDR color signaling checked before grain apply; static OBU completeness is not a veto";
                 });
                 var later=percent!=100&&mode=="ISO"?Av1GrainStrengthCore.Stages(grav,job,delegate{return grain;},strength,percent,temps):new List<BridgeExecutionStage>();
                 if(later.Count>0 && !info.IsHdr && !info.IsInterlaced && Get(state,"FG_SVP_INTERPOLATE")!="1" && Av1RouteOptimizationCore.Enabled())
@@ -165,14 +166,15 @@ namespace FilmGrainStudioPreview
             bool fruc = interpolate && Eq(state, "FG_INTERPOLATION_ENGINE", "FRUC");
             bool svp = interpolate && !fruc;
             bool shareInterpolation=SharedInterpolationEncodeCore.CanShare(interpolate,info.IsInterlaced,passMode);
-            bool mergeFrucHdr=fruc&&info.IsHdr&&!Eq(state,"FG_HDR_POLICY","PRESERVE");
+            bool mergeFrucHdr=fruc&&SharedGrainCore.CpuHdrToSdr(info,state);
             if (interpolate && !fruc && !Eq(state, "FG_INTERPOLATION_ENGINE", "SVP") && !string.IsNullOrEmpty(Get(state, "FG_INTERPOLATION_ENGINE")))
             { reason = "unsupported interpolation engine"; return false; }
             if (fruc && info.IsInterlaced) { reason = "interlaced FRUC is not supported"; return false; }
             bool transportSvp = svp && !info.IsHdr && IsTransportInput(input);
-            bool hdrToSdr = info.IsHdr && !Eq(state, "FG_HDR_POLICY", "PRESERVE");
+            bool hdrToSdr = SharedGrainCore.CpuHdrToSdr(info,state);
             bool hdrPreserve=info.IsHdr&&!hdrToSdr;
             if(hdrPreserve && !SvtHdr10Core.CheckScope(info,state,grainEnabled,interpolate,out reason))return false;
+            if(hdrPreserve&&fruc)shareInterpolation=false;
             string tonemap = Get(state, "FG_TONEMAP_ALGO").ToLowerInvariant();
             if (tonemap != "mobius" && tonemap != "reinhard" && tonemap != "gamma" && tonemap != "linear" && tonemap != "clip") tonemap = "hable";
             string tonemapLabel = char.ToUpperInvariant(tonemap[0]) + tonemap.Substring(1);
@@ -231,6 +233,7 @@ namespace FilmGrainStudioPreview
             }
             if (!File.Exists(ffmpeg)) { reason = "ffmpeg.exe not found: " + ffmpeg; return false; }
             if (fruc && !SharedFrucCore.TryPreflight(ffmpeg, Get(state, "FG_FRUC_PERF").ToLowerInvariant(), Get(state, "FG_FRUC_GRID").ToLowerInvariant(), out reason)) return false;
+            if (fruc && hdrPreserve && !SharedFrucCore.TryPreflight10(ffmpeg, Get(state,"FG_FRUC_PERF").ToLowerInvariant(), Get(state,"FG_FRUC_GRID").ToLowerInvariant(), out reason)) return false;
             string vspipe = Path.Combine(appRoot, "_OpenSVPFlow", ".venv", "Scripts", "vspipe.exe");
             string vpy = Path.Combine(appRoot, "_OpenSVPFlow", "FilmGrain_OpenSVPFlow.vpy");
             string svpPlugins = Path.Combine(appRoot, "_OpenSVPFlow", "Plugins");
@@ -370,19 +373,13 @@ namespace FilmGrainStudioPreview
                     filter = baseFilter + ";[procbase]split=4[seed][masksrc][base][blacksrc];[seed]scale=" + pw.ToString(CultureInfo.InvariantCulture) + ":" + ph.ToString(CultureInfo.InvariantCulture) + ",lutyuv=y=128:u=128:v=128,noise=c0s=100:c0f=t+u,deflate=threshold0=15,dilation=threshold0=10,eq=contrast=3,scale=" + processingWidth.ToString(CultureInfo.InvariantCulture) + ":" + processingHeight.ToString(CultureInfo.InvariantCulture) + "[n];[masksrc]lutyuv=y='" + procMask + "*(182-abs(75-val))':u=128:v=128[o];[n][o]blend=c0_mode=multiply,negate[a];[base][a]alphamerge[c];[blacksrc]drawbox=color=black:t=fill[black];[black][c]overlay=shortest=1" + frame.Filter + subtitleFilter + ",format=" + (high10 ? "yuv420p10le" : "yuv420p") + "[vout]";
                 }
 
-                if(hdrPreserve) {
-                    // Prefix acceptance is intentionally a plain, software-decoded HDR10 route.
-                    // Do not open effects/interpolation by merely stamping HDR color tags.
-                    if(filter!="[0:v:0]format=p010le,format=yuv420p10le[vout]") {
-                        reason="SVT HDR10 保留首轮仅支持无额外画面处理的普通路线；请关闭前处理、缩放、画幅和字幕烧录。";return false;
-                    }
-                    filter="[0:v:0]format=yuv420p10le,setparams=range="+info.ColorRange+":color_primaries=bt2020:color_trc=smpte2084:colorspace=bt2020nc[vout]";
-                }
+                if(hdrPreserve)filter=filter.Replace("[vout]",SvtHdr10Core.ColorFilter(info)+"[vout]");
                 filter=LutStrengthCore.OptimizeGraph(filter);
                 string pixelFull = grainEnabled ? filter : null;
                 string pixelClean = grainEnabled ? SharedGrainCore.BuildWithoutGrain(deinterlaceFilter + fpsFilter + colorFilter,
                     EscapeFilterPath(lutCompatName), lutOpacity, frame.Filter + subtitleFilter + ",format=" + (high10 ? "yuv420p10le" : "yuv420p")) : null;
                 if (grainEnabled && (plateMode)) pixelClean=pixelClean.Replace("[0:v:0]","[0:v:0]setpts=PTS-STARTPTS,");
+                if(hdrPreserve&&!string.IsNullOrEmpty(pixelClean))pixelClean=pixelClean.Replace("[vout]",SvtHdr10Core.ColorFilter(info)+"[vout]");
                 pixelClean=LutStrengthCore.OptimizeGraph(pixelClean);
                 if (grainEnabled) filter = PixelGrainStrengthCore.Wrap(filter,pixelClean,pixelPercent);
 
@@ -392,7 +389,7 @@ namespace FilmGrainStudioPreview
                     if (perf != "slow" && perf != "medium" && perf != "fast") { reason = "unsupported FRUC perf setting"; return false; }
                     string grid = Get(state, "FG_FRUC_GRID").ToLowerInvariant();
                     if (grid != "auto" && grid != "1" && grid != "2" && grid != "4" && grid != "8") { reason = "unsupported FRUC grid setting"; return false; }
-                    filter = filter.Replace("[0:v:0]", "[0:v:0]setpts=PTS-STARTPTS,format=nv12,hwupload,fruc_vulkan=fps=" + fps + ":perf=" + perf + ":grid=" + grid + ",hwdownload,format=nv12,");
+                    filter = filter.Replace("[0:v:0]", "[0:v:0]setpts=PTS-STARTPTS,format="+(hdrPreserve?"p010le":"nv12")+",hwupload,fruc_vulkan=fps=" + fps + ":perf=" + perf + ":grid=" + grid + ",hwdownload,format="+(hdrPreserve?"p010le":"nv12")+",");
                 }
                 if (svp && plateMode) filter = filter.Replace("[1:v:0]", "[2:v:0]");
 
@@ -624,9 +621,11 @@ namespace FilmGrainStudioPreview
             }
             }
             if (!filter.Contains("fruc_vulkan=") && (autoFps || deinterlace || plateMode || passNumber > 0)) { a.Add("-r"); a.Add(fps); }
-            bool svtHdr=Eq(audioState,"FG_MODE","SVT")&&audioInfo!=null&&audioInfo.IsHdr&&Eq(audioState,"FG_HDR_POLICY","PRESERVE");
-            a.Add("-fps_mode:v"); a.Add(svtHdr||filter.Contains("fruc_vulkan=") ? "passthrough" : "cfr");
-            if(svtHdr)a.AddRange(new[]{"-enc_time_base:v","demux","-color_range",audioInfo.ColorRange,"-color_primaries","bt2020","-color_trc","smpte2084","-colorspace","bt2020nc"});
+            bool svtHdr=(Eq(audioState,"FG_MODE","SVT")||Eq(audioState,"FG_MODE","X265"))&&audioInfo!=null&&audioInfo.IsHdr&&!SharedGrainCore.CpuHdrToSdr(audioInfo,audioState);
+            bool sourceClock=svtHdr&&!autoFps&&!deinterlace&&!filter.Contains("fruc_vulkan=");
+            a.Add("-fps_mode:v"); a.Add(sourceClock||filter.Contains("fruc_vulkan=") ? "passthrough" : "cfr");
+            if(sourceClock)a.AddRange(new[]{"-enc_time_base:v","demux"});
+            if(svtHdr)SvtHdr10Core.AddColorArguments(a,audioInfo);
             if (plateMode && !string.IsNullOrEmpty(duration)) { a.Add("-t"); a.Add(duration); }
             else if (passNumber > 0 && !string.IsNullOrEmpty(duration)) { a.Add("-t"); a.Add(duration); }
             if (finalOutput)
@@ -953,20 +952,20 @@ namespace FilmGrainStudioPreview
     {
         internal Dictionary<string,long> Expected;
         internal int Range;
+        internal MediaProbeInfo SourceInfo;
         internal void Verify(string ffmpeg,string path)
         {
-            var actual=SvtHdr10Core.ReadAv1(SvtHdr10Core.Trace(ffmpeg,path));
-            if(Expected==null)throw new InvalidDataException("SVT HDR10 source proof was not prepared");
-            foreach(var kv in Expected)if(actual[kv.Key]!=kv.Value)
-                throw new InvalidDataException("SVT HDR10 metadata OBU mismatch: "+kv.Key+" expected="+kv.Value+" actual="+actual[kv.Key]);
-            if(actual["color_range"]!=Range)throw new InvalidDataException("SVT HDR10 AV1 range changed");
-            // Stream view is checked separately from the actual metadata OBUs.
+            // Static metadata completeness is not a color-conversion veto.
             string ffprobe=Path.Combine(Path.GetDirectoryName(ffmpeg),"ffprobe.exe"),text,error;
             if(!SharedFrucCore.Run(ffprobe,"-v error -select_streams v:0 -show_entries stream=pix_fmt,color_range,color_primaries,color_transfer,color_space -of default=noprint_wrappers=1 "+SharedFrucCore.Quote(path),8000,out text,out error))
-                throw new InvalidDataException("SVT HDR10 output stream probe failed: "+error);
-            foreach(string line in new[]{"pix_fmt=yuv420p10le","color_range="+(Range==1?"pc":"tv"),"color_primaries=bt2020","color_transfer=smpte2084","color_space=bt2020nc"})
-                if(Array.IndexOf(text.Split(new[]{'\r','\n'},StringSplitOptions.RemoveEmptyEntries),line)<0)
-                    throw new InvalidDataException("SVT HDR10 output stream signaling missing: "+line);
+                throw new InvalidDataException("CPU HDR output stream probe failed: "+error);
+            if(SourceInfo==null)return;
+            foreach(var pair in new Dictionary<string,string>{{"color_range",SourceInfo.ColorRange},{"color_primaries",SourceInfo.ColorPrimaries},{"color_transfer",SourceInfo.ColorTransfer},{"color_space",SourceInfo.ColorSpace}}) {
+                if(string.IsNullOrWhiteSpace(pair.Value)||pair.Value=="unknown"||pair.Value=="unspecified")continue;
+                foreach(string line in text.Split(new[]{'\r','\n'},StringSplitOptions.RemoveEmptyEntries))
+                    if(line.StartsWith(pair.Key+"=",StringComparison.Ordinal)&&line!=pair.Key+"=unknown"&&line!=pair.Key+"=unspecified"&&line!=pair.Key+"=reserved"&&line!=pair.Key+"="+pair.Value)
+                        throw new InvalidDataException("CPU HDR color signaling changed: "+line+" expected="+pair.Value);
+            }
         }
     }
 
@@ -976,15 +975,23 @@ namespace FilmGrainStudioPreview
         internal static bool CheckScope(MediaProbeInfo info,IDictionary<string,string> s,bool grain,bool interpolate,out string reason)
         {
             reason="";
-            if(Get(s,"FG_MODE")!="SVT")reason="当前 CPU HDR 保留仅接入 SVT-AV1；x264/x265 未开放。";
-            else if(info.VideoCodec!="hevc"||info.ColorTransfer!="smpte2084"||info.ColorPrimaries!="bt2020"||info.ColorSpace!="bt2020nc"||info.PixelFormat!="yuv420p10le"||(info.ColorRange!="tv"&&info.ColorRange!="pc"))
-                reason="SVT HDR 保留首轮要求 HEVC HDR10 / 10-bit 4:2:0 / BT.2020 PQ，以及明确 range；HLG、DV 和源 AV1 不在本轮范围。";
-            else if(info.IsInterlaced||info.FieldOrder!="progressive"||interpolate)
-                reason="SVT HDR10 保留首轮要求明确逐行且不插帧。";
-            else if(grain)reason="SVT HDR10 保留仅支持颗粒 OFF 或外部 AV1 参数颗粒，暂不开放像素颗粒。";
-            else if(Get(s,"FG_FPS_MODE")!="SOURCE"&&Get(s,"FG_FPS_MODE")!="KEEP")reason="SVT HDR10 保留首轮请选择源帧率；不会静默转为 CFR。";
-            else if(Get(s,"FG_GPU_DECODE")=="1")reason="SVT HDR10 保留首轮请明确关闭 GPU 硬解；不静默改变硬解选择。";
+            if(Get(s,"FG_MODE")!="SVT"&&Get(s,"FG_MODE")!="X265")reason="当前此 CPU 编码路线尚未接入 HDR 保留。";
+            else if(grain&&SharedGrainCore.Engine(s)=="FGSIM")reason="当前 CPU FGSIM 使用 SDR shader 路线；请选 AUTO/转SDR，或关闭 FGSIM 后保留 HDR。";
             return reason.Length==0;
+        }
+        internal static string ColorFilter(MediaProbeInfo info)
+        {
+            var fields=new List<string>();
+            foreach(var pair in ColorFields(info))if(Known(pair.Value))fields.Add(pair.Key+"="+pair.Value);
+            return ",format=yuv420p10le"+(fields.Count==0?"":",setparams="+string.Join(":",fields.ToArray()));
+        }
+        private static bool Known(string v){return !string.IsNullOrWhiteSpace(v)&&v!="unknown"&&v!="unspecified"&&v!="reserved";}
+        private static Dictionary<string,string> ColorFields(MediaProbeInfo info)
+        {return new Dictionary<string,string>{{"range",info.ColorRange},{"color_primaries",info.ColorPrimaries},{"color_trc",info.ColorTransfer},{"colorspace",info.ColorSpace}};}
+        internal static void AddColorArguments(List<string> args,MediaProbeInfo info)
+        {
+            foreach(var pair in new Dictionary<string,string>{{"-color_range",info.ColorRange},{"-color_primaries",info.ColorPrimaries},{"-color_trc",info.ColorTransfer},{"-colorspace",info.ColorSpace}})
+                if(Known(pair.Value)){args.Add(pair.Key);args.Add(pair.Value);}
         }
         internal static void Before(BridgeExecutionStage stage,Func<string> check)
         {
@@ -993,19 +1000,43 @@ namespace FilmGrainStudioPreview
         }
         internal static void Attach(BridgeExecutionRequest request,string input,MediaProbeInfo info)
         {
-            if(request.DirectStages==null||request.DirectStages.Count!=1)throw new InvalidDataException("SVT HDR10 ordinary plan requires one encode stage");
-            var proof=new SvtHdr10Proof{Range=info.ColorRange=="pc"?1:0};request.Hdr10Proof=proof;
-            SharedOrdinaryTimelineCore.Attach(request.DirectStages[0],Path.Combine(Path.GetDirectoryName(request.ToolPath),"ffprobe.exe"),input);
+            if(request.DirectStages==null||request.DirectStages.Count==0)throw new InvalidDataException("CPU HDR encode stage is missing");
+            var proof=new SvtHdr10Proof{Range=info.ColorRange=="pc"?1:0,SourceInfo=info};request.Hdr10Proof=proof;
+            bool x265=Get(request.Environment,"FG_MODE")=="X265";
+            string encoder=x265?"x265":"SVT";
+            string staticParameters=x265?"cll=0":"";
+            if(request.DirectStages.Count==1&&!info.IsInterlaced&&Get(request.Environment,"FG_SVP_INTERPOLATE")!="1")
+                SharedOrdinaryTimelineCore.Attach(request.DirectStages[0],Path.Combine(Path.GetDirectoryName(request.ToolPath),"ffprobe.exe"),input);
             Before(request.DirectStages[0],delegate {
-                proof.Expected=ReadHevc(Trace(request.ToolPath,input),proof.Range);
-                return "[SVT HDR10] source prefix HEVC SEI: MDCV + CLLI proven; PQ/10-bit/4:2:0. Expected AV1 integer fields: "+Describe(proof.Expected)+". First access unit only; dynamic metadata and whole-file changes are not validated.";
+                proof.Expected=new Dictionary<string,long>();string notice="源静态信息不参与HDR放行判断。";
+                if(NvencHdr10StreamCore.HasSourceHdr10(info))try {
+                    string trace=Trace(request.ToolPath,input);
+                    proof.Expected=ReadHevcAvailable(trace,proof.Range);
+                    var parts=new List<string>();if(x265)parts.Add(proof.Expected.ContainsKey("max_cll")?"cll=1":"cll=0");
+                    if(proof.Expected.ContainsKey("luminance_max")) {
+                        Func<string,string> chroma=delegate(string key){return x265?Field(trace,key).ToString(CultureInfo.InvariantCulture):((decimal)Field(trace,key)/50000).ToString("0.00000",CultureInfo.InvariantCulture);};
+                        Func<string,string> lum=delegate(string key){return x265?Field(trace,key).ToString(CultureInfo.InvariantCulture):((decimal)Field(trace,key)/10000).ToString("0.0000",CultureInfo.InvariantCulture);};
+                        parts.Add((x265?"master-display=G(":"mastering-display=G(")+chroma("display_primaries_x[0]")+","+chroma("display_primaries_y[0]")+")B("+chroma("display_primaries_x[1]")+","+chroma("display_primaries_y[1]")+")R("+chroma("display_primaries_x[2]")+","+chroma("display_primaries_y[2]")+")WP("+chroma("white_point_x")+","+chroma("white_point_y")+")L("+lum("max_display_mastering_luminance")+","+lum("min_display_mastering_luminance")+")");
+                    }
+                    if(proof.Expected.ContainsKey("max_cll"))parts.Add((x265?"max-cll=":"content-light=")+proof.Expected["max_cll"]+","+proof.Expected["max_fall"]);
+                    staticParameters=string.Join(":",parts.ToArray());
+                    notice="MDCV="+(proof.Expected.ContainsKey("luminance_max")?"有":"无")+" CLLI="+(proof.Expected.ContainsKey("max_cll")?"有":"无")+"；存在的静态信息传给编码器，缺失项不编造。";
+                }catch(Exception ex){notice="静态信息未取得，继续保留HDR信号："+ex.Message;}
+                return "["+encoder+" HDR] "+notice;
+            });
+            foreach(var stage in request.DirectStages)Before(stage,delegate {
+                if(staticParameters.Length==0)return "";
+                var args=HardwareDecodeCore.SplitArguments(stage.DirectArguments);
+                if(!args.Contains(x265?"libx265":"libsvtav1"))return "";
+                string option=x265?"-x265-params":"-svtav1-params";int at=args.IndexOf(option);
+                if(at>=0&&at+1<args.Count)args[at+1]+=":"+staticParameters;
+                else args.InsertRange(args.Count-1,new[]{option,staticParameters});
+                stage.DirectArguments=SharedFrucCore.JoinArguments(args);
+                return "["+encoder+" HDR] 设置源静态信息参数，缺失值不编造；一次原编码，无额外媒体文件。";
             });
             var prior=request.PostRunValidation;
-            request.PostRunValidation=delegate {
-                string error=prior==null?null:prior();if(!string.IsNullOrEmpty(error))return error;
-                proof.Verify(request.ToolPath,request.OutputFiles[0]);return null;
-            };
-            request.ExecutionNotice=(request.ExecutionNotice??"")+Environment.NewLine+"[SVT HDR10] PRESERVE: one software encode, source cadence passthrough; bounded source SEI and output metadata OBU checks; no added media workfile. Missing/conflicting prefix proof stops execution, without SDR fallback. No HLG/DV/HDR10+ preservation claim.";
+            request.PostRunValidation=delegate {string error=prior==null?null:prior();if(!string.IsNullOrEmpty(error))return error;proof.Verify(request.ToolPath,request.OutputFiles[0]);return null;};
+            request.ExecutionNotice=(request.ExecutionNotice??"")+Environment.NewLine+"["+encoder+" HDR] 默认保留源HDR，不因硬解、源编码/位深/采样、帧率、画幅、缩放或静态metadata缺失而阻止。仅实际色彩冲突报错；不增加编码或整片中间文件。";
         }
         private static string Describe(Dictionary<string,long> values)
         {
