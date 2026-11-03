@@ -107,12 +107,14 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.47";
-        internal const string FileReleaseVersion = "5.0.47.0";
+        internal const string ReleaseVersion = "5.0.48";
+        internal const string FileReleaseVersion = "5.0.48.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
         {
+            if(args.Length>0&&args[0]=="--av1-hdr-ivf-stream")
+            { Environment.ExitCode=NvencHdr10StreamCore.Run(args);return; }
             if (args.Length == 1 && args[0] == "--hardware-gpu-identity")
             { NativeStartupCore.WriteProtocolLine(new JavaScriptSerializer().Serialize(NativeHardwareProbe.WmiGpuIdentity())); return; }
             if (args.Length == 1 && args[0] == "--hardware-nvenc-engines")

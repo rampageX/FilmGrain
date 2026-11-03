@@ -278,6 +278,10 @@ namespace FilmGrainStudioPreview
                 if(resizeBars.Length>0)pixelClean=pixelClean.Replace("[vout]",resizeBars+"[vout]");
                 filterGraph=PixelGrainStrengthCore.Wrap(filterGraph,pixelClean,pixelPercent);
             }
+            bool hdrStaticStream=hdrPreserve && NvencHdr10StreamCore.HasSourceHdr10(info);
+            bool hdrOrdinaryStream=hdrPreserve && !interpolate && !deinterlace && !resize.Enabled && preprocessing.Length==0 && colorFilter.Length==0 && frame.Filter.Length==0 && string.IsNullOrEmpty(lutCompatName) && string.IsNullOrEmpty(subtitleAss) && (!grainEnabled||metadataGrain) && NvencHdr10StreamCore.Eligible(info,state);
+            // grav1synth inspect derives model event times from nominal FPS; retain its old clock for the existing HDR ISO-strength fallback.
+            bool hdrOrdinaryClock=hdrOrdinaryStream && !(metadataGrain && Eq(state,"FG_AV1_GRAIN_MODE","ISO") && Av1GrainStrengthCore.Read(state)!=100);
             List<string> encode = new List<string>();
             Add(encode, "-hide_banner", "-stats", "-progress", "pipe:2", "-stats_period", "0.5", "-y");
             if (directFruc || resize.Enabled || fgsimGrain || (bwdifVulkan && !fieldWorkfile && !separateDeint)) Add(encode, "-init_hw_device", VulkanDevicePolicy.Spec("vk"), "-filter_hw_device", "vk");
@@ -308,6 +312,7 @@ namespace FilmGrainStudioPreview
             if (sfeEngines >= 2) Add(encode, "-split_encode_mode", sfeEngines.ToString(CultureInfo.InvariantCulture));
             if(svp)SharedInterpolationEncodeCore.NormalizeRenderedCadence(encode,fpsText);
             if (interpolate) Add(encode, "-enc_time_base:v",fpsText.Contains("/")?fpsText.Split('/')[1]+"/"+fpsText.Split('/')[0]:"1/"+fpsText,"-fps_mode:v", "passthrough");
+            else if(hdrOrdinaryClock) Add(encode,"-enc_time_base:v","demux","-fps_mode:v","passthrough");
             else Add(encode, "-r", fpsText, "-fps_mode:v", "cfr");
             if (hdrPreserve) Add(encode, "-color_range", HdrRange(info), "-color_primaries", HdrPrimaries(info), "-color_trc", info.ColorTransfer, "-colorspace", HdrSpace(info));
             else if (hdrToSdr) Add(encode, "-color_range", "tv", "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709");
@@ -451,6 +456,10 @@ namespace FilmGrainStudioPreview
             request.DirectStages = directStages;
             if(info.IsHdr && info.IsInterlaced && !deinterlace)request.ExecutionNotice="[Native .NET] 反交错 OFF：沿用不反交错的逐帧处理，不启用 bob/光流或双倍场率；不保证隔行编码标记。 / Deinterlace OFF: frame processing without bob/interpolation; no interlaced-encoding flags are added.";
             if (fgsimGrain) FgsimTextureCore.AttachVerifiedDevice(request, fgsimHook, hdrPreserve);
+            if(hdrStaticStream)
+                NvencHdr10StreamCore.Attach(request,input,info,remuxVideo,hdrOrdinaryClock);
+            if(hdrPreserve&&!hdrStaticStream)request.ExecutionNotice=(request.ExecutionNotice??"")+Environment.NewLine+"[HDR metadata] 当前源格式未接入静态信息提取；现有输出校验仅核对颜色标记，不代表 mastering-display/CLLI 已保留。";
+            if(hdrOrdinaryStream)request.ExecutionNotice+=Environment.NewLine+(hdrOrdinaryClock?"[NVENC HDR10 cadence] ordinary SOURCE/KEEP: demux time base and passthrough; original video-only origin normalization and final A/V clock binding retained.":"[NVENC HDR10 cadence] ISO non100% uses the existing nominal-FPS model-inspect fallback and retains legacy CFR; variable source cadence is not preserved by this combination. This combination is outside the R7 cadence fix.");
             prepared = new BridgePreparedExecution(request, false, ffmpeg, new List<string> { input });
             return true;
         }
@@ -1060,5 +1069,198 @@ namespace FilmGrainStudioPreview
             AudioOutputCore.Apply(args,state,info,mkv,false,false);
             return args;
         }
+    }
+}
+
+namespace FilmGrainStudioPreview
+{
+    // Adds source-proven static metadata while the existing final mux reads IVF.
+    // No additional video encode or media workfile; compressed frame OBUs and IVF clocks are untouched.
+    internal static class NvencHdr10StreamCore
+    {
+        private static readonly string[] Keys={"max_cll","max_fall","primary_chromaticity_x[0]","primary_chromaticity_y[0]","primary_chromaticity_x[1]","primary_chromaticity_y[1]","primary_chromaticity_x[2]","primary_chromaticity_y[2]","white_point_chromaticity_x","white_point_chromaticity_y","luminance_max","luminance_min"};
+        internal static bool HasSourceHdr10(MediaProbeInfo i)
+        {return i.VideoCodec=="hevc"&&i.ColorPrimaries=="bt2020"&&i.ColorTransfer=="smpte2084"&&i.ColorSpace=="bt2020nc"&&(i.ColorRange=="tv"||i.ColorRange=="pc");}
+        internal static bool Eligible(MediaProbeInfo i,IDictionary<string,string> s)
+        {
+            string gpu,fps;s.TryGetValue("FG_GPU_DECODE",out gpu);s.TryGetValue("FG_FPS_MODE",out fps);
+            return i.VideoCodec=="hevc"&&i.PixelFormat=="yuv420p10le"&&i.ColorPrimaries=="bt2020"&&i.ColorTransfer=="smpte2084"&&i.ColorSpace=="bt2020nc"&&(i.ColorRange=="tv"||i.ColorRange=="pc")&&!i.IsInterlaced&&i.FieldOrder=="progressive"&&gpu!="1"&&(fps=="SOURCE"||fps=="KEEP");
+        }
+        internal static void Attach(BridgeExecutionRequest request,string input,MediaProbeInfo info,string codedVideo,bool sourceClock)
+        {
+            if(request.DirectStages==null||request.DirectStages.Count<2)throw new InvalidDataException("NVENC HDR stream requires existing IVF/mux stages");
+            Dictionary<string,long> expected=null;int range=info.ColorRange=="pc"?1:0;
+            bool sourceMp4=sourceClock&&request.OutputFiles!=null&&request.OutputFiles.Count==1&&string.Equals(Path.GetExtension(request.OutputFiles[0]),".mp4",StringComparison.OrdinalIgnoreCase);
+            string tailDuration=null;
+            SvtHdr10Core.Before(request.DirectStages[0],delegate {
+                expected=SvtHdr10Core.ReadHevcAvailable(SvtHdr10Core.Trace(request.ToolPath,input),range);
+                if(sourceMp4)tailDuration=ReadSourceTailDuration(Path.Combine(Path.GetDirectoryName(request.ToolPath),"ffprobe.exe"),input,info.Duration);
+                return "[NVENC HDR10] 已读取实际源静态信息：MDCV="+(expected.ContainsKey("luminance_max")?"有":"无")+" CLLI="+(expected.ContainsKey("max_cll")?"有":"无")+"；最终封装写入源中存在的项，源中没有的不编造。硬解、画面处理和颗粒继续使用原执行路线，无新增整片中间文件。"+(sourceMp4?Environment.NewLine+"[NVENC HDR10 MP4] bounded real source final packet duration="+tailDuration+"s; no nominal-FPS substitution.":"");
+            });
+            var mux=request.DirectStages[request.DirectStages.Count-1];
+            if(!mux.StageText.StartsWith("AV1 container remux",StringComparison.Ordinal))throw new InvalidDataException("NVENC HDR stream mux boundary changed");
+            mux.StageText+=" / source-proven HDR OBU stream";
+            mux.PipeProducerPath=typeof(Program).Assembly.Location;
+            SvtHdr10Core.Before(mux,delegate {
+                if(expected==null)throw new InvalidDataException("NVENC HDR source proof is unavailable");
+                var args=HardwareDecodeCore.SplitArguments(mux.DirectArguments);int found=0;
+                for(int n=0;n<args.Count-1;n++)if(args[n]=="-i"&&args[n+1]==codedVideo){args[n+1]="pipe:0";found++;}
+                if(found!=1)throw new InvalidDataException("NVENC HDR mux input boundary changed");
+                if(sourceMp4) {
+                    if(string.IsNullOrEmpty(tailDuration))throw new InvalidDataException("AV1 MP4 source tail duration is unavailable");
+                    if(args.Contains("-bsf:v")||args.Contains("-bsf:v:0"))throw new InvalidDataException("AV1 MP4 duration filter boundary changed");
+                    // Stream copy: preserve every packet PTS/DTS; next PTS supplies interval durations.
+                    // IVF has no packet duration. Only the final sample uses the actual source tail duration.
+                    args.InsertRange(args.Count-1,new[]{"-bsf:v","setts=duration=if(gt(NEXT_PTS\\,PTS)\\,NEXT_PTS-PTS\\,"+tailDuration+"/TB)"});
+                }
+                mux.DirectArguments=SharedFrucCore.JoinArguments(args);
+                var values=new List<string>();foreach(string key in Keys)values.Add(expected.ContainsKey(key)?expected[key].ToString(CultureInfo.InvariantCulture):"-");
+                mux.PipeProducerArguments=SharedFrucCore.JoinArguments(new[]{"--av1-hdr-ivf-stream",codedVideo,string.Join(",",values.ToArray())});
+                return "[NVENC HDR10] existing coded IVF -> bounded packet metadata writer -> existing stream-copy mux; original compressed frame/grain OBUs, IVF PTS and original audio mapping retained.";
+            });
+            var previous=request.PostRunValidation;
+            request.PostRunValidation=delegate {
+                string error=previous==null?null:previous();if(!string.IsNullOrEmpty(error))return error;
+                VerifyAvailable(request.ToolPath,request.OutputFiles[0],expected,range);return null;
+            };
+            if(sourceMp4)request.ExecutionNotice=(request.ExecutionNotice??"")+Environment.NewLine+"[NVENC HDR10 MP4] preserve packet PTS/DTS; stream-copy sample durations use next PTS and a bounded real-source tail packet duration. Missing/unreliable tail proof stops before encoding; no nominal-FPS duration substitution.";
+            request.ExecutionNotice=(request.ExecutionNotice??"")+Environment.NewLine+"[NVENC HDR10] 静态信息保留已接入：读取源值 -> 原编码/颗粒流程 -> 最终封装写入并核验实际 AV1 OBU。硬解、遮黑边、缩放、插帧及颗粒选择不再绕过此步骤；不改变帧率路线。";
+        }
+        private static void VerifyAvailable(string ffmpeg,string output,Dictionary<string,long> expected,int range)
+        {
+            if(expected==null)throw new InvalidDataException("HDR source metadata was not read");
+            string trace=SvtHdr10Core.Trace(ffmpeg,output);
+            foreach(var kv in expected)if(SvtHdr10Core.Field(trace,kv.Key)!=kv.Value)
+                throw new InvalidDataException("AV1 HDR metadata mismatch: "+kv.Key);
+            foreach(var kv in new Dictionary<string,long>{{"seq_profile",0},{"high_bitdepth",1},{"mono_chrome",0},{"color_primaries",9},{"transfer_characteristics",16},{"matrix_coefficients",9},{"color_range",range}})
+                if(SvtHdr10Core.Field(trace,kv.Key)!=kv.Value)throw new InvalidDataException("AV1 HDR output signaling changed: "+kv.Key);
+        }
+        internal static string ReadSourceTailDuration(string ffprobe,string input,string durationText)
+        {
+            double duration;
+            if(!double.TryParse(durationText,NumberStyles.Float,CultureInfo.InvariantCulture,out duration)||double.IsNaN(duration)||double.IsInfinity(duration)||duration<=0)
+                throw new InvalidDataException("AV1 MP4 source duration unavailable for bounded tail proof");
+            // Seek near EOF. Long GOPs / inaccurate duration / unreadable tails must fail closed.
+            // No full-file fallback: 8 seconds wall time and 2 MiB complete report limit.
+            string start=Math.Max(0,duration-8).ToString("R",CultureInfo.InvariantCulture);
+            string text;var captured=new StringBuilder();bool overflow=false;object sync=new object();
+            using(var process=new Process()) {
+                var args=new[]{"-v","error","-select_streams","v:0","-read_intervals",start+"%","-show_packets","-show_entries","packet=pts_time,duration_time","-of","compact=p=0:nk=0",input};
+                process.StartInfo=new ProcessStartInfo(ffprobe,SharedFrucCore.JoinArguments(args)) {UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true};
+                DataReceivedEventHandler capture=delegate(object sender,DataReceivedEventArgs e) {
+                    if(e.Data==null)return;lock(sync){if(captured.Length+e.Data.Length+2>2*1024*1024)overflow=true;else captured.AppendLine(e.Data);}
+                };
+                process.OutputDataReceived+=capture;process.ErrorDataReceived+=capture;
+                process.Start();process.BeginOutputReadLine();process.BeginErrorReadLine();
+                if(!process.WaitForExit(8000)){try{process.Kill();process.WaitForExit();}catch{}throw new InvalidDataException("AV1 MP4 source tail proof timed out; encoding stopped");}
+                process.WaitForExit();
+                if(process.ExitCode!=0||overflow)throw new InvalidDataException("AV1 MP4 source tail proof failed or exceeded report limit; encoding stopped");
+                text=captured.ToString();
+            }
+            return ParseSourceTailDuration(text);
+        }
+        internal static string ParseSourceTailDuration(string text)
+        {
+            double last=double.NegativeInfinity,tail=0;bool found=false,conflict=false;
+            foreach(string line in text.Split(new[]{'\r','\n'},StringSplitOptions.RemoveEmptyEntries)) {
+                if(!line.StartsWith("pts_time=",StringComparison.Ordinal))throw new InvalidDataException("AV1 MP4 unexpected source tail report");
+                double pts=double.NaN,dur=double.NaN;
+                foreach(string part in line.Split('|')) {
+                    if(part.StartsWith("pts_time=",StringComparison.Ordinal)){if(!double.TryParse(part.Substring(9),NumberStyles.Float,CultureInfo.InvariantCulture,out pts))pts=double.NaN;}
+                    else if(part.StartsWith("duration_time=",StringComparison.Ordinal)){if(!double.TryParse(part.Substring(14),NumberStyles.Float,CultureInfo.InvariantCulture,out dur))dur=double.NaN;}
+                    else throw new InvalidDataException("AV1 MP4 unexpected source tail field");
+                }
+                if(double.IsNaN(pts)||double.IsInfinity(pts))throw new InvalidDataException("AV1 MP4 invalid source tail PTS");
+                if(!found||pts>last){last=pts;tail=dur;found=true;conflict=false;}
+                else if(pts==last&&dur!=tail)conflict=true;
+            }
+            if(!found||conflict||double.IsNaN(tail)||double.IsInfinity(tail)||tail<=0)
+                throw new InvalidDataException("AV1 MP4 real source final packet duration missing or conflicting; encoding stopped");
+            return tail.ToString("R",CultureInfo.InvariantCulture);
+        }
+        internal static int Run(string[] args)
+        {
+            try {
+                if(args.Length!=3)throw new ArgumentException("Expected IVF input and twelve source-proven metadata integers");
+                string[] parts=args[2].Split(',');if(parts.Length!=Keys.Length)throw new InvalidDataException("HDR metadata field count");
+                var values=new Dictionary<string,long>();
+                for(int n=0;n<Keys.Length;n++){
+                    if(parts[n]=="-")continue;
+                    long v;if(!long.TryParse(parts[n],NumberStyles.None,CultureInfo.InvariantCulture,out v)||v<0||v>(n>=10?uint.MaxValue:65535L))throw new InvalidDataException("HDR metadata integer out of range");values[Keys[n]]=v;
+                }
+                int cllCount=0,masterCount=0;for(int n=0;n<Keys.Length;n++)if(values.ContainsKey(Keys[n])){if(n<2)cllCount++;else masterCount++;}
+                if((cllCount!=0&&cllCount!=2)||(masterCount!=0&&masterCount!=10))throw new InvalidDataException("Incomplete HDR metadata group");
+                using(var source=File.OpenRead(args[1]))using(var target=Console.OpenStandardOutput())Copy(source,target,values);
+                return 0;
+            }catch(Exception ex){Console.Error.WriteLine("[NVENC HDR stream] "+ex.Message);return 2;}
+        }
+        private static byte[] Read(Stream s,int n)
+        {
+            var b=new byte[n];int at=0;while(at<n){int count=s.Read(b,at,n-at);if(count==0)throw new EndOfStreamException("Truncated IVF/OBU");at+=count;}return b;
+        }
+        private static uint U32(byte[] b,int p){return (uint)b[p]|((uint)b[p+1]<<8)|((uint)b[p+2]<<16)|((uint)b[p+3]<<24);}
+        private static void Put32(byte[] b,uint n){for(int k=0;k<4;k++)b[k]=(byte)(n>>(8*k));}
+        private static void Big(Stream s,long n,int bytes){for(int k=bytes-1;k>=0;k--)s.WriteByte((byte)(n>>(8*k)));}
+        private static byte[] Body(int type,Dictionary<string,long> v)
+        {
+            using(var b=new MemoryStream()){
+                b.WriteByte((byte)type);
+                if(type==1){Big(b,v[Keys[0]],2);Big(b,v[Keys[1]],2);}
+                else{for(int n=2;n<10;n++)Big(b,v[Keys[n]],2);Big(b,v[Keys[10]],4);Big(b,v[Keys[11]],4);}
+                b.WriteByte(128);return b.ToArray();
+            }
+        }
+        private static ulong Leb(byte[] b,ref int at,int end)
+        {
+            ulong value=0;for(int n=0;n<8;n++){if(at>=end)throw new InvalidDataException("Truncated OBU size/type");byte x=b[at++];value|=(ulong)(x&127)<<(n*7);if((x&128)==0)return value;}throw new InvalidDataException("Oversized OBU size/type");
+        }
+        private static int Obu(byte[] b,int length,ref int at,out int payload,out int type)
+        {
+            if(at>=length)throw new InvalidDataException("Missing OBU header");byte h=b[at++];if((h&129)!=0||(h&2)==0)throw new InvalidDataException("Unsupported OBU header/size form");
+            type=(h>>3)&15;if((h&4)!=0){if(at>=length||(b[at++]&7)!=0)throw new InvalidDataException("Invalid OBU extension");}
+            ulong size=Leb(b,ref at,length);payload=at;if(size>(ulong)(length-at))throw new InvalidDataException("OBU exceeds IVF packet");at+=checked((int)size);return at;
+        }
+        private static bool Match(byte[] data,int at,int end,byte[] expected)
+        {if(end-at!=expected.Length)return false;for(int k=0;k<expected.Length;k++)if(data[at+k]!=expected[k])return false;return true;}
+        internal static void Copy(Stream source,Stream target,Dictionary<string,long> values)
+        {
+            byte[] header=Read(source,32);
+            if(Encoding.ASCII.GetString(header,0,4)!="DKIF"||header[4]!=0||header[5]!=0||Encoding.ASCII.GetString(header,8,4)!="AV01")throw new InvalidDataException("Not AV1 IVF version 0");
+            int headerSize=header[6]|header[7]<<8;if(headerSize<32||headerSize>4096)throw new InvalidDataException("Unsupported IVF header size");
+            byte[] extra=Read(source,headerSize-32);target.Write(header,0,header.Length);target.Write(extra,0,extra.Length);
+            byte[] cll=values.ContainsKey(Keys[0])?Body(1,values):null,mdcv=values.ContainsKey(Keys[2])?Body(2,values):null,data=new byte[65536];long packets=0,injected=0;
+            for(;;){
+                int first=source.ReadByte();if(first<0)break;
+                byte[] ph=new byte[12];ph[0]=(byte)first;byte[] rest=Read(source,11);Buffer.BlockCopy(rest,0,ph,1,11);
+                uint size=U32(ph,0);if(size==0||size>128*1024*1024)throw new InvalidDataException("IVF packet outside bounded 1..128MiB support");
+                int length=(int)size;if(data.Length<length)data=new byte[Math.Max(length,Math.Min(128*1024*1024,data.Length*2))];
+                int filled=0;while(filled<length){int got=source.Read(data,filled,length-filled);if(got==0)throw new EndOfStreamException("Truncated IVF packet");filled+=got;}
+                int at=0,sequences=0,count=0;bool haveCll=false,haveMdcv=false,seenFrame=false;
+                while(at<length){
+                    int payload,type;int end=Obu(data,length,ref at,out payload,out type);if(++count>100000)throw new InvalidDataException("Too many OBUs in one IVF packet");
+                    if(type==1){if(sequences++!=0)throw new InvalidDataException("Multiple sequence headers in one IVF packet");}
+                    if(type==3||type==6)seenFrame=true;
+                    if(type==5){int p=payload;ulong mt=Leb(data,ref p,end);
+                        if(mt==1||mt==2){
+                            byte[] expected=mt==1?cll:mdcv;
+                            if(expected==null)continue;
+                            if(seenFrame)throw new InvalidDataException("Existing HDR metadata follows a frame in the same packet");
+                            if(!Match(data,p,end,expected.SubArrayForHdr()))throw new InvalidDataException("Existing AV1 HDR metadata conflicts with proven source");
+                            if(mt==1){if(haveCll)throw new InvalidDataException("Duplicate CLLI OBU");haveCll=true;}
+                            else{if(haveMdcv)throw new InvalidDataException("Duplicate MDCV OBU");haveMdcv=true;}
+                        }
+                    }
+                }
+                if(packets==0&&sequences!=1)throw new InvalidDataException("First IVF packet has no unique sequence header");
+                int add=sequences*((haveCll||cll==null?0:cll.Length+2)+(haveMdcv||mdcv==null?0:mdcv.Length+2));Put32(ph,checked(size+(uint)add));target.Write(ph,0,12);
+                at=0;while(at<length){int start=at,payload,type;int end=Obu(data,length,ref at,out payload,out type);target.Write(data,start,end-start);
+                    if(type==1){if(!haveCll&&cll!=null){target.WriteByte(42);target.WriteByte((byte)cll.Length);target.Write(cll,0,cll.Length);injected++;}if(!haveMdcv&&mdcv!=null){target.WriteByte(42);target.WriteByte((byte)mdcv.Length);target.Write(mdcv,0,mdcv.Length);injected++;}}
+                }
+                packets++;
+            }
+            if(packets==0)throw new InvalidDataException("IVF has no packets");target.Flush();
+            Console.Error.WriteLine("[NVENC HDR stream] packets="+packets+" injected_metadata_obus="+injected+"; no media workfile; compressed frame OBUs and IVF clocks unchanged");
+        }
+        private static byte[] SubArrayForHdr(this byte[] data){var value=new byte[data.Length-1];Buffer.BlockCopy(data,1,value,0,value.Length);return value;}
     }
 }

@@ -1029,6 +1029,13 @@ namespace FilmGrainStudioPreview
         internal static Dictionary<string,long> ReadHevc(string text,int range)
         {
             Require(text,"chroma_format_idc",1);Require(text,"bit_depth_luma_minus8",2);Require(text,"bit_depth_chroma_minus8",2);
+            var result=ReadHevcAvailable(text,range);
+            foreach(string key in new[]{"max_cll","max_fall","luminance_max","luminance_min"})
+                if(!result.ContainsKey(key))throw new InvalidDataException("HDR prefix field missing: "+key);
+            return result;
+        }
+        internal static Dictionary<string,long> ReadHevcAvailable(string text,int range)
+        {
             Require(text,"colour_primaries",9);Require(text,"transfer_characteristics",16);Require(text,"matrix_coefficients",9);Require(text,"video_full_range_flag",range);
             // Reject DV RPU/enhancement NAL and registered user data in this prefix.
             // Later access units are deliberately outside this bounded proof.
@@ -1036,6 +1043,8 @@ namespace FilmGrainStudioPreview
                 throw new InvalidDataException("SVT HDR10 prefix contains dynamic/registered metadata outside this route");
             var result=new Dictionary<string,long>();
             // HEVC ordering G,B,R; AV1 ordering R,G,B.
+            bool mastering=System.Text.RegularExpressions.Regex.IsMatch(text,@"display_primaries_x\[0\]\s+[01]+\s*=\s*\d+");
+            if(mastering) {
             int[] map={2,0,1};
             for(int i=0;i<3;i++)foreach(string xy in new[]{"x","y"}) {
                 long raw=Field(text,"display_primaries_"+xy+"["+map[i]+"]");
@@ -1048,7 +1057,10 @@ namespace FilmGrainStudioPreview
             }
             result["luminance_max"]=ConvertUnits(Field(text,"max_display_mastering_luminance"),10000,256);
             result["luminance_min"]=ConvertUnits(Field(text,"min_display_mastering_luminance"),10000,16384);
-            result["max_cll"]=Field(text,"max_content_light_level");result["max_fall"]=Field(text,"max_pic_average_light_level");
+            }
+            if(System.Text.RegularExpressions.Regex.IsMatch(text,@"max_content_light_level\s+[01]+\s*=\s*\d+")) {
+                result["max_cll"]=Field(text,"max_content_light_level");result["max_fall"]=Field(text,"max_pic_average_light_level");
+            }
             foreach(var kv in result)if(kv.Value<0||kv.Value>(kv.Key.StartsWith("luminance_",StringComparison.Ordinal)?uint.MaxValue:65535))
                 throw new InvalidDataException("HDR value cannot be represented in AV1: "+kv.Key);
             return result;

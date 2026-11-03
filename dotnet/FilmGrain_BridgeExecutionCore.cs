@@ -505,7 +505,7 @@ namespace FilmGrainStudioPreview
             return exitCode;
         }
 
-        // Binary Y4M stream: never use cmd.exe or line-based stdout reading here.
+        // Binary producer stream: never use cmd.exe or line-based stdout reading here.
         private int RunPipedProcess(BridgeExecutionRequest request, BridgeExecutionStage stage, out Exception failure)
         {
             failure = null;
@@ -531,7 +531,7 @@ namespace FilmGrainStudioPreview
                 encoder = new Process(); encoder.StartInfo = BuildStartInfo(request, stage);
                 encoder.StartInfo.RedirectStandardInput = true;
                 producer.ErrorDataReceived += delegate(object sender, DataReceivedEventArgs e)
-                { if (e.Data == null) Interlocked.Exchange(ref producerErrorClosed,1); else RaiseLog(BridgeLogStream.StandardError, "[vspipe] " + e.Data); };
+                { if (e.Data == null) Interlocked.Exchange(ref producerErrorClosed,1); else RaiseLog(BridgeLogStream.StandardError, "[pipe producer] " + e.Data); };
                 encoder.OutputDataReceived += delegate(object sender, DataReceivedEventArgs e)
                 { if (e.Data == null) Interlocked.Exchange(ref encoderOutputClosed,1); else { RaiseLog(BridgeLogStream.StandardOutput, e.Data); HandleProcessLine(e.Data); } };
                 encoder.ErrorDataReceived += delegate(object sender, DataReceivedEventArgs e)
@@ -542,7 +542,7 @@ namespace FilmGrainStudioPreview
                 RaiseLog(BridgeLogStream.System, "starting pipe: " + sourceInfo.FileName + " -> " + encoder.StartInfo.FileName);
                 if (!encoder.Start()) throw new InvalidOperationException("FFmpeg did not start");
                 encoder.BeginOutputReadLine(); encoder.BeginErrorReadLine();
-                if (!producer.Start()) throw new InvalidOperationException("vspipe did not start");
+                if (!producer.Start()) throw new InvalidOperationException("Native pipe producer did not start");
                 producer.BeginErrorReadLine();
                 Process pipeSource = producer, pipeTarget = encoder;
                 copyThread = new Thread(delegate()
@@ -555,12 +555,12 @@ namespace FilmGrainStudioPreview
                 WaitForNativeExit(encoder,producer);
                 if (encoder.ExitCode != 0 || cancelRequested) StopProcessTree(producer);
                 WaitForNativeExit(producer,null);
-                if (!copyThread.Join(5000)) throw new IOException("vspipe copy thread did not stop within 5 seconds.");
+                if (!copyThread.Join(5000)) throw new IOException("Native pipe copy thread did not stop within 5 seconds.");
                 DrainProcessOutput(delegate { return Thread.VolatileRead(ref producerErrorClosed)!=0 && Thread.VolatileRead(ref encoderOutputClosed)!=0 && Thread.VolatileRead(ref encoderErrorClosed)!=0; });
                 if (!cancelRequested && encoder.ExitCode == 0 && producer.ExitCode != 0)
-                    throw new InvalidDataException("vspipe exited with code " + producer.ExitCode.ToString(CultureInfo.InvariantCulture));
+                    throw new InvalidDataException("Native pipe producer exited with code " + producer.ExitCode.ToString(CultureInfo.InvariantCulture));
                 if (!cancelRequested && encoder.ExitCode == 0 && copyFailure != null)
-                    throw new IOException("vspipe stream failed", copyFailure);
+                    throw new IOException("Native pipe stream failed", copyFailure);
                 RaiseLog(BridgeLogStream.System, "[Process] encoder_exit=" + encoder.ExitCode + " producer_exit=" + producer.ExitCode);
                 return encoder.ExitCode;
             }

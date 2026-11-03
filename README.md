@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.0.47 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.48 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 
 ## AV1 / SVT 颗粒与 HDR10
@@ -19,7 +19,17 @@ SVT 的 Film Preset / Photon ISO / Grain Table 复用 grav1synth 0.2.2 与现有
 
 编码前检查输入首个压缩访问单元的 MDCV/CLLI，按 HEVC 与 AV1 的精度换算；编码后、颗粒处理后及最终封装后检查实际 AV1 metadata OBU、位深、采样和颜色标签。缺失或冲突时停止，不伪造亮度值，不自动转 SDR 或重编码。HEVC 探测缺少颜色字段时，只在有一致 VUI 证据时补全缺失字段，不覆盖明确冲突。
 
-此检查不覆盖整片元数据变化、HLG、Dolby Vision、HDR10+ 或所有容器标记。NVENC AV1 的 HDR 静态信息丢失和固定帧率问题仍待分别排查；本版不宣称解决。DV P5 问题保持独立。
+此检查不覆盖整片元数据变化、HLG、Dolby Vision、HDR10+ 或所有容器标记。DV P5 识别／转换问题保持独立。
+
+### NVENC AV1 静态 HDR 信息保留
+
+HEVC HDR10 输入保持 HDR 输出时，FGS 在开始读取源中的 mastering-display（制作显示器色域／亮度）与 CLLI（MaxCLL／MaxFALL），在原有编码、颗粒处理完成后写入最终 AV1，并核对实际 metadata OBU 数值。硬解、遮黑边、缩放、插帧、预设颗粒及其强度不再让此步骤被绕过；GUI 和 CLI 共用执行核心。
+
+读取与写入独立于画面处理及帧率选择，不要求用户为保留这些信息关闭日常功能。HEVC 输入的位深／采样不再作为元数据读取的限制；视频仍按所选 AV1 Main10 路线转换。源中没有的字段不编造：只有 mastering-display 或只有 CLLI 时分别保留，全部缺失时日志说明并继续正常编码。此操作保留源声明值，不重新测量滤镜和颗粒处理后的 MaxCLL／MaxFALL。
+
+最终封装复用已有 IVF 和双进程管道，无新增整片中间文件或视频编码；输入／颗粒阶段的 IVF 不必已有这些静态 OBU，检查对象是最终输出。日志说明源中哪些字段存在；写入或实际值核对失败会报错。HDR→SDR 不复制这些源 HDR 信息。
+
+帧率处理维持原规则。本次只拆开静态信息保留与帧率准入条件，没有扩大帧率修复。既有普通 SOURCE/KEEP 分支及 MP4 末包时长处理保留；NVENC HDR ISO 非100%仍沿用原 CFR。
 
 ### 中间文件与颗粒强度
 
@@ -1401,7 +1411,7 @@ ffmpeg -hide_banner -h decoder=libdav1d
 - OpenSVPFlow 光流仅处理逐行 SDR，默认目标 60 fps；隔行 SDR 和明确 HDR Preserve 按规则绕过，其他特殊组合按门控处理；
 - OpenSVPFlow 当前内部为 YUV420P8 SDR，不是端到端 HDR / 10-bit 插帧；
 - H.264 High10 为实验功能，兼容性明显低于标准 H.264 High 8-bit；
-- HDR Preserve 主要覆盖 AV1 Main10 / HEVC Main10；Dolby Vision RPU 与 HDR10+ 动态 metadata 不在当前处理范围；
+- HDR Preserve 的 AV1 静态 HDR10 核验限于前述明确准入路线；HEVC Main10 沿用现有处理。Dolby Vision RPU 与 HDR10+ 动态 metadata 不在当前处理范围；
 - LUT 智能过滤属于保守启发式分类，不保证能从任意 `.cube` 数值表完全推断创作者意图；
 - 特殊 HDR、VFR、多视频流和非常规容器建议先使用短片验证；
 - 强制取消任务可能留下未完成输出或 `__AV1GS_TMP_*` 临时目录；
