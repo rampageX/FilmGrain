@@ -51,7 +51,7 @@ namespace FilmGrainStudioPreview
             bool interpolate = Get(state, "FG_SVP_INTERPOLATE") == "1";
             bool fruc = interpolate && Eq(state, "FG_INTERPOLATION_ENGINE", "FRUC");
             bool svp = interpolate && !fruc;
-            if (svp && !Eq(state, "FG_INTERPOLATION_ENGINE", "SVP") && !string.IsNullOrEmpty(Get(state, "FG_INTERPOLATION_ENGINE")))
+            if (svp && !NvencInterpolationCore.Enabled(state) && !Eq(state, "FG_INTERPOLATION_ENGINE", "SVP") && !string.IsNullOrEmpty(Get(state, "FG_INTERPOLATION_ENGINE")))
             { reason = "unsupported AV1 interpolation engine"; return false; }
             if (svp && info.IsInterlaced) { reason = "interlaced OpenSVPFlow follows Legacy field-rate handling"; return false; }
             if (fruc && info.IsInterlaced) { reason = "AV1 FRUC requires progressive input; interlaced FRUC is not supported"; return false; }
@@ -169,7 +169,7 @@ namespace FilmGrainStudioPreview
                 if (Math.Abs(outputFps - (24000.0 / 1001.0)) <= 0.03) fpsSuffix = "_23976p";
                 else if (Math.Abs(outputFps - 24.0) <= 0.03) fpsSuffix = "_24p";
             }
-            if (interpolate) fpsSuffix = (fruc ? "_FRUC" : "_SVP") + frucRate.Label;
+            if (interpolate) fpsSuffix = (NvencInterpolationCore.Enabled(state) ? (Eq(state,"FG_INTERPOLATION_ENGINE","NVENC_AI")?"_NVAI":"_NVFRUC") : fruc ? "_FRUC" : "_SVP") + frucRate.Label;
             string output = Path.Combine(outputDirectory,
                 Path.GetFileNameWithoutExtension(input) + "_AV1_" + speed + "_" + NvencRateControlCore.FileToken(state,bitrate) + fpsSuffix + deinterlaceSuffix + frame.FileSuffix + (grainEnabled ? "_GS_" + grainTag : "") + colorSuffix + lutNamingSuffix + (hdrToSdr ? "_SDR_" + tonemapLabel : "") + subtitleSuffix + HardwareDecodeCore.FileSuffix(state) + extension);
             if (File.Exists(output)) { reason = "native output already exists: " + output; return false; }
@@ -185,7 +185,7 @@ namespace FilmGrainStudioPreview
             if (sfeEngines > 0 && (sfeEngines < 2 || sfeEngines > caps.Av1SplitEncodeMaxEngines || (grainEnabled && !caps.Grav1synthSfeCompatible) ||
                 (Eq(state, "FG_SPEED", "FAST") || (!Eq(state, "FG_SPEED", "STANDARD") && !Eq(state, "FG_SPEED", "UHQ")))))
             { reason = "requested AV1 SFE mode is not supported by current speed, GPU, or grav1synth capabilities"; return false; }
-            if (svp && !SharedSvpCore.TryDependencies(appRoot, out reason)) return false;
+            if (svp && !NvencInterpolationCore.Enabled(state) && !SharedSvpCore.TryDependencies(appRoot, out reason)) return false;
             string frucFfmpeg = Get(state, "FG_FRUC_USE_MAIN_FFMPEG") == "0" ? Get(state, "FG_FRUC_FFMPEG_PATH") : ffmpeg;
             if(preprocessing.Length>0 && !PreprocessingCore.TryCheckTool(ffmpeg,out reason))return false;
             if(resize.Enabled && !ResizeCore.TryCheckTool(ffmpeg,out reason))return false;
@@ -315,7 +315,7 @@ namespace FilmGrainStudioPreview
                 if (highMotionEncoderProfile && caps.Av1SceneCut) Add(encode, "-no-scenecut", "0");
             }
             if (sfeEngines >= 2) Add(encode, "-split_encode_mode", sfeEngines.ToString(CultureInfo.InvariantCulture));
-            if(svp)SharedInterpolationEncodeCore.NormalizeRenderedCadence(encode,fpsText);
+            if(svp && !NvencInterpolationCore.Enabled(state))SharedInterpolationEncodeCore.NormalizeRenderedCadence(encode,fpsText);
             if (interpolate) Add(encode, "-enc_time_base:v",fpsText.Contains("/")?fpsText.Split('/')[1]+"/"+fpsText.Split('/')[0]:"1/"+fpsText,"-fps_mode:v", "passthrough");
             else if(hdrOrdinaryClock) Add(encode,"-enc_time_base:v","demux","-fps_mode:v","passthrough");
             else Add(encode, "-r", fpsText, "-fps_mode:v", "cfr");

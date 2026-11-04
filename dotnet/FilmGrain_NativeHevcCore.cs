@@ -71,7 +71,7 @@ namespace FilmGrainStudioPreview
 
             bool svp = interpolate && !fruc;
 
-            if (interpolate && !fruc && !Eq(state, "FG_INTERPOLATION_ENGINE", "SVP") && !string.IsNullOrEmpty(Get(state, "FG_INTERPOLATION_ENGINE")))
+            if (interpolate && !fruc && !NvencInterpolationCore.Enabled(state) && !Eq(state, "FG_INTERPOLATION_ENGINE", "SVP") && !string.IsNullOrEmpty(Get(state, "FG_INTERPOLATION_ENGINE")))
 
             { reason = "unsupported interpolation engine"; return false; }
 
@@ -170,7 +170,7 @@ namespace FilmGrainStudioPreview
 
                 fps = targetRate.Rational;
 
-                fpsSuffix = (fruc ? "_FRUC" : "_SVP") + targetRate.Label;
+                fpsSuffix = (NvencInterpolationCore.Enabled(state) ? (Eq(state,"FG_INTERPOLATION_ENGINE","NVENC_AI")?"_NVAI":"_NVFRUC") : fruc ? "_FRUC" : "_SVP") + targetRate.Label;
 
             }
 
@@ -335,7 +335,7 @@ namespace FilmGrainStudioPreview
                             if (plateMode && !File.Exists(Get(state,"FG_HEVC_GRAIN_PATH"))) { reason="selected Grain Plate is missing";return false; }
                 if (fruc && !SharedFrucCore.TryPreflight(ffmpeg,Get(state,"FG_FRUC_PERF").ToLowerInvariant(),Get(state,"FG_FRUC_GRID").ToLowerInvariant(),out reason))return false;
                 if(fruc && hdrPreserve && !SharedFrucCore.TryPreflight10(ffmpeg,Get(state,"FG_FRUC_PERF").ToLowerInvariant(),Get(state,"FG_FRUC_GRID").ToLowerInvariant(),out reason))return false;
-                if (svp && (!File.Exists(vspipe)||!File.Exists(vpy)||!File.Exists(Path.Combine(svpPlugins,"svpflow1_vs.dll"))||!File.Exists(Path.Combine(svpPlugins,"svpflow2_vs.dll")))) { reason="OpenSVPFlow dependencies are missing";return false; }
+                if (svp && !NvencInterpolationCore.Enabled(state) && (!File.Exists(vspipe)||!File.Exists(vpy)||!File.Exists(Path.Combine(svpPlugins,"svpflow1_vs.dll"))||!File.Exists(Path.Combine(svpPlugins,"svpflow2_vs.dll")))) { reason="OpenSVPFlow dependencies are missing";return false; }
                 if (mpegTsSvp && !preserveSvpTransportTimeline && !TryGetMpegTsVideoOffset(ffprobe,input,out mpegTsVideoOffset,out reason))return false;
                 if(fgsimMode) {
                     if(!TryPrepareFgsimHook(appRoot,ffmpeg,fgsimHook,Get(state,"FG_FGSIM_PRESET").ToUpperInvariant(),out reason))return false;
@@ -592,7 +592,7 @@ namespace FilmGrainStudioPreview
 
                     if (svp) {
                         ConvertToPipeInput(hevcArgs, encodeInput, mpegTsSvp && !preserveSvpTransportTimeline ? mpegTsVideoOffset : null);
-                        SharedInterpolationEncodeCore.NormalizeRenderedCadence(hevcArgs,fps);
+                        if(!NvencInterpolationCore.Enabled(state))SharedInterpolationEncodeCore.NormalizeRenderedCadence(hevcArgs,fps);
                         hevcArgs.InsertRange(hevcArgs.Count-1,new[]{"-enc_time_base:v",fps.Contains("/")?fps.Split('/')[1]+"/"+fps.Split('/')[0]:"1/"+fps});
                     }
 
@@ -602,7 +602,7 @@ namespace FilmGrainStudioPreview
 
                         if (svp) SharedSvpCore.AttachProducer(mainStage, vspipe, vpy, svpPlugins, encodeInput, state, fps);
                         if (svp && hdrToSdr) SharedHdrPreprocessCore.AttachPipeTimeline(mainStage,ffprobe,encodeInput,info,hevcArgs,input);
-                        else if (preserveSvpTransportTimeline) SharedPipeTimelineCore.AttachTransportSource(mainStage,ffprobe,encodeInput,info,hevcArgs);
+                        else if (preserveSvpTransportTimeline || NvencInterpolationCore.Enabled(state)) SharedPipeTimelineCore.AttachTransportSource(mainStage,ffprobe,encodeInput,info,hevcArgs);
 
                         if(fieldWorkfile || separateDeint || hdrOffSdr)SharedHdrPreprocessCore.AttachFieldTimeline(mainStage,ffprobe,encodeInput,info,hdrToSdr,!hdrOffSdr);
 

@@ -61,7 +61,7 @@ namespace FilmGrainStudioPreview
             var timer=System.Diagnostics.Stopwatch.StartNew();
             string previewFlag;state.TryGetValue("FG_ENCODE_PREVIEW",out previewFlag);
             string requested;state.TryGetValue("FG_GPU_DECODE",out requested);
-            bool planning=requested=="1"&&!noReencode&&previewFlag!="1";
+            bool planning=requested=="1"&&!noReencode&&previewFlag!="1"&&!NvencInterpolationCore.Enabled(state);
             var initialState=new Dictionary<string,string>(state,StringComparer.OrdinalIgnoreCase);
             initialState.Remove("FG_HWD_PLAN");initialState.Remove("FG_HWD_BACKEND");initialState.Remove("FG_HWD_SOURCE");
             if(planning)initialState["FG_HWD_PLAN"]=Guid.NewGuid().ToString("N");
@@ -114,6 +114,15 @@ namespace FilmGrainStudioPreview
                 if(ok) { prepared.ExecutionRequest.SourceIdentity=info.Identity;prepared.ExecutionRequest.SourceConfigRoot=appRoot; }
                 return ok;
             }
+            if(!noReencode && NvencInterpolationCore.Enabled(state)) {
+                string gpu=caps==null?VulkanDevicePolicy.DeviceName:caps.GpuName;
+                if(!NvencInterpolationCore.Validate(appRoot,input,info,state,gpu,out reason))return false;
+                var nvState=new Dictionary<string,string>(state,StringComparer.OrdinalIgnoreCase);
+                var nvReport=NvencInterpolationCore.Cached(appRoot,NvencInterpolationCore.Get(state,"FG_NVENC_DIR"));
+                nvState["FG_NVENC_GPU_NAME"]=gpu;nvState["FG_NVENC_DEVICES"]=nvReport.Devices;
+                nvState["FG_NVENC_SOURCE_FPS"]=info.AvgFrameRate;
+                state=nvState;
+            }
             string svpEnabled, svpEngine;
             state.TryGetValue("FG_SVP_INTERPOLATE", out svpEnabled); state.TryGetValue("FG_INTERPOLATION_ENGINE", out svpEngine);
             if (!noReencode && svpEnabled == "1" && (string.IsNullOrEmpty(svpEngine) || string.Equals(svpEngine, "SVP", StringComparison.OrdinalIgnoreCase)))
@@ -146,6 +155,8 @@ namespace FilmGrainStudioPreview
                 }
                 if(success && prepared!=null && prepared.ExecutionRequest!=null)
                 {
+                    if(NvencInterpolationCore.Enabled(state))prepared.ExecutionRequest.ExecutionNotice=(prepared.ExecutionRequest.ExecutionNotice??"")+Environment.NewLine+
+                        "[NVEncC SDR] "+NvencInterpolationCore.Label(NvencInterpolationCore.Get(state,"FG_INTERPOLATION_ENGINE"))+"; raw NUT binary pipe; no extra lossy encode; software decode explicitly selected; no engine fallback; existing AV1/multipass/HDR workfiles retained.";
                     if(info.ColorSignalSource!="ffprobe-stream")prepared.ExecutionRequest.ExecutionNotice=(prepared.ExecutionRequest.ExecutionNotice??"")+Environment.NewLine+"[Color probe] "+info.ColorSignalSource+"; raw primaries="+info.OriginalColorPrimaries+"; raw transfer="+info.OriginalColorTransfer;
                     if(ResizeCore.Enabled(state))prepared.ExecutionRequest.ExecutionNotice=(prepared.ExecutionRequest.ExecutionNotice??"")+Environment.NewLine+"[Resize] Vulkan/libplacebo Lanczos; crop and resize before added grain; output dimensions in _RS filename; original cadence retained.";
                     if(!noReencode && PreprocessingCore.Enabled(state))prepared.ExecutionRequest.ExecutionNotice=(prepared.ExecutionRequest.ExecutionNotice??"")+Environment.NewLine+"[Preprocessing] CPU bilateral / 10-bit software frames / before color, LUT and grain"; info.Identity.RequireCurrent(); string rateNotice=NvencRateControlCore.Notice(state);if(rateNotice.Length>0)prepared.ExecutionRequest.ExecutionNotice=(prepared.ExecutionRequest.ExecutionNotice??"")+Environment.NewLine+rateNotice; string audioNotice=AudioOutputCore.Notice(info,state);if(audioNotice.Length>0)prepared.ExecutionRequest.ExecutionNotice=(prepared.ExecutionRequest.ExecutionNotice??"")+Environment.NewLine+audioNotice; prepared.ExecutionRequest.SourceIdentity=info.Identity; prepared.ExecutionRequest.SourceConfigRoot=appRoot; NativeProcessPolicy.ValidateRequest(prepared.ExecutionRequest);return true; }
@@ -484,6 +495,7 @@ namespace FilmGrainStudioPreview
         {
             selected=null;notice="[HWD] requested=off effective=software";
             if(Get(state,"FG_GPU_DECODE")!="1")return false;
+            if(NvencInterpolationCore.Enabled(state)){notice="[HWD] requested=on effective=software fallback=NVEncC interpolation uses explicit avsw; existing device-specific FFmpeg decode paths are unchanged";return false;}
             if(request.SuppressSourceAv1Grain){notice="[HWD] requested=on effective=software reason=external AV1 model replacement requires libdav1d filmgrain=0; GPU filters unchanged";return false;}
             if(Get(state,"FG_MODE")=="AV1BAKE"){notice="[HWD] requested=on effective=software reason=AV1 bake requires libdav1d software film-grain synthesis";return false;}
             bool bestSource=false;var tools=new HashSet<string>(StringComparer.OrdinalIgnoreCase);

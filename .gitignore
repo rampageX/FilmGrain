@@ -81,3 +81,6 @@
 /Return_LutGallery_*.zip
 /__FGS_LutGallery_Audit_*.exe
 /FGS_v5.0.31_ReleasePrep_*.zip
+
+# Optional NVEncC tool metadata, machine-specific
+NVEncC_Interpolation.cache.json

@@ -107,8 +107,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.51";
-        internal const string FileReleaseVersion = "5.0.51.0";
+        internal const string ReleaseVersion = "5.0.52";
+        internal const string FileReleaseVersion = "5.0.52.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -988,7 +988,7 @@ namespace FilmGrainStudioPreview
             interp.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 92));
             interp.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             chkInterpolation = Check(lang.T("encode.enable"), false); chkInterpolation.Dock = DockStyle.Fill;
-            cmbInterpolationMode = Combo(new string[] { "OpenSVP · " + lang.T("interp.smooth"), "OpenSVP · " + lang.T("interp.adaptive"), "FRUC Vulkan" }, 0);
+            cmbInterpolationMode = Combo(new string[] { "OpenSVP · " + lang.T("interp.smooth"), "OpenSVP · " + lang.T("interp.adaptive"), "FRUC Vulkan · HDR", "NVEncC FRUC", "NVEncC AI" }, 0);
             cmbInterpolationMode.Dock = DockStyle.Fill; cmbInterpolationMode.DropDownWidth = 340;
             cmbInterpolationMode.DrawMode = DrawMode.OwnerDrawFixed;
             cmbInterpolationMode.DrawItem += delegate(object sender, DrawItemEventArgs e)
@@ -997,9 +997,10 @@ namespace FilmGrainStudioPreview
                 e.DrawBackground();
                 bool disabled = e.Index == 2 && ((hardwareDetectionInProgress && !hardwareCapsReady) || hardwareCaps == null || !hardwareCaps.FrucReady || !hardwareCaps.FrucAvailable);
                 TextRenderer.DrawText(e.Graphics, Convert.ToString(cmbInterpolationMode.Items[e.Index]), e.Font,
-                    e.Bounds, disabled ? SystemColors.GrayText : e.ForeColor, TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
+                    e.Bounds, (disabled || (e.Index>=3 && NvencOptionReason(e.Index).Length>0)) ? SystemColors.GrayText : e.ForeColor, TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
                 e.DrawFocusRectangle();
             };
+            cmbInterpolationMode.DropDown += delegate { BeginNvencInspection(); };
             cmbInterpolationFps = ComboEditable(new string[] { "60", "59.94", "60000/1001", "2x", "1.5x" }, config.Get("INTERPOLATION_TARGET_FPS"));
             cmbInterpolationFps.Dock = DockStyle.Fill; cmbInterpolationFps.DropDownWidth = 130;
             lutToolTip.SetToolTip(cmbInterpolationFps, UiText("目标帧率：绝对帧率、分数帧率或源帧率倍率；默认 60。", "Target rate: absolute FPS, a rational rate, or source-rate multiplier; default 60."));
@@ -1007,6 +1008,10 @@ namespace FilmGrainStudioPreview
             cmbInterpolationFps.TextChanged += delegate { if(restoringFileEditor)return; if (config.Get("INTERPOLATION_TARGET_FPS") != cmbInterpolationFps.Text.Trim()) try { config.Save(new Dictionary<string,string> { { "INTERPOLATION_TARGET_FPS", cmbInterpolationFps.Text.Trim() } }); } catch { } UpdateMediaDrivenUi(GetSelectedMediaInfo()); UpdateBitrateDisplays(); };
             cmbInterpolationMode.SelectedIndexChanged += delegate { if(restoringFileEditor)return;
                 if (updatingFrucUi) return;
+                if(cmbInterpolationMode.SelectedIndex>=3) {
+                    string unavailable=NvencOptionReason(cmbInterpolationMode.SelectedIndex);
+                    if(unavailable.Length>0) {BeginNvencInspection();MessageBox.Show(this,unavailable,Text,MessageBoxButtons.OK,MessageBoxIcon.Information);cmbInterpolationMode.SelectedIndex=previousSvpSelection;return;}
+                }
                 if (cmbInterpolationMode.SelectedIndex == 2 &&
                     ((hardwareDetectionInProgress && !hardwareCapsReady) || hardwareCaps == null || !hardwareCaps.FrucReady || !hardwareCaps.FrucAvailable))
                 {
@@ -1020,7 +1025,7 @@ namespace FilmGrainStudioPreview
             };
             chkInterpolation.CheckedChanged += delegate { if(restoringFileEditor)return;
                 if (chkInterpolation.Checked && cmbDeint != null && cmbDeint.SelectedIndex != 0) cmbDeint.SelectedIndex = 0;
-                if (chkInterpolation.Checked && cmbInterpolationMode.SelectedIndex != 2 && (setupTestMode || (!File.Exists(Path.Combine(appRoot, "_OpenSVPFlow", ".venv", "Scripts", "vspipe.exe")) && !AllInputsBypassOpenSvp())))
+                if (chkInterpolation.Checked && cmbInterpolationMode.SelectedIndex < 2 && (setupTestMode || (!File.Exists(Path.Combine(appRoot, "_OpenSVPFlow", ".venv", "Scripts", "vspipe.exe")) && !AllInputsBypassOpenSvp())))
                 {
                     chkInterpolation.Checked = false;
                     if (MessageBox.Show(this,
@@ -1957,6 +1962,9 @@ namespace FilmGrainStudioPreview
                 "CPU 软件编码能力，与 NVENC 支持无关；由 FFmpeg 的编码器及对应参数检查决定。",
                 "CPU software encoding, independent of NVENC support; determined by the FFmpeg encoder and parameter checks."),
                 "SVT-HDR");
+            AddCapabilityGroup(strip,"NVEncC",UiText("可选插帧工具；点击只刷新 NVEncC 检测，不重测整机硬件。","Optional interpolation tool; click refreshes NVEncC only."),"NVEncC");
+            statusCapabilities["NVEncC"].Click+=delegate {BeginNvencInspection(true);};
+            UpdateNvencStatus();
             statusCapabilities["FRUC"].Click += delegate { BeginHardwareDetection(true); };
             statusCapabilities["SVT-HDR"].Click += delegate { BeginHardwareDetection(true); };
             BuildThemeMenu(strip);
@@ -2594,7 +2602,7 @@ namespace FilmGrainStudioPreview
         {
             if (chkInterpolation == null || !chkInterpolation.Checked || info == null) return false;
             var current = new Dictionary<string,string> {
-                {"FG_SVP_INTERPOLATE","1"}, {"FG_INTERPOLATION_ENGINE",cmbInterpolationMode != null && cmbInterpolationMode.SelectedIndex == 2 ? "FRUC" : "SVP"},
+                {"FG_SVP_INTERPOLATE","1"}, {"FG_INTERPOLATION_ENGINE",NvencInterpolationCore.Engine(cmbInterpolationMode==null?0:cmbInterpolationMode.SelectedIndex)},
                 {"FG_HDR_POLICY",config.Get("HDR_POLICY")}, {"FG_DEINTERLACE",cmbDeint == null || cmbDeint.SelectedIndex == 0 ? "AUTO" : "OFF"}
             };
             IDictionary<string,string> normalized; string notice,reason;
@@ -2870,7 +2878,7 @@ namespace FilmGrainStudioPreview
             SetCapabilityStatus("SVT-HDR",hardwareCaps.SvtHdrAvailable);
             if(statusCapabilities.ContainsKey("SVT-HDR"))statusCapabilities["SVT-HDR"].ToolTipText="SVT-AV1-HDR · "+hardwareCaps.FrucFfmpegPath+"\r\n"+hardwareCaps.SvtHdrReason;
             SetCapabilityStatus("SVP", hardwareCaps.OpenSvpGpuAvailable);
-            UpdateFrucAvailabilityUi(); UpdateFrucStatus();
+            UpdateFrucAvailabilityUi(); UpdateFrucStatus(); UpdateNvencStatus();
 
 
             if (cmbCodec != null && cmbCodec.Items.Count >= 4)
@@ -2901,7 +2909,8 @@ namespace FilmGrainStudioPreview
         private void SetCapabilityStatusPending()
         {
             foreach (KeyValuePair<string,ToolStripStatusLabel> pair in statusCapabilities)
-            { pair.Value.Text = CapabilityDisplayName(pair.Key) + " ?"; pair.Value.ForeColor = ColorMuted; }
+            { if(pair.Key=="NVEncC")continue;pair.Value.Text = CapabilityDisplayName(pair.Key) + " ?"; pair.Value.ForeColor = ColorMuted; }
+            UpdateNvencStatus();
         }
 
         private void SetCapabilityStatus(string name, bool available)
@@ -2943,7 +2952,7 @@ namespace FilmGrainStudioPreview
         private void UpdateFrucAvailabilityUi()
         {
             if (cmbInterpolationMode == null || cmbInterpolationMode.Items.Count < 3) return;
-            string label = "FRUC Vulkan";
+            string label = "FRUC Vulkan · HDR";
             if ((hardwareDetectionInProgress && !hardwareCapsReady) || hardwareCaps == null || !hardwareCaps.FrucReady)
                 label += UiText(" · 检测中", " · pending");
             else if (!hardwareCaps.FrucAvailable)
@@ -3673,7 +3682,8 @@ namespace FilmGrainStudioPreview
                 HdrPolicy=config.Get("HDR_POLICY"), ColorEnabled=colorCorrectionEnabled,
                 LutEnabled=IsLutEffectEnabled(), LutPath=selectedLutPath, LutStrength=GetLutStrength(),
                 SvpInterpolate=chkInterpolation!=null&&chkInterpolation.Checked,
-                InterpolationEngine=cmbInterpolationMode!=null&&cmbInterpolationMode.SelectedIndex==2?"FRUC":"SVP"
+                NvencDirectory=config.Get("NVENC_DIR"),NvencAiMode=config.Get("NVENC_AI_MODE"),
+                InterpolationEngine=NvencInterpolationCore.Engine(cmbInterpolationMode==null?0:cmbInterpolationMode.SelectedIndex)
             };
             return BridgeEnvironmentCore.Build(snapshot);
         }
@@ -3799,14 +3809,16 @@ namespace FilmGrainStudioPreview
 
                 if(preserve && fruc)
                     detail += " " + UiText("FRUC 使用 P010 10-bit 路线；执行前验证当前工具及设备的高位深能力，不降为 8bit。", "FRUC uses the P010 10-bit path; tool/device precision is validated before execution, without 8-bit fallback.");
-                if(fruc && info.IsInterlaced)
+                bool nvenc=interpolate && cmbInterpolationMode.SelectedIndex>=3;
+                if(nvenc && policy=="PRESERVE") {unsupported=true;preserve=false;detail=UiText("NVEncC 插帧仅支持 SDR；HDR 保留请用 FRUC Vulkan。","NVEncC interpolation is SDR only; use FRUC Vulkan for HDR Preserve.");}
+                if((fruc || nvenc) && info.IsInterlaced)
                 {
                     unsupported = true;
                     detail = UiText("隔行输入当前不支持 FRUC 插帧。", "FRUC interpolation currently requires progressive input.");
                 }
                 text = unsupported ? lang.T("input.hdr_route_unsupported") :
                     (toSdr ? LF("input.hdr_route_tosdr", toneLabel) : lang.T("input.hdr_route_passthrough"));
-                bool hasPreserveBypass = interpolate && !fruc;
+                bool hasPreserveBypass = interpolate && !fruc && !nvenc;
                 if (preserve && !noReencode && hasPreserveBypass)
                     text += " " + lang.T("input.hdr_route_bypass_short");
             }
@@ -3847,7 +3859,7 @@ namespace FilmGrainStudioPreview
                     }
                     else if (InterpolationFrameRateCore.TryParse(requestedRate, info == null ? "" : info.AvgFrameRate, out targetRate, out rateError))
                     {
-                        string engineLabel = cmbInterpolationMode != null && cmbInterpolationMode.SelectedIndex == 2 ? "FRUC Vulkan" : "OpenSVPFlow";
+                        string engineLabel = NvencInterpolationCore.Label(NvencInterpolationCore.Engine(cmbInterpolationMode==null?0:cmbInterpolationMode.SelectedIndex));
                         cmbFps.Items[0] = engineLabel + " · " + targetRate.Fps.ToString("0.###", CultureInfo.InvariantCulture) + " fps";
                     }
                     else cmbFps.Items[0] = UiText("插帧目标帧率无效", "Invalid interpolation target FPS");
@@ -4641,6 +4653,40 @@ namespace FilmGrainStudioPreview
                     }
                 }
             }
+        }
+    }
+}
+
+namespace FilmGrainStudioPreview {
+    internal sealed partial class MainForm {
+        private void UpdateNvencStatus() {
+            ToolStripStatusLabel item;if(!statusCapabilities.TryGetValue("NVEncC",out item))return;
+            string dir=config.Get("NVENC_DIR");
+            item.ForeColor=ColorMuted;
+            if(!File.Exists(NvencInterpolationCore.Exe(dir))) {item.Text=UiText("NVEncC 未配置","NVEncC not configured");item.ToolTipText=NvencInterpolationCore.Exe(dir)+"\r\n"+UiText("未找到 NVEncC64.exe；可在配置中设置目录。","NVEncC64.exe not found; choose its directory in Configuration.");return;}
+            if(nvencInspectRunning){item.Text=UiText("NVEncC 检测中","NVEncC checking");return;}
+            var report=NvencInterpolationCore.Cached(appRoot,dir);
+            if(report==null){item.Text="NVEncC ?";item.ToolTipText=UiText("尚未检查；点击仅检测可选 NVEncC。","Not checked; click to inspect NVEncC only.");return;}
+            string fruc=NvencOptionReason(3),ai=NvencOptionReason(4);
+            bool available=fruc.Length==0||ai.Length==0;
+            var version=System.Text.RegularExpressions.Regex.Match(report.Version??"",@"\d+\.\d+");
+            item.Text="NVEncC "+(version.Success?version.Value:"")+(available?" ✓":" ✗");
+            item.ForeColor=available?Color.FromArgb(25,135,65):Color.FromArgb(190,50,45);
+            item.ToolTipText=NvencInterpolationCore.Exe(dir)+"\r\n"+report.Version+"\r\nFRUC: "+(fruc.Length==0?"✓":fruc)+"\r\nAI: "+(ai.Length==0?"✓":ai)+"\r\n"+UiText("版本/功能检测；DLL 与实际输入由运行确认。点击仅刷新 NVEncC。","Metadata check; DLLs and inputs verified on execution. Click refreshes NVEncC only.");
+        }
+        private bool nvencInspectRunning;
+        private string NvencOptionReason(int index) {
+            return NvencInterpolationCore.Availability(appRoot,config.Get("NVENC_DIR"),NvencInterpolationCore.Engine(index),hardwareCaps==null?"":hardwareCaps.GpuName);
+        }
+        private void BeginNvencInspection(bool force=false) {
+            string dir=config.Get("NVENC_DIR");
+            if(nvencInspectRunning)return;
+            if(!File.Exists(NvencInterpolationCore.Exe(dir)) || (!force&&NvencInterpolationCore.Cached(appRoot,dir)!=null)){UpdateNvencStatus();return;}
+            nvencInspectRunning=true;UpdateNvencStatus();
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate {
+                NvencInterpolationCore.Inspect(appRoot,dir,force);
+                try{if(!IsDisposed && IsHandleCreated)BeginInvoke((Action)delegate {nvencInspectRunning=false;UpdateNvencStatus();if(cmbInterpolationMode!=null)cmbInterpolationMode.Invalidate();});}catch{}
+            });
         }
     }
 }

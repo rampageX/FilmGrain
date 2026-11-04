@@ -447,6 +447,26 @@ namespace FilmGrainStudioPreview
                 table.Controls.Add(buttons, 0, 14); table.SetColumnSpan(buttons, 4);
                 dlg.CancelButton = cancel;
 
+                dlg.ClientSize=new Size(850,742);
+                table.RowCount+=2;table.RowStyles.Insert(4,new RowStyle(SizeType.Absolute,42));table.RowStyles.Insert(5,new RowStyle(SizeType.Absolute,36));
+                var moveRows=new List<Control>();foreach(Control c in table.Controls)moveRows.Add(c);moveRows.Sort(delegate(Control a,Control b){return table.GetRow(b).CompareTo(table.GetRow(a));});
+                foreach(Control c in moveRows) {int row=table.GetRow(c);if(row>=4)table.SetRow(c,row+2);}
+                TextBox txtNvenc=ConfigTextBox(config.Get("NVENC_DIR"));
+                Button browseNvenc=ConfigButton(lang.T("config.browse")),refreshNvenc=RefreshButton();
+                Label statusNvenc=ConfigStatusLabel(UiText("可选；只检查版本/功能，实际运行时验证 DLL。","Optional; metadata check only, DLLs validated by actual execution."));
+                table.Controls.Add(ConfigLabelWithWebLink("NVEncC", "https://github.com/rigaya/NVEnc/releases", "NVEncC",dlg),0,4);
+                table.Controls.Add(txtNvenc,1,4);table.Controls.Add(browseNvenc,2,4);table.Controls.Add(refreshNvenc,3,4);table.Controls.Add(statusNvenc,1,5);table.SetColumnSpan(statusNvenc,3);
+                Action inspectNvenc=delegate {
+                    string dir=txtNvenc.Text.Trim();statusNvenc.Text=UiText("正在检查 NVEncC...","Checking NVEncC...");refreshNvenc.Enabled=false;
+                    System.Threading.ThreadPool.QueueUserWorkItem(delegate {
+                        var report=NvencInterpolationCore.Inspect(appRoot,dir,true);
+                        try {if(!dlg.IsDisposed&&dlg.IsHandleCreated)dlg.BeginInvoke((Action)delegate {refreshNvenc.Enabled=true;if(txtNvenc.Text.Trim()==dir)statusNvenc.Text=report.Error.Length>0?report.Error:report.Version+" | FRUC="+report.Fruc+" | AI="+report.Ai+UiText("；实际运行待验证","; runtime not verified");});}catch{}
+                    });
+                };
+                refreshNvenc.Click+=delegate {inspectNvenc();};
+                browseNvenc.Click+=delegate {using(var picker=new FolderBrowserDialog()){picker.Description=UiText("选择包含 NVEncC64.exe 的目录","Select the directory containing NVEncC64.exe");if(picker.ShowDialog(dlg)==DialogResult.OK){txtNvenc.Text=picker.SelectedPath;inspectNvenc();}}};
+                txtNvenc.TextChanged+=delegate {statusNvenc.Text=UiText("路径已改变；保存后按需检查。","Path changed; checked on demand after saving.");};
+
                 EventHandler updateStorage = delegate
                 {
                     bool tempCustom = cmbTemp.SelectedIndex == 2;
@@ -571,6 +591,7 @@ namespace FilmGrainStudioPreview
 
                 restore.Click += delegate
                 {
+                    txtNvenc.Text="";
                     txtFfmpeg.Text = config.GetDefault("FFMPEG_DIR");
                     chkFrucSame.Checked = true; customFrucDir = ""; savedFrucExe = ""; txtFruc.Text = txtFfmpeg.Text;
                     txtGrav.Text = config.GetDefault("GRAV1SYNTH");
@@ -626,6 +647,7 @@ namespace FilmGrainStudioPreview
                     try
                     {
                         Dictionary<string, string> updates = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                        updates["NVENC_DIR"]=txtNvenc.Text.Trim();
                         updates["FFMPEG_DIR"] = ffdir; updates["GRAV1SYNTH"] = txtGrav.Text.Trim(); updates["GRAIN_ROOT"] = txtGrain.Text.Trim(); updates["LUT_ROOT"] = txtLut.Text.Trim();
                         updates["FRUC_FFMPEG_SAME_AS_MAIN"] = chkFrucSame.Checked ? "true" : "false";
                         updates["FRUC_FFMPEG_PATH"] = chkFrucSame.Checked ?
@@ -655,6 +677,7 @@ namespace FilmGrainStudioPreview
                     UpdateLutUi();
                     UpdateGrainForCodec();
                     RefreshChangedHardware(hardwareBefore);
+                    BeginNvencInspection();
                     if (log != null) log.AppendText("[Config] Path configuration saved: " + config.ConfigPath + Environment.NewLine);
                     MessageBox.Show(this, lang.T("config.saved"), lang.T("config.path_title"), MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
@@ -822,6 +845,9 @@ namespace FilmGrainStudioPreview
                 extraLabel("Peel limit",226);NumericUpDown peelLimit=extraNumber("SVP_PEEL_LIMIT",6,100,226);
                 EventHandler refreshExtra = delegate { stillLimit.Enabled=stillEdge.Enabled=stillTolerance.Enabled=still.Checked;peelLimit.Enabled=peel.Checked; };
                 still.CheckedChanged+=refreshExtra;peel.CheckedChanged+=refreshExtra;refreshExtra(null,EventArgs.Empty);
+                Label aiModeLabel=new ThemeLabel {Text=UiText("NVEncC AI 质量","NVEncC AI quality"),Location=new Point(360,352),Size=new Size(150,24)};interp.Controls.Add(aiModeLabel);
+                ComboBox aiMode=new ThemeComboBox {DropDownStyle=ComboBoxStyle.DropDownList,Location=new Point(515,350),Size=new Size(150,26)};
+                aiMode.Items.AddRange(new object[]{"low","medium","high"});int aiIndex=aiMode.Items.IndexOf(config.Get("NVENC_AI_MODE"));aiMode.SelectedIndex=aiIndex<0?1:aiIndex;interp.Controls.Add(aiMode);
                 Label extraInfo = new ThemeLabel { Text=UiText("默认全部关闭；dedup 建议从 0.5 开始。\nStill / Peel 仅 GPU，需支持这些选项的插件。\nHDR 直通、隔行旁路与 FRUC 不使用这些选项。", "All off by default; start dedup at 0.5.\nStill / Peel: GPU and compatible plugins required.\nNot used with HDR Preserve, interlaced bypass or FRUC."),Location=new Point(360,266),Size=new Size(310,80),ForeColor=ColorMuted };interp.Controls.Add(extraInfo);
                 interpTips.SetToolTip(dedup,UiText("仅处理孤立重复帧；亮度采样平均差低于阈值才算重复，不是VFR或音画同步修复。", "Handles isolated repeats using sampled mean luma difference; not a VFR or audio sync repair."));
                 interpTips.SetToolTip(still,UiText("上游 GPU 静止遮罩，帮助减少固定文字和标识的拖影。", "Upstream GPU still mask for stationary text and logos."));
@@ -860,7 +886,7 @@ namespace FilmGrainStudioPreview
                         encoderEditors[family+"_HW"].RestoreDefaults(config);encoderEditors[family+"_CPU"].RestoreDefaults(config);
                     }
                     else if(tabs.SelectedTab==audioPage){audioMode.SelectedIndex=0;audioRate.SelectedIndex=4;}
-                    else if (tabs.SelectedTab == interp) { svpSpeed.SelectedIndex = 0; svpTuning.SelectedIndex = 0; svpBlock.SelectedIndex = 0; algo.SelectedItem = "13"; analyse.SelectedIndex = 0; mask.Value = 100; frucPerf.SelectedIndex = 1; frucGrid.SelectedIndex = 0; svpFast.Checked=false;svpLean.Checked=false;dedup.Value=0;still.Checked=false;stillLimit.Value=4.5m;stillEdge.Value=5;stillTolerance.Value=30;peel.Checked=false;peelLimit.Value=6; }
+                    else if (tabs.SelectedTab == interp) { aiMode.SelectedIndex=1; svpSpeed.SelectedIndex = 0; svpTuning.SelectedIndex = 0; svpBlock.SelectedIndex = 0; algo.SelectedItem = "13"; analyse.SelectedIndex = 0; mask.Value = 100; frucPerf.SelectedIndex = 1; frucGrid.SelectedIndex = 0; svpFast.Checked=false;svpLean.Checked=false;dedup.Value=0;still.Checked=false;stillLimit.Value=4.5m;stillEdge.Value=5;stillTolerance.Value=30;peel.Checked=false;peelLimit.Value=6; }
                     else if (tabs.SelectedTab == hdr) { hdrPolicy.SelectedIndex = 0; tone.SelectedIndex = 0; updateHdr(null, EventArgs.Empty); }
                 };
 
@@ -901,6 +927,7 @@ namespace FilmGrainStudioPreview
                     updates["SVP_PEEL"] = peel.Checked ? "true" : "false";
                     updates["SVP_PEEL_LIMIT"] = peelLimit.Value.ToString(CultureInfo.InvariantCulture);
 
+                    updates["NVENC_AI_MODE"]=Convert.ToString(aiMode.SelectedItem,CultureInfo.InvariantCulture);
                     updates["FRUC_PERF"] = Convert.ToString(frucPerf.SelectedItem, CultureInfo.InvariantCulture);
                     string selectedGrid=Convert.ToString(frucGrid.SelectedItem,CultureInfo.InvariantCulture);
                     if(supportedFrucGrids.Length>0 && selectedGrid!="auto" && Array.IndexOf(supportedFrucGrids.Split(','),selectedGrid)<0) {
@@ -924,6 +951,7 @@ namespace FilmGrainStudioPreview
                 {
                     config.Load();
                     RefreshChangedHardware(hardwareBefore);
+                    BeginNvencInspection();
                     UpdateSpeedChoices();LoadBitrateStateForCodec();UpdateBitrateDisplays();
                     UpdateHdrRouteStatus(GetSelectedMediaInfo());
                     if (log != null) log.AppendText("[Config] Advanced settings saved." + Environment.NewLine);

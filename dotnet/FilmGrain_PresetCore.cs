@@ -29,7 +29,7 @@ namespace FilmGrainStudioPreview
         internal const string Fields="ordinaryGrainEnabled av1GrainModeIndex pixelGrainModeIndex av1FormatIndex av1StockIndex av1IsoValue av1ChromaEnabled selectedAv1GrainTable proceduralStrength fgsimPresetIndex selectedGrainPlatePath scannedGrainStrengthPercent selectedLutPath colorCorrectionEnabled colorContrast colorBrightness colorSaturation colorGamma colorBlackWhite";
         internal const string Controls="cmbCodec cmbContainer cmbSpeed chkSfe chkCq cmbBitrate chkBitrateAuto chkHighMotion cmbFps chkInterpolation cmbInterpolationMode cmbInterpolationFps cmbDeint cmbDeintMethod chkCinematic cmbFrameMode chkGrainEnabled chkLut trackLutStrength";
         internal const string Styles="FontName FontSize PrimaryHex BorderHex Outline Shadow MarginV";
-        internal const string BasicKeys="RESIZE_MODE RESIZE_WIDTH RESIZE_HEIGHT RESIZE_KEEP_ASPECT PRE_BILATERAL_ENABLED PRE_BILATERAL_SIGMA_S PRE_BILATERAL_SIGMA_R PRE_BILATERAL_PLANES GRAIN_ENABLED AV1_GRAIN_STRENGTH HDR_POLICY AUDIO_MODE AUDIO_BITRATE INTERPOLATION_TARGET_FPS CINEMATIC_CROP_PER_SIDE CINEMATIC_CROP_HORIZONTAL CINEMATIC_NO_CROP COLOR_CORRECTION_ENABLED COLOR_CONTRAST COLOR_BRIGHTNESS COLOR_SATURATION COLOR_GAMMA COLOR_BLACK_WHITE NVENC_AV1_RATE_CONTROL NVENC_AV1_CQ NVENC_AV1_CQ_AUTO NVENC_HEVC_RATE_CONTROL NVENC_HEVC_CQ NVENC_HEVC_CQ_AUTO NVENC_H264_RATE_CONTROL NVENC_H264_CQ NVENC_H264_CQ_AUTO";
+        internal const string BasicKeys="NVENC_AI_MODE RESIZE_MODE RESIZE_WIDTH RESIZE_HEIGHT RESIZE_KEEP_ASPECT PRE_BILATERAL_ENABLED PRE_BILATERAL_SIGMA_S PRE_BILATERAL_SIGMA_R PRE_BILATERAL_PLANES GRAIN_ENABLED AV1_GRAIN_STRENGTH HDR_POLICY AUDIO_MODE AUDIO_BITRATE INTERPOLATION_TARGET_FPS CINEMATIC_CROP_PER_SIDE CINEMATIC_CROP_HORIZONTAL CINEMATIC_NO_CROP COLOR_CORRECTION_ENABLED COLOR_CONTRAST COLOR_BRIGHTNESS COLOR_SATURATION COLOR_GAMMA COLOR_BLACK_WHITE NVENC_AV1_RATE_CONTROL NVENC_AV1_CQ NVENC_AV1_CQ_AUTO NVENC_HEVC_RATE_CONTROL NVENC_HEVC_CQ NVENC_HEVC_CQ_AUTO NVENC_H264_RATE_CONTROL NVENC_H264_CQ NVENC_H264_CQ_AUTO";
         internal static bool Contains(string list,string key) {return Array.IndexOf(list.Split(' '),key)>=0;}
         internal static bool Includes(string kind,string key) {return FgsConfig.IsTaskKey(key)&&(kind=="Full"||key=="GPU_DECODE"||key=="CPU_CODEC"||Contains("CPU_SVT_CQ CPU_SVT_CQ_AUTO",key)||key=="CPU_SVT_RATE_CONTROL"||Contains("CPU_X265_CQ CPU_X265_CQ_AUTO",key)||key=="CPU_X265_RATE_CONTROL"||Contains(BasicKeys,key));}
         internal static JavaScriptSerializer Serializer() {return new JavaScriptSerializer {MaxJsonLength=262144,RecursionLimit=16};}
@@ -75,6 +75,7 @@ namespace FilmGrainStudioPreview
             case "X264_PRESET":Choice(v,"ultrafast superfast veryfast faster fast medium slow slower veryslow placebo",k);return;
             case "HDR_POLICY":Choice(v,"AUTO PRESERVE SDR",k);return;
             case "TONE_MAP_ALGO":Choice(v,"hable mobius reinhard gamma linear clip",k);return;
+            case "NVENC_AI_MODE":Choice(v,"low medium high",k);return;
             case "FRUC_PERF":Choice(v,"slow medium fast",k);return;
             case "FRUC_GRID":Choice(v,"auto 1 2 4 8",k);return;
             case "SVP_ALGO":Choice(v,"1 2 11 13 21 22 23",k);return;
@@ -126,7 +127,7 @@ namespace FilmGrainStudioPreview
                 if(k.StartsWith("chk"))Choice(v,"0 1",k);
                 else if(k=="cmbInterpolationFps"){InterpolationFrameRate r;string e;Require(InterpolationFrameRateCore.TryParse(v,"24",out r,out e),"无效帧率: "+e);}
                 else if(k=="cmbBitrate")Number(v,1,500000000,k);
-                else Integer(v,0,k=="cmbCodec"?4:k=="cmbSpeed"||k=="cmbInterpolationMode"||k=="cmbDeintMethod"?2:k=="trackLutStrength"?4:1,k);
+                else Integer(v,0,k=="cmbCodec"||k=="cmbInterpolationMode"?4:k=="cmbSpeed"||k=="cmbDeintMethod"?2:k=="trackLutStrength"?4:1,k);
             }
             int codec=int.Parse(p.Controls["cmbCodec"],CultureInfo.InvariantCulture);
             bool cpu=codec==2&&p.Config.ContainsKey("CPU_CODEC")&&p.Config["CPU_CODEC"]!="X264";
@@ -190,7 +191,7 @@ namespace FilmGrainStudioPreview
             if(c==2)rate=rate.Replace("CQ","CRF");
             lines.Add(codecs[c]+(rate==""?"":" · "+rate)+" · "+(p.Controls["cmbContainer"]=="1"?"MKV":"MP4"));
             var effects=new List<string>();
-            if(p.Controls["chkInterpolation"]=="1")effects.Add((p.Controls["cmbInterpolationMode"]=="2"?"FRUC":"OpenSVPFlow")+" → "+p.Controls["cmbInterpolationFps"]+" fps");
+            if(p.Controls["chkInterpolation"]=="1")effects.Add((NvencInterpolationCore.Label(NvencInterpolationCore.Engine(int.Parse(p.Controls["cmbInterpolationMode"]))))+" → "+p.Controls["cmbInterpolationFps"]+" fps");
             if(p.Controls["chkGrainEnabled"]=="1"){
                 int index=int.Parse(p.Fields[c==0||c==4?"av1GrainModeIndex":"pixelGrainModeIndex"],CultureInfo.InvariantCulture);
                 string[] names=c==0||c==4?new[]{"胶片合成颗粒","ISO 颗粒","颗粒表","Digital Grain","FGSIM"}:new[]{"Digital Grain","扫描颗粒","FGSIM","胶片合成颗粒","ISO 颗粒","颗粒表"};effects.Add(names[index]);
@@ -229,8 +230,9 @@ namespace FilmGrainStudioPreview
             if(key=="AV1_GRAIN_STRENGTH")return p.Controls["chkGrainEnabled"]=="1"&&((codec==0||codec==4)&&int.Parse(p.Fields["av1GrainModeIndex"])<=2||codec==2&&p.Config.ContainsKey("CPU_CODEC")&&p.Config["CPU_CODEC"]=="SVT"&&int.Parse(p.Fields["pixelGrainModeIndex"])>=3);
             if(key.StartsWith("CINEMATIC_"))return p.Controls["chkCinematic"]=="1"&&(key=="CINEMATIC_NO_CROP"||p.Config["CINEMATIC_NO_CROP"]!="1");
             if(key.StartsWith("FRUC_"))return p.Controls["chkInterpolation"]=="1"&&p.Controls["cmbInterpolationMode"]=="2";
+            if(key=="NVENC_AI_MODE")return p.Controls["chkInterpolation"]=="1"&&p.Controls["cmbInterpolationMode"]=="4";
             if(key.StartsWith("SVP_")){
-                if(p.Controls["chkInterpolation"]!="1"||p.Controls["cmbInterpolationMode"]=="2")return false;
+                if(p.Controls["chkInterpolation"]!="1"||int.Parse(p.Controls["cmbInterpolationMode"])>=2)return false;
                 if(key.StartsWith("SVP_STILL_")&&p.Config.ContainsKey("SVP_STILL")&&p.Config["SVP_STILL"]=="false")return false;
                 if(key=="SVP_PEEL_LIMIT"&&p.Config.ContainsKey("SVP_PEEL")&&p.Config["SVP_PEEL"]=="false")return false;
                 return true;
@@ -277,7 +279,7 @@ namespace FilmGrainStudioPreview
                 foreach(string k in keys)s.AppendLine(Label(k)+" = "+p.Fields[k]);
             }
             bool interp=p.Controls["chkInterpolation"]=="1";
-            s.AppendLine("插帧："+(interp?new[]{"SVP","SVP 场景融合","FRUC"}[int.Parse(p.Controls["cmbInterpolationMode"])]+" → "+p.Controls["cmbInterpolationFps"]+" fps":"关闭"));
+            s.AppendLine("插帧："+(interp?new[]{"SVP","SVP 场景融合","FRUC","NVEncC FRUC","NVEncC AI"}[int.Parse(p.Controls["cmbInterpolationMode"])]+" → "+p.Controls["cmbInterpolationFps"]+" fps":"关闭"));
             s.AppendLine("HDR 策略："+(p.Config["HDR_POLICY"]=="AUTO"?"自动（根据输入判断）":p.Config["HDR_POLICY"]=="SDR"?"转 SDR":"保留"));
             bool lut=p.Controls["chkLut"]=="1"&&p.Controls["trackLutStrength"]!="0";
             s.AppendLine("LUT："+(lut?p.Fields["selectedLutPath"]+"；强度 "+(int.Parse(p.Controls["trackLutStrength"])*25)+"%":"关闭"));
@@ -304,7 +306,7 @@ namespace FilmGrainStudioPreview
             case "chkCq":return "CQ 质量模式";case "cmbBitrate":return "码率或 CQ（自动时显示值不作为手动设置）";
             case "chkBitrateAuto":return "自动码率 / 自动 CQ";case "chkGrainEnabled":return "颗粒开关";case "chkLut":return "LUT 开关";
             case "trackLutStrength":return "LUT 强度 [0 关闭 / 1 25% / 2 50% / 3 75% / 4 100%]";
-            case "cmbInterpolationMode":return "插帧算法 [0 SVP / 1 SVP 场景融合 / 2 FRUC]";case "chkInterpolation":return "插帧开关";
+            case "cmbInterpolationMode":return "插帧算法 [0 SVP / 1 SVP 场景融合 / 2 FRUC / 3 NVEncC FRUC / 4 NVEncC AI]";case "chkInterpolation":return "插帧开关";
             case "cmbInterpolationFps":return "插帧目标帧率";case "cmbDeint":return "反交错 [0 自动 / 1 关闭]";
             case "cmbDeintMethod":return "反交错算法 [0 Vulkan / 1 CUDA / 2 W3FDIF]";case "chkCinematic":return "电影画幅";
             case "GPU_DECODE":return "GPU 硬件解码";case "cmbFrameMode":return "画幅 [0 黑边 / 1 裁剪]";case "chkHighMotion":return "高动态策略";case "chkSfe":return "分割编码";

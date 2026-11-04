@@ -44,6 +44,7 @@ namespace FilmGrainStudioPreview
         public string FrucPerf = "medium";
         public string FrucGrid = "auto";
         public string FrucFfmpegPath = "";
+        public string NvencDirectory="", NvencAiMode="medium";
         public bool FrucUseMainFfmpeg = true;
         public string SvpAlgo = "";
         public string SvpAnalyse = "";
@@ -178,6 +179,7 @@ namespace FilmGrainStudioPreview
             state["FG_FRUC_PERF"] = snapshot.FrucPerf;
             state["FG_FRUC_GRID"] = snapshot.FrucGrid;
             state["FG_FRUC_FFMPEG_PATH"] = snapshot.FrucFfmpegPath;
+            state["FG_NVENC_DIR"]=snapshot.NvencDirectory;state["FG_NVENC_AI_MODE"]=snapshot.NvencAiMode;
             state["FG_FRUC_USE_MAIN_FFMPEG"] = snapshot.FrucUseMainFfmpeg ? "1" : "0";
             state["FG_SVP_ALGO"] = snapshot.SvpAlgo;
             state["FG_SVP_ANALYSE"] = snapshot.SvpAnalyse;

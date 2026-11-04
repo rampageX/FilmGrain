@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.0.51 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.52 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 
 ## AV1 / SVT 颗粒与 HDR10
@@ -1564,3 +1564,18 @@ AV1 颗粒百分比处理兼容 grav1synth inspect 对无色度颗粒平面输�
 ### AV1 颗粒烘焙的自动码率
 
 烘焙窗口按所选烘焙编码器、源分辨率和源帧率采用普通档推荐，不使用主界面的输出帧率或高动态选项。自动模式显示目标码率（kbps）；多文件目标不同时显示范围。VBR 实际平均码率可能与目标不同。
+
+
+### NVEncC 可选 SDR 插帧
+
+配置窗口可设置包含 `NVEncC64.exe` 的 **NVEncC 目录**。插帧新增 `NVEncC FRUC` 和 `NVEncC AI`，现有 OpenSVP/FRUC Vulkan 保留。未配置、未通过可选工具版本/帮助检查或已知硬件不支持时显示灰色，选择时说明原因。目录可留空，不影响其他功能。
+
+可选工具的版本、帮助和设备列表在配置检查、打开插帧菜单或实际执行时按需读取，并按 NVEncC 路径/文件签名缓存。FGS EXE 更新不使该缓存失效，不增加启动硬件检测。通过此检查只表示功能入口存在，DLL 和实际输入的可用性由真实运行确认；失败停止，不更换引擎。
+
+两条新增路线仅开放 8-bit SDR；HDR 保留、高位深 SDR 和隔行输入明确停止，不静默降精度。HDR 选择 AUTO/转 SDR 时，沿用原有 HDR→SDR 前处理完成后再进入 NVEncC。当前 NVEncC 生产端明确使用软件解码 `avsw`，GPU 硬解开关不代表其已经通过硬解验证，日志记录软件回退。
+
+NVEncC FRUC 使用现有目标帧率。AI 插帧只允许源帧率整数 2～8 倍，例如 `2x`、`3x`；23.976→60 等非整数倍率停止并提示，不用重复/丢帧补齐。高级→插帧提供 AI low/medium/high，默认 medium，切镜检测开启。预设、统一/独立队列和编码预览共用原生准备入口及设置快照。源 AV1 转 SVT 并替换外部参数颗粒的组合尚未验证 NVEncC 关闭源颗粒合成，因此该组合停止；不改变既有路线。
+
+NVEncC 通过未压缩 **NUT 二进制内存管道**交回原编码核心，不做最终有损编码，也不添加测速用的 raw/NUT 整片落盘。HEVC/H.264/CPU 单次编码直接消费管道；AV1 原有 FFV1 插帧缓存、CPU 多遍编码原有渲染缓存及 HDR→SDR 原有工作文件仍沿用并在任务后清理。此处并不承诺所有编码路线都没有中间文件。
+
+状态条的 NVEncC 为独立分隔组，显示可选工具版本和检测状态；悬停查看 FRUC / AI 各自结果，点击仅刷新 NVEncC，不触发整机硬件重测。未配置显示灰色，启动只读取已有缓存。

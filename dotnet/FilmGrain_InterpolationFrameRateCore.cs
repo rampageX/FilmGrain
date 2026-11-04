@@ -257,6 +257,8 @@ namespace FilmGrainStudioPreview
         }
 
         internal static bool Run(string tool, string args, int timeout, out string output, out string reason)
+        { return RunWithLimit(tool,args,timeout,out output,out reason,65536); }
+        internal static bool RunWithLimit(string tool, string args, int timeout, out string output, out string reason,int maxCharacters)
         {
             output = ""; reason = "";
             StringBuilder text = new StringBuilder();
@@ -267,7 +269,7 @@ namespace FilmGrainStudioPreview
                     p.StartInfo = new ProcessStartInfo(tool, args) { UseShellExecute = false, CreateNoWindow = true,
                         RedirectStandardOutput = true, RedirectStandardError = true };
                     DataReceivedEventHandler capture = delegate(object sender, DataReceivedEventArgs e)
-                    { if (e.Data != null) lock (text) { if (text.Length < 65536) text.AppendLine(e.Data); } };
+                    { if (e.Data != null) lock (text) { if (text.Length < maxCharacters) text.AppendLine(e.Data); } };
                     p.OutputDataReceived += capture; p.ErrorDataReceived += capture;
                     p.Start(); p.BeginOutputReadLine(); p.BeginErrorReadLine();
                     if (!p.WaitForExit(timeout))
@@ -617,6 +619,7 @@ namespace FilmGrainStudioPreview
 
         internal static void AttachProducer(BridgeExecutionStage stage, string vspipe, string vpy, string plugins, string input, IDictionary<string,string> state, string outputFps)
         {
+            if(NvencInterpolationCore.Enabled(state)){NvencInterpolationCore.AttachProducer(stage,input,state,outputFps);return;}
             string algo = Get(state, "FG_SVP_ALGO"), analyse = Get(state, "FG_SVP_ANALYSE");
             string scene = Get(state, "FG_SVP_SCENE_MODE"), mask = Get(state, "FG_SVP_MASK_AREA");
             int n;
@@ -687,6 +690,143 @@ namespace FilmGrainStudioPreview
                     " video_delay=" + timeline.VideoDelay.ToString("0.#########", CultureInfo.InvariantCulture);
             };
             return stage;
+        }
+    }
+}
+
+namespace FilmGrainStudioPreview
+{
+    // Optional interpolation producer. Tool metadata is inspected only on demand.
+    internal sealed class NvencInterpolationReport
+    {
+        public string Stamp {get;set;} public string Version {get;set;} public string Error {get;set;}
+        public bool Fruc {get;set;} public bool Ai {get;set;} public string Devices {get;set;}
+    }
+    internal static class NvencInterpolationCore
+    {
+        static readonly object gate=new object(),inspectGate=new object();
+        static readonly Dictionary<string,NvencInterpolationReport> reports=new Dictionary<string,NvencInterpolationReport>();
+        internal static string Engine(int index) { return index==2?"FRUC":index==3?"NVENC_FRUC":index==4?"NVENC_AI":"SVP"; }
+        internal static bool IsEngine(string engine) { return engine=="NVENC_FRUC" || engine=="NVENC_AI"; }
+        internal static bool Enabled(IDictionary<string,string> s) { return Get(s,"FG_SVP_INTERPOLATE")=="1" && IsEngine(Get(s,"FG_INTERPOLATION_ENGINE")); }
+        internal static string Label(string engine) { return engine=="NVENC_AI"?"NVEncC AI":engine=="NVENC_FRUC"?"NVEncC FRUC":engine=="FRUC"?"FRUC Vulkan · HDR":"OpenSVPFlow"; }
+        internal static string Get(IDictionary<string,string> s,string key) { string v;return s!=null&&s.TryGetValue(key,out v)?v??"":""; }
+        internal static string Exe(string directory) { return string.IsNullOrWhiteSpace(directory)?"":Path.Combine(directory,"NVEncC64.exe"); }
+        static string Stamp(string directory) {
+            string path=Exe(directory);if(!File.Exists(path))return "";
+            var f=new FileInfo(path);return "v2-full-help|"+f.FullName+"|"+f.Length+"|"+f.LastWriteTimeUtc.Ticks;
+        }
+        static string CachePath(string root) {return Path.Combine(root,"NVEncC_Interpolation.cache.json");}
+        internal static NvencInterpolationReport Cached(string root,string directory) {
+            string stamp;try{stamp=Stamp(directory);}catch{return null;}if(stamp.Length==0)return null;
+            lock(gate) {
+                NvencInterpolationReport r;if(reports.TryGetValue(stamp,out r))return r;
+                try {r=new System.Web.Script.Serialization.JavaScriptSerializer().Deserialize<NvencInterpolationReport>(File.ReadAllText(CachePath(root)));if(r!=null&&r.Stamp==stamp){reports[stamp]=r;return r;}}catch{}
+                return null;
+            }
+        }
+        internal static NvencInterpolationReport Inspect(string root,string directory,bool force) {
+            lock(inspectGate) {
+                var cached=force?null:Cached(root,directory);if(cached!=null)return cached;
+                var r=new NvencInterpolationReport {Error="",Version="",Devices=""};
+                try {
+                    r.Stamp=Stamp(directory);if(r.Stamp.Length==0)throw new FileNotFoundException("未找到 NVEncC64.exe，请在配置中选择 NVEncC 目录 / NVEncC64.exe not found");
+                    string version,help,error,devices;
+                    if(!SharedFrucCore.Run(Exe(directory),"--version",8000,out version,out error))throw new InvalidOperationException(error);
+                    var m=System.Text.RegularExpressions.Regex.Match(version,@"NVEncC.*?\b(\d+)\.(\d+)");
+                    if(!m.Success)throw new InvalidOperationException("无法识别 NVEncC 版本 / Unknown NVEncC version");
+                    r.Version=m.Value.Split('\r','\n')[0];
+                    if(!SharedFrucCore.RunWithLimit(Exe(directory),"--help",8000,out help,out error,1048576))throw new InvalidOperationException(error);
+                    bool raw=help.Contains("--output-format") && help.Contains("--output-depth");
+                    r.Fruc=raw&&HasFruc(version,help);
+                    int major=int.Parse(m.Groups[1].Value),minor=int.Parse(m.Groups[2].Value);
+                    r.Ai=raw&&help.Contains("--vpp-nvvfx-framegen")&&(major>9||major==9&&minor>=36);
+                    if(!SharedFrucCore.Run(Exe(directory),"--check-device",8000,out devices,out error))throw new InvalidOperationException("NVEncC device enumeration failed: "+error);
+                    r.Devices=devices;
+                } catch(Exception ex){r.Error=ex.Message;r.Fruc=false;r.Ai=false;}
+                if(!string.IsNullOrEmpty(r.Stamp)) {
+                    lock(gate)reports[r.Stamp]=r;
+                    try {File.WriteAllText(CachePath(root),new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(r),new UTF8Encoding(false));}catch{}
+                }
+                return r;
+            }
+        }
+        internal static bool HasFruc(string version,string help) {
+            var flag=System.Text.RegularExpressions.Regex.Match(version??"",@"(?im)^\s*nvof\s+fruc\s*:\s*(yes|no)\b");
+            // The build's explicit flag wins over generic help text. No version-number guess.
+            return flag.Success?flag.Groups[1].Value.Equals("yes",StringComparison.OrdinalIgnoreCase):
+                System.Text.RegularExpressions.Regex.IsMatch(help??"",@"(?m)(?:^|\s)--vpp-fruc(?:\s|$)");
+        }
+        internal static string Availability(string root,string directory,string engine,string gpu) {
+            if(!File.Exists(Exe(directory)))return "未找到 NVEncC64.exe，请配置 NVEncC 目录 / NVEncC64.exe not found";
+            string hardware=HardwareReason(engine,gpu);if(hardware.Length>0)return hardware;
+            var r=Cached(root,directory);if(r==null)return "NVEncC 尚未检查；打开配置检查目录 / NVEncC metadata check pending";
+            if(!string.IsNullOrEmpty(r.Error))return r.Error;
+            if(engine=="NVENC_AI"?!r.Ai:!r.Fruc)return "当前 NVEncC 版本/构建缺少所选功能 / Selected feature not available in this NVEncC build";
+            return "";
+        }
+        internal static string HardwareReason(string engine,string gpu) {
+            gpu=gpu??"";
+            if(gpu.IndexOf("T600",StringComparison.OrdinalIgnoreCase)>=0)return "T600 不支持本路线所需硬件 / T600 unsupported";
+            if(engine=="NVENC_AI" && (System.Text.RegularExpressions.Regex.IsMatch(gpu,@"(?i)RTX\s*[23]\d{3}\b") || gpu.IndexOf("GTX",StringComparison.OrdinalIgnoreCase)>=0))
+                return "AI 插帧要求 Ada / RTX40 或更新硬件 / AI framegen requires Ada or later";
+            return ""; // Unknown models are decided by the actual runtime, never advertised as runtime-tested.
+        }
+        internal static int Device(string devices,string name) {
+            int found=-1;int matches=0;
+            foreach(System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(devices??"",@"DeviceId\s*#(\d+):\s*(.*?)\s*\(PCI Bus ID:",System.Text.RegularExpressions.RegexOptions.IgnoreCase)) {
+                if(string.Equals(m.Groups[2].Value.Trim(),name,StringComparison.OrdinalIgnoreCase)){found=int.Parse(m.Groups[1].Value);matches++;}
+            }
+            if(matches!=1)throw new InvalidOperationException("NVEncC 无法唯一匹配所选 NVIDIA 显卡，不使用自动设备回退 / Cannot uniquely bind NVEncC GPU: "+name);
+            return found;
+        }
+        internal static int Multiplier(string source,string target) {
+            InterpolationFrameRate a,b;string reason;
+            if(!InterpolationFrameRateCore.TryParse(source,source,out a,out reason)||!InterpolationFrameRateCore.TryParse(target,source,out b,out reason))throw new InvalidOperationException(reason);
+            decimal ratio=(decimal)b.Numerator*a.Denominator/((decimal)b.Denominator*a.Numerator);
+            int n=(int)decimal.Round(ratio,0);
+            if(n<2||n>8||Math.Abs(ratio-n)>0.0000001m)throw new InvalidOperationException("AI 插帧仅支持整数 2-8 倍；请将目标帧率设为 2x、3x 等。不自动重复/丢帧 / AI requires integer 2-8x");
+            return n;
+        }
+        internal static bool Validate(string root,string input,MediaProbeInfo info,IDictionary<string,string> state,string gpu,out string reason) {
+            reason="";if(!Enabled(state))return true;
+            try {
+                if(info.IsInterlaced)throw new InvalidOperationException("NVEncC 插帧仅支持逐行输入 / Progressive input required");
+                int sourceBits;int.TryParse(info.BitsPerRawSample,out sourceBits);
+                if(!info.IsHdr && (sourceBits>8 || System.Text.RegularExpressions.Regex.IsMatch(info.PixelFormat??"",@"(p(10|12|14|16)|p0(10|12|16)|48|64|f32|f16)")))throw new InvalidOperationException("NVEncC 插帧当前为 8-bit SDR；高位深 SDR 暂不接入，不自动降位深 / High-bit-depth SDR is not enabled");
+                if(info.IsHdr&&Get(state,"FG_HDR_POLICY").Equals("PRESERVE",StringComparison.OrdinalIgnoreCase))throw new InvalidOperationException("NVEncC 插帧当前仅支持 SDR；HDR 保留请使用 FRUC Vulkan / SDR only; no HDR precision fallback");
+                if(Get(state,"FG_MODE")=="SVT" && SharedGrainCore.IsEnabled(state) && SharedGrainCore.Engine(state)=="NATIVE" && string.Equals(info.VideoCodec,"av1",StringComparison.OrdinalIgnoreCase))throw new InvalidOperationException("源 AV1 参数颗粒替换暂不与 NVEncC 插帧组合：尚未验证其软件解码关闭源颗粒合成 / Source AV1 grain suppression is not verified for this producer");
+                string engine=Get(state,"FG_INTERPOLATION_ENGINE");string dir=Get(state,"FG_NVENC_DIR");
+                var r=Inspect(root,dir,false);
+                string unavailable=Availability(root,dir,engine,gpu);if(unavailable.Length>0)throw new InvalidOperationException(unavailable);
+                try{Device(r.Devices,gpu);}catch{r=Inspect(root,dir,true);if(!string.IsNullOrEmpty(r.Error))throw new InvalidOperationException(r.Error);Device(r.Devices,gpu);}
+                if(engine=="NVENC_AI") {
+                    if(Math.Min(info.Width,info.Height)<360||Math.Max(info.Width,info.Height)<640)throw new InvalidOperationException("AI 插帧要求至少 640x360 / Minimum 640x360");
+                    Multiplier(info.AvgFrameRate,Get(state,"FG_INTERPOLATION_TARGET_FPS"));
+                }
+                string mode=Get(state,"FG_NVENC_AI_MODE");if(mode!=""&&mode!="low"&&mode!="medium"&&mode!="high")throw new InvalidOperationException("Invalid NVEncC AI mode");
+                return true;
+            }catch(Exception ex){reason=ex.Message;return false;}
+        }
+        internal static void AttachProducer(BridgeExecutionStage stage,string input,IDictionary<string,string> state,string target) {
+            string directory=Get(state,"FG_NVENC_DIR"),engine=Get(state,"FG_INTERPOLATION_ENGINE");
+            string gpu=Get(state,"FG_NVENC_GPU_NAME"),devices=Get(state,"FG_NVENC_DEVICES");
+            int device=Device(devices,gpu);
+            string mode=Get(state,"FG_NVENC_AI_MODE");if(mode.Length==0)mode="medium";
+            string option=engine=="NVENC_AI"?"--vpp-nvvfx-framegen":"--vpp-fruc";
+            string value=engine=="NVENC_AI"?"mode="+mode+",multiplier="+Multiplier(Get(state,"FG_NVENC_SOURCE_FPS"),target)+",autoshotchange=true":"fps="+target;
+            // Software decode is explicit until NVEncC hardware decode can join FGS's verified device-specific plan.
+            var args=new List<string>{"--avsw","-i",input,"--device",device.ToString(CultureInfo.InvariantCulture),"--avsync","vfr",option,value,"-c","raw","--output-depth","8","--output-csp","yuv420","--colormatrix","auto","--colorprim","auto","--transfer","auto","--output-format","nut","-o","-"};
+            stage.PipeProducerPath=Exe(directory);stage.PipeProducerArguments=SharedFrucCore.JoinArguments(args);
+            var previous=stage.PreparedObserver;
+            stage.PreparedObserver=delegate {
+                if(previous!=null)previous();
+                stage.DirectArguments=stage.DirectArguments.Replace("yuv4mpegpipe","nut");
+                // NUT carries timestamps; map producer's local video origin once before the established clock adapter.
+                stage.DirectArguments=stage.DirectArguments.Replace("[0:v:0]","[0:v:0]setpts=PTS-STARTPTS,");
+            };
+            stage.StageText=(stage.StageText??"").Replace("OpenSVPFlow",Label(engine));
+            if(stage.BeforeRunPreparation!=null)throw new InvalidOperationException("NVEncC producer must bind before timeline preparation");
         }
     }
 }

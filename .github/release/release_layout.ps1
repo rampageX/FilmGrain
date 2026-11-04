@@ -296,6 +296,16 @@ $ExcludedRecursiveDirectoryNames = @(
     '__pycache__'
 )
 $ExcludedRootDeliveryPatterns = @(
+    'Build_Run_NVEncC_*',
+    'Launch_NVEncC_*',
+    'Test_NVEncC_*',
+    'NVEncC_SDR_*_说明.md',
+    'NVEncC_Interpolation.cache.json',
+    'FGS_NVEncC_*.zip',
+    'Build_Status_*.cmd',
+    'Launch_Status_*.ps1',
+    'Clean_NVEncC_*.ps1',
+    'RELEASE_PREP_5.0.52_*.md',
     'APPLY_SVT_HDR_*.txt',
     'FILES_SVT_HDR_*.json',
     'APPLY_X265_HDR_*.txt',

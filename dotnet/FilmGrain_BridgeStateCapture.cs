@@ -102,7 +102,8 @@ namespace FilmGrainStudioPreview
             snapshot.HighMotion = chkHighMotion != null && chkHighMotion.Checked;
             snapshot.FpsMode = cmbFps != null && cmbFps.SelectedIndex == 1 ? "SOURCE" : "AUTO";
             snapshot.SvpInterpolate = chkInterpolation != null && chkInterpolation.Checked;
-            snapshot.InterpolationEngine = cmbInterpolationMode != null && cmbInterpolationMode.SelectedIndex == 2 ? "FRUC" : "SVP";
+            snapshot.InterpolationEngine = NvencInterpolationCore.Engine(cmbInterpolationMode==null?0:cmbInterpolationMode.SelectedIndex);
+            snapshot.NvencDirectory=config.Get("NVENC_DIR"); snapshot.NvencAiMode=config.Get("NVENC_AI_MODE");
             snapshot.FrucUseMainFfmpeg = config.FrucUsesMainFfmpeg();
             snapshot.FrucFfmpegPath = snapshot.FrucUseMainFfmpeg ? "" : config.Get("FRUC_FFMPEG_PATH");
             snapshot.SvpAlgo = config.Get("SVP_ALGO");
@@ -139,6 +140,10 @@ namespace FilmGrainStudioPreview
                         MediaProbeInfo sourceInfo;
                         if (string.IsNullOrEmpty(sourcePath) || !mediaProbeCache.TryGetValue(sourcePath, out sourceInfo))
                         { error = UiText("无法读取源视频帧率，不能解析插帧目标帧率。", "Cannot read source frame rate to resolve interpolation target."); return null; }
+                        if(snapshot.InterpolationEngine=="NVENC_AI") {
+                            try{NvencInterpolationCore.Multiplier(sourceInfo.AvgFrameRate,snapshot.InterpolationTargetFps);}
+                            catch(Exception ex){error=ex.Message;return null;}
+                        }
                         InterpolationFrameRate parsedRate; string rateError;
                         if (!InterpolationFrameRateCore.TryParse(snapshot.InterpolationTargetFps, sourceInfo.AvgFrameRate, out parsedRate, out rateError))
                         { error = UiText("插帧目标帧率无效：", "Invalid interpolation target frame rate: ") + rateError; return null; }

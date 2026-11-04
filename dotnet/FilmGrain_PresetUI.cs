@@ -127,6 +127,8 @@ namespace FilmGrainStudioPreview
                     if(!caps.FrucReady||!caps.FrucAvailable)throw new InvalidOperationException("当前能力缓存未确认 FRUC Vulkan 可用；预设没有更换算法。");
                     string grid=p.Config["FRUC_GRID"],supported=SharedFrucCore.SupportedGrids(caps.FrucEvidence);
                     if(grid!="auto"&&Array.IndexOf(supported.Split(','),grid)<0)throw new InvalidOperationException("FRUC 网格不兼容: "+grid+"；缓存支持: "+supported);
+                } else if(int.Parse(p.Controls["cmbInterpolationMode"])>=3) {
+                    string unavailable=NvencOptionReason(int.Parse(p.Controls["cmbInterpolationMode"]));if(unavailable.Length>0)throw new InvalidOperationException(unavailable);
                 } else if(!caps.OpenSvpGpuAvailable)throw new InvalidOperationException("当前机器未确认 OpenSVPFlow 可用。");
             }
             if(c==0&&p.Controls["cmbSpeed"]=="2"&&!caps.Av1UhqAvailable)throw new InvalidOperationException("当前 AV1 不支持 UHQ。");
