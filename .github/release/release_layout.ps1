@@ -307,6 +307,7 @@ $ExcludedRootDeliveryPatterns = @(
     'FILES_RELEASE_*.json',
     'FGS_v5.0.49_*.zip',
     'FGS_v5.0.50_*.zip',
+    'FGS_v5.0.51_*.zip',
     'APPLY_HDR_F4M8QX.txt',
     'FGS_v5.0.48_*.zip',
     'FGS_v5.0.45_ReleasePrep_*.zip',

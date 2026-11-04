@@ -172,7 +172,7 @@ namespace FilmGrainStudioPreview
         internal static string ShiftTable(string text, double seconds)
         {
             if (seconds <= 0.0000001) return text;
-            long offset = checked((long)Math.Round(seconds * 10000000.0));
+            ulong offset = checked((ulong)Math.Round(seconds * 10000000.0));
             MatchCollection events = Regex.Matches(text, @"(?m)^E[^\r\n]*");
             if (events.Count == 0 || !text.TrimStart('\ufeff').StartsWith("filmgrn1", StringComparison.Ordinal))
                 throw new InvalidDataException("Invalid grain table for preview.");
@@ -182,18 +182,20 @@ namespace FilmGrainStudioPreview
             {
                 Match match=events[i];
                 string[] fields=match.Value.Split((char[])null,StringSplitOptions.RemoveEmptyEntries);
-                long begin,end; int enabled,update;
-                if(fields.Length!=6 || !long.TryParse(fields[1],out begin)||!long.TryParse(fields[2],out end)||end<=begin||
+                ulong begin,end; int enabled,update;
+                if(fields.Length!=6 || !ulong.TryParse(fields[1],NumberStyles.None,CultureInfo.InvariantCulture,out begin)||!ulong.TryParse(fields[2],NumberStyles.None,CultureInfo.InvariantCulture,out end)||end<begin||
                     !int.TryParse(fields[3],out enabled)||!int.TryParse(fields[5],out update))throw new InvalidDataException("Invalid grain event.");
                 string body=text.Substring(match.Index+match.Length,(i+1<events.Count?events[i+1].Index:text.Length)-match.Index-match.Length);
                 if(enabled==1 && update==1)lastModel=body;
-                if(end<=offset)continue;
+                // Empty intervals have no displayed frames, but an updated model can
+                // still be inherited by a later nonempty event. Keep lastModel above.
+                if(end<=offset || end==begin)continue;
                 if(enabled==1 && update==0)
                 {
                     if(lastModel==null)throw new InvalidDataException("Preview cannot resolve inherited grain model.");
                     body=lastModel;fields[5]="1";
                 }
-                fields[1]=Math.Max(0,begin-offset).ToString(CultureInfo.InvariantCulture);
+                fields[1]=(begin>offset?begin-offset:0UL).ToString(CultureInfo.InvariantCulture);
                 fields[2]=(end-offset).ToString(CultureInfo.InvariantCulture);
                 output.Append(string.Join(" ",fields));output.Append(body);
             }

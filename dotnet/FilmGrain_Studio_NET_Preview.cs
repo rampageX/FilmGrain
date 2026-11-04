@@ -107,8 +107,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.50";
-        internal const string FileReleaseVersion = "5.0.50.0";
+        internal const string ReleaseVersion = "5.0.51";
+        internal const string FileReleaseVersion = "5.0.51.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -4320,6 +4320,8 @@ namespace FilmGrainStudioPreview
                     if (dlg.ShowDialog(this) == DialogResult.OK && dlg.Result != null)
                     {
                         ColorCorrectionResult result = dlg.Result;
+                        if(result.VideoReference!=null && result.VideoReference.Length>0)
+                            lutSessionReference.Set(result.VideoReference);
                         colorCorrectionEnabled = result.Enabled;
                         colorContrast = result.Contrast;
                         colorBrightness = result.Brightness;

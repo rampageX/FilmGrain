@@ -220,7 +220,7 @@ namespace FilmGrainStudioPreview
                     RenderFrames(baseIvf,"0","clean",firstFrame);
                     for(int i=0;i<4;i++)
                     {
-                        ReportProgress(T("正在生成颗粒强度 ","Rendering grain strength ")+strengths[i]+"%…");
+                        ReportProgress(GrainProgressText(i));
                         string video=model;
                         if(strengths[i]!=100) {string table=Path.Combine(temporary,"strength"+i+".tbl");video=Path.Combine(temporary,"strength"+i+".ivf");File.WriteAllText(table,Av1GrainStrengthCore.ScaleTable(originalText,strengths[i]),new UTF8Encoding(false));Run(grav1synth,new List<string>{"apply",baseIvf,"-o",video,"--grain",table,"--replace","-y"});}
                         RenderFrames(video,"1","variant"+i+"_",firstFrame);
@@ -249,6 +249,13 @@ namespace FilmGrainStudioPreview
             }));worker.IsBackground=true;worker.Start();
         }
 
+        private string GrainProgressText(int level)
+        {
+            string label=pixelKind=="FGSIM"?GrainControlCore.FgsimPresets[level]+" / "+GrainControlCore.FgsimStrengths[level]:
+                pixelKind=="PROCEDURAL"?(strengths[level]/100.0).ToString("0.00",CultureInfo.InvariantCulture):strengths[level]+"%";
+            return T("正在生成颗粒预览 ","Rendering grain preview ")+(level+1)+"/4"+T("（强度 "," (strength ")+label+T("）…",")...");
+        }
+
         private void ReportProgress(string text)
         {
             if(closing)return;
@@ -272,7 +279,7 @@ namespace FilmGrainStudioPreview
             int first=0;
             for(int level=0;level<4;level++) {
                 if(closing)throw new OperationCanceledException();
-                ReportProgress(T("正在生成颗粒预览 ","Rendering grain preview ")+(level+1)+"/4…");
+                ReportProgress(GrainProgressText(level));
                 var state=new Dictionary<string,string>(pixelState,StringComparer.OrdinalIgnoreCase);
                 state["FG_PIXEL_GRAIN_STRENGTH"]="100";
                 if(pixelKind=="FGSIM")state["FG_FGSIM_PRESET"]=GrainControlCore.FgsimPresets[level];
@@ -708,7 +715,7 @@ namespace FilmGrainStudioPreview
         private void ShowImages(){if(closing||rendered.Count!=4)return;for(int i=0;i<4;i++){pictures[i].SizeMode=actualSize.Checked?PictureBoxSizeMode.CenterImage:PictureBoxSizeMode.Zoom;pictures[i].Image=showOriginal.Checked?original:rendered[i];}}
         internal static List<string> FrameArguments(string reference,string cube,string opacity,string output,int maxWidth=1920,MediaProbeInfo hdr=null,string tone="hable")
         {
-            string filter="scale=w='min("+maxWidth.ToString(CultureInfo.InvariantCulture)+",iw)':h=-1,format=gbrp16le";
+            string filter="scale=w='max(2,trunc(min("+maxWidth.ToString(CultureInfo.InvariantCulture)+",iw)/2)*2)':h=-2,format=gbrp16le";
             if(!string.IsNullOrEmpty(cube)) {
                 string name=cube.Replace("\\","/").Replace(":","\\:").Replace("'","'"+new string('\\',3)+"'");
                 if(opacity=="1.00")filter+=",lut3d=file='"+name+"':interp=tetrahedral";
@@ -716,13 +723,13 @@ namespace FilmGrainStudioPreview
             }
             if(hdr!=null) {
                 string name=(cube??"").Replace("\\","/").Replace(":","\\:").Replace("'","'"+new string('\\',3)+"'");
-                filter=(string.IsNullOrEmpty(cube)?"":HdrColorProcessingCore.Lut(hdr,name,opacity))+HdrColorProcessingCore.DisplayToSdr(hdr,tone)+",scale=w='min("+maxWidth.ToString(CultureInfo.InvariantCulture)+",iw)':h=-1";
+                filter=(string.IsNullOrEmpty(cube)?"":HdrColorProcessingCore.Lut(hdr,name,opacity))+HdrColorProcessingCore.DisplayToSdr(hdr,tone)+",scale=w='max(2,trunc(min("+maxWidth.ToString(CultureInfo.InvariantCulture)+",iw)/2)*2)':h=-2";
             }
             return new List<string>{"-hide_banner","-v","error","-y","-i",reference,"-vf",filter,"-frames:v","1","-threads","1","-pix_fmt","rgb24",output};
         }
         internal static List<string> SnapshotArguments(string video,MediaProbeInfo media,double seconds,string output,bool preserve=false)
         {
-            string filter="scale=w='min(1920,iw)':h=-1";
+            string filter="scale=w='max(2,trunc(min(1920,iw)/2)*2)':h=-2";
             if(media!=null) {
                 string display=preserve?"null":NativeGrainPreviewForm.PreviewFilter(media);
                 if(media.IsInterlaced)display=SharedHdrPreprocessCore.ResolveDeinterlaceParity("bwdif=mode=send_frame:parity=auto:deint=all,",media)+display;

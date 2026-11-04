@@ -25,6 +25,7 @@ namespace FilmGrainStudioPreview
         public string LutPath = "";
         public string LutSource = "None";
         public int LutStrength = 75;
+        public byte[] VideoReference;
     }
 
     internal sealed class NativeColorCorrectionForm : Form, IThemeSurface
@@ -101,6 +102,10 @@ namespace FilmGrainStudioPreview
         private int renderSerial;
         private Process activeRenderProcess;
         private bool closing;
+        // One clean reference per selected time; parameter drags reuse it.
+        // Only the rendering worker writes this cache. Publish after a current render succeeds.
+        private byte[] cachedVideoReference, displayedVideoReference;
+        private double cachedReferencePosition = double.NaN;
         private string lutPath;
         private string lutSource;
         private string activeCompatLutPath = "";
@@ -465,6 +470,7 @@ namespace FilmGrainStudioPreview
                 Result.LutPath = lutPath;
                 Result.LutSource = string.IsNullOrEmpty(lutPath) ? "None" : lutSource;
                 Result.LutStrength = lutStrength;
+                Result.VideoReference = displayedVideoReference;
                 DialogResult = DialogResult.OK;
                 Close();
             };
@@ -717,7 +723,27 @@ namespace FilmGrainStudioPreview
                 Bitmap image = null;
                 string error = "";
                 Stopwatch watch = Stopwatch.StartNew();
-                try { image = RenderPreview(state); }
+                byte[] reference = null;
+                try
+                {
+                    if(cachedVideoReference==null || cachedReferencePosition!=state.Position)
+                    {
+                        var originalState=new RenderState {Serial=-state.Serial-1,Position=state.Position,Original=true};
+                        using(var clean=RenderPreview(originalState))
+                        using(var stream=new MemoryStream())
+                        {
+                            clean.Save(stream,System.Drawing.Imaging.ImageFormat.Png);
+                            cachedVideoReference=stream.ToArray();cachedReferencePosition=state.Position;
+                        }
+                    }
+                    reference=cachedVideoReference;
+                    if(state.Original)
+                    {
+                        using(var stream=new MemoryStream(reference))
+                        using(var clean=Image.FromStream(stream))image=new Bitmap(clean);
+                    }
+                    else image=RenderPreview(state);
+                }
                 catch (Exception ex) { error = ex.Message; }
                 watch.Stop();
                 long elapsedMs = watch.ElapsedMilliseconds;
@@ -744,6 +770,7 @@ namespace FilmGrainStudioPreview
                             if(!sourceIdentity.IsCurrent(videoPath,ffprobePath)) { if(image!=null){image.Dispose();image=null;}error="Input or FFprobe changed; close and re-probe."; }
                             if (state.Serial == renderSerial && image != null)
                             {
+                                displayedVideoReference=reference;
                                 Image oldImage = pic.Image;
                                 pic.Image = image;
                                 if (oldImage != null) oldImage.Dispose();
@@ -804,7 +831,7 @@ namespace FilmGrainStudioPreview
             try { if (File.Exists(output)) File.Delete(output); } catch { }
 
             List<string> prefix = new List<string>();
-            prefix.Add("scale=" + previewWidth.ToString(CultureInfo.InvariantCulture) + ":" + previewHeight.ToString(CultureInfo.InvariantCulture) + ":force_original_aspect_ratio=decrease:flags=bilinear");
+            prefix.Add("scale=" + previewWidth.ToString(CultureInfo.InvariantCulture) + ":" + previewHeight.ToString(CultureInfo.InvariantCulture) + ":force_original_aspect_ratio=decrease:force_divisible_by=2:flags=bilinear");
             if(hdrPreviewInfo!=null && !preserveHdrColor)prefix.Add(HdrColorProcessingCore.DisplayToSdr(hdrPreviewInfo,previewTonemap));
             if (!state.Original && state.Enabled && hdrPreviewInfo!=null && preserveHdrColor)
             {
