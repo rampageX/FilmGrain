@@ -943,6 +943,21 @@ namespace FilmGrainStudioPreview
             ThemeDrawing.DrawNativeText(e.Graphics,Text,Font,r,UiTheme.Muted,BackColor,ThemeDrawing.TextFlags(TextAlign,AutoEllipsis) | (UseMnemonic ? (ShowKeyboardCues ? 0 : TextFormatFlags.HidePrefix) : TextFormatFlags.NoPrefix));
         }
     }
+    // Confine descendant-window composition to the small grain surface, never the main Form.
+    internal sealed class GrainLayoutPanel : TableLayoutPanel
+    {
+        private readonly bool composeChildren;
+        internal GrainLayoutPanel() : this(true) { }
+        internal GrainLayoutPanel(bool compose)
+        {
+            composeChildren=compose;
+            SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer,true);
+        }
+        protected override CreateParams CreateParams
+        {
+            get { var p=base.CreateParams; if(composeChildren)p.ExStyle|=0x02000000; return p; }
+        }
+    }
     internal sealed class ThemeGroupBox : GroupBox, IThemeSurface
     {
         public ThemeGroupBox() { SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true); }
@@ -1590,17 +1605,29 @@ namespace FilmGrainStudioPreview
         private struct NativeRect { public int Left, Top, Right, Bottom; public Rectangle Bounds { get { return Rectangle.FromLTRB(Left,Top,Right,Bottom); } } }
         [System.Runtime.InteropServices.DllImport("user32.dll", CharSet=System.Runtime.InteropServices.CharSet.Auto)]
         private static extern IntPtr SendMessage(IntPtr hwnd,int msg,IntPtr wParam,ref NativeRect rect);
-        public bool DarkTheme { get; set; }
-        protected override void WndProc(ref Message m)
+        private bool dark;
+        public bool DarkTheme
         {
-            base.WndProc(ref m);
-            if (!DarkTheme || m.Msg != 0x000F || Orientation != Orientation.Horizontal) return;
+            get { return dark; }
+            set {
+                if(dark==value)return;
+                dark=value;
+                // Let WinForms buffer the whole dark slider instead of overpainting a native white frame.
+                SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer,
+                    dark && Orientation==Orientation.Horizontal);
+                Invalidate();
+            }
+        }
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            if(!dark || Orientation!=Orientation.Horizontal) { base.OnPaint(e); return; }
             NativeRect channel = new NativeRect(), thumb = new NativeRect();
             SendMessage(Handle,0x041A,IntPtr.Zero,ref channel);
             SendMessage(Handle,0x0419,IntPtr.Zero,ref thumb);
             Rectangle track = channel.Bounds, handle = thumb.Bounds;
             if (track.Width <= 0 || handle.Width <= 0) return;
-            using (Graphics g = Graphics.FromHwnd(Handle)) {
+            Graphics g=e.Graphics;
+            {
                 using (Brush b = new SolidBrush(BackColor)) g.FillRectangle(b,ClientRectangle);
                 int y = handle.Top+handle.Height/2;
                 using (Pen p = new Pen(UiTheme.Border,3)) g.DrawLine(p,track.Left,y,track.Right,y);
@@ -1618,6 +1645,16 @@ namespace FilmGrainStudioPreview
                 if (Focused && ShowFocusCues) ControlPaint.DrawFocusRectangle(g,Rectangle.Inflate(ClientRectangle,-1,-1),UiTheme.Muted,BackColor);
             }
         }
+        protected override void OnPaintBackground(PaintEventArgs e)
+        {
+            if(!dark) { base.OnPaintBackground(e); return; }
+            using(Brush brush=new SolidBrush(BackColor))e.Graphics.FillRectangle(brush,ClientRectangle);
+        }
+        protected override void OnValueChanged(EventArgs e) { base.OnValueChanged(e); if(dark)Invalidate(); }
+        protected override void OnEnabledChanged(EventArgs e) { base.OnEnabledChanged(e); if(dark)Invalidate(); }
+        protected override void OnGotFocus(EventArgs e) { base.OnGotFocus(e); if(dark)Invalidate(); }
+        protected override void OnLostFocus(EventArgs e) { base.OnLostFocus(e); if(dark)Invalidate(); }
+
     }
 }
 

@@ -49,15 +49,56 @@ namespace FilmGrainStudioPreview
             return SharedFrucCore.JoinArguments(args);
         }
 
+        // External models replace source parameter grain. Do not synthesize the old
+        // model into pixels first. This adds no media stage or intermediate file.
+        internal static string Av1SourceDecodeArguments(string command,string input)
+        {
+            var args=HardwareDecodeCore.SplitArguments(command);
+            int first=args.IndexOf("-i");
+            if(first<0 || first+1>=args.Count || !string.Equals(args[first+1],input,StringComparison.OrdinalIgnoreCase))return command;
+            for(int i=first+2;i+1<args.Count;i++)
+                if((args[i]=="-c" || args[i]=="-c:v" || args[i]=="-codec:v") && args[i+1]=="copy")return command;
+            if(first<6 || args[first-6]!="-hwaccel" || args[first-5]!="none" || args[first-4]!="-c:v" ||
+                args[first-3]!="libdav1d" || args[first-2]!="-filmgrain" || args[first-1]!="0")
+                args.InsertRange(first,new[]{"-hwaccel","none","-c:v","libdav1d","-filmgrain","0"});
+            // AV_FRAME_DATA_FILM_GRAIN_PARAMS=21 (libavutil/frame.h). Numeric type
+            // also works on FFmpeg versions whose sidedata option lacks its name.
+            const string strip="sidedata=mode=delete:type=21,";
+            for(int i=0;i+1<args.Count;i++) {
+                if(args[i]=="-filter_complex")args[i+1]=args[i+1].Replace("[0:v:0]"+strip,"[0:v:0]").Replace("[0:v:0]","[0:v:0]"+strip);
+                else if(args[i]=="-vf" && !args[i+1].StartsWith(strip,StringComparison.Ordinal))args[i+1]=strip+args[i+1];
+            }
+            return SharedFrucCore.JoinArguments(args);
+        }
+
+        internal static void AttachAv1SourceDecode(BridgeExecutionRequest request,string input)
+        {
+            foreach(var stage in request.DirectStages) {
+                if(!string.IsNullOrEmpty(stage.PipeProducerArguments)) {
+                    var producer=HardwareDecodeCore.SplitArguments(stage.PipeProducerArguments);
+                    if(producer.Contains("input="+input))throw new InvalidOperationException(
+                        "源 AV1 参数颗粒替换与 OpenSVPFlow 组合尚不能关闭 BestSource 的源颗粒合成；请关闭 OpenSVPFlow。普通编码、缩放和 FRUC 不受此限制。");
+                }
+                if(!Path.GetFileName(stage.ToolPath).Equals("ffmpeg.exe",StringComparison.OrdinalIgnoreCase))continue;
+                var current=stage;
+                current.DirectArguments=Av1SourceDecodeArguments(current.DirectArguments,input);
+                Action previous=current.PreparedObserver;
+                current.PreparedObserver=delegate {
+                    if(previous!=null)previous();
+                    current.DirectArguments=Av1SourceDecodeArguments(current.DirectArguments,input);
+                };
+            }
+            request.SuppressSourceAv1Grain=true;
+            request.ExecutionNotice=(request.ExecutionNotice??"")+Environment.NewLine+
+                "[SVT source AV1] libdav1d filmgrain=0; source parameter grain is not baked; only film-grain frame side data is removed before filters. External model replaces it after encoding. Source decode uses software; GPU filters remain available. No extra media file/stage. Grain OFF is unchanged (no source grain removal).";
+        }
+
         // CPU encoding remains on its established route. Only selected AV1 parameter grain
         // adds container postprocessing; NVENC routes and hardware cache rules are untouched.
         private static bool TryPrepareMetadata(string appRoot,string input,MediaProbeInfo info,IDictionary<string,string> state,
             out BridgePreparedExecution prepared,out string reason,string gpuName)
         {
             prepared=null;reason="";
-            if(string.Equals(info.VideoCodec,"av1",StringComparison.OrdinalIgnoreCase)) {
-                reason="SVT 参数颗粒首轮接入暂不接受源 AV1，避免解码时烘焙旧模型后再叠加。可使用独立不重编码替换功能。";return false;
-            }
             var config=new FgsConfig(appRoot,null);config.Load();
             string grav=config.Get("GRAV1SYNTH");
             if(!File.Exists(grav)){reason="grav1synth not found: "+grav;return false;}
@@ -80,6 +121,8 @@ namespace FilmGrainStudioPreview
             }
             var request=baseline.ExecutionRequest;
             try {
+                if(string.Equals(info.VideoCodec,"av1",StringComparison.OrdinalIgnoreCase))
+                    AttachAv1SourceDecode(request,input);
                 string old=request.OutputFiles[0];
                 string output=Path.Combine(ResolveOutputDirectory(input,state),Path.GetFileNameWithoutExtension(old)+"_GS_"+tag+(percent==100?"":"_GS"+percent.ToString(CultureInfo.InvariantCulture))+Path.GetExtension(old));
                 if(File.Exists(output))throw new IOException("Output already exists: "+output);
@@ -265,6 +308,7 @@ namespace FilmGrainStudioPreview
 
             string colorFilter, colorSuffix;
             if (!TryBuildColorFilter(state, out colorFilter, out colorSuffix, out reason)) return false;
+            if(hdrPreserve)colorFilter=HdrColorProcessingCore.Cc(state,info);
             string preprocessing;
             if(!PreprocessingCore.TryBuild(state,out preprocessing,out reason))return false;
             if(preprocessing.Length>0 && !PreprocessingCore.TryCheckTool(ffmpeg,out reason))return false;
@@ -316,6 +360,10 @@ namespace FilmGrainStudioPreview
 
             string lutCompatPath = "", lutCompatName = "", lutOpacity = "";
             if (!TryPrepareLut(ffmpeg, state, out lutCompatPath, out lutCompatName, out lutOpacity, out reason)) return false;
+            if(hdrPreserve && !string.IsNullOrEmpty(lutCompatName)) {
+                colorFilter+=HdrColorProcessingCore.Lut(info,EscapeFilterPath(lutCompatName),lutOpacity);
+                lutCompatName=""; // Already applied in the shared HDR prefix; keep the LUT file for execution.
+            }
             string subtitleAss = "";
             if (!NativeSubtitlePrepareCore.TryPrepare(ffmpeg, ffprobe, input, state, frame.ActiveWidth, frame.ActiveHeight, out subtitleAss, out reason))
             {
@@ -501,6 +549,7 @@ namespace FilmGrainStudioPreview
                 if(info.IsHdr && info.IsInterlaced && !deinterlace)request.ExecutionNotice="[Native .NET] 反交错 OFF：沿用不反交错的逐帧处理，不启用 bob/光流或双倍场率；不保证隔行编码标记。 / Deinterlace OFF: frame processing without bob/interpolation; no interlaced-encoding flags are added.";
             if(newCpu)request.ExecutionNotice=(request.ExecutionNotice??"")+Environment.NewLine+"[CPU] "+Get(state,"FG_MODE")+" "+(CpuEncoderCore.IsCrf(state)?"CRF "+Get(state,"FG_NVENC_CQ"):"VBR")+" preset="+CpuEncoderCore.Preset(state)+"; "+(grainEnabled?"pixel grain baked before encoding":"no added pixel grain")+"; GPU preprocessing may still be used.";
             if (fgsimMode) FgsimTextureCore.AttachVerifiedDevice(request, fgsimHook, false);
+            HdrColorProcessingCore.Notice(request,info,state,hdrPreserve);
             prepared = new BridgePreparedExecution(request, false, ffmpeg, requestInputs);
                 lutCompatPath = "";
                 subtitleAss = "";

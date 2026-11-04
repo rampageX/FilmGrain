@@ -107,8 +107,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.49";
-        internal const string FileReleaseVersion = "5.0.49.0";
+        internal const string ReleaseVersion = "5.0.50";
+        internal const string FileReleaseVersion = "5.0.50.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -1162,7 +1162,7 @@ namespace FilmGrainStudioPreview
             grpGrain.Dock = DockStyle.Fill;
             grpGrain.Margin = new Padding(0, 0, 0, 5);
 
-            TableLayoutPanel shell = new TableLayoutPanel();
+            TableLayoutPanel shell = new GrainLayoutPanel();
             shell.Dock = DockStyle.Fill; shell.Padding = new Padding(5); shell.ColumnCount = 1; shell.RowCount = 3;
             shell.RowStyles.Add(new RowStyle(SizeType.Absolute, 32)); shell.RowStyles.Add(new RowStyle(SizeType.Absolute, 34)); shell.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             cmbGrainMode = Combo(new string[] { lang.T("grain.mode.film"), lang.T("grain.mode.iso"), lang.T("grain.mode.table"), lang.T("grain.mode.digital"), lang.T("grain.mode.fgsim") }, 0);
@@ -1429,12 +1429,20 @@ namespace FilmGrainStudioPreview
         private void BuildGrainContent()
         {
             if (grainContent == null || cmbGrainMode == null || cmbCodec == null) return;
-            grainContent.Controls.Clear();
+            grainContent.SuspendLayout();
+            try { BuildGrainContentCore(); }
+            finally { grainContent.ResumeLayout(true); }
+        }
+
+        private void BuildGrainContentCore()
+        {
+            // Assemble the replacement off-screen; the previous controls stay visible until commit.
             cmbGrainFormat = null; cmbGrainStock = null; numGrainIso = null; chkGrainChroma = null; cmbGrainTable = null; chkShowAllAv1Tables = null; cmbGrainPlate = null;
             av1StrengthControl=null;
             trackFilmGrainStrength = null; lblFilmGrainValue = null; btnFgsimTextureUpdate = null; lblFgsimTextureStatus = null;
 
-            TableLayoutPanel t = new TableLayoutPanel();
+            TableLayoutPanel t = new GrainLayoutPanel(false);
+            t.SuspendLayout();
             t.Dock = DockStyle.Fill; t.ColumnCount = 2; t.RowCount = 4;
             t.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 108)); t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             for (int i = 0; i < 4; i++) t.RowStyles.Add(new RowStyle(SizeType.Percent, 25));
@@ -1614,7 +1622,12 @@ namespace FilmGrainStudioPreview
                 updateStrength();
                 lutToolTip.SetToolTip(av1StrengthControl,UiText("相对当前预设/ISO/颗粒表的强度；100%保持原效果。","Relative to the selected preset/ISO/table; 100% preserves the original."));
             }
+            t.Size=grainContent.ClientSize;
+            t.ResumeLayout(true);
+            Control[] previous=new Control[grainContent.Controls.Count];
+            grainContent.Controls.CopyTo(previous,0);
             grainContent.Controls.Add(t);
+            foreach(Control old in previous) { grainContent.Controls.Remove(old); old.Dispose(); }
             UpdateGrainEnableUi();
         }
 
@@ -1693,6 +1706,17 @@ namespace FilmGrainStudioPreview
             }
         }
 
+        private void SetGrainModeChoices(object[] items,int selected)
+        {
+            bool same=cmbGrainMode.Items.Count==items.Length;
+            for(int i=0;same&&i<items.Length;i++)same=object.Equals(cmbGrainMode.Items[i],items[i]);
+            cmbGrainMode.BeginUpdate();
+            try {
+                if(!same) { cmbGrainMode.Items.Clear(); cmbGrainMode.Items.AddRange(items); }
+                if(cmbGrainMode.SelectedIndex!=selected)cmbGrainMode.SelectedIndex=selected;
+            } finally { cmbGrainMode.EndUpdate(); }
+        }
+
         private void UpdateGrainForCodec()
         {
             if (grpGrain == null || cmbCodec == null || cmbGrainMode == null) return;
@@ -1700,23 +1724,19 @@ namespace FilmGrainStudioPreview
             updatingGrainUi = true;
             try
             {
-                cmbGrainMode.Items.Clear();
                 if (av1)
                 {
-                    cmbGrainMode.Items.AddRange(new object[] { lang.T("grain.mode.film"), lang.T("grain.mode.iso"), lang.T("grain.mode.table"), lang.T("grain.mode.digital"), lang.T("grain.mode.fgsim") });
-                    cmbGrainMode.SelectedIndex = Math.Max(0, Math.Min(4, av1GrainModeIndex));
+                    SetGrainModeChoices(new object[] { lang.T("grain.mode.film"), lang.T("grain.mode.iso"), lang.T("grain.mode.table"), lang.T("grain.mode.digital"), lang.T("grain.mode.fgsim") }, Math.Max(0, Math.Min(4, av1GrainModeIndex)));
                     grpGrain.Text = cmbCodec.SelectedIndex == 4 ? lang.T("grain.av1_copy") : lang.T("grain.av1_metadata");
                 }
                 else
                 {
                     if(SvtSelected()) {
-                        cmbGrainMode.Items.AddRange(new object[]{lang.T("grain.mode.film"),lang.T("grain.mode.iso"),UiText("扫描颗粒文件","Scanned Grain Plate"),lang.T("grain.mode.table"),lang.T("grain.mode.digital"),lang.T("grain.mode.fgsim")});
+                        SetGrainModeChoices(new object[]{lang.T("grain.mode.film"),lang.T("grain.mode.iso"),UiText("扫描颗粒文件","Scanned Grain Plate"),lang.T("grain.mode.table"),lang.T("grain.mode.digital"),lang.T("grain.mode.fgsim")}, SvtGrainOrderCore.DisplayIndex(Math.Max(0,Math.Min(5,svtGrainModeIndex))));
                         pixelGrainModeIndex=svtGrainModeIndex;
-                        cmbGrainMode.SelectedIndex=SvtGrainOrderCore.DisplayIndex(Math.Max(0,Math.Min(5,svtGrainModeIndex)));
                     } else {
-                        cmbGrainMode.Items.AddRange(new object[] { UiText("扫描颗粒文件", "Scanned Grain Plate"), lang.T("grain.mode.digital"), lang.T("grain.mode.fgsim") });
+                        SetGrainModeChoices(new object[] { UiText("扫描颗粒文件", "Scanned Grain Plate"), lang.T("grain.mode.digital"), lang.T("grain.mode.fgsim") }, SvtGrainOrderCore.PixelIndex(Math.Max(0, Math.Min(2, pixelOnlyGrainModeIndex))));
                         pixelGrainModeIndex=pixelOnlyGrainModeIndex;
-                        cmbGrainMode.SelectedIndex = SvtGrainOrderCore.PixelIndex(Math.Max(0, Math.Min(2, pixelOnlyGrainModeIndex)));
                     }
                     grpGrain.Text = SvtSelected()?lang.T("grain.av1_metadata"):NewCpuSelected()?CpuCodec()+" 像素颗粒":cmbCodec.SelectedIndex == 1 ? lang.T("grain.hevc") : cmbCodec.SelectedIndex == 3 ? UiText("H.264 像素颗粒", "H.264 pixel grain") : lang.T("grain.x264");
                 }
@@ -3646,20 +3666,31 @@ namespace FilmGrainStudioPreview
             catch (InvalidOperationException) { }
         }
 
+        private IDictionary<string,string> CaptureCpuHdrRouteState()
+        {
+            var snapshot=new BridgeEnvironmentSnapshot {
+                Mode=CpuCodec(), GrainEnabled=IsGrainEnabled(), GrainMode=CurrentGrainMode(),
+                HdrPolicy=config.Get("HDR_POLICY"), ColorEnabled=colorCorrectionEnabled,
+                LutEnabled=IsLutEffectEnabled(), LutPath=selectedLutPath, LutStrength=GetLutStrength(),
+                SvpInterpolate=chkInterpolation!=null&&chkInterpolation.Checked,
+                InterpolationEngine=cmbInterpolationMode!=null&&cmbInterpolationMode.SelectedIndex==2?"FRUC":"SVP"
+            };
+            return BridgeEnvironmentCore.Build(snapshot);
+        }
+
         private void UpdateHdrRouteStatus(MediaProbeInfo info)
         {
             if (lblHdrRoute == null) return;
             if (btnHdrShortcut != null) btnHdrShortcut.Visible = info != null && info.IsHdr && (listFiles == null || listFiles.SelectedItems.Count <= 1);
             if(info!=null&&info.IsHdr&&NewCpuSelected()&&(listFiles==null||listFiles.SelectedItems.Count<=1)) {
-                string error;var state=BuildBridgeEnvironment(out error);
-                if(state!=null) {
-                    bool toSdr=SharedGrainCore.CpuHdrToSdr(info,state);
-                    bool allowed=toSdr||(SharedGrainCore.ValidateHdr(info,state,out error)&&SvtHdr10Core.CheckScope(info,state,SharedGrainCore.IsEnabled(state)&&SharedGrainCore.Engine(state)!="AV1_METADATA",state["FG_SVP_INTERPOLATE"]=="1",out error));
-                    string tone=config.Get("TONE_MAP_ALGO");if(string.IsNullOrWhiteSpace(tone))tone="hable";
-                    lblHdrRoute.Text=!allowed?lang.T("input.hdr_route_unsupported"):toSdr?LF("input.hdr_route_tosdr",tone):lang.T("input.hdr_route_passthrough");
-                    lutToolTip.SetToolTip(lblHdrRoute,!allowed?error:toSdr?UiText("按明确的转SDR选择或当前SDR处理路线转换。","SDR selected or required by the chosen SDR processing."):UiText("SVT/x265默认保留HDR；硬解、缩放和缺失静态信息不阻止保留。","SVT/x265 preserve HDR by default; hardware decode, resize and missing static metadata do not block it."));
-                    return;
-                }
+                // Route display needs processing choices only: no bitrate/file/catalog readiness validation.
+                string error="";var state=CaptureCpuHdrRouteState();
+                bool toSdr=SharedGrainCore.CpuHdrToSdr(info,state);
+                bool allowed=toSdr||(SharedGrainCore.ValidateHdr(info,state,out error)&&SvtHdr10Core.CheckScope(info,state,SharedGrainCore.IsEnabled(state)&&SharedGrainCore.Engine(state)!="AV1_METADATA",state["FG_SVP_INTERPOLATE"]=="1",out error));
+                string tone=config.Get("TONE_MAP_ALGO");if(string.IsNullOrWhiteSpace(tone))tone="hable";
+                lblHdrRoute.Text=!allowed?lang.T("input.hdr_route_unsupported"):toSdr?LF("input.hdr_route_tosdr",tone):lang.T("input.hdr_route_passthrough");
+                lutToolTip.SetToolTip(lblHdrRoute,!allowed?error:toSdr?UiText("按明确的转SDR选择或当前SDR处理路线转换。","SDR selected or required by the chosen SDR processing."):UiText("SVT/x265默认保留HDR；硬解、缩放和缺失静态信息不阻止保留。","SVT/x265 preserve HDR by default; hardware decode, resize and missing static metadata do not block it."));
+                return;
             }
 
             string text;
@@ -3712,7 +3743,7 @@ namespace FilmGrainStudioPreview
                     preserve = true;
                     detail = UiText("AV1 不重编码只更换颗粒元数据，不执行色调映射。", "AV1 no-reencode only changes grain metadata; tone mapping is not run.");
                 }
-                else if (policy == "PRESERVE" && (color || lut))
+                else if (policy == "PRESERVE" && x264 && (color || lut))
                 {
                     unsupported = true;
                     detail = UiText("HDR 保留与当前 SDR 调色/LUT 不兼容；请关闭这些处理或选择 AUTO/转 SDR。", "HDR Preserve conflicts with SDR color/LUT processing; disable them or choose AUTO/SDR.");
@@ -3745,8 +3776,8 @@ namespace FilmGrainStudioPreview
                             : (hevc && fgsim
                                 ? UiText("HEVC Native 将使用 10-bit FGSIM 亮度颗粒路径，保留 HDR 信号。", "HEVC Native will use the 10-bit FGSIM luma-grain path and preserve the HDR signal.")
                                 : lang.T("input.hdr_route_detail_preserve"));
-                        if (hevc && (lut || color))
-                            detail += " " + UiText("BT.709 LUT 会跳过；启用的色彩纠正仍会应用。", "The BT.709 LUT is skipped; enabled color correction is still applied.");
+                        if ((hevc || av1) && (lut || color))
+                            detail += " " + UiText("调色/LUT使用高位深HDR路线；LUT应匹配源HDR色域与传递函数，预览转SDR显示。", "Color/LUT use the high-depth HDR route; LUT input/output must match the source HDR color domain. Preview uses SDR display conversion.");
                         if ((interpolate && !fruc))
                             detail += " " + lang.T("input.hdr_route_detail_bypass");
                     }
@@ -3775,7 +3806,7 @@ namespace FilmGrainStudioPreview
                 }
                 text = unsupported ? lang.T("input.hdr_route_unsupported") :
                     (toSdr ? LF("input.hdr_route_tosdr", toneLabel) : lang.T("input.hdr_route_passthrough"));
-                bool hasPreserveBypass = hevc ? (lut || (interpolate && !fruc)) : (lut || color || (interpolate && !fruc));
+                bool hasPreserveBypass = interpolate && !fruc;
                 if (preserve && !noReencode && hasPreserveBypass)
                     text += " " + lang.T("input.hdr_route_bypass_short");
             }
@@ -4106,7 +4137,7 @@ namespace FilmGrainStudioPreview
             string video=GetPreviewVideoPath();MediaProbeInfo media=null;
             if(!string.IsNullOrEmpty(video))mediaProbeCache.TryGetValue(video,out media);
             if(string.IsNullOrEmpty(video)||media==null){MessageBox.Show(this,UiText("请选择一个已完成探测的视频。","Select one fully probed video."));return;}
-            using(var window=new NativeLutStrengthPreviewForm(Path.Combine(config.Get("FFMPEG_DIR"),"ffmpeg.exe"),selectedLutPath,video,lang.Code,media)) {
+            using(var window=new NativeLutStrengthPreviewForm(Path.Combine(config.Get("FFMPEG_DIR"),"ffmpeg.exe"),selectedLutPath,video,lang.Code,media,config.Get("HDR_POLICY")=="PRESERVE",config.Get("TONE_MAP_ALGO"))) {
                 AttachOwnedTheme(window,this,log);window.ShowDialog(this);
                 if(window.SelectedStrength>0){
                     try{lutSessionReference.Set(window.SelectedReference);}
@@ -4284,7 +4315,7 @@ namespace FilmGrainStudioPreview
                     colorBlackWhite,
                     chkLut.Checked && !string.IsNullOrEmpty(selectedLutPath),
                     config.GetBool("COLOR_PREVIEW_LARGE_UI"),
-                    lang.Code))
+                    lang.Code, GetSelectedMediaInfo(), config.Get("HDR_POLICY")=="PRESERVE", config.Get("TONE_MAP_ALGO")))
                 {
                     if (dlg.ShowDialog(this) == DialogResult.OK && dlg.Result != null)
                     {
@@ -4455,9 +4486,14 @@ namespace FilmGrainStudioPreview
             int family=Math.Max(0,cmbCodecFamily.SelectedIndex);bool copy=family==3;bool cpu=!copy&&chkCpuEncoder.Checked;
             if(copy && !CanSelectNoReencode()) { UpdateNoReencodeAvailability(); SyncCodecPicker(); return; }
             if(userFamilySelection && family==0 && hardwareCapsReady && hardwareCaps!=null && !hardwareCaps.Av1Available)cpu=true;
-            if(cpu)config.SaveValue("CPU_CODEC",family==0?"SVT":family==1?"X265":"X264");
-            cmbCodec.SelectedIndex=copy?4:cpu?2:family==0?0:family==1?1:3;
-            SyncCodecPicker();UpdateSpeedChoices();UpdateGrainForCodec();LoadBitrateStateForCodec();UpdateBitrateDisplays();UpdateSfeUi();UpdateMediaDrivenUi(GetSelectedMediaInfo());
+            int previousCodec=cmbCodec.SelectedIndex;
+            int nextCodec=copy?4:cpu?2:family==0?0:family==1?1:3;
+            string nextCpu=family==0?"SVT":family==1?"X265":"X264";
+            if(previousCodec==nextCodec && (!cpu || CpuCodec()==nextCpu)) { SyncCodecPicker(); return; }
+            if(cpu)config.SaveValue("CPU_CODEC",nextCpu);
+            cmbCodec.SelectedIndex=nextCodec;
+            // A changed index already refreshed grain in SelectedIndexChanged. CPU-to-CPU keeps index 2.
+            SyncCodecPicker();UpdateSpeedChoices();if(cmbCodec.SelectedIndex==previousCodec)UpdateGrainForCodec();LoadBitrateStateForCodec();UpdateBitrateDisplays();UpdateSfeUi();UpdateMediaDrivenUi(GetSelectedMediaInfo());
         }
         private void SyncCodecPicker()
         {

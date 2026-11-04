@@ -135,7 +135,10 @@ namespace FilmGrainStudioPreview
                     try {
                         foreach(var pair in resizeValues())values[pair.Key]=pair.Value;
                         foreach(var pair in values)PresetCore.ValidateConfig(pair.Key,pair.Value);
-                        config.Save(values);RefreshPreprocessButton();UpdateBitrateDisplays();dialog.DialogResult=DialogResult.OK;dialog.Close();
+                        config.Save(values);RefreshPreprocessButton();UpdateBitrateDisplays();
+                        RefreshAv1GrainTableForMedia();
+                        UpdateHdrRouteStatus(GetSelectedMediaInfo());
+                        dialog.DialogResult=DialogResult.OK;dialog.Close();
                     }catch(Exception ex){MessageBox.Show(dialog,ex.Message,dialog.Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);}
                 };
                 buttons.Controls.Add(cancel);buttons.Controls.Add(ok);buttons.Controls.Add(reset);shell.Controls.Add(buttons,0,1);

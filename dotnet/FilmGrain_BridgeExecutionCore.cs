@@ -90,6 +90,7 @@ namespace FilmGrainStudioPreview
             if(!SourceIdentity.IsCurrent(SourceIdentity.Input,Path.Combine(cfg.Get("FFMPEG_DIR"),"ffprobe.exe")))
                 throw new InvalidOperationException("Input or FFprobe changed; reselect and probe again: "+SourceIdentity.Input);
         }
+        internal bool SuppressSourceAv1Grain { get; set; }
         internal bool PixelGrainHdr { get; set; }
         internal SvtHdr10Proof Hdr10Proof { get; set; }
         internal IList<string> PixelGrainEncodeArguments { get; set; }
@@ -386,6 +387,7 @@ namespace FilmGrainStudioPreview
             catch (Exception ex)
             {
                 failure = ex;
+                if(exitCode==0)exitCode=-1;
                 RaiseLog(BridgeLogStream.System, "exception: " + ex.Message);
             }
             finally

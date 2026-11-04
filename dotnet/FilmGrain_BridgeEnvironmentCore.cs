@@ -408,7 +408,8 @@ namespace FilmGrainStudioPreview
             reason=""; string policy, color, lut;
             if(info==null || !info.IsHdr)return true;
             state.TryGetValue("FG_HDR_POLICY",out policy); state.TryGetValue("FG_COLOR_ENABLED",out color); state.TryGetValue("FG_LUT_PATH",out lut);
-            if(string.Equals(policy,"PRESERVE",StringComparison.OrdinalIgnoreCase) && (color=="1" || !string.IsNullOrWhiteSpace(lut)))
+            string mode;state.TryGetValue("FG_MODE",out mode);
+            if(string.Equals(policy,"PRESERVE",StringComparison.OrdinalIgnoreCase) && (mode=="X264" || mode=="H264") && (color=="1" || !string.IsNullOrWhiteSpace(lut)))
             { reason="HDR 保留与当前 SDR 调色/LUT 不兼容；请选择 AUTO/转 SDR，或关闭调色/LUT。 / HDR Preserve conflicts with SDR color/LUT processing."; return false; }
             return true;
         }
@@ -676,6 +677,66 @@ namespace FilmGrainStudioPreview
             int result=System.Array.IndexOf(DisplayToStored,stored);
             if(result<0)throw new System.ArgumentOutOfRangeException("stored");
             return result;
+        }
+    }
+}
+
+namespace FilmGrainStudioPreview
+{
+    // Shared by native encoders and the color preview. HDR controls operate on
+    // normalized, transfer-encoded signal values; no implicit tone mapping.
+    internal static class HdrColorProcessingCore
+    {
+        private static string Get(System.Collections.Generic.IDictionary<string,string> s,string key)
+        {string v;return s!=null&&s.TryGetValue(key,out v)?v??"":"";}
+        private static string F(double n){return n.ToString("0.################",System.Globalization.CultureInfo.InvariantCulture);}
+        private static double Number(System.Collections.Generic.IDictionary<string,string> s,string key)
+        {
+            double n;if(!double.TryParse(Get(s,key),System.Globalization.NumberStyles.Float,System.Globalization.CultureInfo.InvariantCulture,out n)||double.IsNaN(n)||double.IsInfinity(n))
+                throw new System.IO.InvalidDataException("Invalid HDR color value: "+key);
+            return n;
+        }
+        internal static string Cc(System.Collections.Generic.IDictionary<string,string> s,MediaProbeInfo info)
+        {
+            if(Get(s,"FG_COLOR_ENABLED")!="1")return "";
+            double c=Number(s,"FG_COLOR_CONTRAST"),b=Number(s,"FG_COLOR_BRIGHTNESS"),sat=Number(s,"FG_COLOR_SATURATION"),g=Number(s,"FG_COLOR_GAMMA");
+            if(g<=0)throw new System.IO.InvalidDataException("HDR gamma must be greater than zero");
+            bool bw=Get(s,"FG_COLOR_BLACK_WHITE")=="1";
+            if(c==1&&b==0&&sat==1&&g==1&&!bw)return "";
+            bool full=info!=null&&(info.ColorRange=="pc"||info.ColorRange=="jpeg");
+            string black=full?"0":"4096",span=full?"65535":"56064";
+            string y="val";
+            if(c!=1||b!=0||g!=1) {
+                y="clip(((val-"+black+")/"+span+"-0.5)*("+F(c)+")+0.5+("+F(b)+"),0,1)";
+                if(g!=1)y="pow("+y+",1/"+F(g)+")";
+                y=black+"+"+span+"*("+y+")";
+            }
+            string uv=bw?"32768":sat==1?"val":"clip((val-32768)*("+F(sat)+")+32768,0,65535)";
+            return "format=yuv444p16le,lutyuv=y='"+y+"':u='"+uv+"':v='"+uv+"',";
+        }
+        internal static string Lut(MediaProbeInfo info,string escapedPath,string opacity)
+        {
+            string matrix=info.ColorSpace;
+            if(string.IsNullOrEmpty(matrix)||matrix=="unknown"||matrix=="reserved")matrix="bt2020nc";
+            string range=info.ColorRange=="pc"||info.ColorRange=="jpeg"?"pc":"tv";
+            // zscale changes matrix/range only. PQ/HLG code values remain in the
+            // same transfer domain. The user supplies a LUT with matching I/O domain.
+            string prefix="zscale=matrixin="+matrix+":matrix=gbr:rangein="+range+":range=pc,format=gbrp16le,";
+            string lut="lut3d=file='"+escapedPath+"':interp=tetrahedral";
+            if(opacity!="1.00"&&opacity!="1")lut="split=2[fgshdrlutorig][fgshdrlutsrc];[fgshdrlutsrc]"+lut+"[fgshdrlutgraded];[fgshdrlutgraded][fgshdrlutorig]blend=all_mode=normal:all_opacity="+opacity;
+            return prefix+lut+",zscale=matrixin=gbr:matrix="+matrix+":rangein=pc:range="+range+",format=yuv420p10le"+SvtHdr10Core.ColorFilter(info)+",";
+        }
+        internal static string DisplayToSdr(MediaProbeInfo info,string tone)
+        {
+            if(tone!="mobius"&&tone!="reinhard"&&tone!="gamma"&&tone!="linear"&&tone!="clip")tone="hable";
+            var args=SharedHdrPreprocessCore.BuildToSdr("preview-input","preview-output",info,tone,false);
+            return args[args.IndexOf("-vf")+1];
+        }
+        internal static void Notice(BridgeExecutionRequest request,MediaProbeInfo info,System.Collections.Generic.IDictionary<string,string> state,bool preserve)
+        {
+            if(!preserve||(Get(state,"FG_COLOR_ENABLED")!="1"&&string.IsNullOrWhiteSpace(Get(state,"FG_LUT_PATH"))))return;
+            request.ExecutionNotice=(request.ExecutionNotice??"")+System.Environment.NewLine+
+                "[HDR color/LUT] high-depth encoded-signal processing; no tone mapping. LUT assumes source HDR input/output color domain. Source static metadata follows existing retention rules and is not remeasured after grading. Color-window JPEG is an SDR display conversion, not an HDR luminance reference.";
         }
     }
 }

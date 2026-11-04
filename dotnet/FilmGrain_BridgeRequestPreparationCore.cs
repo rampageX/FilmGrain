@@ -484,6 +484,7 @@ namespace FilmGrainStudioPreview
         {
             selected=null;notice="[HWD] requested=off effective=software";
             if(Get(state,"FG_GPU_DECODE")!="1")return false;
+            if(request.SuppressSourceAv1Grain){notice="[HWD] requested=on effective=software reason=external AV1 model replacement requires libdav1d filmgrain=0; GPU filters unchanged";return false;}
             if(Get(state,"FG_MODE")=="AV1BAKE"){notice="[HWD] requested=on effective=software reason=AV1 bake requires libdav1d software film-grain synthesis";return false;}
             bool bestSource=false;var tools=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if(request.DirectStages!=null)foreach(var stage in request.DirectStages){

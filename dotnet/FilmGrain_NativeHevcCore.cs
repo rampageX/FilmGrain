@@ -253,6 +253,7 @@ namespace FilmGrainStudioPreview
             string colorFilter, colorSuffix;
 
             if (!TryBuildColorFilter(state, out colorFilter, out colorSuffix, out reason)) return false;
+            if(hdrPreserve)colorFilter=HdrColorProcessingCore.Cc(state,info);
             string preprocessing;
             if(!PreprocessingCore.TryBuild(state,out preprocessing,out reason))return false;
             if(preprocessing.Length>0 && !PreprocessingCore.TryCheckTool(ffmpeg,out reason))return false;
@@ -260,7 +261,7 @@ namespace FilmGrainStudioPreview
             colorFilter=preprocessing+resize.Prefix+colorFilter;
             if(preprocessing.Length>0)colorSuffix="_BIL"+colorSuffix;
 
-            string lutNamingSuffix = hdrPreserve ? "" : BuildLutNamingSuffix(state);
+            string lutNamingSuffix = BuildLutNamingSuffix(state);
 
             string preset = speed == "STANDARD" ? "p7" : "p5";
 
@@ -342,7 +343,11 @@ namespace FilmGrainStudioPreview
 
             string lutCompatPath = "", lutCompatName = "", lutOpacity = "";
 
-            if (!TryPrepareLut(ffmpeg, state, hdrPreserve, out lutCompatPath, out lutCompatName, out lutOpacity, out reason)) return false;
+            if (!TryPrepareLut(ffmpeg, state, false, out lutCompatPath, out lutCompatName, out lutOpacity, out reason)) return false;
+            if(hdrPreserve && !string.IsNullOrEmpty(lutCompatName)) {
+                colorFilter+=HdrColorProcessingCore.Lut(info,EscapeFilterPath(lutCompatName),lutOpacity);
+                lutCompatName=""; // Already applied in the shared HDR prefix; keep the LUT file for execution.
+            }
 
             string subtitleAss = "";
 
@@ -625,6 +630,7 @@ namespace FilmGrainStudioPreview
                         if (stage.FrucArguments != null) stage.FrucProbePath = ffprobe;
                 if(info.IsHdr && info.IsInterlaced && !deinterlace)request.ExecutionNotice="[Native .NET] 反交错 OFF：沿用不反交错的逐帧处理，不启用 bob/光流或双倍场率；不保证隔行编码标记。 / Deinterlace OFF: frame processing without bob/interpolation; no interlaced-encoding flags are added.";
             if (fgsimMode) FgsimTextureCore.AttachVerifiedDevice(request, fgsimHook, hdrPreserve);
+            HdrColorProcessingCore.Notice(request,info,state,hdrPreserve);
             prepared = new BridgePreparedExecution(request, false, ffmpeg, requestInputs);
 
                 lutCompatPath = "";

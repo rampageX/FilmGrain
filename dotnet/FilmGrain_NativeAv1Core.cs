@@ -88,11 +88,12 @@ namespace FilmGrainStudioPreview
             string resizeBars=resize.Enabled?frame.Filter:"";if(resize.Enabled)frame.Filter="";
             string colorFilter, colorSuffix;
             if (!TryBuildColorFilter(state, out colorFilter, out colorSuffix, out reason)) return false;
+            if(hdrPreserve)colorFilter=HdrColorProcessingCore.Cc(state,info);
             string preprocessing;
             if(!PreprocessingCore.TryBuild(state,out preprocessing,out reason))return false;
             colorFilter=preprocessing+resize.Prefix+colorFilter;
             if(preprocessing.Length>0)colorSuffix="_BIL"+colorSuffix;
-            string lutNamingSuffix = hdrPreserve ? "" : BuildLutNamingSuffix(state);
+            string lutNamingSuffix = BuildLutNamingSuffix(state);
             string subtitleSuffix = Get(state, "FG_SUBTITLE") == "1" ? "_SUB" : "";
             if (!Eq(state, "FG_SPEED", "STANDARD") && !Eq(state, "FG_SPEED", "FAST") && !Eq(state, "FG_SPEED", "UHQ"))
             { reason = "unsupported AV1 speed mode"; return false; }
@@ -213,7 +214,11 @@ namespace FilmGrainStudioPreview
             string tempRoot;
             if (!TryResolveTempRoot(input, state, out tempRoot, out reason)) return false;
             string lutCompatPath = "", lutCompatName = "", lutOpacity = "";
-            if (!hdrPreserve && !TryPrepareLut(ffmpeg, state, out lutCompatPath, out lutCompatName, out lutOpacity, out reason)) return false;
+            if (!TryPrepareLut(ffmpeg, state, out lutCompatPath, out lutCompatName, out lutOpacity, out reason)) return false;
+            if(hdrPreserve && !string.IsNullOrEmpty(lutCompatName)) {
+                colorFilter+=HdrColorProcessingCore.Lut(info,EscapeFilterPath(lutCompatName),lutOpacity);
+                lutCompatName=""; // Already applied in the shared HDR prefix; keep the LUT file for execution.
+            }
             string subtitleAss;
             if (!NativeSubtitlePrepareCore.TryPrepare(ffmpeg, ffprobe, input, state, frame.ActiveWidth, frame.ActiveHeight, out subtitleAss, out reason))
             {
@@ -460,6 +465,7 @@ namespace FilmGrainStudioPreview
                 NvencHdr10StreamCore.Attach(request,input,info,remuxVideo,hdrOrdinaryClock);
             if(hdrPreserve&&!hdrStaticStream)request.ExecutionNotice=(request.ExecutionNotice??"")+Environment.NewLine+"[HDR metadata] 当前源格式未接入静态信息提取；现有输出校验仅核对颜色标记，不代表 mastering-display/CLLI 已保留。";
             if(hdrOrdinaryStream)request.ExecutionNotice+=Environment.NewLine+(hdrOrdinaryClock?"[NVENC HDR10 cadence] ordinary SOURCE/KEEP: demux time base and passthrough; original video-only origin normalization and final A/V clock binding retained.":"[NVENC HDR10 cadence] ISO non100% uses the existing nominal-FPS model-inspect fallback and retains legacy CFR; variable source cadence is not preserved by this combination. This combination is outside the R7 cadence fix.");
+            HdrColorProcessingCore.Notice(request,info,state,hdrPreserve);
             prepared = new BridgePreparedExecution(request, false, ffmpeg, new List<string> { input });
             return true;
         }

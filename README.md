@@ -1,23 +1,33 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.0.49 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.50 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 
 ## AV1 / SVT 颗粒与 HDR10
 
 默认选择 AV1 家族：支持 NVENC AV1 时使用硬件编码，否则使用 CPU·SVT。两者默认均为胶片预设（推荐），共有选择在后端切换时保留。SVT 依赖缺失时明确报错。
 
-颗粒菜单统一按胶片预设（推荐）、感光度 ISO、扫描颗粒文件、现成 Grain Table、Digital Grain、GPU Film Grain 排列，各路线只显示已支持项目。默认值及已保存预设/队列的选择不变。SVT 扫描颗粒位于第三；HEVC/H.264 软硬编码的扫描颗粒位于第一；NVENC AV1 和 AV1 不重编码替换当前没有扫描颗粒项。
+颗粒菜单统一按胶片预设（推荐）、感光度 ISO、扫描颗粒文件、现成 Grain Table、Digital Grain、GPU Film Grain 排列，各路线只显示已支持项目。默认值及已保存预设/队列的选择保持。切换编码或软硬后端时，颗粒菜单与强度滑杆使用缓冲刷新；重选相同编码/后端保留现有控件。NVENC AV1 和 AV1 不重编码替换当前没有扫描颗粒项。
+
+保存前处理设置后，Grain Table 立即按有效输出尺寸刷新筛选和当前选择，沿用显示全部表及独立配置的原选择规则。SVT/x265 的 HDR 路线提示只读取相关处理选项，不依赖码率输入或颗粒文件是否已加载；正式任务仍执行完整校验。
 
 SVT 的 Film Preset / Photon ISO / Grain Table 复用 grav1synth 0.2.2 与现有强度处理，编码器内部 film-grain=0，不叠加像素颗粒。编码一次到 clean MKV，再应用参数颗粒并复制封装，音频按输出策略处理一次。Digital / FGSIM / 扫描颗粒仍使用各自的像素处理路线。配置单独特别版 FFmpeg 时，SVT 使用该已选工具，不要求启用 FRUC。
 
-源 AV1 的重新编码参数颗粒暂不开放；独立 AV1 不重编码添加/替换功能保持原有独立路线。
+SVT 的外部参数颗粒路线接受源 AV1：源视频使用 libdav1d 软件解码并关闭原颗粒合成，只移除帧上的颗粒参数，不删除 HDR 静态信息；原有 GPU 滤镜仍可使用。随后编码一次并应用所选新模型，无额外整片媒体文件。颗粒 OFF 沿用原行为，不主动移除源颗粒；专用颗粒烘焙和独立 AV1 不重编码添加/替换功能保持原路线。OpenSVPFlow直接通过BestSource读取原AV1时，当前接口未接入关闭源颗粒合成的控制，此组合会明确说明限制；关闭OpenSVPFlow即可使用，普通缩放及FRUC仍按原能力处理。
+
+### LUT / CC 与保持 HDR
+
+AV1 NVENC、HEVC NVENC、SVT-AV1 和 x265 在明确选择「保持 HDR」时，支持调色与 LUT，不再因启用这两项而拒绝，也不再静默跳过 LUT。AUTO 沿用原策略：启用调色/LUT 时转 SDR；明确转 SDR 的路线不变。H.264/x264 原有输出限制不变。
+
+HDR 调色使用 16-bit YUV 信号计算对比度、亮度、饱和度、Gamma 与黑白；中性参数直接通过。它调整 PQ/HLG 编码信号，不是以尼特为单位的曝光控制，也不先做色调映射。SDR 继续使用原 eq/hue 算法。HDR LUT 经显式矩阵/范围转换进入 16-bit RGB，再返回原 HDR 颜色域；不自动识别或转换 LUT 的创作域，需选择输入与输出都匹配源 HDR 的 LUT。普通 BT.709 或 HDR→SDR LUT 可能改变颜色与亮度，不代表程序会自动重新解释为 SDR 输出。
+
+调色窗口与 LUT 四档对照在保持 HDR 时先应用同一 HDR 调色/LUT 算法，再转 SDR 显示；图片预览不是 HDR 亮度校准。四档只比较 LUT，不含 CC；图库及主窗缩略图仍为 SDR 示意。正式视频不加入显示用 SDR 转换，不增加整片中间文件或编码阶段；LUT 四档只缓存一个高位深基础帧。源 MDCV/CLLI 沿用已有保留规则，不编造、不重新测量；调色后的画面峰值不一定仍等于源静态信息。
 
 ### SVT / x265 默认保留 HDR
 
 SVT / x265 的 AUTO 默认保留源 HDR。硬解、源编码/位深/采样、帧率、缩放、画幅、字幕及静态 metadata 缺失不再作为拒绝保留的条件。最终视频按当前 CPU 编码器的 10-bit 4:2:0 编码，沿用已知源颜色标记；这不表示源采样或位深逐字节不变。GUI、CLI、统一和独立队列使用同一策略。
 
-明确选择转 SDR 时仍转换。当前 SDR 调色/LUT、CPU FGSIM shader 与 OpenSVPFlow 是已知 SDR 处理路线，AUTO 会转 SDR；显式保留与不兼容处理冲突时说明原因。FRUC 保留已有 P010 精度检查和失败停止，不以未经测试为由增加门限。x264 的既有 HDR 策略不变。
+明确选择转 SDR 时仍转换。AUTO在启用调色/LUT、CPU FGSIM或OpenSVPFlow时仍沿用转SDR规则。显式保持HDR可使用上节的高位深调色/LUT；其它不兼容处理仍说明具体原因。FRUC 保留已有 P010 精度检查和失败停止，不以未经测试为由增加门限。x264 的既有 HDR 策略不变。
 
 HEVC PQ/BT.2020 源在编码前尝试读取已有 MDCV/CLLI，分别经 mastering-display/content-light 参数交给 SVT，或经原始整数单位的 master-display/max-cll 参数交给 x265；源中没有的值不编造，读取不到也不阻止保留 HDR。最终检查已知颜色标记的明确冲突；静态信息不完整不再判失败。此处不承诺所有输入格式的静态信息提取，也不承诺 Dolby Vision/HDR10+ 动态信息保留。
 

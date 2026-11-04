@@ -54,6 +54,9 @@ namespace FilmGrainStudioPreview
             public int LutStrength;
         }
 
+        private readonly MediaProbeInfo hdrPreviewInfo;
+        private readonly bool preserveHdrColor;
+        private readonly string previewTonemap;
         private readonly string videoPath;
         private MediaProbeIdentity sourceIdentity;
         private readonly string ffmpegPath;
@@ -123,9 +126,11 @@ namespace FilmGrainStudioPreview
             bool blackWhite,
             bool useLut,
             bool largeUi,
-            string languageCode)
+            string languageCode, MediaProbeInfo mediaInfo = null, bool preserveHdr = false, string tonemap = "hable")
         {
             this.videoPath = videoPath;
+            hdrPreviewInfo=mediaInfo!=null&&mediaInfo.IsHdr?mediaInfo:null;
+            preserveHdrColor=preserveHdr;previewTonemap=tonemap;
             this.ffmpegPath = ffmpegPath;
             this.ffprobePath = ffprobePath;
             this.galleryAppRoot = galleryAppRoot;
@@ -146,6 +151,7 @@ namespace FilmGrainStudioPreview
             sourceIdentity.RequireCurrent();
             PrepareLut(this.lutPath);
             BuildUi(largeUi, enabled, contrast, brightness, saturation, gamma, blackWhite, useLut);
+            if(hdrPreviewInfo!=null)Text+=S(" · SDR显示预览（非HDR亮度校准）"," · SDR display preview (not HDR luminance calibration)");
         }
 
         private string S(string zh, string en)
@@ -799,7 +805,16 @@ namespace FilmGrainStudioPreview
 
             List<string> prefix = new List<string>();
             prefix.Add("scale=" + previewWidth.ToString(CultureInfo.InvariantCulture) + ":" + previewHeight.ToString(CultureInfo.InvariantCulture) + ":force_original_aspect_ratio=decrease:flags=bilinear");
-            if (!state.Original && state.Enabled)
+            if(hdrPreviewInfo!=null && !preserveHdrColor)prefix.Add(HdrColorProcessingCore.DisplayToSdr(hdrPreviewInfo,previewTonemap));
+            if (!state.Original && state.Enabled && hdrPreviewInfo!=null && preserveHdrColor)
+            {
+                var cc=new Dictionary<string,string>();cc["FG_COLOR_ENABLED"]="1";
+                cc["FG_COLOR_CONTRAST"]=F(state.Contrast);cc["FG_COLOR_BRIGHTNESS"]=F(state.Brightness);
+                cc["FG_COLOR_SATURATION"]=F(state.Saturation);cc["FG_COLOR_GAMMA"]=F(state.Gamma);
+                cc["FG_COLOR_BLACK_WHITE"]=state.BlackWhite?"1":"0";
+                string high=HdrColorProcessingCore.Cc(cc,hdrPreviewInfo);if(high.Length>0)prefix.Add(high.TrimEnd(','));
+            }
+            else if (!state.Original && state.Enabled)
             {
                 prefix.Add("eq=contrast=" + F(state.Contrast) + ":brightness=" + F(state.Brightness) + ":saturation=" + F(state.Saturation) + ":gamma=" + F(state.Gamma));
                 if (state.BlackWhite) prefix.Add("hue=s=0");
@@ -815,7 +830,9 @@ namespace FilmGrainStudioPreview
                     resolvedOpacity=LutStrengthCore.CreateFile(state.CompatLutPath,lutForPreview,state.LutStrength);preparedStrengthLut=lutForPreview;
                 }
                 string escaped = EscapeFilterPath(lutForPreview);
-                if (resolvedOpacity=="1.00")
+                if(hdrPreviewInfo!=null && preserveHdrColor)
+                    filter+=","+HdrColorProcessingCore.Lut(hdrPreviewInfo,escaped,resolvedOpacity).TrimEnd(',');
+                else if (resolvedOpacity=="1.00")
                     filter += ",format=gbrp16le,lut3d=file='" + escaped + "':interp=tetrahedral";
                 else
                 {
@@ -823,6 +840,7 @@ namespace FilmGrainStudioPreview
                     filter += ",format=gbrp16le,split=2[lutorig][lutsrc];[lutsrc]lut3d=file='" + escaped + "':interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=" + opacity;
                 }
             }
+            if(hdrPreviewInfo!=null && preserveHdrColor)filter+=","+HdrColorProcessingCore.DisplayToSdr(hdrPreviewInfo,previewTonemap);
             filter += ",pad=" + previewWidth.ToString(CultureInfo.InvariantCulture) + ":" + previewHeight.ToString(CultureInfo.InvariantCulture) + ":(ow-iw)/2:(oh-ih)/2:black";
 
             sourceIdentity.RequireCurrent();
