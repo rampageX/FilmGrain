@@ -779,15 +779,15 @@ namespace FilmGrainStudioPreview
                 analyse.Items.Add(lang.T("advanced.analyse_recommended")); analyse.Items.Add(lang.T("advanced.analyse_baseline")); analyse.SelectedIndex = string.Equals(config.Get("SVP_ANALYSE"), "BASE", StringComparison.OrdinalIgnoreCase) ? 1 : 0; interp.Controls.Add(analyse);
                 Label maskLabel = new ThemeLabel(); maskLabel.Text = UiText("伪影遮罩范围", "Artifact Mask Area"); maskLabel.Location = new Point(18, 90); maskLabel.Size = new Size(150, 24); interp.Controls.Add(maskLabel);
                 NumericUpDown mask = new ThemeNumericUpDown(); mask.Location = new Point(180, 86); mask.Size = new Size(120, 26); mask.Minimum = 0; mask.Maximum = 100; mask.Increment = 5; mask.Value = Math.Max(mask.Minimum, Math.Min(mask.Maximum, config.GetInt("SVP_MASK_AREA", 100))); interp.Controls.Add(mask);
-                Label speedLabel = new ThemeLabel { Text = UiText("OpenSVPFlow 速度档位", "OpenSVPFlow Speed"), Location = new Point(18, 126), Size = new Size(155, 24) }; interp.Controls.Add(speedLabel);
+                Label speedLabel = new ThemeLabel { Text = UiText("速度档位", "Speed"), Location = new Point(18, 126), Size = new Size(155, 24) }; interp.Controls.Add(speedLabel);
                 ComboBox svpSpeed = new ThemeComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(180, 122), Size = new Size(150, 26) };
                 svpSpeed.Items.AddRange(new object[] { "FGS", "medium", "fast", "faster", "fastest" });
                 svpSpeed.SelectedItem = config.Get("SVP_SPEED"); if (svpSpeed.SelectedIndex < 0) svpSpeed.SelectedIndex = 0; interp.Controls.Add(svpSpeed);
-                Label tuningLabel = new ThemeLabel { Text = UiText("OpenSVPFlow 调校预设", "OpenSVPFlow Tuning"), Location = new Point(18, 162), Size = new Size(155, 24) }; interp.Controls.Add(tuningLabel);
+                Label tuningLabel = new ThemeLabel { Text = UiText("调校预设", "Tuning"), Location = new Point(18, 162), Size = new Size(155, 24) }; interp.Controls.Add(tuningLabel);
                 ComboBox svpTuning = new ThemeComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(180, 158), Size = new Size(150, 26) };
                 svpTuning.Items.AddRange(new object[] { "FGS", "weak", "film", "smooth", "animation" });
                 svpTuning.SelectedItem = config.Get("SVP_TUNING"); if (svpTuning.SelectedIndex < 0) svpTuning.SelectedIndex = 0; interp.Controls.Add(svpTuning);
-                Label blockLabel = new ThemeLabel { Text = UiText("OpenSVPFlow 分块大小", "OpenSVPFlow Block Size"), Location = new Point(18, 198), Size = new Size(160, 24) }; interp.Controls.Add(blockLabel);
+                Label blockLabel = new ThemeLabel { Text = UiText("分块大小", "Block size"), Location = new Point(18, 198), Size = new Size(160, 24) }; interp.Controls.Add(blockLabel);
                 ComboBox svpBlock = new ThemeComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(180, 194), Size = new Size(150, 26) };
                 svpBlock.Items.AddRange(new object[] { "auto", "8", "16", "32" });
                 svpBlock.SelectedItem = config.Get("SVP_BLOCK_SIZE"); if (svpBlock.SelectedIndex < 0) svpBlock.SelectedIndex = 0; interp.Controls.Add(svpBlock);
@@ -797,10 +797,10 @@ namespace FilmGrainStudioPreview
                 };
                 svpSpeed.SelectedIndexChanged += updateSvpProfile; svpTuning.SelectedIndexChanged += updateSvpProfile; svpBlock.SelectedIndexChanged += updateSvpProfile;
                 updateSvpProfile(null, EventArgs.Empty);
-                Label frucPerfLabel = new ThemeLabel(); frucPerfLabel.Text = UiText("FRUC Vulkan 性能档位", "FRUC Vulkan perf"); frucPerfLabel.Location = new Point(18, 238); frucPerfLabel.Size = new Size(150, 24); interp.Controls.Add(frucPerfLabel);
+                Label frucPerfLabel = new ThemeLabel(); frucPerfLabel.Text = UiText("性能档位", "Performance"); frucPerfLabel.Location = new Point(18, 238); frucPerfLabel.Size = new Size(150, 24); interp.Controls.Add(frucPerfLabel);
                 ComboBox frucPerf = new ThemeComboBox(); frucPerf.DropDownStyle = ComboBoxStyle.DropDownList; frucPerf.Location = new Point(180, 234); frucPerf.Size = new Size(150, 26);
                 frucPerf.Items.Add("slow"); frucPerf.Items.Add("medium"); frucPerf.Items.Add("fast"); string savedPerf = config.Get("FRUC_PERF").ToLowerInvariant(); frucPerf.SelectedIndex = savedPerf == "slow" ? 0 : (savedPerf == "fast" ? 2 : 1); interp.Controls.Add(frucPerf);
-                Label frucGridLabel = new ThemeLabel(); frucGridLabel.Text = UiText("FRUC Vulkan 光流网格", "FRUC Vulkan grid"); frucGridLabel.Location = new Point(18, 274); frucGridLabel.Size = new Size(150, 24); interp.Controls.Add(frucGridLabel);
+                Label frucGridLabel = new ThemeLabel(); frucGridLabel.Text = UiText("光流网格", "Optical flow grid"); frucGridLabel.Location = new Point(18, 274); frucGridLabel.Size = new Size(150, 24); interp.Controls.Add(frucGridLabel);
                 ComboBox frucGrid = new ThemeComboBox(); frucGrid.DropDownStyle = ComboBoxStyle.DropDownList; frucGrid.Location = new Point(180, 270); frucGrid.Size = new Size(150, 26);
                 string supportedFrucGrids=SharedFrucCore.SupportedGrids(hardwareCaps==null?"":hardwareCaps.FrucEvidence);
                 frucGrid.Items.Add("auto");
@@ -834,30 +834,28 @@ namespace FilmGrainStudioPreview
                     decimal value; if(!decimal.TryParse(config.Get(key),NumberStyles.Float,CultureInfo.InvariantCulture,out value))value=fallback;
                     field.Value=Math.Max(0,Math.Min(maximum,value));interp.Controls.Add(field);return field;
                 };
-                Action<string,int> extraLabel = delegate(string text,int y) { interp.Controls.Add(new ThemeLabel { Text=text,Location=new Point(360,y+4),Size=new Size(195,24) }); };
-                extraLabel(UiText("重复帧阈值（0 = 关闭）","Dedup threshold (0 = off)"),18);
+                Func<string,int,Label> extraLabel = delegate(string text,int y) { var label=new ThemeLabel { Text=text,Location=new Point(360,y+4),Size=new Size(195,24) };interp.Controls.Add(label);return label; };
+                Label dedupLabel=extraLabel(UiText("重复帧阈值","Dedup threshold"),18);
                 NumericUpDown dedup=extraNumber("SVP_DEDUP",0,10,18);
                 CheckBox still = new ThemeCheckBox { Text=UiText("保护静止文字 / 标识","Protect still text / logos"),Checked=config.GetBool("SVP_STILL"),Location=new Point(360,58),Size=new Size(310,26) };interp.Controls.Add(still);
-                extraLabel("Still limit",90);NumericUpDown stillLimit=extraNumber("SVP_STILL_LIMIT",4.5m,100,90);
-                extraLabel("Still edge",122);NumericUpDown stillEdge=extraNumber("SVP_STILL_EDGE",5,100,122);
-                extraLabel("Still tolerance",154);NumericUpDown stillTolerance=extraNumber("SVP_STILL_TOLERANCE",30,100,154);
-                CheckBox peel = new ThemeCheckBox { Text=UiText("剥离 HUD 后重合成（Peel）","Peel HUD before warp, then restore"),Checked=config.GetBool("SVP_PEEL"),Location=new Point(360,194),Size=new Size(310,26) };interp.Controls.Add(peel);
-                extraLabel("Peel limit",226);NumericUpDown peelLimit=extraNumber("SVP_PEEL_LIMIT",6,100,226);
+                Label stillLimitLabel=extraLabel("Still limit",90);NumericUpDown stillLimit=extraNumber("SVP_STILL_LIMIT",4.5m,100,90);
+                Label stillEdgeLabel=extraLabel("Still edge",122);NumericUpDown stillEdge=extraNumber("SVP_STILL_EDGE",5,100,122);
+                Label stillToleranceLabel=extraLabel("Still tolerance",154);NumericUpDown stillTolerance=extraNumber("SVP_STILL_TOLERANCE",30,100,154);
+                CheckBox peel = new ThemeCheckBox { Text=UiText("剥离 HUD 后重合成（Peel）","Peel HUD, then restore"),Checked=config.GetBool("SVP_PEEL"),Location=new Point(360,194),Size=new Size(310,26) };interp.Controls.Add(peel);
+                Label peelLimitLabel=extraLabel("Peel limit",226);NumericUpDown peelLimit=extraNumber("SVP_PEEL_LIMIT",6,100,226);
                 EventHandler refreshExtra = delegate { stillLimit.Enabled=stillEdge.Enabled=stillTolerance.Enabled=still.Checked;peelLimit.Enabled=peel.Checked; };
                 still.CheckedChanged+=refreshExtra;peel.CheckedChanged+=refreshExtra;refreshExtra(null,EventArgs.Empty);
-                Label aiModeLabel=new ThemeLabel {Text=UiText("NVEncC AI 质量","NVEncC AI quality"),Location=new Point(360,352),Size=new Size(150,24)};interp.Controls.Add(aiModeLabel);
+                Label aiModeLabel=new ThemeLabel {Text=UiText("质量档位","Quality"),Location=new Point(360,352),Size=new Size(150,24)};interp.Controls.Add(aiModeLabel);
                 ComboBox aiMode=new ThemeComboBox {DropDownStyle=ComboBoxStyle.DropDownList,Location=new Point(515,350),Size=new Size(150,26)};
                 aiMode.Items.AddRange(new object[]{"low","medium","high"});int aiIndex=aiMode.Items.IndexOf(config.Get("NVENC_AI_MODE"));aiMode.SelectedIndex=aiIndex<0?1:aiIndex;interp.Controls.Add(aiMode);
-                Label extraInfo = new ThemeLabel { Text=UiText("默认全部关闭；dedup 建议从 0.5 开始。\nStill / Peel 仅 GPU，需支持这些选项的插件。\nHDR 直通、隔行旁路与 FRUC 不使用这些选项。", "All off by default; start dedup at 0.5.\nStill / Peel: GPU and compatible plugins required.\nNot used with HDR Preserve, interlaced bypass or FRUC."),Location=new Point(360,266),Size=new Size(310,80),ForeColor=ColorMuted };interp.Controls.Add(extraInfo);
                 interpTips.SetToolTip(dedup,UiText("仅处理孤立重复帧；亮度采样平均差低于阈值才算重复，不是VFR或音画同步修复。", "Handles isolated repeats using sampled mean luma difference; not a VFR or audio sync repair."));
                 interpTips.SetToolTip(still,UiText("上游 GPU 静止遮罩，帮助减少固定文字和标识的拖影。", "Upstream GPU still mask for stationary text and logos."));
                 interpTips.SetToolTip(peel,UiText("上游 GPU HUD 剥离/重合成；先单独测试，再测试与Still的组合。", "Upstream GPU HUD peeling; test separately before combining with Still."));
 
-                CheckBox svpFast = new ThemeCheckBox { Name="SVP_FAST_ANALYSIS",Text=UiText("实验性高速分析（exact=false）","Experimental fast analysis (exact=false)"),Checked=!config.GetBool("SVP_EXACT"),Location=new Point(18,314),Size=new Size(325,26) };interp.Controls.Add(svpFast);
-                CheckBox svpLean = new ThemeCheckBox { Name="SVP_LEAN",Text=UiText("精简 Super（lean=true）","Lean Super (lean=true)"),Checked=config.GetBool("SVP_LEAN"),Location=new Point(18,346),Size=new Size(325,26) };interp.Controls.Add(svpLean);
+                CheckBox svpFast = new ThemeCheckBox { Name="SVP_FAST_ANALYSIS",Text=UiText("实验性高速分析","Experimental fast analysis"),Checked=!config.GetBool("SVP_EXACT"),Location=new Point(18,314),Size=new Size(325,26) };interp.Controls.Add(svpFast);
+                CheckBox svpLean = new ThemeCheckBox { Name="SVP_LEAN",Text=UiText("精简 Super","Lean Super"),Checked=config.GetBool("SVP_LEAN"),Location=new Point(18,346),Size=new Size(325,26) };interp.Controls.Add(svpLean);
                 EventHandler refreshSvpFast = delegate { svpLean.Enabled=svpFast.Checked;if(!svpFast.Checked)svpLean.Checked=false; };
                 svpFast.CheckedChanged+=refreshSvpFast;refreshSvpFast(null,EventArgs.Empty);
-                Label svpFastInfo = new ThemeLabel { Text=UiText("高速分析可能增加显存并改变运动矢量。\n精简 Super 可减少 CPU / 内存开销。\n仅 OpenSVPFlow 生效，默认均关闭。","Fast analysis: more VRAM; vectors may differ.\nLean Super: less CPU / RAM work.\nOpenSVPFlow only; both off by default."),Location=new Point(360,350),Size=new Size(350,60),ForeColor=ColorMuted };interp.Controls.Add(svpFastInfo);
                 interpTips.SetToolTip(svpFast,UiText("默认关闭：保留精确分析。开启后向 Analyse 传入 gpu:1,exact:false，允许 GPU 快速路径，可能改变运动矢量并增加显存；不保证所有素材都提速。需要同时支持 exact / lean 的新版成对 DLL，旧插件会提示更新；不绑定固定版本。","Off by default: preserve exact analysis. Enables Analyse gpu:1,exact:false; GPU shortcuts may change vectors and increase VRAM. Speed gains depend on the clip. Requires a matched plugin pair supporting exact / lean; no version pin."));
                 interpTips.SetToolTip(svpLean,UiText("默认关闭；必须先开启高速分析。向 Super 传入 lean:true，省略由分析链生成的子像素及缩小层；保留速度档位决定的 pel=1/2、gpu=1 和 full=true。仅限新版 OpenSVPFlow Analyse / SmoothFps；FRUC、HDR 直通和隔行旁路不使用此项。","Off by default; requires fast analysis. Sets Super lean:true, skipping subpel / reduced levels generated by the analysis chain. Preserves preset pel=1/2, gpu=1, full=true. Only compatible OpenSVPFlow Analyse / SmoothFps; not used by FRUC, HDR Preserve or interlaced bypass."));
 
@@ -902,6 +900,58 @@ namespace FilmGrainStudioPreview
                 setInterpTip(svpBlock, blockLabel, UiText("FGS 推荐 auto：FGS 速度/调校为 16×16；中等为 8×8，快速/更快为 16×16，最快或动画为 32×32。手动 8/16/32 固定块尺寸。", "FGS recommended auto: FGS speed/tuning 16x16; medium 8x8; fast/faster 16x16; fastest or animation 32x32. Manual 8/16/32 fixes the block size."));
                 setInterpTip(frucPerf, frucPerfLabel, UiText("性能档位控制光流估计：慢速优先质量，中等平衡，快速优先速度。FGS 默认中等；上游默认可能不同。效果与耗时须用同一视频比较。", "perf trades motion-estimation quality for speed: slow / medium / fast. FGS defaults to medium; upstream defaults can differ. Compare using the same video."));
                 setInterpTip(frucGrid, frucGridLabel, UiText("FGS 自动选择最大可用网格（速度优先），不是 FFmpeg 原生 auto 的最细网格。支持项：", "FGS Auto selects the largest supported grid (speed priority), unlike FFmpeg's finest-grid auto. Supported: ")+(supportedFrucGrids.Length==0?UiText("待硬件检测；执行前验证", "pending detection; checked before execution"):supportedFrucGrids));
+
+                // Two engine columns, with one shared row size and no inline help paragraphs.
+                interp.Name="INTERPOLATION_PAGE";
+                Action<int,int,int,int> interpLine=delegate(int x,int y,int width,int height) {
+                    var line=new Panel {Name="INTERPOLATION_SEPARATOR",Location=new Point(x,y),Size=new Size(width,height)};
+                    line.Paint+=delegate(object sender,PaintEventArgs e){using(var brush=new SolidBrush(line.BackColor.GetBrightness()<0.5f?UiTheme.Border:SystemColors.ControlDark))e.Graphics.FillRectangle(brush,line.ClientRectangle);};
+                    interp.Controls.Add(line);
+                };
+                Action<string,int,int> interpSection=delegate(string title,int x,int y) {
+                    interp.Controls.Add(new ThemeLabel {Text=title,Location=new Point(x,y),Size=new Size(326,22),Font=UiFont(9f,FontStyle.Bold)});
+                    interpLine(x,y+23,326,1);
+                };
+                interpSection("OpenSVPFlow",18,6);
+                interpSection("FRUC Vulkan",386,6);
+                interpSection("NVEncC AI",386,112);
+                interpLine(365,8,1,390);
+                Action<Control,Control,int,int> interpRow=delegate(Control label,Control field,int x,int y) {
+                    label.Location=new Point(x,y);label.Size=new Size(158,22);
+                    field.Location=new Point(x+166,y);field.Size=new Size(150,24);
+                    label.TabStop=false;((Label)label).TextAlign=ContentAlignment.MiddleLeft;
+                };
+                interpRow(algoLabel,algo,18,38);
+                interpRow(analyseLabel,analyse,18,62);
+                interpRow(maskLabel,mask,18,86);
+                interpRow(speedLabel,svpSpeed,18,110);
+                interpRow(tuningLabel,svpTuning,18,134);
+                interpRow(blockLabel,svpBlock,18,158);
+                svpFast.Location=new Point(18,182);svpFast.Size=new Size(326,24);
+                svpLean.Location=new Point(18,206);svpLean.Size=new Size(326,24);
+                interpRow(dedupLabel,dedup,18,230);
+                still.Location=new Point(18,254);still.Size=new Size(326,24);
+                interpRow(stillLimitLabel,stillLimit,18,278);
+                interpRow(stillEdgeLabel,stillEdge,18,302);
+                interpRow(stillToleranceLabel,stillTolerance,18,326);
+                peel.Location=new Point(18,350);peel.Size=new Size(326,24);
+                interpRow(peelLimitLabel,peelLimit,18,374);
+                interpRow(frucPerfLabel,frucPerf,386,38);
+                interpRow(frucGridLabel,frucGrid,386,68);
+                interpRow(aiModeLabel,aiMode,386,144);
+                Control[] interpOrder={algo,analyse,mask,svpSpeed,svpTuning,svpBlock,svpFast,svpLean,dedup,still,stillLimit,stillEdge,stillTolerance,peel,peelLimit,frucPerf,frucGrid,aiMode};
+                for(int i=0;i<interpOrder.Length;i++){interpOrder[i].TabIndex=i;if(interpOrder[i].Name.Length==0)interpOrder[i].Name="INTERP_"+i.ToString(CultureInfo.InvariantCulture);}
+                string extraHelp=UiText("默认关闭。仅 OpenSVPFlow 生效；Still / Peel 需要 GPU 和支持这些选项的插件。HDR 直通、隔行旁路及其它插帧引擎不使用这些选项。","Off by default. OpenSVPFlow only; Still / Peel require GPU and compatible plugins. Not used by HDR Preserve, interlaced bypass or other engines.");
+                setInterpTip(dedup,dedupLabel,interpTips.GetToolTip(dedup)+"\n"+UiText("0 = 关闭，建议从 0.5 开始。","0 = off; start at 0.5.")+"\n"+extraHelp);
+                interpTips.SetToolTip(still,interpTips.GetToolTip(still)+"\n"+extraHelp);
+                interpTips.SetToolTip(peel,interpTips.GetToolTip(peel)+"\n"+extraHelp);
+                setInterpTip(stillLimit,stillLimitLabel,UiText("Still limit：静止保护阈值，默认 4.50。","Still limit: still-protection threshold; default 4.50.")+"\n"+extraHelp);
+                setInterpTip(stillEdge,stillEdgeLabel,UiText("Still edge：静止保护边缘参数，默认 5.00。","Still edge: edge parameter; default 5.00.")+"\n"+extraHelp);
+                setInterpTip(stillTolerance,stillToleranceLabel,UiText("Still tolerance：静止保护容差，默认 30.00。","Still tolerance: still-protection tolerance; default 30.00.")+"\n"+extraHelp);
+                setInterpTip(peelLimit,peelLimitLabel,UiText("Peel limit：HUD 剥离阈值，默认 6.00。","Peel limit: HUD peeling threshold; default 6.00.")+"\n"+extraHelp);
+                setInterpTip(aiMode,aiModeLabel,UiText("仅 NVEncC AI 插帧生效，默认 medium。low / medium / high 为上游质量档位；不影响其它插帧引擎。","NVEncC AI interpolation only; default medium. low / medium / high are upstream quality modes; other engines are unaffected."));
+                interpTips.SetToolTip(svpFast,interpTips.GetToolTip(svpFast)+"\n"+UiText("精简 Super 可减少 CPU / 内存开销。","Lean Super can reduce CPU / RAM work."));
+                interpTips.SetToolTip(svpLean,interpTips.GetToolTip(svpLean)+"\n"+UiText("高速分析可能增加显存并改变运动矢量。","Fast analysis may increase VRAM use and change motion vectors."));
 
                 ok.Click += delegate
                 {

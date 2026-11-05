@@ -297,6 +297,13 @@ $ExcludedRecursiveDirectoryNames = @(
     '__pycache__'
 )
 $ExcludedRootDeliveryPatterns = @(
+    'Build_Check_SvpLayout_*',
+    'Launch_SvpLayout_*',
+    'Test_SvpLayout_*',
+    'SVP_LAYOUT_*',
+    'Clean_SvpLayout_*',
+    'FGS_Interpolation_Layout_*.zip',
+    'RELEASE_PREP_5.0.54_*',
     'Build_Check_DarkPrompts_*',
     'Launch_DarkPrompts_*',
     'Test_DarkPrompts_*',

@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.0.53 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.54 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 <table>
   <tr>
@@ -783,6 +783,8 @@ Field-rate 输出优先于普通电影帧率选择。progressive / unknown 素�
 ---
 
 ## 插帧：OpenSVPFlow 与 FRUC Vulkan
+
+高级设置的插帧页采用左右分组：OpenSVPFlow 参数集中在左列，FRUC Vulkan 与 NVEncC AI 设置位于右列，各类型通过分隔线区分。参数说明与适用限制请悬停对应控件或标题查看。
 
 目标帧率默认 60，支持有效绝对帧率（如 `59.94`、`60000/1001`）及倍率（如 `2x`、`2.5x`、`3x`）；实际使用必须满足所选引擎和输入的能力条件。真正执行插帧时，由插帧目标接管输出帧率，不再叠加普通电影帧率转换。
 
