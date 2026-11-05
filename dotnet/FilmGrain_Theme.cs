@@ -253,8 +253,9 @@ namespace FilmGrainStudioPreview
             Snapshot s = controls[c]; bool previousApplying = applying; applying = true;
             try {
                 bool field = c is TextBoxBase || c is ComboBox || c is NumericUpDown || c is ListView || c is ListBox;
+                bool promptBody = c is TextBoxBase && object.Equals(c.Tag, "FgsPromptBody");
                 bool selectedCard = c is ThemeSelectionPanel && s.Back.ToArgb() == Color.LightSteelBlue.ToArgb();
-                c.BackColor = dark ? (selectedCard ? Color.FromArgb(35,78,66) : field || c is Button ? Input : Surface) : s.Back;
+                c.BackColor = dark ? (selectedCard ? Color.FromArgb(35,78,66) : !promptBody && (field || c is Button) ? Input : Surface) : s.Back;
                 c.ForeColor = dark ? Foreground(s.Fore) : s.Fore;
                 TabPage page = c as TabPage;
                 if (page != null) page.UseVisualStyleBackColor = dark ? false : s.PageVisual;
@@ -586,7 +587,7 @@ namespace FilmGrainStudioPreview
         {
             mode = NormalizeThemeMode(mode);
             try { config.SaveValue("UI_THEME", mode); }
-            catch (Exception ex) { MessageBox.Show(this, ex.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
+            catch (Exception ex) { FgsMessageBox.Show(this, ex.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
             selectedThemeMode = mode; ApplySelectedTheme();
         }
     }
@@ -1695,7 +1696,7 @@ namespace FilmGrainStudioPreview
         {
             int value;
             if(TryGetValue(out value))return true;
-            MessageBox.Show(FindForm(),"请输入整数 / Enter an integer: "+minimum+"–"+maximum,"FilmGrain Studio",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+            FgsMessageBox.Show(FindForm(),"请输入整数 / Enter an integer: "+minimum+"–"+maximum,"FilmGrain Studio",MessageBoxButtons.OK,MessageBoxIcon.Warning);
             Text=FormatValue(committed);return false;
         }
         protected override void OnLeave(EventArgs e)
@@ -1728,6 +1729,139 @@ namespace FilmGrainStudioPreview
                 if(measure(candidate)<=width){best=candidate;low=keep+1;}else high=keep-1;
             }
             return best;
+        }
+    }
+}
+
+namespace FilmGrainStudioPreview
+{
+    // Application prompts only. File/folder pickers remain native Windows dialogs.
+    internal static class FgsMessageBox
+    {
+        internal static string LanguageCode=System.Globalization.CultureInfo.CurrentUICulture.Name;
+        internal static DialogResult[] Results(MessageBoxButtons buttons)
+        {
+            switch(buttons) {
+                case MessageBoxButtons.OKCancel:return new[]{DialogResult.OK,DialogResult.Cancel};
+                case MessageBoxButtons.YesNo:return new[]{DialogResult.Yes,DialogResult.No};
+                case MessageBoxButtons.YesNoCancel:return new[]{DialogResult.Yes,DialogResult.No,DialogResult.Cancel};
+                case MessageBoxButtons.RetryCancel:return new[]{DialogResult.Retry,DialogResult.Cancel};
+                case MessageBoxButtons.AbortRetryIgnore:return new[]{DialogResult.Abort,DialogResult.Retry,DialogResult.Ignore};
+                default:return new[]{DialogResult.OK};
+            }
+        }
+        internal static DialogResult CloseResult(MessageBoxButtons buttons)
+        {
+            if(buttons==MessageBoxButtons.OK)return DialogResult.OK;
+            if(buttons==MessageBoxButtons.OKCancel||buttons==MessageBoxButtons.YesNoCancel||buttons==MessageBoxButtons.RetryCancel)return DialogResult.Cancel;
+            return DialogResult.None;
+        }
+        internal static int DefaultIndex(MessageBoxDefaultButton button,int count)
+        {return Math.Max(0,Math.Min(count-1,(int)button/256));}
+        internal static string ButtonText(DialogResult result,bool chinese)
+        {
+            switch(result){
+                case DialogResult.OK:return chinese?"确定(&O)":"&OK";
+                case DialogResult.Cancel:return chinese?"取消(&C)":"&Cancel";
+                case DialogResult.Yes:return chinese?"是(&Y)":"&Yes";
+                case DialogResult.No:return chinese?"否(&N)":"&No";
+                case DialogResult.Retry:return chinese?"重试(&R)":"&Retry";
+                case DialogResult.Abort:return chinese?"中止(&A)":"&Abort";
+                default:return chinese?"忽略(&I)":"&Ignore";
+            }
+        }
+        internal static DialogResult Show(string text){return Show(null,text,"Film Grain Studio",MessageBoxButtons.OK,MessageBoxIcon.None,MessageBoxDefaultButton.Button1);}
+        internal static DialogResult Show(string text,string caption){return Show(null,text,caption,MessageBoxButtons.OK,MessageBoxIcon.None,MessageBoxDefaultButton.Button1);}
+        internal static DialogResult Show(string text,string caption,MessageBoxButtons buttons){return Show(null,text,caption,buttons,MessageBoxIcon.None,MessageBoxDefaultButton.Button1);}
+        internal static DialogResult Show(string text,string caption,MessageBoxButtons buttons,MessageBoxIcon icon){return Show(null,text,caption,buttons,icon,MessageBoxDefaultButton.Button1);}
+        internal static DialogResult Show(string text,string caption,MessageBoxButtons buttons,MessageBoxIcon icon,MessageBoxDefaultButton defaultButton){return Show(null,text,caption,buttons,icon,defaultButton);}
+        internal static DialogResult Show(IWin32Window owner,string text){return Show(owner,text,"Film Grain Studio",MessageBoxButtons.OK,MessageBoxIcon.None,MessageBoxDefaultButton.Button1);}
+        internal static DialogResult Show(IWin32Window owner,string text,string caption){return Show(owner,text,caption,MessageBoxButtons.OK,MessageBoxIcon.None,MessageBoxDefaultButton.Button1);}
+        internal static DialogResult Show(IWin32Window owner,string text,string caption,MessageBoxButtons buttons){return Show(owner,text,caption,buttons,MessageBoxIcon.None,MessageBoxDefaultButton.Button1);}
+        internal static DialogResult Show(IWin32Window owner,string text,string caption,MessageBoxButtons buttons,MessageBoxIcon icon){return Show(owner,text,caption,buttons,icon,MessageBoxDefaultButton.Button1);}
+        internal static DialogResult Show(IWin32Window owner,string text,string caption,MessageBoxButtons buttons,MessageBoxIcon icon,MessageBoxDefaultButton defaultButton)
+        {
+            Control control=owner as Control;
+            if(control==null && owner!=null)control=Control.FromHandle(owner.Handle);
+            if(control==null)control=Form.ActiveForm;
+            if(control==null && Application.OpenForms.Count>0)control=Application.OpenForms[0];
+            if(control!=null && !control.IsDisposed && control.IsHandleCreated && control.InvokeRequired)
+                return (DialogResult)control.Invoke(new Func<DialogResult>(delegate{return Show(control,text,caption,buttons,icon,defaultButton);}));
+            if(control!=null && (control.IsDisposed||control.Disposing)){control=null;owner=null;}
+            IWin32Window modalOwner=control??owner;
+            using(var dialog=Create(text,caption,buttons,icon,defaultButton,modalOwner))
+            using(var theme=new UiTheme()) {
+                UiWindowIcon.Apply(dialog,AppDomain.CurrentDomain.BaseDirectory);
+                foreach(Control child in dialog.Controls)
+                    if(child is TextBoxBase)theme.EnableNativeScrollbars(child);
+                theme.Apply(dialog,true);
+                return modalOwner==null?dialog.ShowDialog():dialog.ShowDialog(modalOwner);
+            }
+        }
+        internal static Form Create(string text,string caption,MessageBoxButtons buttons,MessageBoxIcon icon,MessageBoxDefaultButton defaultButton,IWin32Window owner)
+        {
+            var dialog=new PromptForm(text??"",caption??"Film Grain Studio");
+            dialog.Text=caption??"Film Grain Studio";
+            dialog.FormBorderStyle=FormBorderStyle.FixedDialog;dialog.MaximizeBox=false;dialog.MinimizeBox=false;
+            dialog.ShowInTaskbar=false;dialog.StartPosition=owner==null?FormStartPosition.CenterScreen:FormStartPosition.CenterParent;
+            dialog.AutoScaleMode=AutoScaleMode.None;dialog.Font=SystemFonts.MessageBoxFont;dialog.KeyPreview=true;
+            Rectangle area=owner==null?Screen.PrimaryScreen.WorkingArea:Screen.FromHandle(owner.Handle).WorkingArea;
+            float scale=1;using(Graphics graphics=dialog.CreateGraphics())scale=Math.Max(1,graphics.DpiX/96f);
+            int pad=(int)(20*scale),buttonWidth=(int)(94*scale),buttonHeight=(int)(32*scale),gap=(int)(10*scale);
+            int iconSize=icon==MessageBoxIcon.None?0:(int)(36*scale);
+            var results=Results(buttons);
+            int width=Math.Min((int)(400*scale),area.Width-pad*2);
+            int textWidth=Math.Max(80,width-pad*2-(iconSize>0?iconSize+pad:0));
+            Size measured=TextRenderer.MeasureText(text??"",dialog.Font,new Size(textWidth,int.MaxValue),TextFormatFlags.WordBreak|TextFormatFlags.NoPadding|TextFormatFlags.TextBoxControl);
+            int bodyHeight=Math.Max(Math.Max(iconSize,dialog.Font.Height*2),Math.Min(measured.Height+dialog.Font.Height,Math.Max(60,area.Height-(int)(160*scale))));
+            dialog.ClientSize=new Size(width,bodyHeight+pad*3+buttonHeight);
+            if(iconSize>0) {
+                Icon glyph=icon==MessageBoxIcon.Error?SystemIcons.Error:icon==MessageBoxIcon.Warning?SystemIcons.Warning:icon==MessageBoxIcon.Question?SystemIcons.Question:SystemIcons.Information;
+                var picture=new PictureBox {Location=new Point(pad,pad),Size=new Size(iconSize,iconSize),SizeMode=PictureBoxSizeMode.Zoom,Image=glyph.ToBitmap(),TabStop=false};
+                dialog.Controls.Add(picture);dialog.Disposed+=delegate{if(picture.Image!=null)picture.Image.Dispose();};
+            }
+            var message=new ThemeTextBox {Text=text??"",Multiline=true,ReadOnly=true,WordWrap=true,Tag="FgsPromptBody",ScrollBars=measured.Height>bodyHeight?ScrollBars.Vertical:ScrollBars.None,
+                BorderStyle=BorderStyle.None,Location=new Point(pad+(iconSize>0?iconSize+pad:0),pad),Size=new Size(textWidth,bodyHeight),TabIndex=results.Length};
+            dialog.Controls.Add(message);
+            var actions=new ThemeButton[results.Length];bool chinese=(LanguageCode??"").StartsWith("zh",StringComparison.OrdinalIgnoreCase);
+            int left=(width-results.Length*buttonWidth-(results.Length-1)*gap)/2;
+            for(int i=0;i<results.Length;i++) {
+                var result=results[i];var button=new ThemeButton {Text=ButtonText(result,chinese),DialogResult=result,
+                    Location=new Point(left+i*(buttonWidth+gap),bodyHeight+pad*2),Size=new Size(buttonWidth,buttonHeight),TabIndex=i};
+                actions[i]=button;dialog.Controls.Add(button);
+                if(result==DialogResult.Cancel)dialog.CancelButton=button;
+            }
+            DialogResult close=CloseResult(buttons);dialog.ControlBox=close!=DialogResult.None;
+            if(buttons==MessageBoxButtons.OK)dialog.CancelButton=actions[0];
+            int selected=DefaultIndex(defaultButton,actions.Length);dialog.AcceptButton=actions[selected];
+            dialog.Shown+=delegate{actions[selected].Select();};
+            dialog.FormClosing+=delegate(object sender,FormClosingEventArgs e){if(Array.IndexOf(results,dialog.DialogResult)<0){if(close==DialogResult.None)e.Cancel=true;else dialog.DialogResult=close;}};
+            return dialog;
+        }
+        private sealed class PromptForm : Form
+        {
+            readonly string message,caption;
+            [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
+            private static extern int DwmSetWindowAttribute(IntPtr handle,int attribute,ref int value,int size);
+            internal PromptForm(string text,string title){message=text;caption=title;}
+            protected override void OnHandleCreated(EventArgs e)
+            {
+                base.OnHandleCreated(e);
+                try {
+                    int dark=1;if(DwmSetWindowAttribute(Handle,20,ref dark,4)!=0)DwmSetWindowAttribute(Handle,19,ref dark,4);
+                    int surface=UiTheme.Surface.R|(UiTheme.Surface.G<<8)|(UiTheme.Surface.B<<16);
+                    int text=UiTheme.TextColor.R|(UiTheme.TextColor.G<<8)|(UiTheme.TextColor.B<<16);
+                    DwmSetWindowAttribute(Handle,35,ref surface,4);DwmSetWindowAttribute(Handle,36,ref text,4);
+                }catch(DllNotFoundException){}catch(EntryPointNotFoundException){}
+            }
+            protected override bool ProcessCmdKey(ref Message msg,Keys keyData)
+            {
+                if(keyData==(Keys.Control|Keys.C)){
+                    try{Clipboard.SetText(caption+Environment.NewLine+Environment.NewLine+message);}catch(System.Runtime.InteropServices.ExternalException){}
+                    return true;
+                }
+                return base.ProcessCmdKey(ref msg,keyData);
+            }
         }
     }
 }

@@ -107,8 +107,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.52";
-        internal const string FileReleaseVersion = "5.0.52.0";
+        internal const string ReleaseVersion = "5.0.53";
+        internal const string FileReleaseVersion = "5.0.53.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -143,7 +143,7 @@ namespace FilmGrainStudioPreview
             {
                 if (!ownsInstance)
                 {
-                    MessageBox.Show("Film Grain Studio 已在运行，请切换到现有窗口。 / Film Grain Studio is already running.", "Film Grain Studio", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    FgsMessageBox.Show("Film Grain Studio 已在运行，请切换到现有窗口。 / Film Grain Studio is already running.", "Film Grain Studio", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     return;
                 }
                 try
@@ -158,7 +158,7 @@ namespace FilmGrainStudioPreview
             }
             catch (AppRootNotFoundException ex)
             {
-                MessageBox.Show(
+                FgsMessageBox.Show(
                     "找不到 Film Grain Studio 的完整程序目录。\n\n" +
                     "请将 EXE 放回完整 Film Grain Studio 根目录，或原 dotnet\\build 目录。\n" +
                     "该目录还需要包含 FilmGrain_Config.default.ini 和 Lang 文件夹。\n\n" +
@@ -169,7 +169,7 @@ namespace FilmGrainStudioPreview
             }
             catch (Exception ex)
             {
-                MessageBox.Show(ex.ToString(), "Film Grain Studio .NET", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                FgsMessageBox.Show(ex.ToString(), "Film Grain Studio .NET", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
                 }
                 finally { instance.ReleaseMutex(); }
@@ -517,7 +517,7 @@ namespace FilmGrainStudioPreview
             string testConfig = setupTest ? Path.Combine(Path.GetTempPath(), "FGS_Setup_Test_" + Process.GetCurrentProcess().Id.ToString(CultureInfo.InvariantCulture) + ".ini") : null;
             config = new FgsConfig(appRoot, testConfig);
             try { NetworkProxyCore.Apply(config.Get("NETWORK_PROXY_MODE"), config.Get("NETWORK_PROXY_URL")); }
-            catch (Exception ex) { NetworkProxyCore.Apply(NetworkProxyCore.SystemMode, ""); MessageBox.Show("网络代理配置无效，已改用系统代理：\r\n" + ex.Message, "Film Grain Studio", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+            catch (Exception ex) { NetworkProxyCore.Apply(NetworkProxyCore.SystemMode, ""); FgsMessageBox.Show("网络代理配置无效，已改用系统代理：\r\n" + ex.Message, "Film Grain Studio", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
             lang = new LanguagePack(appRoot);
             languages = lang.GetChoices();
             ordinaryGrainEnabled = config.GetBool("GRAIN_ENABLED");
@@ -729,11 +729,11 @@ namespace FilmGrainStudioPreview
                 {
                     config.SaveValue("LANGUAGE", selected.Code);
                     if (log != null) AppendLog("[Config] LANGUAGE=" + selected.Code + Environment.NewLine);
-                    MessageBox.Show(this, lang.T("language.restart_required"), lang.T("language.title"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    FgsMessageBox.Show(this, lang.T("language.restart_required"), lang.T("language.title"), MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show(this, ex.Message, lang.T("language.title"), MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    FgsMessageBox.Show(this, ex.Message, lang.T("language.title"), MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
             };
             header.Controls.Add(cmbLanguage);
@@ -1010,12 +1010,12 @@ namespace FilmGrainStudioPreview
                 if (updatingFrucUi) return;
                 if(cmbInterpolationMode.SelectedIndex>=3) {
                     string unavailable=NvencOptionReason(cmbInterpolationMode.SelectedIndex);
-                    if(unavailable.Length>0) {BeginNvencInspection();MessageBox.Show(this,unavailable,Text,MessageBoxButtons.OK,MessageBoxIcon.Information);cmbInterpolationMode.SelectedIndex=previousSvpSelection;return;}
+                    if(unavailable.Length>0) {BeginNvencInspection();FgsMessageBox.Show(this,unavailable,Text,MessageBoxButtons.OK,MessageBoxIcon.Information);cmbInterpolationMode.SelectedIndex=previousSvpSelection;return;}
                 }
                 if (cmbInterpolationMode.SelectedIndex == 2 &&
                     ((hardwareDetectionInProgress && !hardwareCapsReady) || hardwareCaps == null || !hardwareCaps.FrucReady || !hardwareCaps.FrucAvailable))
                 {
-                    MessageBox.Show(this, FrucUiReason(), Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    FgsMessageBox.Show(this, FrucUiReason(), Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
                     cmbInterpolationMode.SelectedIndex = previousSvpSelection;
                     return;
                 }
@@ -1028,7 +1028,7 @@ namespace FilmGrainStudioPreview
                 if (chkInterpolation.Checked && cmbInterpolationMode.SelectedIndex < 2 && (setupTestMode || (!File.Exists(Path.Combine(appRoot, "_OpenSVPFlow", ".venv", "Scripts", "vspipe.exe")) && !AllInputsBypassOpenSvp())))
                 {
                     chkInterpolation.Checked = false;
-                    if (MessageBox.Show(this,
+                    if (FgsMessageBox.Show(this,
                         UiText("OpenSVPFlow 插帧运行环境缺失。现在打开首次运行设置安装吗？", "OpenSVPFlow is not installed. Open setup now?"),
                         Text, MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes)
                         SetupPhase1.ShowForInterpolation(this, appRoot, config, setupTestMode);
@@ -1063,7 +1063,7 @@ namespace FilmGrainStudioPreview
             chkCq=Check(UiText("CQ 模式", "CQ mode"),false);chkCq.AutoSize=true;
             chkGpuDecode=Check(UiText("GPU 硬件解码", "GPU hardware decoding"),config.GetBool("GPU_DECODE"));chkGpuDecode.AutoSize=true;
             sfeToolTip.SetToolTip(chkGpuDecode,UiText("尝试使用 GPU 解码源视频；不支持时自动回退软解并记录原因。实际启用的输出文件带 _HWD。默认关闭，可用于速度对比。", "Try GPU source decoding; unsupported inputs fall back to software with a logged reason. Hardware outputs include _HWD. Off by default for comparison."));
-            chkGpuDecode.CheckedChanged+=delegate {if(restoringFileEditor)return;try{config.SaveValue("GPU_DECODE",chkGpuDecode.Checked?"true":"false");}catch(Exception ex){MessageBox.Show(this,ex.Message);}};
+            chkGpuDecode.CheckedChanged+=delegate {if(restoringFileEditor)return;try{config.SaveValue("GPU_DECODE",chkGpuDecode.Checked?"true":"false");}catch(Exception ex){FgsMessageBox.Show(this,ex.Message);}};
             foreach(CheckBox option in new[]{chkSfe,chkCq,chkGpuDecode}) {
                 option.Dock=DockStyle.None;option.AutoSize=true;option.Anchor=AnchorStyles.Left;
                 option.Margin=new Padding(4,7,3,3);
@@ -1179,7 +1179,7 @@ namespace FilmGrainStudioPreview
                 ordinaryGrainEnabled = chkGrainEnabled.Checked;
                 EnsureCurrentGrainCatalog(false);
                 try { config.SaveValue("GRAIN_ENABLED", ordinaryGrainEnabled ? "true" : "false"); }
-                catch (Exception ex) { MessageBox.Show(this, ex.Message, UiText("保存设置失败", "Could not save settings")); }
+                catch (Exception ex) { FgsMessageBox.Show(this, ex.Message, UiText("保存设置失败", "Could not save settings")); }
                 UpdateGrainEnableUi();
                 UpdateHdrRouteStatus(GetSelectedMediaInfo());
                 UpdateBitrateDisplays();
@@ -1194,8 +1194,8 @@ namespace FilmGrainStudioPreview
             var grainMenu = new ContextMenuStrip();
             var fastCopy = fileCopyFastMenu = new ToolStripMenuItem(UiText("不重编码：自动快速路径", "No-reencode: automatic fast path")) { CheckOnClick = true, Checked = config.Get("AV1_COPY_FAST") != "false" };
             var fullVerify = fileCopyVerifyMenu = new ToolStripMenuItem(UiText("不重编码：完整颗粒检查", "No-reencode: full grain verification")) { CheckOnClick = true, Checked = config.GetBool("AV1_COPY_FULL_VERIFY") };
-            fastCopy.CheckedChanged += delegate { if(restoringFileEditor)return;try { config.SaveValue("AV1_COPY_FAST", fastCopy.Checked ? "true" : "false"); } catch (Exception ex) { MessageBox.Show(this, ex.Message, UiText("保存设置失败", "Could not save settings")); } };
-            fullVerify.CheckedChanged += delegate { if(restoringFileEditor)return;try { config.SaveValue("AV1_COPY_FULL_VERIFY", fullVerify.Checked ? "true" : "false"); } catch (Exception ex) { MessageBox.Show(this, ex.Message, UiText("保存设置失败", "Could not save settings")); } };
+            fastCopy.CheckedChanged += delegate { if(restoringFileEditor)return;try { config.SaveValue("AV1_COPY_FAST", fastCopy.Checked ? "true" : "false"); } catch (Exception ex) { FgsMessageBox.Show(this, ex.Message, UiText("保存设置失败", "Could not save settings")); } };
+            fullVerify.CheckedChanged += delegate { if(restoringFileEditor)return;try { config.SaveValue("AV1_COPY_FULL_VERIFY", fullVerify.Checked ? "true" : "false"); } catch (Exception ex) { FgsMessageBox.Show(this, ex.Message, UiText("保存设置失败", "Could not save settings")); } };
             grainMenu.Items.Add(fastCopy); grainMenu.Items.Add(fullVerify); previewButton.ContextMenuStrip = grainMenu;
             grainHeader.Controls.Add(chkGrainEnabled, 0, 0); grainHeader.Controls.Add(previewButton, 1, 0);
             shell.Controls.Add(grainHeader, 0, 0); shell.Controls.Add(cmbGrainMode, 0, 1); shell.Controls.Add(grainContent, 0, 2);
@@ -1623,7 +1623,7 @@ namespace FilmGrainStudioPreview
                     int percent=av1StrengthControl.Value*5;strengthValue.Text=percent+"%";
                     performanceNote.Text=percent==100?"":mode!=1?UiText("先调整颗粒表强度，再一次应用。","Table strength is adjusted before a single apply."):UiText("非100%强度需额外读取并重写颗粒元数据。","Below 100%, grain metadata requires an extra read and rewrite.");
                 };
-                av1StrengthControl.ValueChanged+=delegate { if(restoringFileEditor)return;updateStrength();try{config.SaveValue("AV1_GRAIN_STRENGTH",(av1StrengthControl.Value*5).ToString(CultureInfo.InvariantCulture));}catch(Exception ex){MessageBox.Show(this,ex.Message);}};
+                av1StrengthControl.ValueChanged+=delegate { if(restoringFileEditor)return;updateStrength();try{config.SaveValue("AV1_GRAIN_STRENGTH",(av1StrengthControl.Value*5).ToString(CultureInfo.InvariantCulture));}catch(Exception ex){FgsMessageBox.Show(this,ex.Message);}};
                 updateStrength();
                 lutToolTip.SetToolTip(av1StrengthControl,UiText("相对当前预设/ISO/颗粒表的强度；100%保持原效果。","Relative to the selected preset/ISO/table; 100% preserves the original."));
             }
@@ -1640,13 +1640,13 @@ namespace FilmGrainStudioPreview
         {
             if (bridgeTaskCoordinator != null && bridgeTaskCoordinator.IsActive)
             {
-                MessageBox.Show(this, UiText("编码任务运行时不能更新纹理。", "Texture update is unavailable during encoding."), Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                FgsMessageBox.Show(this, UiText("编码任务运行时不能更新纹理。", "Texture update is unavailable during encoding."), Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
             string ffmpeg = Path.Combine(config.Get("FFMPEG_DIR"), "ffmpeg.exe");
             if (!File.Exists(ffmpeg))
             {
-                MessageBox.Show(this, UiText("找不到 ffmpeg.exe，请先在设置中配置 FFmpeg。", "ffmpeg.exe is missing. Configure FFmpeg first."), Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                FgsMessageBox.Show(this, UiText("找不到 ffmpeg.exe，请先在设置中配置 FFmpeg。", "ffmpeg.exe is missing. Configure FFmpeg first."), Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
             string proxyMode = config.Get("NETWORK_PROXY_MODE");
@@ -1786,7 +1786,7 @@ namespace FilmGrainStudioPreview
             colorSizeMenu.Opening += delegate { largeColorItem.Checked = config.GetBool("COLOR_PREVIEW_LARGE_UI"); };
             largeColorItem.Click += delegate {
                 try { config.Save(new Dictionary<string, string> { { "COLOR_PREVIEW_LARGE_UI", config.GetBool("COLOR_PREVIEW_LARGE_UI") ? "false" : "true" } }); }
-                catch (Exception ex) { MessageBox.Show(this, ex.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Error); }
+                catch (Exception ex) { FgsMessageBox.Show(this, ex.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Error); }
             };
             btnColorCorrection.ContextMenuStrip = colorSizeMenu;
             clear.Click += delegate { ClearSelectedLut(); };
@@ -2243,7 +2243,7 @@ namespace FilmGrainStudioPreview
                 if(TryGetMediaProbeFailure(path,out detail))failures.Add(Path.GetFileName(path)+": "+detail);
             }
             if(missing==0){waitingForQueueMedia=false;return true;}
-            if(failures.Count>0)MessageBox.Show(this,UiText("以下文件的媒体信息读取失败，队列尚未启动：","Media probing failed; queue has not started:")+Environment.NewLine+string.Join(Environment.NewLine,failures.ToArray()),Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);
+            if(failures.Count>0)FgsMessageBox.Show(this,UiText("以下文件的媒体信息读取失败，队列尚未启动：","Media probing failed; queue has not started:")+Environment.NewLine+string.Join(Environment.NewLine,failures.ToArray()),Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);
             else {
                 waitingForQueueMedia=true;
                 string message=UiText("正在读取队列媒体信息，剩余 ","Reading queue metadata; remaining ")+missing+UiText(" 个。完成后请再次点击开始。",". Click Start again when ready.");
@@ -3023,10 +3023,10 @@ namespace FilmGrainStudioPreview
                     try { if(fallback==2)config.SaveValue("CPU_CODEC","X264");cmbCodec.SelectedIndex = fallback; }
                     finally { changingCodecForHardware = false; }
                 }
-                MessageBox.Show(this, lang.T("error.hevc_unavailable"), Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                FgsMessageBox.Show(this, lang.T("error.hevc_unavailable"), Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return true;
             }
-            if(selected==3&&!hardwareCaps.H264Available) { MessageBox.Show(this,UiText("当前 GPU/FFmpeg 不支持 H.264 NVENC。","H.264 NVENC is unavailable."),Text);changingCodecForHardware=true;try{cmbCodec.SelectedIndex=hardwareCaps.HevcAvailable?1:2;}finally{changingCodecForHardware=false;}return true;}
+            if(selected==3&&!hardwareCaps.H264Available) { FgsMessageBox.Show(this,UiText("当前 GPU/FFmpeg 不支持 H.264 NVENC。","H.264 NVENC is unavailable."),Text);changingCodecForHardware=true;try{cmbCodec.SelectedIndex=hardwareCaps.HevcAvailable?1:2;}finally{changingCodecForHardware=false;}return true;}
 
             return false;
         }
@@ -3041,15 +3041,15 @@ namespace FilmGrainStudioPreview
             if (!hardwareCapsReady || hardwareCaps == null || cmbCodec == null) return true;
             if (cmbCodec.SelectedIndex == 0 && !hardwareCaps.Av1Available)
             {
-                MessageBox.Show(this, lang.T("error.av1_unavailable"), Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
+                FgsMessageBox.Show(this, lang.T("error.av1_unavailable"), Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return false;
             }
             if (cmbCodec.SelectedIndex == 1 && !hardwareCaps.HevcAvailable)
             {
-                MessageBox.Show(this, lang.T("error.hevc_unavailable"), Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
+                FgsMessageBox.Show(this, lang.T("error.hevc_unavailable"), Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return false;
             }
-            if(cmbCodec.SelectedIndex==3&&!hardwareCaps.H264Available){MessageBox.Show(this,UiText("H.264 NVENC 不可用。","H.264 NVENC is unavailable."),Text);return false;}
+            if(cmbCodec.SelectedIndex==3&&!hardwareCaps.H264Available){FgsMessageBox.Show(this,UiText("H.264 NVENC 不可用。","H.264 NVENC is unavailable."),Text);return false;}
 
             return true;
         }
@@ -3124,20 +3124,20 @@ namespace FilmGrainStudioPreview
             if (bridgeTaskCoordinator == null || bridgeTaskCoordinator.IsActive) return;
             if (listFiles == null || listFiles.Items.Count == 0)
             {
-                MessageBox.Show(this, lang.T("info.add_video"), Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                FgsMessageBox.Show(this, lang.T("info.add_video"), Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
             if (!startupCatalogReady || (hardwareDetectionInProgress && !hardwareCapsReady))
             {
-                MessageBox.Show(this, lang.T("hardware.detecting"), Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                FgsMessageBox.Show(this, lang.T("hardware.detecting"), Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
             if (!RequiredGrainCatalogReady()) {
                 EnsureCurrentGrainCatalog(false);
-                MessageBox.Show(this, UiText("颗粒列表正在加载；完成后请重试。", "Loading the grain catalog; retry when ready."));
+                FgsMessageBox.Show(this, UiText("颗粒列表正在加载；完成后请重试。", "Loading the grain catalog; retry when ready."));
                 return;
             }
-            if(PendingQueueInputs().Count==0){MessageBox.Show(this,UiText("当前列表已全部完成；如需重新处理，请移除后重新添加文件。","All listed files are complete. Remove and re-add a file to process it again."),Text);return;}
+            if(PendingQueueInputs().Count==0){FgsMessageBox.Show(this,UiText("当前列表已全部完成；如需重新处理，请移除后重新添加文件。","All listed files are complete. Remove and re-add a file to process it again."),Text);return;}
             if(!QueueMediaReadyForStart())return;
             if(independentFiles) {StartIndependentQueue();return;}
             if (!ValidateHardwareForSelectedCodec()) return;
@@ -3147,7 +3147,7 @@ namespace FilmGrainStudioPreview
             SortedDictionary<string, string> state = BuildBridgeEnvironment(out error);
             if (state == null)
             {
-                MessageBox.Show(this, error, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                FgsMessageBox.Show(this, error, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
 
@@ -3155,7 +3155,7 @@ namespace FilmGrainStudioPreview
             {
                 double startSeconds;
                 if (!SharedEncodePreviewCore.TryParseStart(txtPreviewStart.Text, out startSeconds))
-                { MessageBox.Show(this, UiText("预览开始时间须为 00:00:00，分钟和秒须小于 60。", "Use HH:MM:SS; minutes and seconds must be below 60."), Text, MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+                { FgsMessageBox.Show(this, UiText("预览开始时间须为 00:00:00，分钟和秒须小于 60。", "Use HH:MM:SS; minutes and seconds must be below 60."), Text, MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
                 state["FG_ENCODE_PREVIEW"] = "1";
                 state["FG_PREVIEW_START"] = txtPreviewStart.Text;
                 state["FG_PREVIEW_SECONDS"] = numPreviewDuration.Value.ToString(CultureInfo.InvariantCulture);
@@ -3164,7 +3164,7 @@ namespace FilmGrainStudioPreview
             bool noReencode = cmbCodec != null && cmbCodec.SelectedIndex == 4;
             if (!noReencode && chkInterpolation.Checked && cmbInterpolationMode.SelectedIndex == 2 &&
                 (hardwareCaps == null || !hardwareCaps.FrucReady || !hardwareCaps.FrucAvailable))
-            { MessageBox.Show(this, FrucUiReason(), Text, MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+            { FgsMessageBox.Show(this, FrucUiReason(), Text, MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
             List<string> inputs = new List<string>();
             foreach (ListViewItem item in listFiles.Items)
             {
@@ -3172,7 +3172,7 @@ namespace FilmGrainStudioPreview
                 if (IsPendingQueueFile(path)) inputs.Add(path);
             }
 
-            if(inputs.Count==0){MessageBox.Show(this,lang.T("info.add_video"),Text,MessageBoxButtons.OK,MessageBoxIcon.Information);return;}
+            if(inputs.Count==0){FgsMessageBox.Show(this,lang.T("info.add_video"),Text,MessageBoxButtons.OK,MessageBoxIcon.Information);return;}
             if (taskLog != null) taskLog.Dispose();
             taskLog = new FullLogFileCore(appRoot, "Task", GetLogEntryLimit());
             fullLogErrorReported = false;
@@ -3192,7 +3192,7 @@ namespace FilmGrainStudioPreview
             if(!NativeExecutionPreparationCore.TryPrepare(appRoot,inputs[0],nativeInfo,state,hardwareCaps,noReencode,out prepared,out nativeReason))
             {
                 AppendTaskLog("[Native boundary] stopped: "+nativeReason+Environment.NewLine);
-                MessageBox.Show(this,nativeReason,Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);
+                FgsMessageBox.Show(this,nativeReason,Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);
                 return;
             }
             if(noReencode)state["FG_MODE"]="AV1";
@@ -3211,12 +3211,12 @@ namespace FilmGrainStudioPreview
                 {
                     string message = LF(warning.IsOutput ? "warning.output_space" : "warning.temp_space",
                         warning.Path, FormatWorkspaceBytes(warning.Available), FormatWorkspaceBytes(warning.Required), FormatWorkspaceBytes(warning.Reserve));
-                    return MessageBox.Show(this, message, Text, MessageBoxButtons.YesNo, MessageBoxIcon.Warning,
+                    return FgsMessageBox.Show(this, message, Text, MessageBoxButtons.YesNo, MessageBoxIcon.Warning,
                         MessageBoxDefaultButton.Button2) == DialogResult.Yes;
                 }, !noReencode && state["FG_MODE"] == "AV1" && prepared.ExecutionRequest.Environment["FG_SVP_INTERPOLATE"] == "1", !noReencode ? state["FG_INTERPOLATION_TARGET_FPS"] : "", out workspaceIssue))
             {
                 if (workspaceIssue != null)
-                    MessageBox.Show(this, LF(workspaceIssue.Key, workspaceIssue.Path, workspaceIssue.Detail), Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    FgsMessageBox.Show(this, LF(workspaceIssue.Key, workspaceIssue.Path, workspaceIssue.Detail), Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
                 BridgeExecutionCore.CleanupTemporaryFiles(prepared.ExecutionRequest);
                 return;
             }
@@ -3268,7 +3268,7 @@ namespace FilmGrainStudioPreview
                 SetTaskbarProgress(0,0);
                 AppendTaskLog("[Task] start failed: " + ex.ToString() + Environment.NewLine);
                 if (lblRunStage != null) lblRunStage.Text = UiText("启动失败", "Start failed");
-                MessageBox.Show(this, ex.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
+                FgsMessageBox.Show(this, ex.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -3285,7 +3285,7 @@ namespace FilmGrainStudioPreview
                     config.Get("TEMP_MODE"), config.Get("TEMP_CUSTOM_DIR"), config.Get("OUTPUT_MODE"), config.Get("OUTPUT_CUSTOM_DIR"),
                     mediaProbeCache, delegate(WorkspaceSpaceWarning warning)
                     {
-                        return MessageBox.Show(this, LF(warning.IsOutput ? "warning.output_space" : "warning.temp_space",
+                        return FgsMessageBox.Show(this, LF(warning.IsOutput ? "warning.output_space" : "warning.temp_space",
                             warning.Path, FormatWorkspaceBytes(warning.Available), FormatWorkspaceBytes(warning.Required), FormatWorkspaceBytes(warning.Reserve)),
                             Text, MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) == DialogResult.Yes;
                     }, !noReencode && capturedState["FG_MODE"] == "AV1" && capturedState["FG_SVP_INTERPOLATE"] == "1",
@@ -3302,7 +3302,7 @@ namespace FilmGrainStudioPreview
                         noReencode=capturedState["FG_QUEUE_NO_REENCODE"]=="1";
                         if(!WorkspacePreflightCore.Check(new List<string>{input},noReencode?"AV1":capturedState["FG_MODE"],noReencode,
                             config.Get("TEMP_MODE"),config.Get("TEMP_CUSTOM_DIR"),config.Get("OUTPUT_MODE"),config.Get("OUTPUT_CUSTOM_DIR"),mediaProbeCache,
-                            delegate(WorkspaceSpaceWarning warning) {return MessageBox.Show(this,LF(warning.IsOutput?"warning.output_space":"warning.temp_space",warning.Path,FormatWorkspaceBytes(warning.Available),FormatWorkspaceBytes(warning.Required),FormatWorkspaceBytes(warning.Reserve)),Text,MessageBoxButtons.YesNo,MessageBoxIcon.Warning,MessageBoxDefaultButton.Button2)==DialogResult.Yes;},
+                            delegate(WorkspaceSpaceWarning warning) {return FgsMessageBox.Show(this,LF(warning.IsOutput?"warning.output_space":"warning.temp_space",warning.Path,FormatWorkspaceBytes(warning.Available),FormatWorkspaceBytes(warning.Required),FormatWorkspaceBytes(warning.Reserve)),Text,MessageBoxButtons.YesNo,MessageBoxIcon.Warning,MessageBoxDefaultButton.Button2)==DialogResult.Yes;},
                             !noReencode&&capturedState["FG_MODE"]=="AV1"&&capturedState["FG_SVP_INTERPOLATE"]=="1",!noReencode?capturedState["FG_INTERPOLATION_TARGET_FPS"]:"",out issue))throw new InvalidOperationException(issue==null?"Workspace check declined":LF(issue.Key,issue.Path,issue.Detail));
                     }
                     foreach(var pair in capturedState)AppendTaskDiagnosticLog("[Queue snapshot] input="+input+" "+pair.Key+"="+pair.Value+Environment.NewLine);
@@ -3339,7 +3339,7 @@ namespace FilmGrainStudioPreview
                 SetTaskbarProgress(0,0);
                 AppendTaskLog("[Queue] preparation/start failed: " + ex + Environment.NewLine);
                 if (lblRunStage != null) lblRunStage.Text = UiText("队列未启动", "Queue not started");
-                MessageBox.Show(this, ex.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                FgsMessageBox.Show(this, ex.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
 
@@ -3544,10 +3544,10 @@ namespace FilmGrainStudioPreview
             string dir = Path.Combine(appRoot, "Logs");
             if (!Directory.Exists(dir))
             {
-                MessageBox.Show(this, UiText("日志目录为空。", "The log folder is empty."), UiText("日志", "Log"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+                FgsMessageBox.Show(this, UiText("日志目录为空。", "The log folder is empty."), UiText("日志", "Log"), MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
-            DialogResult confirm = MessageBox.Show(this,
+            DialogResult confirm = FgsMessageBox.Show(this,
                 UiText("确定清空 FGS Logs 目录中的日志文件吗？\n\n当前正在使用的日志会保留。", "Clear log files from the FGS Logs folder?\n\nLogs currently in use will be kept."),
                 UiText("清空日志目录", "Clear log folder"), MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2);
             if (confirm != DialogResult.Yes) return;
@@ -3561,14 +3561,14 @@ namespace FilmGrainStudioPreview
                     catch { kept++; }
                 }
                 AppendLog("[Log] cleanup: deleted=" + deleted.ToString(CultureInfo.InvariantCulture) + " kept=" + kept.ToString(CultureInfo.InvariantCulture) + Environment.NewLine);
-                MessageBox.Show(this,
+                FgsMessageBox.Show(this,
                     UiText("日志清理完成。删除：", "Log cleanup completed. Deleted: ") + deleted.ToString(CultureInfo.InvariantCulture) +
                     UiText("，保留：", ", kept: ") + kept.ToString(CultureInfo.InvariantCulture),
                     UiText("日志", "Log"), MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             catch (Exception ex)
             {
-                MessageBox.Show(this, ex.Message, UiText("日志", "Log"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                FgsMessageBox.Show(this, ex.Message, UiText("日志", "Log"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
 
@@ -3581,7 +3581,7 @@ namespace FilmGrainStudioPreview
                 string target = folder ? Path.GetDirectoryName(selected.FilePath) : selected.FilePath;
                 Process.Start(new ProcessStartInfo(target) { UseShellExecute = true });
             }
-            catch (Exception ex) { MessageBox.Show(this, ex.Message, UiText("日志", "Log"), MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+            catch (Exception ex) { FgsMessageBox.Show(this, ex.Message, UiText("日志", "Log"), MessageBoxButtons.OK, MessageBoxIcon.Warning); }
         }
 
         private void ScrollLogToEnd()
@@ -4144,16 +4144,16 @@ namespace FilmGrainStudioPreview
 
         private void OpenLutStrengthPreview()
         {
-            if(string.IsNullOrEmpty(selectedLutPath)||!File.Exists(selectedLutPath)){MessageBox.Show(this,UiText("请先选择 LUT。","Select a LUT first."));return;}
-            if(bridgeTaskCoordinator!=null&&bridgeTaskCoordinator.IsActive){MessageBox.Show(this,UiText("请等待当前任务结束。","Wait for the active task to finish."));return;}
+            if(string.IsNullOrEmpty(selectedLutPath)||!File.Exists(selectedLutPath)){FgsMessageBox.Show(this,UiText("请先选择 LUT。","Select a LUT first."));return;}
+            if(bridgeTaskCoordinator!=null&&bridgeTaskCoordinator.IsActive){FgsMessageBox.Show(this,UiText("请等待当前任务结束。","Wait for the active task to finish."));return;}
             string video=GetPreviewVideoPath();MediaProbeInfo media=null;
             if(!string.IsNullOrEmpty(video))mediaProbeCache.TryGetValue(video,out media);
-            if(string.IsNullOrEmpty(video)||media==null){MessageBox.Show(this,UiText("请选择一个已完成探测的视频。","Select one fully probed video."));return;}
+            if(string.IsNullOrEmpty(video)||media==null){FgsMessageBox.Show(this,UiText("请选择一个已完成探测的视频。","Select one fully probed video."));return;}
             using(var window=new NativeLutStrengthPreviewForm(Path.Combine(config.Get("FFMPEG_DIR"),"ffmpeg.exe"),selectedLutPath,video,lang.Code,media,config.Get("HDR_POLICY")=="PRESERVE",config.Get("TONE_MAP_ALGO"))) {
                 AttachOwnedTheme(window,this,log);window.ShowDialog(this);
                 if(window.SelectedStrength>0){
                     try{lutSessionReference.Set(window.SelectedReference);}
-                    catch(Exception ex){MessageBox.Show(this,UiText("无法保存临时参考图：","Could not save the temporary reference: ")+ex.Message);return;}
+                    catch(Exception ex){FgsMessageBox.Show(this,UiText("无法保存临时参考图：","Could not save the temporary reference: ")+ex.Message);return;}
                     trackLutStrength.Value=window.SelectedStrength/25;chkLut.Checked=true;UpdateLutUi();
                 }
             }
@@ -4176,7 +4176,7 @@ namespace FilmGrainStudioPreview
 
         private void OpenLutGallery()
         {
-            if(!Directory.Exists(LutRoot)) {MessageBox.Show(this,LF("error.lut_root_missing",LutRoot));return;}
+            if(!Directory.Exists(LutRoot)) {FgsMessageBox.Show(this,LF("error.lut_root_missing",LutRoot));return;}
             btnLutGallery.Enabled=false;
             try {
                 using(var gallery=new NativeLutGalleryForm(appRoot,Path.Combine(config.Get("FFMPEG_DIR"),"ffmpeg.exe"),LutRoot,LutPreviewRoot)) {
@@ -4186,7 +4186,7 @@ namespace FilmGrainStudioPreview
                         else {selectedLutPath=gallery.SelectedLut;selectedLutSource="Gallery";chkLut.Checked=true;}
                     }
                 }
-            }catch(Exception ex){MessageBox.Show(this,LF("error.lut_gallery_open_failed",ex.Message));}
+            }catch(Exception ex){FgsMessageBox.Show(this,LF("error.lut_gallery_open_failed",ex.Message));}
             finally{btnLutGallery.Enabled=true;RefreshLutLists();UpdateLutUi();}
         }
 
@@ -4215,23 +4215,23 @@ namespace FilmGrainStudioPreview
         {
             if (!RequiredGrainCatalogReady()) {
                 EnsureCurrentGrainCatalog(false);
-                MessageBox.Show(this, UiText("颗粒列表正在加载；完成后请重试。", "Loading the grain catalog; retry when ready."));
+                FgsMessageBox.Show(this, UiText("颗粒列表正在加载；完成后请重试。", "Loading the grain catalog; retry when ready."));
                 return;
             }
             if (bridgeTaskCoordinator != null && bridgeTaskCoordinator.IsActive)
-            { MessageBox.Show(this, UiText("请等待当前任务结束后再生成颗粒预览。", "Wait for the current task to finish before rendering a grain preview.")); return; }
+            { FgsMessageBox.Show(this, UiText("请等待当前任务结束后再生成颗粒预览。", "Wait for the current task to finish before rendering a grain preview.")); return; }
             string input = GetPreviewVideoPath();
             MediaProbeInfo info = null;
             if (!string.IsNullOrEmpty(input)) mediaProbeCache.TryGetValue(input, out info);
-            if(!IsGrainEnabled()){MessageBox.Show(this,UiText("请先启用颗粒。","Enable grain first."));return;}
+            if(!IsGrainEnabled()){FgsMessageBox.Show(this,UiText("请先启用颗粒。","Enable grain first."));return;}
             bool metadata = ParameterGrainSelected();
             if (string.IsNullOrEmpty(input) || info == null)
-            { MessageBox.Show(this, UiText("请选择一个已完成探测的视频。", "Select one fully probed video.")); return; }
+            { FgsMessageBox.Show(this, UiText("请选择一个已完成探测的视频。", "Select one fully probed video.")); return; }
             if (!metadata)
             {
-                if (!IsGrainEnabled()) {MessageBox.Show(this,UiText("请先启用颗粒。","Enable grain first."));return;}
+                if (!IsGrainEnabled()) {FgsMessageBox.Show(this,UiText("请先启用颗粒。","Enable grain first."));return;}
                 string error;var pixelState=BuildBridgeEnvironment(out error);
-                if(pixelState==null){MessageBox.Show(this,error);return;}
+                if(pixelState==null){FgsMessageBox.Show(this,error);return;}
                 using(var window=new NativeGrainPreviewForm(Path.Combine(config.Get("FFMPEG_DIR"),"ffmpeg.exe"),appRoot,input,pixelState,hardwareCaps,info,lang.Code))
                 {window.ShowDialog(this);if(window.SelectedStrength>0 && trackFilmGrainStrength!=null) {
                     if(pixelState["FG_GRAIN_ENGINE"]=="FGSIM")trackFilmGrainStrength.Value=window.SelectedStrength-1;
@@ -4241,7 +4241,7 @@ namespace FilmGrainStudioPreview
                 return;
             }
             if (!IsGrainEnabled())
-            { MessageBox.Show(this, UiText("请启用颗粒并选择 AV1 的预设、ISO 或颗粒表模式。", "Enable grain and select an AV1 preset, ISO or table mode.")); return; }
+            { FgsMessageBox.Show(this, UiText("请启用颗粒并选择 AV1 的预设、ISO 或颗粒表模式。", "Enable grain and select an AV1 preset, ISO or table mode.")); return; }
             var state = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             state["FG_AV1_FORMAT"] = (av1FormatIndex + 1).ToString(CultureInfo.InvariantCulture);
             state["FG_AV1_STOCK"] = (av1StockIndex + 1).ToString(CultureInfo.InvariantCulture);
@@ -4250,7 +4250,7 @@ namespace FilmGrainStudioPreview
             state["FG_AV1_GRAIN_TABLE"] = selectedAv1GrainTable;
             var args = new List<string>(); string tag, reason;
             string mode = new string[] { "PRESET", "ISO", "TABLE" }[SvtSelected()?CurrentGrainMode()-3:CurrentGrainMode()];
-            if (!NativeAv1GrainReplaceCore.TryBuildGrainArgs(mode, state, args, out tag, out reason)) { MessageBox.Show(this, reason); return; }
+            if (!NativeAv1GrainReplaceCore.TryBuildGrainArgs(mode, state, args, out tag, out reason)) { FgsMessageBox.Show(this, reason); return; }
             using (var window = new NativeGrainPreviewForm(Path.Combine(config.Get("FFMPEG_DIR"), "ffmpeg.exe"), config.Get("GRAV1SYNTH"), input, args, info, lang.Code, SvtSelected()?null:hardwareCaps, PreprocessEnvironment()))
             {
                 window.ShowDialog(this);
@@ -4271,15 +4271,15 @@ namespace FilmGrainStudioPreview
         private void OpenCinematicCrop()
         {
             string input=GetPreviewVideoPath();MediaProbeInfo media;
-            if(string.IsNullOrEmpty(input)||!mediaProbeCache.TryGetValue(input,out media)) {MessageBox.Show(this,UiText("请先选择并探测视频。","Select and probe a video first."));return;}
-            if(media.Width<2||media.Height<2){MessageBox.Show(this,UiText("视频尺寸无效。","Invalid video dimensions."));return;}
+            if(string.IsNullOrEmpty(input)||!mediaProbeCache.TryGetValue(input,out media)) {FgsMessageBox.Show(this,UiText("请先选择并探测视频。","Select and probe a video first."));return;}
+            if(media.Width<2||media.Height<2){FgsMessageBox.Show(this,UiText("视频尺寸无效。","Invalid video dimensions."));return;}
             if(bridgeTaskCoordinator!=null && bridgeTaskCoordinator.IsActive)return;
             using(var window=new NativeCinematicCropForm(Path.Combine(config.Get("FFMPEG_DIR"),"ffmpeg.exe"),input,media,
                 config.GetInt("CINEMATIC_CROP_PER_SIDE",0),cmbFrameMode.SelectedIndex,config.GetInt("CINEMATIC_CROP_HORIZONTAL",0),config.Get("CINEMATIC_NO_CROP")=="1"))
             {
                 if(window.ShowDialog(this)!=DialogResult.OK)return;
                 try {config.SaveValue("CINEMATIC_CROP_PER_SIDE",window.CropPerSide.ToString(CultureInfo.InvariantCulture));config.SaveValue("CINEMATIC_CROP_HORIZONTAL",window.CropHorizontal.ToString(CultureInfo.InvariantCulture));config.SaveValue("CINEMATIC_NO_CROP",window.NoCrop?"1":"0");}
-                catch(Exception ex){MessageBox.Show(this,ex.Message);return;}
+                catch(Exception ex){FgsMessageBox.Show(this,ex.Message);return;}
                 cmbFrameMode.SelectedIndex=window.FrameMode;UpdateCinematicCropLabels();UpdateBitrateDisplays();
             }
         }
@@ -4289,7 +4289,7 @@ namespace FilmGrainStudioPreview
             string videoPath = GetPreviewVideoPath();
             if (string.IsNullOrEmpty(videoPath))
             {
-                MessageBox.Show(this, lang.T("color.select_video"), "Film Grain Studio", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                FgsMessageBox.Show(this, lang.T("color.select_video"), "Film Grain Studio", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
 
@@ -4299,7 +4299,7 @@ namespace FilmGrainStudioPreview
             string galleryRoot = appRoot;
             if (!File.Exists(ffmpeg) || !File.Exists(ffprobe))
             {
-                MessageBox.Show(this, "FFmpeg / FFprobe not found:\r\n" + config.Get("FFMPEG_DIR"), "Film Grain Studio", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                FgsMessageBox.Show(this, "FFmpeg / FFprobe not found:\r\n" + config.Get("FFMPEG_DIR"), "Film Grain Studio", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
 
@@ -4358,7 +4358,7 @@ namespace FilmGrainStudioPreview
             }
             catch (Exception ex)
             {
-                MessageBox.Show(this, ex.Message, "Film Grain Studio", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                FgsMessageBox.Show(this, ex.Message, "Film Grain Studio", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             finally
             {
@@ -4375,7 +4375,7 @@ namespace FilmGrainStudioPreview
         {
             if (log != null) AppendLog("[Preview] " + message + Environment.NewLine);
             if (lblRunStage != null) lblRunStage.Text = ".NET Preview · no encoding";
-            MessageBox.Show(this, message, "Film Grain Studio .NET", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            FgsMessageBox.Show(this, message, "Film Grain Studio .NET", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
     }
 

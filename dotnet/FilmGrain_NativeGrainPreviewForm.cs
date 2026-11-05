@@ -134,9 +134,9 @@ namespace FilmGrainStudioPreview
             try { if(info.Identity==null)throw new InvalidOperationException(T("视频探测尚未完成。","Video probing is not ready.")); info.Identity.RequireCurrent(); }
             catch(Exception ex){status.Text=ex.Message;return;}
             double seconds;
-            if(!SharedEncodePreviewCore.TryParseStart(start.Text.Trim(),out seconds)) {MessageBox.Show(this,T("起始时间格式应为：00:00:00","Start time format: 00:00:00"));return;}
+            if(!SharedEncodePreviewCore.TryParseStart(start.Text.Trim(),out seconds)) {FgsMessageBox.Show(this,T("起始时间格式应为：00:00:00","Start time format: 00:00:00"));return;}
             double duration;
-            if(double.TryParse(info.Duration,NumberStyles.Float,CultureInfo.InvariantCulture,out duration)&&duration>0&&seconds>=duration) {MessageBox.Show(this,T("起始时间超出视频时长。","Start time exceeds the video duration."));return;}
+            if(double.TryParse(info.Duration,NumberStyles.Float,CultureInfo.InvariantCulture,out duration)&&duration>0&&seconds>=duration) {FgsMessageBox.Show(this,T("起始时间超出视频时长。","Start time exceeds the video duration."));return;}
             bool automatic=automaticRequest;automaticRequest=false;
             string requestedTime=NativeSeekStrip.FormatTime(seconds);
             running=true;timeline.Enabled=false;render.Enabled=start.Enabled=false;playback.Stop();play.Text=T("播放","Play");play.Enabled=frame.Enabled=showClean.Enabled=false;

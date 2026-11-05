@@ -139,7 +139,7 @@ namespace FilmGrainStudioPreview
                         RefreshAv1GrainTableForMedia();
                         UpdateHdrRouteStatus(GetSelectedMediaInfo());
                         dialog.DialogResult=DialogResult.OK;dialog.Close();
-                    }catch(Exception ex){MessageBox.Show(dialog,ex.Message,dialog.Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);}
+                    }catch(Exception ex){FgsMessageBox.Show(dialog,ex.Message,dialog.Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);}
                 };
                 buttons.Controls.Add(cancel);buttons.Controls.Add(ok);buttons.Controls.Add(reset);shell.Controls.Add(buttons,0,1);
                 dialog.Controls.Add(shell);dialog.AcceptButton=ok;dialog.CancelButton=cancel;

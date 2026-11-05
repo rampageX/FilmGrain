@@ -22,7 +22,7 @@ namespace FilmGrainStudioPreview
                 var button=new ThemeButton{Text="取消",Width=110,Dock=DockStyle.Right};layout.Controls.Add(button,0,2);
                 var lines=new ConcurrentQueue<string>();bool finished=false;LibraryToolResult result=null;Thread worker=null;
                 Action requestCancel=delegate {if(finished){dialog.Close();return;} if(cancel.IsCancellationRequested)return;
-                    if(MessageBox.Show(dialog,"取消当前工具任务？已完成的文件会保留。",title,MessageBoxButtons.YesNo,MessageBoxIcon.Question)!=DialogResult.Yes)return;
+                    if(FgsMessageBox.Show(dialog,"取消当前工具任务？已完成的文件会保留。",title,MessageBoxButtons.YesNo,MessageBoxIcon.Question)!=DialogResult.Yes)return;
                     cancel.Cancel();button.Enabled=false;phase.Text="正在取消，等待进程结束和临时文件清理…";
                 };
                 button.Click+=delegate {requestCancel();};
@@ -208,7 +208,7 @@ namespace FilmGrainStudioPreview
             use.Click+=delegate{Commit(selected);};none.Click+=delegate{DisabledLut=true;DialogResult=DialogResult.OK;Close();};
             smart.Click+=delegate {
                 try {var cfg=new FgsConfig(appRoot,null);cfg.SaveValue("SMART_FILTER_ENABLED",smartEnabled?"false":"true");smartEnabled=!smartEnabled;UpdateSmart();Filter();}
-                catch(Exception ex){MessageBox.Show(this,"无法保存智能过滤状态："+ex.Message);}
+                catch(Exception ex){FgsMessageBox.Show(this,"无法保存智能过滤状态："+ex.Message);}
             };
             update.Click+=delegate{Build(false);};change.Click+=delegate{Build(true);};
             KeyDown+=delegate(object sender,KeyEventArgs e){if(e.KeyCode==Keys.Escape)Close();if(e.KeyCode==Keys.Enter&&selected!=null)Commit(selected);};
@@ -311,7 +311,7 @@ namespace FilmGrainStudioPreview
                 foreach(var e in all) {string d=Path.GetDirectoryName(e.Relative);while(!string.IsNullOrEmpty(d)){dirs.Add(d);d=Path.GetDirectoryName(d);}}
                 folders.Items.Clear();folders.Items.Add("全部文件夹");foreach(string d in dirs)folders.Items.Add(d);
                 folders.SelectedIndex=current!=null&&folders.Items.Contains(current)?folders.Items.IndexOf(current):0;
-            } catch(Exception ex){MessageBox.Show(this,"图库读取失败："+ex.Message,Text,MessageBoxButtons.OK,MessageBoxIcon.Error);}
+            } catch(Exception ex){FgsMessageBox.Show(this,"图库读取失败："+ex.Message,Text,MessageBoxButtons.OK,MessageBoxIcon.Error);}
             finally{updating=false;Filter();}
         }
         List<Dictionary<string,object>> ReadRecords(string name)
@@ -388,7 +388,7 @@ namespace FilmGrainStudioPreview
                 Action choose=delegate{selected=slot.Entry;status.Text=slot.Entry.Relative;foreach(Control c in cards.Controls)c.BackColor=c==card?Color.LightSteelBlue:SystemColors.Control;};
                 pic.Click+=delegate{choose();};name.Click+=delegate{choose();};card.Click+=delegate{choose();};
                 pic.DoubleClick+=delegate{Commit(slot.Entry);};name.DoubleClick+=delegate{Commit(slot.Entry);};card.DoubleClick+=delegate{Commit(slot.Entry);};
-                fav.Click+=delegate{try {ToggleGalleryFavorite(slot.Entry);}catch(Exception ex){MessageBox.Show(this,"收藏保存失败，原记录保留："+ex.Message);}};
+                fav.Click+=delegate{try {ToggleGalleryFavorite(slot.Entry);}catch(Exception ex){FgsMessageBox.Show(this,"收藏保存失败，原记录保留："+ex.Message);}};
                 var menu=new ContextMenuStrip();menu.Items.Add("打开 LUT 所在文件夹",null,delegate{Open(Path.GetDirectoryName(slot.Entry.LutPath));});menu.Items.Add("打开完整尺寸预览图",null,delegate{Open(slot.Entry.PreviewPath);});
                 card.ContextMenuStrip=menu;pic.ContextMenuStrip=menu;name.ContextMenuStrip=menu;card.Disposed+=delegate{menu.Dispose();};
                 card.SuspendLayout();
@@ -437,12 +437,12 @@ namespace FilmGrainStudioPreview
             }
             using(var stream=new MemoryStream(File.ReadAllBytes(cache)))using(var image=Image.FromStream(stream)){ var bitmap=new Bitmap(image); return bitmap; }
         }
-        void Open(string path){try{System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path){UseShellExecute=true});}catch(Exception ex){MessageBox.Show(this,ex.Message);}}
+        void Open(string path){try{System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path){UseShellExecute=true});}catch(Exception ex){FgsMessageBox.Show(this,ex.Message);}}
         void Commit(LutGalleryEntry entry)
         {
             if(entry==null)return;
-            if(!File.Exists(entry.LutPath)){MessageBox.Show(this,"LUT 已不存在，请更新图库。");return;}
-            try{NativeLutRecords.Recent(previews,entry.LutPath);}catch(Exception ex){MessageBox.Show(this,"LUT 已选择，最近使用保存失败，原记录保留："+ex.Message);}
+            if(!File.Exists(entry.LutPath)){FgsMessageBox.Show(this,"LUT 已不存在，请更新图库。");return;}
+            try{NativeLutRecords.Recent(previews,entry.LutPath);}catch(Exception ex){FgsMessageBox.Show(this,"LUT 已选择，最近使用保存失败，原记录保留："+ex.Message);}
             SelectedLut=entry.LutPath;DialogResult=DialogResult.OK;Close();
         }
         void Build(bool newReference)
@@ -452,7 +452,7 @@ namespace FilmGrainStudioPreview
             if(newReference) using(var pick=new OpenFileDialog{Title="更换参考图",Filter="图像|*.jpg;*.jpeg;*.png;*.bmp;*.tif;*.tiff;*.webp|所有文件|*.*"}) {
                 if(pick.ShowDialog(this)!=DialogResult.OK)return;reference=pick.FileName;
             }
-            if(MessageBox.Show(this,newReference?"使用新参考图重新生成全部 LUT 预览？":"补齐缺失预览，并同步删除已移除 LUT 的对应生成预览？",Text,MessageBoxButtons.YesNo,MessageBoxIcon.Question)!=DialogResult.Yes)return;
+            if(FgsMessageBox.Show(this,newReference?"使用新参考图重新生成全部 LUT 预览？":"补齐缺失预览，并同步删除已移除 LUT 的对应生成预览？",Text,MessageBoxButtons.YesNo,MessageBoxIcon.Question)!=DialogResult.Yes)return;
             string source=reference;
             NativeLibraryToolDialog.Show(this,newReference?"更换参考图并重建预览":"更新 LUT 预览",delegate(CancellationToken token,Action<string> log){
                 if(newReference) {

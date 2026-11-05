@@ -123,6 +123,7 @@ $RequiredPackageDirectories = @(
     'Legacy'
 )
 $ReleaseSourceItems = @(
+    'AGENTS.md',
     'images',
     'Lang',
     'Utils',
@@ -296,6 +297,14 @@ $ExcludedRecursiveDirectoryNames = @(
     '__pycache__'
 )
 $ExcludedRootDeliveryPatterns = @(
+    'Build_Check_DarkPrompts_*',
+    'Launch_DarkPrompts_*',
+    'Test_DarkPrompts_*',
+    'Preview_LongPrompt_*',
+    'DARK_PROMPTS_*',
+    'Clean_DarkPrompts_*',
+    'RELEASE_PREP_5.0.53_*',
+    'FGS_DarkPrompts_*.zip',
     'Build_Run_NVEncC_*',
     'Launch_NVEncC_*',
     'Test_NVEncC_*',

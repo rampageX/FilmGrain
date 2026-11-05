@@ -200,7 +200,7 @@ namespace FilmGrainStudioPreview
             buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50)); buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 124)); buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 100)); buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
             var copy = new ThemeButton { Text = UiText("复制记录", "Copy record"), Dock = DockStyle.Fill };
             var close = new ThemeButton { Text = UiText("关闭", "Close"), Dock = DockStyle.Fill, DialogResult = DialogResult.Cancel };
-            copy.Click += delegate { try { Clipboard.SetText(text.Text); } catch (System.Runtime.InteropServices.ExternalException) { MessageBox.Show(dialog, UiText("剪贴板正忙，请重试。", "Clipboard is busy; retry.")); } };
+            copy.Click += delegate { try { Clipboard.SetText(text.Text); } catch (System.Runtime.InteropServices.ExternalException) { FgsMessageBox.Show(dialog, UiText("剪贴板正忙，请重试。", "Clipboard is busy; retry.")); } };
             close.Click += delegate { dialog.Close(); };
             buttons.Controls.Add(copy, 1, 0); buttons.Controls.Add(close, 2, 0);
             layout.Controls.Add(note, 0, 0); layout.Controls.Add(body, 0, 1); layout.Controls.Add(buttons, 0, 2);

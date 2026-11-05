@@ -78,13 +78,13 @@ namespace FilmGrainStudioPreview
                     c.Save(new System.Collections.Generic.Dictionary<string, string> { { "NETWORK_PROXY_MODE", mode }, { "NETWORK_PROXY_URL", normalized } });
                     NetworkProxyCore.Apply(mode, normalized);
                 };
-                form.FormClosing += delegate(object sender, FormClosingEventArgs e) { if (installing) { e.Cancel = true; MessageBox.Show(form, "请在工具窗口取消任务或等待安装结束。", "安装进行中"); } };
+                form.FormClosing += delegate(object sender, FormClosingEventArgs e) { if (installing) { e.Cancel = true; FgsMessageBox.Show(form, "请在工具窗口取消任务或等待安装结束。", "安装进行中"); } };
                 Action<string> install = delegate(string tool) {
-                    if (test) { MessageBox.Show(form, "测试模式只验证界面和路径。真实安装请复制 FGS 目录后普通启动。", "设置测试模式"); return; }
-                    if (installing) { MessageBox.Show(form, "当前安装尚未结束。"); return; }
-                    if (MessageBox.Show(form, "将在当前 FGS 目录安装 " + tool + "。确认当前目录是测试副本？\r\n不会修改系统 PATH 或已有 Python。", "真实安装", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+                    if (test) { FgsMessageBox.Show(form, "测试模式只验证界面和路径。真实安装请复制 FGS 目录后普通启动。", "设置测试模式"); return; }
+                    if (installing) { FgsMessageBox.Show(form, "当前安装尚未结束。"); return; }
+                    if (FgsMessageBox.Show(form, "将在当前 FGS 目录安装 " + tool + "。确认当前目录是测试副本？\r\n不会修改系统 PATH 或已有 Python。", "真实安装", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
                     string proxy = proxyInput.Text.Trim();
-                    try { saveProxy(proxy); } catch (Exception ex) { MessageBox.Show(form, ex.Message); return; }
+                    try { saveProxy(proxy); } catch (Exception ex) { FgsMessageBox.Show(form, ex.Message); return; }
                     try {
                         installing=true;
                         header.Text="正在使用原生 .NET 安装 "+tool+"，请查看工具窗口。取消后可保留已有安装与完整下载缓存。";
@@ -103,14 +103,14 @@ namespace FilmGrainStudioPreview
                             if(tool=="FFmpeg") {c.SaveValue("FFMPEG_DIR",ffLocal);simulatedFf=false;}
                             if(tool=="Grav1synth") {c.SaveValue("GRAV1SYNTH",gravLocal);simulatedGrav=false;}
                             if(tool=="OpenSVPFlow")simulatedSvp=false;
-                            refresh();MessageBox.Show(form,tool+" 安装成功，路径已更新。请重新检测硬件能力。","安装完成");
-                        }else MessageBox.Show(form,result.Cancelled?"安装已取消；既有目录与完整缓存保留。":"安装未完成，请复制工具窗口中的错误；原配置路径保持。","安装结果");
-                    }catch(Exception ex){MessageBox.Show(form,ex.Message,"安装失败");}
+                            refresh();FgsMessageBox.Show(form,tool+" 安装成功，路径已更新。请重新检测硬件能力。","安装完成");
+                        }else FgsMessageBox.Show(form,result.Cancelled?"安装已取消；既有目录与完整缓存保留。":"安装未完成，请复制工具窗口中的错误；原配置路径保持。","安装结果");
+                    }catch(Exception ex){FgsMessageBox.Show(form,ex.Message,"安装失败");}
                     finally{installing=false;header.Text="优先复用已有依赖；下载的新工具位于 _Dependencies。安装过程使用 .NET，不启动 PowerShell。";}
 
                 };
                 Button ffChoose = new ThemeButton { Left = 500, Top = 86, Width = 150, Text = "指定 FFmpeg 目录" };
-                ffChoose.Click += delegate { using (FolderBrowserDialog dlg = new FolderBrowserDialog()) { if (dlg.ShowDialog(form) == DialogResult.OK) { simulatedFf = false; if (Exists(Path.Combine(dlg.SelectedPath, "ffmpeg.exe")) && Exists(Path.Combine(dlg.SelectedPath, "ffprobe.exe"))) c.SaveValue("FFMPEG_DIR", dlg.SelectedPath); else MessageBox.Show(form, "须同时包含 ffmpeg.exe 和 ffprobe.exe。"); refresh(); } } };
+                ffChoose.Click += delegate { using (FolderBrowserDialog dlg = new FolderBrowserDialog()) { if (dlg.ShowDialog(form) == DialogResult.OK) { simulatedFf = false; if (Exists(Path.Combine(dlg.SelectedPath, "ffmpeg.exe")) && Exists(Path.Combine(dlg.SelectedPath, "ffprobe.exe"))) c.SaveValue("FFMPEG_DIR", dlg.SelectedPath); else FgsMessageBox.Show(form, "须同时包含 ffmpeg.exe 和 ffprobe.exe。"); refresh(); } } };
                 Button ffPathChoice = new ThemeButton { Left = 660, Top = 86, Width = 150, Text = ffPath.Length > 0 ? "使用 PATH 中的" : "PATH 未发现", Enabled = ffPath.Length > 0 };
                 ffPathChoice.Click += delegate { if (ffPath.Length > 0) { c.SaveValue("FFMPEG_DIR", ffPath); simulatedFf = false; refresh(); } };
                 Button ffInstall = new ThemeButton { Left = 820, Top = 86, Width = 150, Text = "下载并安装 Full" };
@@ -124,7 +124,7 @@ namespace FilmGrainStudioPreview
                 Button refreshButton = new ThemeButton { Left = 660, Top = 209, Width = 150, Text = "刷新检测" };
                 refreshButton.Click += delegate { simulatedFf = false; simulatedGrav = false; simulatedSvp = false; refresh(); };
                 Button done = new ThemeButton { Left = 675, Top = 382, Width = 145, Text = "保存并继续" };
-                done.Click += delegate { if (installing) { MessageBox.Show(form, "请等待安装结束。"); return; } try { saveProxy(proxyInput.Text); } catch (Exception ex) { MessageBox.Show(form, ex.Message); return; } if (!Ffmpeg(c)) MessageBox.Show(form, "FFmpeg / ffprobe 尚未就绪，编码功能暂不可用。"); else if (!test) c.SaveValue("SETUP_VERSION", Version); form.Close(); };
+                done.Click += delegate { if (installing) { FgsMessageBox.Show(form, "请等待安装结束。"); return; } try { saveProxy(proxyInput.Text); } catch (Exception ex) { FgsMessageBox.Show(form, ex.Message); return; } if (!Ffmpeg(c)) FgsMessageBox.Show(form, "FFmpeg / ffprobe 尚未就绪，编码功能暂不可用。"); else if (!test) c.SaveValue("SETUP_VERSION", Version); form.Close(); };
                 Button later = new ThemeButton { Left = 830, Top = 382, Width = 140, Text = "稍后设置" };
                 later.Click += delegate { form.Close(); };
                 form.Controls.Add(ffChoose); form.Controls.Add(ffPathChoice); form.Controls.Add(ffInstall); form.Controls.Add(gravChoose); form.Controls.Add(gravInstall);

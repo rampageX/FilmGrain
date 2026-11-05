@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
@@ -152,7 +152,7 @@ namespace FilmGrainStudioPreview
                 SubtitleChoice selected = choices[source.SelectedIndex];
                 if (selected.Mode == "BROWSE" && selected.Path.Length == 0)
                 {
-                    MessageBox.Show(this, lang.T("subtitle.not_selected"), dialog.Text); return;
+                    FgsMessageBox.Show(this, lang.T("subtitle.not_selected"), dialog.Text); return;
                 }
                 subtitleState.Enabled = selected.Mode != "OFF";
                 subtitleState.Mode = selected.Mode == "BROWSE" ? "EXTERNAL" : selected.Mode;

@@ -570,7 +570,7 @@ namespace FilmGrainStudioPreview
                     state["FG_QUEUE_NO_REENCODE"]=cmbCodec.SelectedIndex==4?"1":"0";
                     states[input]=new SortedDictionary<string,string>(state,StringComparer.OrdinalIgnoreCase);inputs.Add(input);
                 }
-            } catch(Exception ex) {MessageBox.Show(this,ex.Message,Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);return;}
+            } catch(Exception ex) {FgsMessageBox.Show(this,ex.Message,Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);return;}
             finally {captureInputPath=null;ApplyFileEditor(restore,true);}
             if(inputs.Count==0)return;
             if(taskLog!=null)taskLog.Dispose();taskLog=new FullLogFileCore(appRoot,"Task",GetLogEntryLimit());fullLogErrorReported=false;

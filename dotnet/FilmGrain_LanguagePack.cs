@@ -35,6 +35,7 @@ namespace FilmGrainStudioPreview
                 selected = Path.Combine(Root, "zh-CN.ini");
             }
             LoadFile(selected, current);
+            FgsMessageBox.LanguageCode=Code;
         }
 
         public string T(string key)

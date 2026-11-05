@@ -930,7 +930,7 @@ namespace FilmGrainStudioPreview
 
         private void OpenLutGalleryAsync()
         {
-            if(!Directory.Exists(lutRoot)){MessageBox.Show(this,S("找不到 LUT 根目录：\r\n","LUT root not found:\r\n")+lutRoot);return;}
+            if(!Directory.Exists(lutRoot)){FgsMessageBox.Show(this,S("找不到 LUT 根目录：\r\n","LUT root not found:\r\n")+lutRoot);return;}
             openLutGallery.Enabled=false;
             CancelActiveRender();
             try {
@@ -943,7 +943,7 @@ namespace FilmGrainStudioPreview
                     }
                 }
                 UpdateLutUi();RequestRender(true);
-            }catch(Exception ex){MessageBox.Show(this,ex.Message,Text,MessageBoxButtons.OK,MessageBoxIcon.Error);}
+            }catch(Exception ex){FgsMessageBox.Show(this,ex.Message,Text,MessageBoxButtons.OK,MessageBoxIcon.Error);}
             finally{openLutGallery.Enabled=true;}
         }
 

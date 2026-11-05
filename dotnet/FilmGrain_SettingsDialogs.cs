@@ -41,8 +41,8 @@ namespace FilmGrainStudioPreview
             if(bridgeTaskCoordinator==null||bridgeTaskCoordinator.IsActive)return;
             var inputs=new List<string>();
             foreach(ListViewItem item in listFiles.Items){string path=item.Tag as string;if(IsPendingQueueFile(path))inputs.Add(path);}
-            if(inputs.Count==0){MessageBox.Show(this,lang.T("info.add_video"),Text);return;}
-            foreach(string input in inputs){MediaProbeInfo info;if(!mediaProbeCache.TryGetValue(input,out info)){MessageBox.Show(this,UiText("请等待输入媒体探测完成。", "Wait for input media probing."),Text);return;}}
+            if(inputs.Count==0){FgsMessageBox.Show(this,lang.T("info.add_video"),Text);return;}
+            foreach(string input in inputs){MediaProbeInfo info;if(!mediaProbeCache.TryGetValue(input,out info)){FgsMessageBox.Show(this,UiText("请等待输入媒体探测完成。", "Wait for input media probing."),Text);return;}}
             using(var dlg=new Form())
             {
                 dlg.Text=UiText("AV1 颗粒烘焙 · SDR", "AV1 grain bake · SDR");dlg.StartPosition=FormStartPosition.CenterParent;
@@ -97,7 +97,7 @@ namespace FilmGrainStudioPreview
                     bridgeTaskCoordinator.SkipFailedFiles=config.GetBool("QUEUE_SKIP_FAILED");
                     bridgeTaskCoordinator.StartQueue(tasks);
                 }
-                catch(Exception ex){foreach(var task in tasks)BridgeExecutionCore.CleanupTemporaryFiles(task.ExecutionRequest);MessageBox.Show(this,ex.Message,dlg.Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);}
+                catch(Exception ex){foreach(var task in tasks)BridgeExecutionCore.CleanupTemporaryFiles(task.ExecutionRequest);FgsMessageBox.Show(this,ex.Message,dlg.Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);}
             }
         }
 
@@ -133,7 +133,7 @@ namespace FilmGrainStudioPreview
                     ProxyModeItem item = mode.SelectedItem as ProxyModeItem;
                     string proxy = url.Text.Trim(), error = "";
                     if (item == null) return;
-                    if (item.Value == NetworkProxyCore.CustomMode && !NetworkProxyCore.TryValidateProxy(proxy, out proxy, out error)) { MessageBox.Show(dlg, error, "Film Grain Studio"); return; }
+                    if (item.Value == NetworkProxyCore.CustomMode && !NetworkProxyCore.TryValidateProxy(proxy, out proxy, out error)) { FgsMessageBox.Show(dlg, error, "Film Grain Studio"); return; }
                     test.Enabled = false; status.Text = UiText("正在测试…", "Testing...");
                     ThreadPool.QueueUserWorkItem(delegate {
                         string result; bool ok = NetworkProxyCore.TestProxy(item.Value, proxy, out result);
@@ -145,9 +145,9 @@ namespace FilmGrainStudioPreview
                     ProxyModeItem item = mode.SelectedItem as ProxyModeItem;
                     if (item == null) return;
                     string proxy = url.Text.Trim(), error = "";
-                    if (item.Value == NetworkProxyCore.CustomMode && !NetworkProxyCore.TryValidateProxy(proxy, out proxy, out error)) { MessageBox.Show(dlg, error, "Film Grain Studio"); return; }
+                    if (item.Value == NetworkProxyCore.CustomMode && !NetworkProxyCore.TryValidateProxy(proxy, out proxy, out error)) { FgsMessageBox.Show(dlg, error, "Film Grain Studio"); return; }
                     try { config.Save(new Dictionary<string, string> { { "NETWORK_PROXY_MODE", item.Value }, { "NETWORK_PROXY_URL", item.Value == NetworkProxyCore.CustomMode ? proxy : "" } }); NetworkProxyCore.Apply(item.Value, proxy); dlg.DialogResult = DialogResult.OK; dlg.Close(); }
-                    catch (Exception ex) { MessageBox.Show(dlg, ex.Message, "Film Grain Studio", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+                    catch (Exception ex) { FgsMessageBox.Show(dlg, ex.Message, "Film Grain Studio", MessageBoxButtons.OK, MessageBoxIcon.Error); }
                 };
                 AttachThemeWindow(dlg);
                 dlg.ShowDialog(this);
@@ -191,7 +191,7 @@ namespace FilmGrainStudioPreview
         private static void OpenWebLink(IWin32Window owner,string url)
         {
             try {Process.Start(new ProcessStartInfo(url){UseShellExecute=true});}
-            catch(Exception ex){MessageBox.Show(owner,ex.Message,"Film Grain Studio",MessageBoxButtons.OK,MessageBoxIcon.Warning);}
+            catch(Exception ex){FgsMessageBox.Show(owner,ex.Message,"Film Grain Studio",MessageBoxButtons.OK,MessageBoxIcon.Warning);}
         }
         internal static ToolStripStatusLabel CreateProjectVersionLink(Form owner)
         {
@@ -605,10 +605,10 @@ namespace FilmGrainStudioPreview
                 save.Click += delegate
                 {
                     string ffdir = txtFfmpeg.Text.Trim().TrimEnd('\\');
-                    if (!Directory.Exists(ffdir)) { MessageBox.Show(dlg, LF("config.ffmpeg_dir_missing", ffdir), lang.T("config.path_title"), MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+                    if (!Directory.Exists(ffdir)) { FgsMessageBox.Show(dlg, LF("config.ffmpeg_dir_missing", ffdir), lang.T("config.path_title"), MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
                     foreach (string exe in new string[] { "ffmpeg.exe", "ffprobe.exe" })
                     {
-                        if (!File.Exists(Path.Combine(ffdir, exe))) { MessageBox.Show(dlg, LF("config.ffmpeg_exe_missing", exe, ffdir), lang.T("config.path_title"), MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+                        if (!File.Exists(Path.Combine(ffdir, exe))) { FgsMessageBox.Show(dlg, LF("config.ffmpeg_exe_missing", exe, ffdir), lang.T("config.path_title"), MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
                     }
                     string frucExe = "";
                     if (!chkFrucSame.Checked)
@@ -617,18 +617,18 @@ namespace FilmGrainStudioPreview
                         frucExe = Path.Combine(frucDir, "ffmpeg.exe");
                         if (!Directory.Exists(frucDir) || !File.Exists(frucExe))
                         {
-                            MessageBox.Show(dlg, LF("config.ffmpeg_exe_missing", "ffmpeg.exe", frucDir), lang.T("config.path_title"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                            FgsMessageBox.Show(dlg, LF("config.ffmpeg_exe_missing", "ffmpeg.exe", frucDir), lang.T("config.path_title"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
                             return;
                         }
                         if (!NativeHevcCore.HasFrucFilter(frucExe))
                         {
-                            MessageBox.Show(dlg, UiText("选定的 ffmpeg.exe 不包含 fruc_vulkan 滤镜。", "The selected ffmpeg.exe does not provide fruc_vulkan."), lang.T("config.path_title"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                            FgsMessageBox.Show(dlg, UiText("选定的 ffmpeg.exe 不包含 fruc_vulkan 滤镜。", "The selected ffmpeg.exe does not provide fruc_vulkan."), lang.T("config.path_title"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
                             return;
                         }
                     }
-                    if (!File.Exists(txtGrav.Text.Trim())) { MessageBox.Show(dlg, LF("config.grav_missing", txtGrav.Text.Trim()), lang.T("config.path_title"), MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
-                    if (!Directory.Exists(txtGrain.Text.Trim())) { MessageBox.Show(dlg, LF("config.item_missing", lang.T("config.item_grain_root"), txtGrain.Text.Trim()), lang.T("config.path_title"), MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
-                    if (!Directory.Exists(txtLut.Text.Trim())) { MessageBox.Show(dlg, LF("config.item_missing", lang.T("config.item_lut_root"), txtLut.Text.Trim()), lang.T("config.path_title"), MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+                    if (!File.Exists(txtGrav.Text.Trim())) { FgsMessageBox.Show(dlg, LF("config.grav_missing", txtGrav.Text.Trim()), lang.T("config.path_title"), MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+                    if (!Directory.Exists(txtGrain.Text.Trim())) { FgsMessageBox.Show(dlg, LF("config.item_missing", lang.T("config.item_grain_root"), txtGrain.Text.Trim()), lang.T("config.path_title"), MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+                    if (!Directory.Exists(txtLut.Text.Trim())) { FgsMessageBox.Show(dlg, LF("config.item_missing", lang.T("config.item_lut_root"), txtLut.Text.Trim()), lang.T("config.path_title"), MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
 
                     string tempMode = cmbTemp.SelectedIndex == 1 ? "SYSTEM" : (cmbTemp.SelectedIndex == 2 ? "CUSTOM" : "VIDEO");
                     string tempCustom = txtTemp.Text.Trim().TrimEnd('\\');
@@ -636,13 +636,13 @@ namespace FilmGrainStudioPreview
                     string outputCustom = txtOutput.Text.Trim().TrimEnd('\\');
                     if (tempMode == "CUSTOM")
                     {
-                        if (tempCustom.Length == 0) { MessageBox.Show(dlg, LF("config.custom_empty", lang.T("config.temp_dir")), lang.T("config.path_title"), MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
-                        string err; if (!TestWritableDirectory(tempCustom, out err)) { MessageBox.Show(dlg, LF("error.temp_unavailable", tempCustom, err), lang.T("config.path_title"), MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+                        if (tempCustom.Length == 0) { FgsMessageBox.Show(dlg, LF("config.custom_empty", lang.T("config.temp_dir")), lang.T("config.path_title"), MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+                        string err; if (!TestWritableDirectory(tempCustom, out err)) { FgsMessageBox.Show(dlg, LF("error.temp_unavailable", tempCustom, err), lang.T("config.path_title"), MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
                     }
                     if (outputMode == "CUSTOM")
                     {
-                        if (outputCustom.Length == 0) { MessageBox.Show(dlg, LF("config.custom_empty", lang.T("config.output_dir")), lang.T("config.path_title"), MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
-                        string err; if (!TestWritableDirectory(outputCustom, out err)) { MessageBox.Show(dlg, LF("error.output_unavailable", outputCustom, err), lang.T("config.path_title"), MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+                        if (outputCustom.Length == 0) { FgsMessageBox.Show(dlg, LF("config.custom_empty", lang.T("config.output_dir")), lang.T("config.path_title"), MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+                        string err; if (!TestWritableDirectory(outputCustom, out err)) { FgsMessageBox.Show(dlg, LF("error.output_unavailable", outputCustom, err), lang.T("config.path_title"), MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
                     }
                     try
                     {
@@ -658,7 +658,7 @@ namespace FilmGrainStudioPreview
                         dlg.DialogResult = DialogResult.OK;
                         dlg.Close();
                     }
-                    catch (Exception ex) { MessageBox.Show(dlg, LF("config.save_failed", ex.Message), lang.T("config.path_title"), MessageBoxButtons.OK, MessageBoxIcon.Error); }
+                    catch (Exception ex) { FgsMessageBox.Show(dlg, LF("config.save_failed", ex.Message), lang.T("config.path_title"), MessageBoxButtons.OK, MessageBoxIcon.Error); }
                 };
 
                 AttachThemeWindow(dlg);
@@ -679,15 +679,15 @@ namespace FilmGrainStudioPreview
                     RefreshChangedHardware(hardwareBefore);
                     BeginNvencInspection();
                     if (log != null) log.AppendText("[Config] Path configuration saved: " + config.ConfigPath + Environment.NewLine);
-                    MessageBox.Show(this, lang.T("config.saved"), lang.T("config.path_title"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    FgsMessageBox.Show(this, lang.T("config.saved"), lang.T("config.path_title"), MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
             }
         }
 
         private void StartNativeSvpUpdate(Form owner)
         {
-            if (setupTestMode) { MessageBox.Show(owner, "设置测试模式禁止真实更新。"); return; }
-            if (bridgeTaskCoordinator != null && bridgeTaskCoordinator.IsActive) { MessageBox.Show(owner, "请等待编码队列结束后更新插件。"); return; }
+            if (setupTestMode) { FgsMessageBox.Show(owner, "设置测试模式禁止真实更新。"); return; }
+            if (bridgeTaskCoordinator != null && bridgeTaskCoordinator.IsActive) { FgsMessageBox.Show(owner, "请等待编码队列结束后更新插件。"); return; }
             string mode = config.Get("NETWORK_PROXY_MODE"), proxy = config.Get("NETWORK_PROXY_URL");
             LibraryToolResult result = NativeLibraryToolDialog.Show(owner, "OpenSVPFlow 原生更新", delegate(CancellationToken token, Action<string> log) {
                 var core = new NativeSetupCore(appRoot, false, token, log,
@@ -697,7 +697,7 @@ namespace FilmGrainStudioPreview
             });
             if (result.Success > 0 && !result.Cancelled && result.Failed == 0) {
                 BeginHardwareDetection();
-                MessageBox.Show(owner, "插件更新并完成自检，相关硬件能力已安排刷新。", "更新完成");
+                FgsMessageBox.Show(owner, "插件更新并完成自检，相关硬件能力已安排刷新。", "更新完成");
             }
         }
 
@@ -907,7 +907,7 @@ namespace FilmGrainStudioPreview
                 {
                     Dictionary<string, string> updates = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                     try { foreach(var editor in encoderEditors.Values)foreach(var pair in editor.ReadValues())updates.Add(pair.Key,pair.Value); }
-                    catch(Exception ex){MessageBox.Show(dlg,ex.Message,Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);return;}
+                    catch(Exception ex){FgsMessageBox.Show(dlg,ex.Message,Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);return;}
                     updates["AUDIO_MODE"]=audioModes[audioMode.SelectedIndex];updates["AUDIO_BITRATE"]=audioRates[audioRate.SelectedIndex];
 
                     updates["QUEUE_SKIP_FAILED"]=skipQueueFailed.Checked?"true":"false";
@@ -931,7 +931,7 @@ namespace FilmGrainStudioPreview
                     updates["FRUC_PERF"] = Convert.ToString(frucPerf.SelectedItem, CultureInfo.InvariantCulture);
                     string selectedGrid=Convert.ToString(frucGrid.SelectedItem,CultureInfo.InvariantCulture);
                     if(supportedFrucGrids.Length>0 && selectedGrid!="auto" && Array.IndexOf(supportedFrucGrids.Split(','),selectedGrid)<0) {
-                        MessageBox.Show(dlg,UiText("所选 FRUC 网格不受支持，请选择自动或支持项：", "Unsupported FRUC grid. Choose Auto or a supported size: ")+supportedFrucGrids);return;
+                        FgsMessageBox.Show(dlg,UiText("所选 FRUC 网格不受支持，请选择自动或支持项：", "Unsupported FRUC grid. Choose Auto or a supported size: ")+supportedFrucGrids);return;
                     }
                     updates["FRUC_GRID"] = Convert.ToString(frucGrid.SelectedItem, CultureInfo.InvariantCulture);
                     updates["HDR_POLICY"] = hdrPolicy.SelectedIndex == 1 ? "PRESERVE" : (hdrPolicy.SelectedIndex == 2 ? "SDR" : "AUTO");
@@ -942,7 +942,7 @@ namespace FilmGrainStudioPreview
                         dlg.DialogResult = DialogResult.OK;
                         dlg.Close();
                     }
-                    catch (Exception ex) { MessageBox.Show(dlg, ex.Message, "Film Grain Studio", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+                    catch (Exception ex) { FgsMessageBox.Show(dlg, ex.Message, "Film Grain Studio", MessageBoxButtons.OK, MessageBoxIcon.Error); }
                 };
 
 
@@ -1107,7 +1107,7 @@ namespace FilmGrainStudioPreview
                 var cancel=new ThemeButton{Name="ENCODER_QUICK_CANCEL",Text=lang.T("advanced.cancel"),Location=new Point(width-106,editor.Surface.Height+10),Size=new Size(88,30),DialogResult=DialogResult.Cancel};
                 var defaults=new ThemeButton{Name="ENCODER_QUICK_DEFAULTS",Text=lang.T("config.defaults"),Location=new Point(20,editor.Surface.Height+10),Size=new Size(112,30)};
                 defaults.Click+=delegate{editor.RestoreDefaults(config);};
-                ok.Click+=delegate{try{config.Save(editor.ReadValues());dlg.DialogResult=DialogResult.OK;dlg.Close();}catch(Exception ex){MessageBox.Show(dlg,ex.Message,Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);}};
+                ok.Click+=delegate{try{config.Save(editor.ReadValues());dlg.DialogResult=DialogResult.OK;dlg.Close();}catch(Exception ex){FgsMessageBox.Show(dlg,ex.Message,Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);}};
                 dlg.Controls.AddRange(new Control[]{ok,cancel,defaults});dlg.AcceptButton=ok;dlg.CancelButton=cancel;AttachThemeWindow(dlg);
                 if(dlg.ShowDialog(this)==DialogResult.OK){UpdateSpeedChoices();LoadBitrateStateForCodec();UpdateBitrateDisplays();UpdateHdrRouteStatus(GetSelectedMediaInfo());}
             }
