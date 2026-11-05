@@ -721,9 +721,13 @@ namespace FilmGrainStudioPreview
         {
             config.Load();
             string hardwareBefore = HardwareCapabilityCore.RequestKey(CreateHardwareRequest());
-            using (Form dlg = new Form())
+            using (Form dlg = new AdvancedSettingsForm())
             using (ToolTip interpTips = new ThemeToolTip())
             {
+                // Seed the initial paint before font/layout can create native handles.
+                dlg.BackColor=selectedDarkTheme?UiTheme.Surface:SystemColors.Control;
+                dlg.ForeColor=selectedDarkTheme?UiTheme.TextColor:SystemColors.ControlText;
+                dlg.SuspendLayout();
                 dlg.Text = lang.T("advanced.title");
                 dlg.StartPosition = FormStartPosition.CenterParent;
                 dlg.FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -733,20 +737,20 @@ namespace FilmGrainStudioPreview
                 dlg.ClientSize = new Size(760, 520);
                 dlg.Font = UiFont(9f, FontStyle.Regular);
 
-                TabControl tabs = new ThemeTabControl(); tabs.Location = new Point(10, 10); tabs.Size = new Size(740, 442);
-                TabPage enc = new TabPage("AV1");
-                TabPage hevcPage = new TabPage("HEVC");
-                TabPage h264Page = new TabPage("H264");
-                TabPage audioPage = new TabPage(UiText("音频", "Audio"));
-                TabPage interp = new TabPage(lang.T("advanced.tab.interp"));
-                TabPage otherPage=new TabPage(UiText("其它","Other"));otherPage.Name="OTHER_PAGE";
+                TabControl tabs = new ThemeTabControl {DarkTheme=selectedDarkTheme}; tabs.SuspendLayout(); tabs.Location = new Point(10, 10); tabs.Size = new Size(740, 442);
+                TabPage enc = new AdvancedSettingsPage(selectedDarkTheme,"AV1");
+                TabPage hevcPage = new AdvancedSettingsPage(selectedDarkTheme,"HEVC");
+                TabPage h264Page = new AdvancedSettingsPage(selectedDarkTheme,"H264");
+                TabPage audioPage = new AdvancedSettingsPage(selectedDarkTheme,UiText("音频", "Audio"));
+                TabPage interp = new AdvancedSettingsPage(selectedDarkTheme,lang.T("advanced.tab.interp"));
+                TabPage otherPage=new AdvancedSettingsPage(selectedDarkTheme,UiText("其它","Other"));otherPage.Name="OTHER_PAGE";
                 var skipQueueFailed=new ThemeCheckBox {Name="QUEUE_SKIP_FAILED",Text=UiText("跳过队列中失败的文件","Skip failed files in queue"),Checked=config.GetBool("QUEUE_SKIP_FAILED"),AutoSize=true,Location=new Point(24,28)};
                 otherPage.Controls.Add(skipQueueFailed);
                 otherPage.Controls.Add(new ThemeLabel {Text=UiText("勾选后，处理失败会保留失败状态并继续下一项。\n取消任务仍会停止整个队列；队列结束会报告失败。\n再次开始仅处理未完成项；右键重置状态可重做已完成文件。","Continue after processing failures; retain failed status.\nCancellation stops the queue. Final result still reports failures.\nStart retries unfinished items; right-click Reset status to rerun completed files."),Location=new Point(24,70),Size=new Size(670,95),ForeColor=ColorMuted});
-                TabPage hdr = new TabPage("HDR");
+                TabPage hdr = new AdvancedSettingsPage(selectedDarkTheme,"HDR");
                 tabs.Name="ADVANCED_TABS";enc.Name="ENCODER_AV1";hevcPage.Name="ENCODER_HEVC";h264Page.Name="ENCODER_H264";audioPage.Name="AUDIO_PAGE";
                 tabs.TabPages.Add(enc); tabs.TabPages.Add(hevcPage); tabs.TabPages.Add(h264Page); tabs.TabPages.Add(interp); tabs.TabPages.Add(hdr);tabs.TabPages.Add(audioPage);tabs.TabPages.Add(otherPage); dlg.Controls.Add(tabs);
-                tabs.SelectedIndex = Math.Max(0, Math.Min(tabs.TabCount - 1, initialTab));
+                foreach(TabPage page in tabs.TabPages)page.SuspendLayout();
 
                 var encodingTip=new ThemeToolTip();dlg.Disposed+=delegate{encodingTip.Dispose();};
                 encodingTip.InitialDelay=400;encodingTip.ReshowDelay=100;encodingTip.AutoPopDelay=25000;encodingTip.ShowAlways=true;
@@ -775,7 +779,7 @@ namespace FilmGrainStudioPreview
                 foreach (string item in new string[] { "1", "2", "11", "13", "21", "22", "23" }) algo.Items.Add(item);
                 int ai = algo.Items.IndexOf(config.Get("SVP_ALGO")); algo.SelectedIndex = ai >= 0 ? ai : 3; interp.Controls.Add(algo);
                 Label analyseLabel = new ThemeLabel(); analyseLabel.Text = UiText("分析方案", "Analyse Profile"); analyseLabel.Location = new Point(18, 54); analyseLabel.Size = new Size(150, 24); interp.Controls.Add(analyseLabel);
-                ComboBox analyse = new ThemeComboBox(); analyse.DropDownStyle = ComboBoxStyle.DropDownList; analyse.Location = new Point(180, 50); analyse.Size = new Size(150, 26); analyse.DropDownWidth = 360;
+                ComboBox analyse = new ThemeComboBox(); analyse.DropDownStyle = ComboBoxStyle.DropDownList; analyse.Location = new Point(180, 50); analyse.Size = new Size(150, 26);
                 analyse.Items.Add(lang.T("advanced.analyse_recommended")); analyse.Items.Add(lang.T("advanced.analyse_baseline")); analyse.SelectedIndex = string.Equals(config.Get("SVP_ANALYSE"), "BASE", StringComparison.OrdinalIgnoreCase) ? 1 : 0; interp.Controls.Add(analyse);
                 Label maskLabel = new ThemeLabel(); maskLabel.Text = UiText("伪影遮罩范围", "Artifact Mask Area"); maskLabel.Location = new Point(18, 90); maskLabel.Size = new Size(150, 24); interp.Controls.Add(maskLabel);
                 NumericUpDown mask = new ThemeNumericUpDown(); mask.Location = new Point(180, 86); mask.Size = new Size(120, 26); mask.Minimum = 0; mask.Maximum = 100; mask.Increment = 5; mask.Value = Math.Max(mask.Minimum, Math.Min(mask.Maximum, config.GetInt("SVP_MASK_AREA", 100))); interp.Controls.Add(mask);
@@ -997,6 +1001,18 @@ namespace FilmGrainStudioPreview
 
 
                 AttachThemeWindow(dlg);
+                tabs.SelectedIndex = Math.Max(0, Math.Min(tabs.TabCount - 1, initialTab));
+                foreach(TabPage page in tabs.TabPages)page.ResumeLayout(false);
+                tabs.ResumeLayout(true);
+                dlg.ResumeLayout(true);
+                // Initialize only the requested page's native editors while hidden.
+                // Their HandleCreated theme hooks finish before the modal first show.
+                Action<Control> preparePage=null;
+                preparePage=delegate(Control control) {
+                    IntPtr preparedHandle=control.Handle;
+                    foreach(Control child in control.Controls)preparePage(child);
+                };
+                preparePage(tabs.SelectedTab);
                 if (dlg.ShowDialog(this) == DialogResult.OK)
                 {
                     config.Load();
@@ -1161,6 +1177,29 @@ namespace FilmGrainStudioPreview
                 dlg.Controls.AddRange(new Control[]{ok,cancel,defaults});dlg.AcceptButton=ok;dlg.CancelButton=cancel;AttachThemeWindow(dlg);
                 if(dlg.ShowDialog(this)==DialogResult.OK){UpdateSpeedChoices();LoadBitrateStateForCodec();UpdateBitrateDisplays();UpdateHdrRouteStatus(GetSelectedMediaInfo());}
             }
+        }
+    }
+}
+
+namespace FilmGrainStudioPreview
+{
+    // Limited to advanced settings: buffer managed backgrounds without compositing
+    // native child windows (combobox popups, numeric editors and focus stay native).
+    internal sealed class AdvancedSettingsForm : Form
+    {
+        internal AdvancedSettingsForm()
+        {
+            SetStyle(ControlStyles.OptimizedDoubleBuffer|ControlStyles.AllPaintingInWmPaint,true);
+        }
+    }
+    internal sealed class AdvancedSettingsPage : TabPage
+    {
+        internal AdvancedSettingsPage(bool dark,string title) : base(title)
+        {
+            SetStyle(ControlStyles.OptimizedDoubleBuffer|ControlStyles.AllPaintingInWmPaint,true);
+            UseVisualStyleBackColor=false;
+            BackColor=dark?UiTheme.Surface:SystemColors.Control;
+            ForeColor=dark?UiTheme.TextColor:SystemColors.ControlText;
         }
     }
 }

@@ -297,6 +297,15 @@ $ExcludedRecursiveDirectoryNames = @(
     '__pycache__'
 )
 $ExcludedRootDeliveryPatterns = @(
+    'Build_Check_FirstPaint_*',
+    'Launch_FirstPaint_*',
+    'Test_FirstPaint_*',
+    'FIRST_PAINT_*',
+    'FirstPaint_AuditHost_*',
+    'Clean_FirstPaint_*',
+    'FGS_Advanced_FirstPaint_*.zip',
+    'FGS_Advanced_DropdownWidth_*.zip',
+    'RELEASE_PREP_5.0.55_*',
     'Build_Check_SvpLayout_*',
     'Launch_SvpLayout_*',
     'Test_SvpLayout_*',

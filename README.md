@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.0.54 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.55 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 <table>
   <tr>
@@ -1469,6 +1469,8 @@ ffmpeg -hide_banner -h decoder=libdav1d
 可视化裁剪窗口的“自动 2.39:1 / Auto”：左键恢复自动 2.39:1；右键将两轴归零并恢复完整原始画幅，不裁剪也不加黑边。点击“应用”保存，取消不保存；重新打开保留选择。手动修改裁剪值后退出原始画幅重置状态。
 
 ### 界面主题
+
+高级设置各分页在显示前完成主题底色、目标页控件与布局准备，并使用背景缓冲；快捷入口直接打开对应页。
 
 应用内确认、信息、警告和错误提示统一使用暗色弹框；宽度为 400 逻辑像素，随 DPI 缩放，高度随文字增长，按钮整组居中。文字与框体同底色；超出屏幕可容纳高度的长消息使用暗色滚动条，支持选择和 Ctrl+C 复制。文件和目录选择仍使用系统窗口。
 
