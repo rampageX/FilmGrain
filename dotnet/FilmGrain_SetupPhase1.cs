@@ -40,7 +40,7 @@ namespace FilmGrainStudioPreview
         {
             if (!forced && !test && c.Get("SETUP_VERSION") == Version && Ffmpeg(c) && Grav(c)) return;
             bool simulatedFf = test, simulatedGrav = test, simulatedSvp = test;
-            using (Form form = new Form())
+            using (Form form = new SettingsDialogForm(false))
             {
                 form.Text = test ? "设置测试模式 - 首次运行设置" : "Film Grain Studio - 首次运行设置";
                 form.Width = 1020; form.Height = 495; form.StartPosition = FormStartPosition.CenterParent;

@@ -42,7 +42,7 @@ namespace FilmGrainStudioPreview
             string ffprobe = Path.Combine(config.Get("FFMPEG_DIR"), "ffprobe.exe");
             List<SubtitleTrack> tracks = target == null ? new List<SubtitleTrack>() : SubtitleCore.Probe(target, ffprobe);
             string sameName = SubtitleCore.FindSameName(target);
-            using (Form dialog = new Form())
+            using (Form dialog = new SettingsDialogForm())
             {
                 dialog.Text = lang.T("subtitle.title");
                 dialog.StartPosition = FormStartPosition.CenterParent;

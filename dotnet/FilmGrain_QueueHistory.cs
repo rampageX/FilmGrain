@@ -184,7 +184,7 @@ namespace FilmGrainStudioPreview
         }
         private void ShowQueueCompletionRecord(string record)
         {
-            var dialog = new Form { Name = "QUEUE_COMPLETION_RECORD", Text = UiText("队列任务完成记录", "Queue completion record"), Font = Font,
+            var dialog = new SettingsDialogForm(false) { Name = "QUEUE_COMPLETION_RECORD", Text = UiText("队列任务完成记录", "Queue completion record"), Font = Font,
                 StartPosition = FormStartPosition.CenterParent, ShowInTaskbar = false, MinimizeBox = false, AutoScaleMode = AutoScaleMode.Dpi,
                 Size = new Size(1120, 630), MinimumSize = new Size(640, 360) };
             var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(22, 14, 22, 12), ColumnCount = 1, RowCount = 3 };
@@ -196,7 +196,7 @@ namespace FilmGrainStudioPreview
             body.Controls.Add(text);
             var wheel = new QueueRecordWheel(text);
             text.Disposed += delegate { wheel.Dispose(); };
-            var buttons = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4, RowCount = 1, Padding = new Padding(0, 10, 0, 0) };
+            var buttons = new SettingsTablePanel { Dock = DockStyle.Fill, ColumnCount = 4, RowCount = 1, Padding = new Padding(0, 10, 0, 0) };
             buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50)); buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 124)); buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 100)); buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
             var copy = new ThemeButton { Text = UiText("复制记录", "Copy record"), Dock = DockStyle.Fill };
             var close = new ThemeButton { Text = UiText("关闭", "Close"), Dock = DockStyle.Fill, DialogResult = DialogResult.Cancel };

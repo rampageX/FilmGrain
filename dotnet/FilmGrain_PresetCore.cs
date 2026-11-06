@@ -107,7 +107,7 @@ namespace FilmGrainStudioPreview
             SafeText(p.Name,"名称",48);Require(!string.IsNullOrWhiteSpace(p.Name),"名称不能为空");
             Require(p.Description!=null&&p.Description.Length<=4000,"说明过长");Choice(p.Kind,"Simple Full","类型");Choice(p.SubtitlePolicy,"OFF AUTO TARGET","字幕策略");
             Require(p.Config!=null&&p.Fields!=null&&p.Controls!=null&&p.SubtitleStyle!=null,"缺少配置对象");
-            foreach(string key in BasicKeys.Split(' '))if(!key.StartsWith("PRE_BILATERAL_")&&!key.StartsWith("RESIZE_"))Require(p.Config.ContainsKey(key),"缺少基础参数: "+key);
+            foreach(string key in BasicKeys.Split(' '))if(key!="NVENC_AI_MODE"&&!key.StartsWith("PRE_BILATERAL_")&&!key.StartsWith("RESIZE_"))Require(p.Config.ContainsKey(key),"缺少基础参数: "+key);
             foreach(var pair in p.Config){Require(Includes(p.Kind,pair.Key),"不允许的配置字段: "+pair.Key);ValidateConfig(pair.Key,pair.Value);}
             if(p.Config.ContainsKey("SVP_EXACT")&&p.Config.ContainsKey("SVP_LEAN"))
                 Require(p.Config["SVP_EXACT"]!="true"||p.Config["SVP_LEAN"]!="true","精简 Super 必须启用实验性高速分析 (exact=false)");
@@ -211,9 +211,16 @@ namespace FilmGrainStudioPreview
         }
         // Editor fields are authoritative in v1. Repair stale mirrored INI/control values
         // on a copy so reading/applying never rewrites a user's existing preset file.
+        // NVEncC quality was added to v1 after existing presets had shipped.
+        // Missing means the original medium default; explicit invalid values still fail Validate.
+        internal static void CompleteOptionalConfig(IDictionary<string,string> values)
+        {
+            if(!values.ContainsKey("NVENC_AI_MODE"))values["NVENC_AI_MODE"]="medium";
+        }
         internal static FgsPreset CoherentCopy(FgsPreset source)
         {
             Validate(source);var p=Copy(source);
+            CompleteOptionalConfig(p.Config);
             for(int i=0;i<PreprocessingCore.Keys.Length;i++)if(!p.Config.ContainsKey(PreprocessingCore.Keys[i]))p.Config[PreprocessingCore.Keys[i]]=PreprocessingCore.Defaults[i];
             bool grain=p.Fields["ordinaryGrainEnabled"]=="True";
             p.Config["GRAIN_ENABLED"]=grain?"true":"false";

@@ -312,7 +312,7 @@ namespace FilmGrainStudioPreview
         }
         private bool EditPresetMetadata(Form owner,FgsPreset p,string title)
         {
-            using(var dialog=new Form {Font=owner.Font,AutoScaleMode=AutoScaleMode.Dpi,Text=title,Size=new Size(540,385),MinimumSize=new Size(480,350),StartPosition=FormStartPosition.CenterParent,ShowInTaskbar=false}) {
+            using(var dialog=new SettingsDialogForm {Font=owner.Font,AutoScaleMode=AutoScaleMode.Dpi,Text=title,Size=new Size(540,385),MinimumSize=new Size(480,350),StartPosition=FormStartPosition.CenterParent,ShowInTaskbar=false}) {
                 var grid=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=1,RowCount=7,Padding=new Padding(12)};
                 grid.RowStyles.Add(new RowStyle(SizeType.Absolute,24));grid.RowStyles.Add(new RowStyle(SizeType.Absolute,30));grid.RowStyles.Add(new RowStyle(SizeType.Absolute,28));grid.RowStyles.Add(new RowStyle(SizeType.Percent,100));grid.RowStyles.Add(new RowStyle(SizeType.Absolute,30));grid.RowStyles.Add(new RowStyle(SizeType.Absolute,46));grid.RowStyles.Add(new RowStyle(SizeType.Absolute,34));
                 var name=new ThemeTextBox {Text=p.Name,Dock=DockStyle.Fill,MaxLength=48};var description=new TextBox {Text=p.Description,Multiline=true,Dock=DockStyle.Fill,MaxLength=4000,ScrollBars=ScrollBars.Vertical,Margin=Padding.Empty};
@@ -350,13 +350,13 @@ namespace FilmGrainStudioPreview
         private void ShowPresetManager()
         {
             PresetHoverCard.HideCard();string target=PresetTargetDescription();bool multiple=independentFiles&&listFiles.SelectedItems.Count>1;
-            using(var dialog=new Form {Font=Font,AutoScaleMode=AutoScaleMode.Dpi,Text="预设管理器 · "+(multiple?"选中的 "+listFiles.SelectedItems.Count+" 个文件":target),Size=new Size(1080,720),MinimumSize=new Size(800,560),StartPosition=FormStartPosition.CenterParent,ShowInTaskbar=false}) {
+            using(var dialog=new SettingsDialogForm(false) {Font=Font,AutoScaleMode=AutoScaleMode.Dpi,Text="预设管理器 · "+(multiple?"选中的 "+listFiles.SelectedItems.Count+" 个文件":target),Size=new Size(1080,720),MinimumSize=new Size(800,560),StartPosition=FormStartPosition.CenterParent,ShowInTaskbar=false}) {
                 var grid=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=2,RowCount=2,Padding=new Padding(10)};grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,44));grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,56));grid.RowStyles.Add(new RowStyle(SizeType.Percent,100));grid.RowStyles.Add(new RowStyle(SizeType.Absolute,108));
                 var list=new ThemeListView {View=View.Details,FullRowSelect=true,MultiSelect=false,Dock=DockStyle.Fill,ShowItemToolTips=false};list.Columns.Add("短名称",130);list.Columns.Add("类型",70);list.Columns.Add("流程摘要",330);
                 var detail=new RichTextBox {ReadOnly=true,WordWrap=true,DetectUrls=false,ScrollBars=RichTextBoxScrollBars.Vertical,Dock=DockStyle.Fill};
                 var detailFrame=new ThemeLogFrame(detail);
                 AttachPresetColumnFitting(list);
-                var buttons=new FlowLayoutPanel {Dock=DockStyle.Fill,WrapContents=true};var slot=new ThemeComboBox {Width=105,DropDownStyle=ComboBoxStyle.DropDownList};for(int i=1;i<=5;i++)slot.Items.Add("快捷位置 "+i);slot.SelectedIndex=0;
+                var buttons=new SettingsFlowPanel {Dock=DockStyle.Fill,WrapContents=true};var slot=new ThemeComboBox {Width=105,DropDownStyle=ComboBoxStyle.DropDownList};for(int i=1;i<=5;i++)slot.Items.Add("快捷位置 "+i);slot.SelectedIndex=0;
                 var bindings=new ThemeLabel {AutoSize=true};Action updateBindings=delegate{var names=new List<string>();for(int i=0;i<5;i++){var p=Presets().Find(Presets().Quick[i]);names.Add((i+1)+": "+(p==null?"未绑定":p.Name));}bindings.Text=string.Join(" | ",names.ToArray());};
                 Func<FgsPreset> selected=delegate{if(list.SelectedItems.Count!=1)throw new InvalidOperationException("请先选择一份预设");return (FgsPreset)list.SelectedItems[0].Tag;};
                 Action<string> refresh=delegate(string id){list.Items.Clear();foreach(var p in Presets().Items){var item=new ListViewItem(p.Name){Tag=p,ToolTipText=""};item.SubItems.Add(p.Kind=="Full"?"完整":"简单");item.SubItems.Add(PresetCore.Summary(p));list.Items.Add(item);if(p.Id==id)item.Selected=true;}detail.Text="目标: "+target+Environment.NewLine+"浏览列表不会应用。选择预设后点击应用。";RefreshPresetSelector();updateBindings();};

@@ -65,7 +65,7 @@ namespace FilmGrainStudioPreview
                 panes[i].Dock=DockStyle.Fill;panes[i].SizeMode=PictureBoxSizeMode.Zoom;panes[i].BackColor=Color.Black;
                 panel.Controls.Add(choose[i],0,0);panel.Controls.Add(panes[i],0,1);layout.Controls.Add(panel,i%2,i/2);
             }
-            var bar=new FlowLayoutPanel {Dock=DockStyle.Fill,WrapContents=true};
+            var bar=new SettingsFlowPanel {Dock=DockStyle.Fill,WrapContents=true};
             start.Text="00:00:00";start.Width=80;
             render.Text=T("生成四档","Render four strengths");render.AutoSize=true;render.Click+=delegate {if(!running)StartRender();};
             play.Text=T("播放","Play");play.AutoSize=true;play.Enabled=false;play.Click+=delegate {playback.Enabled=!playback.Enabled;play.Text=playback.Enabled?T("暂停","Pause"):T("播放","Play");};
@@ -520,18 +520,18 @@ namespace FilmGrainStudioPreview
             layout.Controls.Add(picture,0,0);
             double duration;double.TryParse(info.Duration,NumberStyles.Float,CultureInfo.InvariantCulture,out duration);timeline.Duration=Math.Min(359999,Math.Max(0,duration-0.05));timeline.Dock=DockStyle.Fill;
             timeline.PositionChanged+=delegate {time.Text=NativeSeekStrip.FormatTime(timeline.Position);};timeline.SeekCommitted+=delegate{RequestFrame();};layout.Controls.Add(timeline,0,1);
-            var controls=new FlowLayoutPanel {Dock=DockStyle.Fill,WrapContents=false};time.Text="00:00:00";time.Width=90;
+            var controls=new SettingsFlowPanel {Dock=DockStyle.Fill,WrapContents=false};time.Text="00:00:00";time.Width=90;
             var show=new ThemeButton {Text="预览 / Preview",AutoSize=true};show.Click+=delegate {double sec;if(!SharedEncodePreviewCore.TryParseStart(time.Text.Trim(),out sec)||sec>=timeline.Duration+0.05){status.Text="时间无效或超出视频时长 / Invalid time";return;}timeline.Position=sec;RequestFrame();};
             time.KeyDown+=delegate(object sender,KeyEventArgs e){if(e.KeyCode==Keys.Enter){show.PerformClick();e.SuppressKeyPress=true;}};
             controls.Controls.Add(new ThemeLabel {Text="时间 / Time",AutoSize=true,Padding=new Padding(0,7,0,0)});controls.Controls.Add(time);controls.Controls.Add(show);
             mode.DropDownStyle=ComboBoxStyle.DropDownList;mode.Width=225;mode.Items.AddRange(new object[]{"加黑边 / Letterbox","裁剪画面 / Crop"});mode.SelectedIndex=framing==1?1:0;mode.SelectedIndexChanged+=delegate{UpdateGeometry();};controls.Controls.Add(mode);layout.Controls.Add(controls,0,2);
-            var values=new FlowLayoutPanel {Dock=DockStyle.Fill,WrapContents=false};values.Controls.Add(new ThemeLabel {Text="上下每边像素 / Per side",AutoSize=true,Padding=new Padding(0,7,0,0)});
+            var values=new SettingsFlowPanel {Dock=DockStyle.Fill,WrapContents=false};values.Controls.Add(new ThemeLabel {Text="上下每边像素 / Per side",AutoSize=true,Padding=new Padding(0,7,0,0)});
             crop.Minimum=0;crop.Maximum=Math.Max(0,(info.Height-2)/2);crop.Width=90;crop.Value=Math.Min(crop.Maximum,Math.Max(0,perSide));crop.ValueChanged+=delegate {noCrop=false;UpdateGeometry();};values.Controls.Add(crop);
             values.Controls.Add(new ThemeLabel {Text="左右每边 / Left-right",AutoSize=true,Padding=new Padding(4,7,0,0)});
             horizontal.Maximum=Math.Max(0,(info.Width-2)/2);horizontal.Width=80;horizontal.Value=Math.Min(horizontal.Maximum,Math.Max(0,horizontalSide));horizontal.ValueChanged+=delegate{noCrop=false;UpdateGeometry();};values.Controls.Add(horizontal);
             var automatic=new ThemeButton {Text="自动 2.39:1 / Auto",AutoSize=true};automatic.Click+=delegate{horizontal.Value=0;crop.Value=0;noCrop=false;UpdateGeometry();};automatic.MouseUp+=delegate(object sender,MouseEventArgs e){if(e.Button==MouseButtons.Right){horizontal.Value=0;crop.Value=0;noCrop=true;UpdateGeometry();}};automatic.AccessibleDescription="右键恢复原始画幅，不裁剪 / Right-click restores the full frame";values.Controls.Add(automatic);geometry.AutoSize=true;geometry.Padding=new Padding(6,7,0,0);layout.Controls.Add(values,0,3);
             status.AutoSize=true;status.Text="拖动四边对称调整；左右 > 0 时，上下 0 = 不裁剪。右键自动按钮恢复原始画幅。HDR 仅转换预览显示。";var details=new FlowLayoutPanel {Dock=DockStyle.Fill,FlowDirection=FlowDirection.TopDown,WrapContents=false};details.Controls.Add(geometry);details.Controls.Add(status);layout.Controls.Add(details,0,4);
-            var actions=new FlowLayoutPanel {Dock=DockStyle.Fill,FlowDirection=FlowDirection.RightToLeft};var cancel=new ThemeButton {Text="取消 / Cancel",AutoSize=true,DialogResult=DialogResult.Cancel};var apply=new ThemeButton {Text="应用 / Apply",AutoSize=true};
+            var actions=new SettingsFlowPanel {Dock=DockStyle.Fill,FlowDirection=FlowDirection.RightToLeft};var cancel=new ThemeButton {Text="取消 / Cancel",AutoSize=true,DialogResult=DialogResult.Cancel};var apply=new ThemeButton {Text="应用 / Apply",AutoSize=true};
             apply.Click+=delegate {DialogResult=DialogResult.OK;Close();};actions.Controls.Add(cancel);actions.Controls.Add(apply);layout.Controls.Add(actions,0,5);Controls.Add(layout);CancelButton=cancel;
             debounce.Interval=180;debounce.Tick+=delegate {debounce.Stop();StartFrame();};Shown+=delegate{UpdateGeometry();RequestFrame();};
             FormClosing+=delegate {closing=true;debounce.Stop();lock(processSync){try{if(active!=null&&!active.HasExited)active.Kill();}catch{}}};
@@ -699,7 +699,7 @@ namespace FilmGrainStudioPreview
             }
             double duration;if(media!=null&&double.TryParse(media.Duration,NumberStyles.Float,CultureInfo.InvariantCulture,out duration))timeline.Duration=Math.Max(0,duration);
             timeline.Dock=DockStyle.Fill;timeline.PositionChanged+=delegate {time.Text=NativeSeekStrip.FormatTime(timeline.Position);};timeline.SeekCommitted+=delegate {RequestRender();};layout.Controls.Add(timeline,0,2);layout.SetColumnSpan(timeline,2);
-            var options=new FlowLayoutPanel {Dock=DockStyle.Fill};time.Width=85;time.Text="00:00:00";
+            var options=new SettingsFlowPanel {Dock=DockStyle.Fill};time.Width=85;time.Text="00:00:00";
             render.Text=T("生成四档","Render four strengths");render.AutoSize=true;render.Click+=delegate {RequestRender();};time.KeyDown+=delegate(object sender,KeyEventArgs e){if(e.KeyCode==Keys.Enter){e.SuppressKeyPress=true;RequestRender();}};
             options.Controls.Add(new ThemeLabel {Text=T("时刻","Time"),AutoSize=true,Padding=new Padding(0,6,0,0)});options.Controls.Add(time);options.Controls.Add(render);
             showOriginal.Text=T("查看原图","Show original");showOriginal.AutoSize=true;actualSize.Text=T("1:1 居中","1:1 centered");actualSize.AutoSize=true;actualSize.Checked=false;

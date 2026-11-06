@@ -107,8 +107,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.55";
-        internal const string FileReleaseVersion = "5.0.55.0";
+        internal const string ReleaseVersion = "5.0.56";
+        internal const string FileReleaseVersion = "5.0.56.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -936,9 +936,10 @@ namespace FilmGrainStudioPreview
             };
             shortcut.Cursor = Cursors.Hand;
             if(tabIndex==0)shortcut.Name="ENCODER_SPEED_SHORTCUT";
+            else if(tabIndex>0)shortcut.Name=tabIndex==2?"HDR_SETTINGS_SHORTCUT":"INTERPOLATION_SETTINGS_SHORTCUT";
             shortcut.AccessibleName = UiText("打开高级设置：", "Open advanced settings: ") + page;
             lutToolTip.SetToolTip(shortcut, shortcut.AccessibleName);
-            shortcut.Click += delegate { if(tabIndex==0)ShowEncoderQuickSettings();else if(tabIndex<0)OpenCinematicCrop();else ShowAdvancedSettingsDialog(tabIndex+2); };
+            shortcut.Click += delegate { if(tabIndex==0)ShowEncoderQuickSettings();else if(tabIndex<0)OpenCinematicCrop();else ShowProcessingQuickSettings(tabIndex==2); };
             row.Controls.Add(content, 0, 0); row.Controls.Add(shortcut, 1, 0);
             return row;
         }

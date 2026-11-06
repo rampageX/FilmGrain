@@ -13,7 +13,7 @@ namespace FilmGrainStudioPreview
     {
         internal static LibraryToolResult Show(IWin32Window owner,string title,Func<CancellationToken,Action<string>,LibraryToolResult> job)
         {
-            using(var dialog=new Form()) using(var timer=new System.Windows.Forms.Timer()) using(var cancel=new CancellationTokenSource()) {
+            using(var dialog=new SettingsDialogForm(false)) using(var timer=new System.Windows.Forms.Timer()) using(var cancel=new CancellationTokenSource()) {
                 dialog.Text=title;dialog.Size=new Size(880,580);dialog.MinimumSize=new Size(680,420);dialog.StartPosition=FormStartPosition.CenterParent;
                 var layout=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=3};
                 layout.RowStyles.Add(new RowStyle(SizeType.Absolute,40));layout.RowStyles.Add(new RowStyle(SizeType.Percent,100));layout.RowStyles.Add(new RowStyle(SizeType.Absolute,45));dialog.Controls.Add(layout);

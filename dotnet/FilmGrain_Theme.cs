@@ -37,6 +37,40 @@ namespace FilmGrainStudioPreview
             window.Disposed-=Release;owned.Remove(window);icon.Dispose();
         }
     }
+    // Only settings forms and static button surfaces opt in. No global window hook.
+    internal static class SettingsPaintPolicy
+    {
+        internal static CreateParams Apply(CreateParams parameters,bool compose)
+        {
+            if(compose && (parameters.ClassStyle & 0xE0)==0)parameters.ExStyle|=0x02000000;
+            return parameters;
+        }
+    }
+    internal class SettingsDialogForm : Form
+    {
+        private readonly bool composeNativeChildren;
+        internal SettingsDialogForm() : this(true) { }
+        internal SettingsDialogForm(bool compose)
+        {
+            composeNativeChildren=compose;
+            SetStyle(ControlStyles.OptimizedDoubleBuffer|ControlStyles.AllPaintingInWmPaint,true);
+        }
+        protected override CreateParams CreateParams
+        {get{return SettingsPaintPolicy.Apply(base.CreateParams,composeNativeChildren);}}
+    }
+    internal sealed class SettingsFlowPanel : FlowLayoutPanel
+    {
+        internal SettingsFlowPanel(){SetStyle(ControlStyles.OptimizedDoubleBuffer|ControlStyles.AllPaintingInWmPaint,true);}
+        protected override CreateParams CreateParams
+        {get{return SettingsPaintPolicy.Apply(base.CreateParams,true);}}
+    }
+    internal sealed class SettingsTablePanel : TableLayoutPanel
+    {
+        internal SettingsTablePanel(){SetStyle(ControlStyles.OptimizedDoubleBuffer|ControlStyles.AllPaintingInWmPaint,true);}
+        protected override CreateParams CreateParams
+        {get{return SettingsPaintPolicy.Apply(base.CreateParams,true);}}
+    }
+
     // One engine per registered form; images are never transformed.
     internal sealed class UiTheme : IDisposable
     {
@@ -1838,7 +1872,7 @@ namespace FilmGrainStudioPreview
             dialog.FormClosing+=delegate(object sender,FormClosingEventArgs e){if(Array.IndexOf(results,dialog.DialogResult)<0){if(close==DialogResult.None)e.Cancel=true;else dialog.DialogResult=close;}};
             return dialog;
         }
-        private sealed class PromptForm : Form
+        private sealed class PromptForm : SettingsDialogForm
         {
             readonly string message,caption;
             [System.Runtime.InteropServices.DllImport("dwmapi.dll")]

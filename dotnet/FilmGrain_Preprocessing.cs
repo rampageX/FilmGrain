@@ -62,7 +62,7 @@ namespace FilmGrainStudioPreview
         }
         private void ShowPreprocessDialog()
         {
-            using(var dialog=new Form()) {
+            using(var dialog=new SettingsDialogForm()) {
                 dialog.Text=UiText("前处理","Preprocessing");dialog.Font=Font;
                 dialog.AutoScaleMode=AutoScaleMode.Dpi;dialog.StartPosition=FormStartPosition.CenterParent;
                 dialog.Size=new Size(820,450);dialog.MinimumSize=new Size(780,430);
