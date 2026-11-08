@@ -135,6 +135,22 @@ namespace FilmGrainStudioPreview
             BridgeExecutionRequest request = effective ?? task.ExecutionRequest;
             IDictionary<string,string> state = request.Environment;
             var parts = new List<string>();
+            if (Get(state,"FG_MODE") == "AV1BAKE") {
+                string codec = Get(state,"FG_BAKE_ENCODER");
+                bool cpu = codec == "X264" || codec == "X265";
+                string quality = Get(state,"FG_BAKE_RATE_CONTROL") == "CQ"
+                    ? (cpu ? "CRF " : "CQ ") + Get(state,"FG_BAKE_CQ")
+                    : "VBR " + Get(state,"FG_BAKE_BITRATE") + " kbps";
+                parts.Add("AV1 源内颗粒烘焙");
+                if (media != null && media.IsHdr) parts.Add("HDR 保留（" + media.ColorTransfer + "）");
+                parts.Add("解码 " + (Get(state,"FG_BAKE_GPU_DECODE") == "1" ? "NVDEC（实验）" : "libdav1d"));
+                string preset = cpu ? Get(state,codec == "X265" ? "FG_CPU_X265_PRESET" : "FG_X264_PRESET") : Get(state,"FG_BAKE_PRESET");
+                parts.Add("编码 " + codec + " / " + quality + (preset.Length > 0 ? " / Preset " + preset : "") +
+                    " / 输出 " + task.RecommendedOutputFps.ToString("0.###", CultureInfo.InvariantCulture) + " fps");
+                string engines = Get(state,"FG_BAKE_SFE");
+                if (codec == "HEVC_NVENC" && engines != "" && engines != "0") parts.Add("HEVC 多引擎 " + engines);
+                return string.Join(" · ", parts.ToArray());
+            }
             if (task.NoReencode) parts.Add("视频流复制（不重编码）");
             else {
                 if (media != null && media.IsInterlaced && Get(state,"FG_DEINTERLACE") == "AUTO") parts.Add("反交错 " + Get(state,"FG_DEINT_METHOD"));

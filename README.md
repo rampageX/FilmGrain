@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.0.57 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.58 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 <table>
   <tr>
@@ -1127,17 +1127,19 @@ AV1 无重编码替换兼容旧版与当前名称，只更新颗粒部分，并�
 
 ### 将已有 AV1 的颗粒烘焙为兼容副本
 
-输入列表旁的 **AV1 烘焙...** 将列表内已有 AV1 直接重新编码为 H.264 或 HEVC / AAC MP4，不重新生成 AV1 主成片，也不调用 grav1synth 添加或替换颗粒。它使用软件 `libdav1d`、明确开启 Film Grain 合成；源无颗粒 metadata 时正常转码，不额外添加噪声。独立烘焙不应用主界面的插帧、LUT、调色、字幕、电影画幅或颗粒引擎设置。
+输入列表旁的 **AV1 烘焙...** 是已有 AV1 成片的快捷转码入口，可将源内现有 AV1 Film Grain 合成进输出像素，转成 HEVC / H.264 MP4；没有 Film Grain metadata 时也可以直接转码，不额外制造颗粒。不调用 grav1synth 重新生成模型，也不应用主界面的插帧、LUT、调色、字幕、电影画幅或其它颗粒引擎设置。
 
-可选 **x264 单次 VBR**、**H.264 NVENC P7/VBR** 或 **HEVC NVENC Main10 P7/VBR**；自动码率沿用所选 FGS 编码线推荐，也可输入手动码率。输出目录沿用全局输出设置，命名为 `_BAKED_H264_X264_码率k.mp4`、`_BAKED_H264_NVENC_码率k.mp4` 或 `_BAKED_HEVC_MAIN10_NVENC_码率k.mp4`。复用原任务日志、进度、队列和取消机制；唯一临时文件验证完成后才提交最终输出，不覆盖已有文件。
+可选 **HEVC NVENC Main10、H.264 NVENC 8-bit、CPU x265 Main10、CPU x264 8-bit**。各编码器使用独立的烘焙 CQ/CRF 或 VBR 参数，支持自动／手动码率，NVENC 的 Preset、Multipass、B 帧、B 参考、Lookahead、AQ 及 HEVC SFE 按对应真实能力显示／校验；x265/x264 高级项复用现有编码核心。x264 烘焙当前只支持单遍 8-bit，不开放不兼容的两遍／High10。编码器切换及重新打开窗口尽量保留各自参数。
 
-当前仅支持偶数尺寸、逐行、4:2:0 8/10-bit 普通 SDR AV1；最终 H.264 为 High 8-bit 4:2:0，音频默认 AAC 256 kbps/stereo/48 kHz，可在高级编码中选择音频策略和 AAC 码率。HDR/BT.2020 直接烘焙尚不支持。源中明确的 SDR 色彩标签保留；缺失标签不擅自补齐。H.264/HEVC 像素颗粒均不依赖 AV1 Film Grain metadata，但平台再次压制仍可能削弱颗粒。
+支持偶数尺寸、逐行、4:2:0 8/10-bit AV1 输入。SDR 可输出上述四种编码；**HDR10 AV1 仅保留至 HEVC NVENC／x265 Main10**，不强制 HDR→SDR。源中已有的 PQ、BT.2020、Mastering Display、MaxCLL/MaxFALL 尽量保留，并在提交成片前核对实际 HEVC 码流；源缺失的静态信息不伪造。H.264 8-bit 路线不提供 HDR 保留。普通 SDR 的 BT.709 等明确色彩标签同样保留，缺失标签不擅自补齐。
 
-HEVC 烘焙使用 4:2:0 Main10、P010、AAC stereo 48 kHz 和 MP4 `hvc1`。10-bit 源保留编码位深；8-bit 源转换为 10-bit，不增加原始细节，也不代表 HDR。P7/VBR、fullres multipass、Spatial AQ=8、Temporal AQ=OFF、Lookahead=27 固定；实际编码预检先验证 `bf=4`，失败后验证 `bf=0`，采用哪一组会写入日志。两组均失败则停止，不改用其他编码器。T600 按实际预检结果处理，不按型号强制 B 帧。
+软件解码默认使用 `libdav1d -filmgrain 1`。可勾选实验性 **NVDEC 硬解**：必须逐文件通过真实 CUDA 解码及短编码预检，失败不静默回退。HEVC NVENC Main10 支持 10-bit 源的 CUDA P010 路线，以及 8-bit 源经 `scale_cuda` 在 GPU 上 NV12→P010 转换；8-bit 提升为 10-bit 不增加原始细节，也不使 SDR 变成 HDR。CPU x265 的 NVDEC 路线仍限 10-bit 输入，H.264 8-bit 输出不接受 10-bit 源的 NVDEC 路线。NVDEC 与 libdav1d 的颗粒画面仍建议在相同编码设置下连续播放对比。
+
+输出目录沿用全局设置，文件名包含 `_BAKED_`、编码器、Main10（若适用）、CQ／码率及 NVDEC（若启用）标识。默认音频为 AAC 256 kbps／双声道／48 kHz；原音频策略仍按设置处理。单／多文件沿用主界面队列计时、进度、详细记录开关、失败／取消清理；先编码到唯一临时文件，验证成功后才提交正式输出，不覆盖已有文件。HEVC NVENC 会先验证 `bf=4`，不支持时再预检 `bf=0`，两组均失败则停止，绝不自动切到其它编码器。
 
 HEVC Main10 需要播放器具备 HEVC 10-bit 解码能力；Windows 系统播放器可能需要 HEVC 扩展，见 [Microsoft 支持说明](https://support.microsoft.com/en-us/windows/apps/photos/photos-app-video-editor-error-can-t-view-this-file-type)。MP4 `hvc1` 不保证所有浏览器、电视或二次转码平台都支持；上传平台未确认支持时优先选 H.264 High 8-bit/AAC。HEVC 质量与首尾同步需播放确认，有损输出不要求与源逐像素相同。
 
-H.264 NVENC 使用真实参数预检，不可用时提示改选 x264，不静默降低参数或更换编码器；HEVC 的 B 帧兼容方案按上文单独验证。当前仍用软件解码；NVDEC 尚未接入。x264 和 NVENC 输出均有损，颗粒合成正确性与编码后的视觉保留分别验证。
+H.264 NVENC 使用真实参数预检，不可用时提示改选 x264，不静默降低参数或更换编码器；HEVC 的 B 帧兼容方案按上文单独验证。x264、x265 和 NVENC 输出均为有损编码，颗粒合成正确性与编码后的视觉保留需要分别验证。
 
 ### H.264 NVENC 主编码线与 HEVC SFE
 

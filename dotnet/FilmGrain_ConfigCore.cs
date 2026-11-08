@@ -24,6 +24,7 @@ namespace FilmGrainStudioPreview
         {
             new KeyValuePair<string, string[]>("Preprocessing", new[] { "RESIZE_MODE", "RESIZE_WIDTH", "RESIZE_HEIGHT", "RESIZE_KEEP_ASPECT", "PRE_BILATERAL_ENABLED", "PRE_BILATERAL_SIGMA_S", "PRE_BILATERAL_SIGMA_R", "PRE_BILATERAL_PLANES" }),
             new KeyValuePair<string, string[]>("Advanced.EncoderAQ", new[] { "HEVC_SPATIAL_AQ", "HEVC_TEMPORAL_AQ", "H264_SPATIAL_AQ", "H264_TEMPORAL_AQ" }),
+            new KeyValuePair<string, string[]>("AV1Bake", new[] { "BAKE_ENCODER", "BAKE_GPU_DECODE", "BAKE_AUTO_BITRATE", "BAKE_BITRATE", "BAKE_HEVC_PRESET", "BAKE_H264_PRESET", "BAKE_HEVC_SFE", "BAKE_HEVC_RATE_CONTROL", "BAKE_HEVC_CQ", "BAKE_H264_RATE_CONTROL", "BAKE_H264_CQ", "BAKE_X265_RATE_CONTROL", "BAKE_X265_CRF", "BAKE_X264_RATE_CONTROL", "BAKE_X264_CRF" }),
             new KeyValuePair<string, string[]>("Paths", new string[] { "NVENC_DIR", "FFMPEG_DIR", "FRUC_FFMPEG_SAME_AS_MAIN", "FRUC_FFMPEG_PATH", "GRAV1SYNTH", "GRAIN_ROOT", "LUT_ROOT", "TEMP_MODE", "TEMP_CUSTOM_DIR", "OUTPUT_MODE", "OUTPUT_CUSTOM_DIR" }),
             new KeyValuePair<string, string[]>("General", new string[] { "LANGUAGE", "UI_THEME", "MAIN_WINDOW", "PREPROCESS_WINDOW", "SETUP_VERSION", "NETWORK_PROXY_MODE", "NETWORK_PROXY_URL", "LOG_ENTRY_LIMIT", "GRAIN_ENABLED", "AV1_GRAIN_STRENGTH", "AV1_COPY_FAST", "AV1_COPY_FULL_VERIFY" }),
             new KeyValuePair<string, string[]>("LUTGallery", new string[] { "SMART_FILTER_ENABLED", "LUT_GALLERY_SIZE", "LUT_GALLERY_CLIENT_SIZE", "LUT_GALLERY_FIXED" }),
@@ -107,6 +108,21 @@ defaults["RESIZE_KEEP_ASPECT"] = "true";
             defaults["H264_HIGH10"] = "false";
             defaults["CPU_CODEC"] = "X264";
             defaults["GPU_DECODE"] = "false";
+            defaults["BAKE_ENCODER"] = "X264";
+            defaults["BAKE_GPU_DECODE"] = "false";
+            defaults["BAKE_AUTO_BITRATE"] = "true";
+            defaults["BAKE_BITRATE"] = "16000";
+            defaults["BAKE_HEVC_PRESET"] = "p7";
+            defaults["BAKE_H264_PRESET"] = "p7";
+            defaults["BAKE_HEVC_SFE"] = "0";
+            defaults["BAKE_HEVC_RATE_CONTROL"] = "VBR";
+            defaults["BAKE_HEVC_CQ"] = "22";
+            defaults["BAKE_H264_RATE_CONTROL"] = "VBR";
+            defaults["BAKE_H264_CQ"] = "20";
+            defaults["BAKE_X265_RATE_CONTROL"] = "CQ";
+            defaults["BAKE_X265_CRF"] = "22";
+            defaults["BAKE_X264_RATE_CONTROL"] = "VBR";
+            defaults["BAKE_X264_CRF"] = "20";
 defaults["CPU_SVT_GRAIN_TUNE"] = "AUTO";
 defaults["CPU_X265_GRAIN_TUNE"] = "AUTO";
 defaults["X264_GRAIN_TUNE"] = "AUTO";

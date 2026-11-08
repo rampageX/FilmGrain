@@ -12,17 +12,6 @@ namespace FilmGrainStudioPreview
     // Unported shared filter routes remain on the Legacy backend.
     internal static class NativeAv1Core
     {
-        internal static List<string> BuildBakeArgs(string input,string output,string preset,long bitrate,bool nvenc,IDictionary<string,string> state,MediaProbeInfo info)
-        {
-            var args=new List<string>();
-            Add(args,"-hide_banner","-stats","-progress","pipe:2","-stats_period","0.5","-y","-c:v","libdav1d","-filmgrain","1","-i",input,"-map","0:v:0","-map","0:a:0?","-map_metadata","0");
-            if(nvenc){Add(args,"-vf","format=nv12");SharedBakeH264Core.AddNvenc(args);}
-            else{Add(args,"-vf","format=yuv420p","-c:v","libx264","-profile:v","high","-pix_fmt","yuv420p","-preset",preset);SharedGrainCore.AddX264Tune(args,SharedGrainCore.GrainTune(state,"FG_X264_GRAIN_TUNE",true));}
-            Add(args,"-b:v",bitrate.ToString(CultureInfo.InvariantCulture)+"k","-maxrate",(bitrate*3L).ToString(CultureInfo.InvariantCulture)+"k","-bufsize",(bitrate*6L).ToString(CultureInfo.InvariantCulture)+"k","-c:a","aac","-b:a","256k","-ac","2","-ar","48000","-movflags","+faststart",output);
-            AudioOutputCore.Apply(args,state,info,false,true,true);
-            return SharedHdrPreprocessCore.BuildBakeTimeline(args,false);
-        }
-
         internal static bool TryPrepare(string appRoot, string input, MediaProbeInfo info,
             IDictionary<string, string> state, HardwareCapabilitySnapshot caps,
             out BridgePreparedExecution prepared, out string reason)
@@ -925,29 +914,191 @@ namespace FilmGrainStudioPreview
             }
             reason="HEVC NVENC Main10 预检失败，不改变编码器或位深。 / HEVC NVENC preflight failed: "+reason;return false;
         }
-        internal static List<string> BuildArgs(string input,string output,long bitrate,bool bFrames)
-        {
-            var args=new List<string>{"-hide_banner","-stats","-progress","pipe:2","-stats_period","0.5","-n",
-                "-c:v","libdav1d","-filmgrain","1","-i",input,"-map","0:v:0","-map","0:a:0?","-map_metadata","0",
-                "-vf","format=p010le"};
-            AddEncoder(args,bFrames);
-            args.AddRange(new[]{"-b:v",bitrate.ToString(CultureInfo.InvariantCulture)+"k","-maxrate",(bitrate*3).ToString(CultureInfo.InvariantCulture)+"k",
-                "-bufsize",(bitrate*6).ToString(CultureInfo.InvariantCulture)+"k","-c:a","aac","-b:a","256k","-ac","2","-ar","48000","-movflags","+faststart",output});
-            return SharedHdrPreprocessCore.BuildBakeTimeline(args,false);
-        }
     }
 
     internal static class NativeAv1BakeCore
     {
+        private static string Get(IDictionary<string,string> state,string key,string fallback="")
+        {string value;return state!=null&&state.TryGetValue(key,out value)?value??"":fallback;}
+        private static bool IsHevc(string encoder){return encoder=="HEVC_NVENC"||encoder=="X265";}
+        private static bool IsNvenc(string encoder){return encoder=="HEVC_NVENC"||encoder=="H264_NVENC";}
+        private static string NormalizeEncoder(string encoder){return encoder=="NVENC"?"H264_NVENC":encoder;}
+        private static bool IsCq(IDictionary<string,string> state){return Get(state,"FG_BAKE_RATE_CONTROL","VBR")=="CQ";}
+        private static string Quality(IDictionary<string,string> state,string encoder)
+        {
+            string value=Get(state,"FG_BAKE_CQ");double q;
+            if(!NvencRateControlCore.TryQuality(IsHevc(encoder)?"HEVC":"H264",value,out q))
+                throw new InvalidDataException("烘焙 CQ/CRF 必须为 1–51。 / Invalid bake CQ/CRF: "+value);
+            return q.ToString("R",CultureInfo.InvariantCulture);
+        }
+        private static IDictionary<string,string> EncoderState(IDictionary<string,string> state,string encoder)
+        {
+            var copy=new Dictionary<string,string>(state,StringComparer.OrdinalIgnoreCase);
+            copy["FG_MODE"]=encoder=="HEVC_NVENC"?"HEVC":encoder=="H264_NVENC"?"H264":encoder;
+            copy["FG_NVENC_RATE_CONTROL"]=Get(state,"FG_BAKE_RATE_CONTROL","VBR");
+            copy["FG_NVENC_CQ"]=Get(state,"FG_BAKE_CQ","22");
+            copy["FG_NVENC_CQ_LIMIT_ENABLED"]=Get(state,"FG_BAKE_CQ_LIMIT_ENABLED","false").ToUpperInvariant();
+            copy["FG_NVENC_CQ_MAXRATE"]=Get(state,"FG_BAKE_CQ_MAXRATE","100");
+            copy["FG_SFE_ENGINES"]=Get(state,"FG_BAKE_SFE","0");
+            return copy;
+        }
+        internal static bool GpuDecodeCompatible(string encoder,MediaProbeInfo info)
+        {
+            encoder=NormalizeEncoder(encoder);
+            if(info==null)return false;
+            // HEVC NVENC already uses scale_cuda=format=p010le: NV12 -> P010
+            // is converted on the GPU and proved by the two-frame NVENC preflight.
+            // CPU x265 still downloads P010 directly, so it needs 10-bit input.
+            return (IsHevc(encoder)&&info.PixelFormat=="yuv420p10le") ||
+                (encoder=="HEVC_NVENC"&&info.PixelFormat=="yuv420p") ||
+                (!IsHevc(encoder)&&info.PixelFormat=="yuv420p");
+        }
+        private static string DecodeFilter(string encoder,bool gpu)
+        {
+            if(!gpu)return encoder=="X265"?"format=yuv420p10le":IsHevc(encoder)?"format=p010le":"format=yuv420p";
+            if(encoder=="HEVC_NVENC")return "scale_cuda=format=p010le";
+            if(encoder=="H264_NVENC")return "scale_cuda=format=nv12";
+            return encoder=="X265"?"hwdownload,format=p010le,format=yuv420p10le":"hwdownload,format=nv12,format=yuv420p";
+        }
+        private static List<string> BuildArguments(string input,string output,string encoder,long bitrate,IDictionary<string,string> state,MediaProbeInfo info,HardwareCapabilitySnapshot caps,bool useBFrames)
+        {
+            bool gpu=Get(state,"FG_BAKE_GPU_DECODE")=="1";
+            var a=new List<string>{"-hide_banner","-stats","-progress","pipe:2","-stats_period","0.5","-n"};
+            if(gpu)a.AddRange(new[]{"-hwaccel","cuda","-hwaccel_output_format","cuda"});
+            else a.AddRange(new[]{"-c:v","libdav1d","-filmgrain","1"});
+            a.AddRange(new[]{"-i",input,"-map","0:v:0","-map","0:a:0?","-map_metadata","0","-vf",DecodeFilter(encoder,gpu)});
+            var codecState=EncoderState(state,encoder);
+            if(encoder=="HEVC_NVENC"||encoder=="H264_NVENC")
+            {
+                if(encoder=="HEVC_NVENC"){
+                    SharedBakeHevcCore.AddEncoder(a,useBFrames);
+                    // NVDEC -> scale_cuda yields AV_PIX_FMT_CUDA hardware frames with
+                    // P010 as the underlying surface. A software -pix_fmt p010le here
+                    // makes FFmpeg insert auto_scale(cuda -> system memory), which
+                    // cannot negotiate; NVENC reads the CUDA frames directly instead.
+                    if(gpu)NvencMainOptionsCore.Set(a,"-pix_fmt",null);
+                }
+                else SharedBakeH264Core.AddNvenc(a);
+                string preset=Get(state,"FG_BAKE_PRESET","p7");
+                if(Array.IndexOf(new[]{"p1","p2","p3","p4","p5","p6","p7"},preset)<0)throw new InvalidDataException("Invalid NVENC preset: "+preset);
+                NvencMainOptionsCore.Set(a,"-preset",preset);
+                if(encoder=="HEVC_NVENC")NvencMainOptionsCore.Set(a,"-tune","hq");
+                int aq;
+                string family=encoder=="HEVC_NVENC"?"HEVC":"H264";
+                if(!int.TryParse(Get(state,"FG_"+family+"_SPATIAL_AQ","8"),out aq)||Array.IndexOf(new[]{0,4,8,10,12,15},aq)<0)throw new InvalidDataException("Invalid spatial AQ");
+                bool aqAvailable=caps!=null&&(family=="HEVC"?caps.HevcSpatialAq:caps.H264SpatialAq);
+                bool temporal=Get(state,"FG_"+family+"_TEMPORAL_AQ","false")=="true";
+                bool temporalAvailable=caps!=null&&(family=="HEVC"?caps.HevcTemporalAq:caps.H264TemporalAq);
+                if(temporal&&!temporalAvailable)throw new InvalidDataException(family+" temporal AQ is not supported by capability cache");
+                NvencMainOptionsCore.Set(a,"-spatial-aq",aq>0&&aqAvailable?"1":"0");
+                NvencMainOptionsCore.Set(a,"-aq-strength",aq>0&&aqAvailable?aq.ToString(CultureInfo.InvariantCulture):null);
+                NvencMainOptionsCore.Set(a,"-temporal-aq",temporal?"1":"0");
+                if(IsCq(state))NvencRateControlCore.Apply(a,codecState);
+                else a.AddRange(new[]{"-b:v",bitrate+"k","-maxrate",(bitrate*3)+"k","-bufsize",(bitrate*6)+"k"});
+                NvencMultipassCore.Apply(a,codecState,family,caps);
+                NvencMainOptionsCore.Apply(a,codecState,family,caps);
+            }
+            else if(encoder=="X265")
+            {
+                // The ordinary CPU x265 encoder supplies the same preset, tuning and CRF checks.
+                CpuEncoderCore.AddEncoderArgs(a,codecState,true,bitrate,bitrate*3,bitrate*6,false,info.AvgFrameRate);
+            }
+            else
+            {
+                string preset=Get(state,"FG_X264_PRESET","faster");
+                if(Array.IndexOf(new[]{"faster","medium","slow"},preset)<0)throw new InvalidDataException("Invalid x264 preset");
+                a.AddRange(new[]{"-c:v","libx264","-profile:v","high","-pix_fmt","yuv420p","-preset",preset});
+                SharedGrainCore.AddX264Tune(a,SharedGrainCore.GrainTune(state,"FG_X264_GRAIN_TUNE",true));
+                if(IsCq(state))a.AddRange(new[]{"-crf",Quality(state,encoder)});
+                else a.AddRange(new[]{"-b:v",bitrate+"k","-maxrate",(bitrate*3)+"k","-bufsize",(bitrate*6)+"k"});
+            }
+            if(encoder=="X265"&&!IsCq(state))a.AddRange(new[]{"-maxrate",(bitrate*3)+"k","-bufsize",(bitrate*6)+"k"});
+            a.AddRange(new[]{"-c:a","aac","-b:a","256k","-ac","2","-ar","48000","-movflags","+faststart",output});
+            AudioOutputCore.Apply(a,state,info,false,true,true);
+            return SharedHdrPreprocessCore.BuildBakeTimeline(a,false);
+        }
+        private static bool TryGpuDecode(string ffmpeg,string input,string encoder,out string reason)
+        {
+            reason="";string output,error;
+            var args=new List<string>{"-hide_banner","-nostdin","-loglevel","debug","-hwaccel","cuda","-hwaccel_output_format","cuda",
+                "-i",input,"-map","0:v:0","-frames:v","2","-vf",DecodeFilter(encoder,true),"-an"};
+            // Prove the CUDA -> HEVC NVENC frame handoff, not just the CUDA decoder.
+            // In particular, do not add a software -pix_fmt p010le after scale_cuda.
+            if(encoder=="HEVC_NVENC")args.AddRange(new[]{"-c:v","hevc_nvenc","-profile:v","main10","-preset","p4","-bf","0"});
+            args.AddRange(new[]{"-f","null","-"});
+            if(!SharedFrucCore.Run(ffmpeg,SharedFrucCore.JoinArguments(args),30000,out output,out error)){
+                reason="AV1 NVDEC grain bake preflight failed: "+error;return false;
+            }
+            if(output.IndexOf("Format cuda chosen by get_format",StringComparison.OrdinalIgnoreCase)<0){
+                reason="AV1 NVDEC did not prove CUDA hardware decoding; refusing an unmarked software fallback.";return false;
+            }
+            return true;
+        }
+        // Read only metadata that is actually present in the first AV1 access unit.
+        // Do not manufacture mastering or light-level values when the source omits them.
+        private static Dictionary<string,long> ReadAv1Hdr10(string ffmpeg,string input,MediaProbeInfo info)
+        {
+            if(info.ColorTransfer!="smpte2084"||info.ColorPrimaries!="bt2020"||info.ColorSpace!="bt2020nc")
+                throw new InvalidDataException("HDR10 AV1 static metadata requires PQ/BT.2020/bt2020nc source signals");
+            string trace=SvtHdr10Core.Trace(ffmpeg,input);
+            if(SvtHdr10Core.Field(trace,"color_primaries")!=9 || SvtHdr10Core.Field(trace,"transfer_characteristics")!=16 ||
+                SvtHdr10Core.Field(trace,"matrix_coefficients")!=9)
+                throw new InvalidDataException("AV1 HDR10 source bitstream color signaling conflicts with FFprobe");
+            var values=new Dictionary<string,long>();
+            bool mastering=Regex.IsMatch(trace,@"(?m)^.*metadata_type\s+[01]+\s*=\s*2\s*$");
+            bool light=Regex.IsMatch(trace,@"(?m)^.*metadata_type\s+[01]+\s*=\s*1\s*$");
+            if(mastering){
+                for(int i=0;i<3;i++)foreach(string axis in new[]{"x","y"}){
+                    string key="primary_chromaticity_"+axis+"["+i+"]";
+                    values[key]=SvtHdr10Core.Field(trace,key);
+                }
+                foreach(string key in new[]{"white_point_chromaticity_x","white_point_chromaticity_y","luminance_max","luminance_min"})
+                    values[key]=SvtHdr10Core.Field(trace,key);
+            }
+            if(light){values["max_cll"]=SvtHdr10Core.Field(trace,"max_cll");values["max_fall"]=SvtHdr10Core.Field(trace,"max_fall");}
+            return values;
+        }
+        private static long Rescale(long value,long from,long to)
+        {return checked((long)Math.Round((decimal)value*to/from,0,MidpointRounding.AwayFromZero));}
+        private static string X265Hdr10Parameters(Dictionary<string,long> values)
+        {
+            var parts=new List<string>{"hdr-opt=1","cll="+(values.ContainsKey("max_cll")?"1":"0")};
+            if(values.ContainsKey("luminance_max")){
+                Func<int,string> point=delegate(int i){return "("+Rescale(values["primary_chromaticity_x["+i+"]"],65536,50000)+","+Rescale(values["primary_chromaticity_y["+i+"]"],65536,50000)+")";};
+                parts.Add("master-display=G"+point(1)+"B"+point(2)+"R"+point(0)+"WP("+
+                    Rescale(values["white_point_chromaticity_x"],65536,50000)+","+Rescale(values["white_point_chromaticity_y"],65536,50000)+")L("+
+                    Rescale(values["luminance_max"],256,10000)+","+Rescale(values["luminance_min"],16384,10000)+")");
+            }
+            if(values.ContainsKey("max_cll"))parts.Add("max-cll="+values["max_cll"]+","+values["max_fall"]);
+            return string.Join(":",parts.ToArray());
+        }
+        private static string VerifyHdr10(string ffmpeg,string output,MediaProbeInfo info,Dictionary<string,long> expected)
+        {
+            if(expected==null)return "AV1 Bake HDR10 source proof was not executed.";
+            try{
+                var actual=SvtHdr10Core.ReadHevcAvailable(SvtHdr10Core.Trace(ffmpeg,output),info.ColorRange=="pc"?1:0);
+                foreach(string group in new[]{"luminance_max","max_cll"})
+                    if(!expected.ContainsKey(group)&&actual.ContainsKey(group))return "AV1 Bake HDR10 output invented "+group+" not present in source";
+                foreach(var pair in expected){
+                    long value;
+                    if(!actual.TryGetValue(pair.Key,out value))return "AV1 Bake HDR10 output missing "+pair.Key;
+                    // AV1 fixed-point -> HEVC integer units -> AV1 rounding can lose one unit.
+                    if(Math.Abs(value-pair.Value)>1)return "AV1 Bake HDR10 output changed "+pair.Key+": "+pair.Value+" -> "+value;
+                }
+                return null;
+            }catch(Exception ex){return "AV1 Bake HDR10 HEVC bitstream verification failed: "+ex.Message;}
+        }
         internal static string OutputPath(string input,IDictionary<string,string> state,long bitrate,bool nvenc)
         {
             string mode,custom;state.TryGetValue("FG_OUTPUT_MODE",out mode);state.TryGetValue("FG_OUTPUT_CUSTOM_DIR",out custom);
             string dir=string.Equals(mode,"CUSTOM",StringComparison.OrdinalIgnoreCase)?custom:Path.GetDirectoryName(input);
             if(string.IsNullOrWhiteSpace(dir))throw new InvalidOperationException("烘焙输出目录未配置。 / Output directory is not configured.");
-            string selected;state.TryGetValue("FG_BAKE_ENCODER",out selected);
-            return Path.Combine(dir,Path.GetFileNameWithoutExtension(input)+(string.Equals(selected,"HEVC_NVENC",StringComparison.OrdinalIgnoreCase)?"_BAKED_HEVC_MAIN10_NVENC":"_BAKED_H264_"+(nvenc?"NVENC":"X264"))+"_"+bitrate.ToString(CultureInfo.InvariantCulture)+"k"+HardwareDecodeCore.FileSuffix(state)+".mp4");
+            string selected=NormalizeEncoder(Get(state,"FG_BAKE_ENCODER"));
+            string family=IsHevc(selected)?"HEVC_MAIN10":"H264";
+            string quality=IsCq(state)?"CQ"+Quality(state,selected):bitrate.ToString(CultureInfo.InvariantCulture)+"k";
+            return Path.Combine(dir,Path.GetFileNameWithoutExtension(input)+"_BAKED_"+selected+(family=="HEVC_MAIN10"?"_Main10":"")+"_"+quality+(Get(state,"FG_BAKE_GPU_DECODE")=="1"?"_NVDEC":"")+".mp4");
         }
-        internal static bool TryPrepare(string appRoot,string input,MediaProbeInfo info,IDictionary<string,string> state,
+        internal static bool TryPrepare(string appRoot,string input,MediaProbeInfo info,IDictionary<string,string> state,HardwareCapabilitySnapshot caps,
             out BridgePreparedExecution prepared,out string reason)
         {
             prepared=null;reason="";
@@ -955,69 +1106,90 @@ namespace FilmGrainStudioPreview
             {
                 if(info==null || !info.HasVideo || !string.Equals(info.VideoCodec,"av1",StringComparison.OrdinalIgnoreCase))
                     throw new InvalidOperationException("烘焙需要 AV1 输入。 / Baking requires AV1 input.");
-                if(info.IsHdr || string.Equals(info.ColorPrimaries,"bt2020",StringComparison.OrdinalIgnoreCase))
-                    throw new InvalidOperationException("本阶段只支持普通 SDR；HDR/BT.2020 烘焙放到最后阶段。 / SDR only in this stage.");
                 if(info.IsInterlaced || info.Width<=0 || info.Height<=0 || info.Width%2!=0 || info.Height%2!=0)
                     throw new InvalidOperationException("烘焙需要偶数尺寸逐行视频。 / Progressive even dimensions required.");
                 if(info.PixelFormat!="yuv420p" && info.PixelFormat!="yuv420p10le")
-                    throw new InvalidOperationException("本阶段仅支持 4:2:0 8/10-bit SDR。 / 4:2:0 SDR 8/10-bit required.");
-                string encoder;state.TryGetValue("FG_BAKE_ENCODER",out encoder);
-                bool hevc=string.Equals(encoder,"HEVC_NVENC",StringComparison.OrdinalIgnoreCase);
-                bool nvenc=string.Equals(encoder,"NVENC",StringComparison.OrdinalIgnoreCase);
-                if(!hevc && !nvenc && !string.Equals(encoder,"X264",StringComparison.OrdinalIgnoreCase))throw new InvalidOperationException("请选择 x264、H.264 NVENC 或 HEVC NVENC。 / Unknown bake encoder.");
+                    throw new InvalidOperationException("烘焙仅支持 4:2:0 8/10-bit。 / 4:2:0 8/10-bit required.");
+                string encoder=NormalizeEncoder(Get(state,"FG_BAKE_ENCODER"));
+                bool hevc=IsHevc(encoder),nvenc=IsNvenc(encoder),h264=!hevc;
+                if(!hevc&&!nvenc&&encoder!="X264")throw new InvalidOperationException("Unsupported bake encoder: "+encoder);
+                if(info.IsHdr&&h264)throw new InvalidOperationException("HDR AV1 请使用 HEVC NVENC 或 x265（Main10），H.264 路线仅支持 SDR。 / HDR requires HEVC Main10.");
+                if(info.IsHdr&&info.PixelFormat!="yuv420p10le")throw new InvalidOperationException("HDR AV1 烘焙需要 10-bit 4:2:0 输入。 / HDR requires 10-bit 4:2:0.");
+                bool gpu=Get(state,"FG_BAKE_GPU_DECODE")=="1";
+                if(gpu&&!GpuDecodeCompatible(encoder,info))throw new InvalidOperationException("NVDEC 烘焙暂不支持此输入/输出位深转换；请取消 GPU 硬解。 / Select software decode for bit-depth conversion.");
+                if(gpu&&(caps==null||!caps.Ready))throw new InvalidOperationException("NVDEC 烘焙需要有效的能力缓存及逐文件硬解预检。 / NVDEC capability cache unavailable.");
                 long bitrate;string value;state.TryGetValue("FG_BAKE_BITRATE",out value);
                 if(!long.TryParse(value,NumberStyles.Integer,CultureInfo.InvariantCulture,out bitrate)||bitrate<100||bitrate>500000)
                     throw new InvalidOperationException("烘焙码率必须为 100–500000 kbps。 / Invalid bake bitrate.");
+                if(Get(state,"FG_BAKE_RATE_CONTROL","VBR")!="VBR"&&Get(state,"FG_BAKE_RATE_CONTROL")!="CQ")throw new InvalidDataException("Unsupported bake rate control");
+                if(IsCq(state))Quality(state,encoder);
                 string ffmpeg=Path.Combine(NativeAv1Core.ReadConfigValue(appRoot,"FFMPEG_DIR"),"ffmpeg.exe");
                 string ffprobe=Path.Combine(Path.GetDirectoryName(ffmpeg),"ffprobe.exe");
                 if(!File.Exists(ffmpeg)||!File.Exists(ffprobe))throw new FileNotFoundException("需要 FFmpeg 和 FFprobe。 / FFmpeg and FFprobe required.");
                 string help,error;
-                if(!SharedFrucCore.Run(ffmpeg,"-hide_banner -h decoder=libdav1d",5000,out help,out error)||help.IndexOf("filmgrain",StringComparison.OrdinalIgnoreCase)<0)
+                if(!gpu&&(!SharedFrucCore.Run(ffmpeg,"-hide_banner -h decoder=libdav1d",5000,out help,out error)||help.IndexOf("filmgrain",StringComparison.OrdinalIgnoreCase)<0))
                     throw new InvalidOperationException("当前 libdav1d 未提供已验证的颗粒合成选项。 / Verified libdav1d filmgrain option unavailable.");
-                if(nvenc && !SharedBakeH264Core.TryNvenc(ffmpeg,out error))throw new InvalidOperationException(error);
+                if(nvenc&&(caps==null||!caps.Ready||(hevc?!caps.HevcAvailable:!caps.H264Available)))throw new InvalidOperationException("NVENC capability cache unavailable for selected bake encoder");
+                if(encoder=="H264_NVENC"&&!SharedBakeH264Core.TryNvenc(ffmpeg,out error))throw new InvalidOperationException(error);
                 bool hevcBFrames=false;string hevcNotice="";
-                if(hevc && !SharedBakeHevcCore.TryPreflight(ffmpeg,out hevcBFrames,out hevcNotice,out error))throw new InvalidOperationException(error);
-                string preset=NativeAv1Core.ReadConfigValue(appRoot,"X264_PRESET").ToLowerInvariant();
-                if(preset!="medium"&&preset!="slow")preset="faster";
+                if(encoder=="HEVC_NVENC"&&!SharedBakeHevcCore.TryPreflight(ffmpeg,out hevcBFrames,out hevcNotice,out error))throw new InvalidOperationException(error);
+                var codecState=EncoderState(state,encoder);
+                if(nvenc&&IsCq(state))NvencRateControlCore.RequireSupport(ffmpeg,codecState);
+                if(encoder=="X265"&&!CpuEncoderCore.TryPreflight(ffmpeg,codecState,out error))throw new InvalidOperationException(error);
+                if(gpu&&!TryGpuDecode(ffmpeg,input,encoder,out error))throw new InvalidOperationException(error);
                 string output=Path.GetFullPath(OutputPath(input,state,bitrate,nvenc));
                 if(File.Exists(output))throw new IOException("烘焙输出已存在，不覆盖："+output);
                 string dir=Path.GetDirectoryName(output);Directory.CreateDirectory(dir);
                 // Encode to our own unique file; final rename refuses collisions. Cleanup never owns pre-existing output.
                 string staging=Path.Combine(dir,"__FGS_BAKE_"+Guid.NewGuid().ToString("N")+".mp4");
-                var args=hevc?SharedBakeHevcCore.BuildArgs(input,staging,bitrate,hevcBFrames):NativeAv1Core.BuildBakeArgs(input,staging,preset,bitrate,nvenc,state,info);
-                if(hevc)AudioOutputCore.Apply(args,state,info,false,true,true);
+                var args=BuildArguments(input,staging,encoder,bitrate,state,info,caps,hevcBFrames);
                 int overwrite=args.IndexOf("-y");if(overwrite>=0)args[overwrite]="-n";
                 Stamp(args,"-color_range",info.ColorRange);Stamp(args,"-colorspace",info.ColorSpace);
                 Stamp(args,"-color_trc",info.ColorTransfer);Stamp(args,"-color_primaries",info.ColorPrimaries);
                 // H.264 may omit video_signal_type_present_flag for default limited range
                 // when no colour description is supplied. Make the known source range
                 // explicit in SPS VUI, without changing pixels or adding another encode.
-                if(!hevc && (info.ColorRange=="tv" || info.ColorRange=="pc"))
+                if(h264 && (info.ColorRange=="tv" || info.ColorRange=="pc"))
                     args.InsertRange(args.Count-1,new[]{"-bsf:v","h264_metadata=video_full_range_flag="+(info.ColorRange=="pc"?"1":"0")});
                 double duration;double.TryParse(info.Duration,NumberStyles.Float,CultureInfo.InvariantCulture,out duration);
                 var req=new BridgeExecutionRequest{ToolPath=ffmpeg,WorkingDirectory=dir,DirectProcess=true,
                     InputFiles=new List<string>{input},OutputFiles=new List<string>(),TemporaryFiles=new List<string>{staging},
                     Environment=new Dictionary<string,string>(state,StringComparer.OrdinalIgnoreCase),ProgressDurationSeconds=duration,LogStageTimings=true,
-                    ExecutionNotice="[AV1 Bake] SDR / libdav1d filmgrain=1 -> "+(hevc?"HEVC NVENC Main10 P7":nvenc?"H.264 NVENC P7":"x264 "+preset)+" / AAC. "+hevcNotice+"\n仅合成源内已有颗粒，不新增颗粒、不运行插帧或调色；无 metadata 时正常转码。 / Existing grain only; no extra grain or transformations.\n[AV1 Bake] output="+output};
+                    ExecutionNotice="[AV1 Bake] "+(info.IsHdr?"HDR preserve":"SDR")+" / "+(gpu?"NVDEC apply_grain (experimental)"+(encoder=="HEVC_NVENC"&&info.PixelFormat=="yuv420p"?" / CUDA NV12 -> P010":""):"libdav1d filmgrain=1")+" -> "+encoder+" / "+(IsCq(state)?"CQ/CRF "+Quality(state,encoder):"VBR "+bitrate+"k")+". "+hevcNotice+"\n只合成源内已有颗粒；不额外加颗粒、插帧、调色或字幕。 / Existing grain only; no transformations.\n[AV1 Bake] output="+output};
                 var original=new FileInfo(input);long length=original.Length;DateTime modified=original.LastWriteTimeUtc;
                 var stage=new BridgeExecutionStage{ToolPath=ffmpeg,WorkingDirectory=dir,OriginalArguments=args,
                     DirectArguments=SharedFrucCore.JoinArguments(args),ProgressDurationSeconds=duration,StageCurrent=1,StageTotal=1,
-                    StageText="AV1 SDR grain bake / "+(hevc?"HEVC NVENC Main10":nvenc?"H.264 NVENC":"x264")};
+                    StageText="AV1 "+(info.IsHdr?"HDR":"SDR")+" grain bake / "+encoder};
+                Dictionary<string,long> expectedHdr=null;
                 stage.BeforeRunPreparation=delegate {
                     var current=new FileInfo(input);
                     if(!current.Exists||current.Length!=length||current.LastWriteTimeUtc!=modified)throw new IOException("烘焙输入已改变。 / Input changed.");
                     if(File.Exists(output)||File.Exists(staging))throw new IOException("烘焙输出发生冲突，不覆盖。 / Output collision.");
-                    return "[AV1 Bake] software grain synthesis enabled; independent SDR bake";
+                    return "[AV1 Bake] "+(gpu?"NVDEC film grain synthesis (4080 visual comparison pending)":"libdav1d film grain synthesis")+"; independent single-stage encode";
                 };
+                if(info.IsHdr&&info.ColorTransfer=="smpte2084")SvtHdr10Core.Before(stage,delegate {
+                    expectedHdr=ReadAv1Hdr10(ffmpeg,input,info);
+                    if(encoder=="X265"){
+                        var current=HardwareDecodeCore.SplitArguments(stage.DirectArguments);
+                        string parameters=X265Hdr10Parameters(expectedHdr);
+                        int option=current.IndexOf("-x265-params");
+                        if(option>=0&&option+1<current.Count)current[option+1]+=(current[option+1].Length>0?":":"")+parameters;
+                        else current.InsertRange(current.Count-1,new[]{"-x265-params",parameters});
+                        stage.DirectArguments=SharedFrucCore.JoinArguments(current);
+                    }
+                    return "[AV1 Bake HDR10] AV1 source MDCV="+(expectedHdr.ContainsKey("luminance_max")?"present":"absent")+
+                        ", CLLI="+(expectedHdr.ContainsKey("max_cll")?"present":"absent")+"; HEVC bitstream will be verified before commit.";
+                });
                 req.DirectStages=new List<BridgeExecutionStage>{stage};
                 req.PostRunValidation=delegate {
                     string json,probeError;
                     if(!SharedFrucCore.Run(ffprobe,SharedFrucCore.JoinArguments(new[]{"-v","error","-show_streams","-show_format","-of","json",staging}),15000,out json,out probeError))return "Bake output probe failed: "+probeError;
                     var actual=MediaProbeInfo.Parse(staging,json);
-                    if(!actual.HasVideo||actual.VideoCodec!=(hevc?"hevc":"h264")||actual.PixelFormat!=(hevc?"yuv420p10le":"yuv420p")||(hevc && actual.VideoProfile!="Main 10")||actual.Width!=info.Width||actual.Height!=info.Height||actual.IsHdr||
-                       (info.HasAudio && (!actual.HasAudio||actual.AudioCodec!="aac")))return "Bake output format validation failed.";
+                    if(!actual.HasVideo||actual.VideoCodec!=(hevc?"hevc":"h264")||actual.PixelFormat!=(hevc?"yuv420p10le":"yuv420p")||(hevc && actual.VideoProfile!="Main 10")||actual.Width!=info.Width||actual.Height!=info.Height||actual.IsHdr!=info.IsHdr||
+                       (info.HasAudio&&!actual.HasAudio))return "Bake output format validation failed.";
                     if(!EqualKnown(info.ColorRange,actual.ColorRange)||!EqualKnown(info.ColorSpace,actual.ColorSpace)||
                        !EqualKnown(info.ColorTransfer,actual.ColorTransfer)||!EqualKnown(info.ColorPrimaries,actual.ColorPrimaries))return "Bake output color signaling changed: source {range="+info.ColorRange+", matrix="+info.ColorSpace+", transfer="+info.ColorTransfer+", primaries="+info.ColorPrimaries+"}; output {range="+actual.ColorRange+", matrix="+actual.ColorSpace+", transfer="+actual.ColorTransfer+", primaries="+actual.ColorPrimaries+"}.";
+                    if(info.IsHdr&&info.ColorTransfer=="smpte2084")return VerifyHdr10(ffmpeg,staging,info,expectedHdr);
                     return null;
                 };
                 req.PostRunCommit=delegate {

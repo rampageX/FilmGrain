@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using System.Text.RegularExpressions;
 
 namespace FilmGrainStudioPreview
 {
@@ -25,30 +26,21 @@ namespace FilmGrainStudioPreview
             {
                 string resolution = info.Width > 0 && info.Height > 0 ? info.Width.ToString(CultureInfo.InvariantCulture) + "×" + info.Height.ToString(CultureInfo.InvariantCulture) : "—";
                 string fps = FormatMediaFps(info.AvgFrameRate);
+                string bitDepth = FormatVideoBitDepth(info);
                 string field = (info.FieldOrder ?? "").ToLowerInvariant();
-                string scanText;
+                string scanText = "";
                 if (info.IsInterlaced) scanText = LF("media.scan_interlaced", field);
                 else if (field == "progressive") scanText = lang.T("media.scan_progressive");
-                else if (!string.IsNullOrEmpty(field)) scanText = LF("media.scan_flag", field);
-                else scanText = lang.T("media.scan_unknown");
-                videoLine = lang.T("media.video_prefix") + "  " + FormatCodecName(info.VideoCodec, info.VideoProfile) + " · " + resolution + " · " + fps + " fps · " + scanText + " · " + FormatMediaBitrate(info.VideoBitRate);
+                else if (!string.IsNullOrEmpty(field) && field != "unknown" && field != "unspecified" && field != "n/a") scanText = field;
+                videoLine = lang.T("media.video_prefix") + "  " + FormatCodecName(info.VideoCodec, info.VideoProfile) + " · " + resolution + " · " + bitDepth + " · " + fps + " fps · " + FormatMediaBitrate(info.VideoBitRate) + (scanText.Length > 0 ? " · " + scanText : "");
 
                 if (info.IsHdr)
                 {
                     string transfer = (info.ColorTransfer ?? "").ToLowerInvariant();
                     string hdrName = transfer == "smpte2084" ? "HDR10 / PQ" : "HLG";
-                    string bitDepth = "10-bit";
-                    int bits;
-                    if (int.TryParse(info.BitsPerRawSample, NumberStyles.Integer, CultureInfo.InvariantCulture, out bits) && bits > 0)
-                        bitDepth = bits.ToString(CultureInfo.InvariantCulture) + "-bit";
-                    else if (!string.IsNullOrEmpty(info.PixelFormat))
-                    {
-                        if (info.PixelFormat.IndexOf("12", StringComparison.OrdinalIgnoreCase) >= 0) bitDepth = "12-bit";
-                        else if (info.PixelFormat.IndexOf("10", StringComparison.OrdinalIgnoreCase) >= 0) bitDepth = "10-bit";
-                    }
                     string prim = string.IsNullOrEmpty(info.ColorPrimaries) ? "primaries ?" : info.ColorPrimaries;
                     string matrix = string.IsNullOrEmpty(info.ColorSpace) ? "matrix ?" : info.ColorSpace;
-                    videoLine += Environment.NewLine + "HDR   " + hdrName + " · " + bitDepth + " · " + prim + " · " + matrix;
+                    videoLine += Environment.NewLine + "HDR   " + hdrName + " · " + prim + " · " + matrix;
                 }
             }
             else
@@ -73,6 +65,22 @@ namespace FilmGrainStudioPreview
 
             string formatLine = LF("media.duration_line", FormatMediaDuration(info.Duration), FormatMediaBitrate(info.TotalBitRate));
             return videoLine + Environment.NewLine + audioLine + Environment.NewLine + formatLine;
+        }
+
+        private static string FormatVideoBitDepth(MediaProbeInfo info)
+        {
+            // FFprobe often omits bits_per_raw_sample for AV1/HEVC; the decoded
+            // pixel format is the more reliable source when it is recognizable.
+            string pixel = (info.PixelFormat ?? "").ToLowerInvariant();
+            if (pixel == "nv12" || pixel == "nv21" || pixel == "nv16" || pixel == "nv24") return "8-bit";
+            Match depth = Regex.Match(pixel, @"(9|10|12|14|16)(?:le|be|$)");
+            if (depth.Success) return depth.Groups[1].Value + "-bit";
+            if ((pixel.StartsWith("yuv") && pixel.EndsWith("p")) || pixel == "gbrp" || pixel == "gray" ||
+                pixel == "rgb24" || pixel == "bgr24" || pixel == "rgba" || pixel == "bgra") return "8-bit";
+            int bits;
+            if (int.TryParse(info.BitsPerRawSample, NumberStyles.Integer, CultureInfo.InvariantCulture, out bits) && bits >= 8 && bits <= 16)
+                return bits.ToString(CultureInfo.InvariantCulture) + "-bit";
+            return "—";
         }
 
         private static string FormatMediaBitrate(string value)

@@ -43,61 +43,171 @@ namespace FilmGrainStudioPreview
             foreach(ListViewItem item in listFiles.Items){string path=item.Tag as string;if(IsPendingQueueFile(path))inputs.Add(path);}
             if(inputs.Count==0){FgsMessageBox.Show(this,lang.T("info.add_video"),Text);return;}
             foreach(string input in inputs){MediaProbeInfo info;if(!mediaProbeCache.TryGetValue(input,out info)){FgsMessageBox.Show(this,UiText("请等待输入媒体探测完成。", "Wait for input media probing."),Text);return;}}
-            using(var dlg=new SettingsDialogForm())
+            config.Load();
+            using(var dlg=new SettingsDialogForm())using(var tips=new ThemeToolTip())
             {
-                dlg.Text=UiText("AV1 颗粒烘焙 · SDR", "AV1 grain bake · SDR");dlg.StartPosition=FormStartPosition.CenterParent;
-                dlg.FormBorderStyle=FormBorderStyle.FixedDialog;dlg.MaximizeBox=false;dlg.MinimizeBox=false;dlg.ClientSize=new Size(470,240);
-                var description=new ThemeLabel{Text=UiText("将输入列表中的已有 AV1 转为 H.264 或 HEVC / AAC。\n合成源内已有颗粒，不再添加颗粒；不应用主界面的插帧、调色或字幕设置。HDR 本阶段不支持。", "Convert the input AV1 list to H.264 or HEVC / AAC.\nSynthesize existing grain only. Main-window transformations do not apply. HDR is deferred."),Location=new Point(16,14),Size=new Size(438,66)};
-                var encoder=new ThemeComboBox{DropDownStyle=ComboBoxStyle.DropDownList,Location=new Point(126,88),Size=new Size(312,26)};
-                encoder.Items.AddRange(new object[]{"x264 · VBR 1-Pass","H.264 NVENC · P7 / VBR","HEVC NVENC · Main10 / P7 / VBR"});encoder.SelectedIndex=0;
-                var auto=new ThemeCheckBox{Text=UiText("自动码率（源帧率 / 普通档）", "Automatic bitrate (source FPS / normal)"),Checked=true,Location=new Point(16,123),Size=new Size(300,25)};
-                var bitrate=new ThemeNumericUpDown{Minimum=100,Maximum=500000,Value=16000,Increment=1000,Location=new Point(326,123),Size=new Size(112,26),Enabled=false};
-                decimal manualBitrate=bitrate.Value;
-                var rateSummary=new ThemeLabel{Location=new Point(16,153),Size=new Size(438,32)};
-                EventHandler refreshBitrate=delegate {
-                    bitrate.Enabled=!auto.Checked;
-                    if(!auto.Checked){rateSummary.Text=UiText("手动目标码率（kbps）；实际平均码率可能浮动。", "Manual target (kbps); actual average may vary.");return;}
-                    int minRate=int.MaxValue,maxRate=0;
-                    foreach(string input in inputs){var info=mediaProbeCache[input];int rate=BitrateRecommendationCore.GetRecommendedBitrate(encoder.SelectedIndex==2?1:2,info.Width,info.Height,BitrateRecommendationCore.ParseMediaFps(info),false);minRate=Math.Min(minRate,rate);maxRate=Math.Max(maxRate,rate);}
-                    bitrate.Value=Math.Max(bitrate.Minimum,Math.Min(bitrate.Maximum,minRate));
-                    rateSummary.Text=minRate==maxRate?UiText("目标码率：", "Target: ")+minRate.ToString(CultureInfo.InvariantCulture)+" kbps":UiText("逐文件目标：", "Per-file targets: ")+minRate.ToString(CultureInfo.InvariantCulture)+"–"+maxRate.ToString(CultureInfo.InvariantCulture)+UiText(" kbps（右侧显示最低值）", " kbps (minimum shown above)");
+                dlg.Text=UiText("AV1 颗粒烘焙 / 快捷转码", "AV1 grain bake / quick transcode");dlg.StartPosition=FormStartPosition.CenterParent;
+                dlg.FormBorderStyle=FormBorderStyle.FixedDialog;dlg.MaximizeBox=false;dlg.MinimizeBox=false;dlg.ShowInTaskbar=false;
+                dlg.ClientSize=new Size(780,590);dlg.BackColor=selectedDarkTheme?UiTheme.Surface:SystemColors.Control;
+                dlg.ForeColor=selectedDarkTheme?UiTheme.TextColor:SystemColors.ControlText;
+                dlg.SuspendLayout();
+                var description=new ThemeLabel{Text=UiText("将 AV1 成片转为 HEVC / H.264；源内 Film Grain 合成进输出像素。保留原文件。\n不额外加颗粒，不应用主界面的插帧、调色或字幕。HDR10 请选 HEVC Main10。", "Convert AV1 to HEVC / H.264 with existing film grain baked into pixels. Original is untouched.\nNo extra grain, interpolation, grading or subtitles. For HDR10 choose HEVC Main10."),Location=new Point(16,12),Size=new Size(745,55)};
+                string[] codes={"X264","H264_NVENC","HEVC_NVENC","X265"};
+                var encoder=new ThemeComboBox{Name="BAKE_ENCODER",DropDownStyle=ComboBoxStyle.DropDownList,Location=new Point(156,77),Size=new Size(604,26)};
+                encoder.Items.AddRange(new object[]{"CPU x264 · H.264 8-bit","H.264 NVENC · 8-bit","HEVC NVENC · Main10","CPU x265 · HEVC Main10"});
+                var rateMode=new ThemeComboBox{Name="BAKE_RATE_CONTROL",DropDownStyle=ComboBoxStyle.DropDownList,Location=new Point(156,113),Size=new Size(155,26)};
+                rateMode.Items.AddRange(new object[]{"VBR","CQ / CRF"});
+                var quality=new ThemeNumericUpDown{Name="BAKE_CQ",Minimum=1,Maximum=51,DecimalPlaces=1,Increment=1,Location=new Point(322,113),Size=new Size(90,26)};
+                var auto=new ThemeCheckBox{Text=UiText("自动码率", "Auto bitrate"),Checked=config.GetBool("BAKE_AUTO_BITRATE"),Location=new Point(435,113),Size=new Size(115,26)};
+                var bitrate=new ThemeNumericUpDown{Name="BAKE_BITRATE",Minimum=100,Maximum=500000,Value=Math.Max(100,Math.Min(500000,config.GetInt("BAKE_BITRATE",16000))),Increment=1000,Location=new Point(590,113),Size=new Size(170,26)};
+                var rateSummary=new ThemeLabel{Location=new Point(16,151),Size=new Size(746,26),ForeColor=ColorMuted};
+                var preset=new ThemeComboBox{Name="BAKE_NVENC_PRESET",DropDownStyle=ComboBoxStyle.DropDownList,Location=new Point(156,183),Size=new Size(155,26)};
+                preset.Items.AddRange(new object[]{"p1","p2","p3","p4","p5","p6","p7"});
+                var presetLabel=new ThemeLabel{Text="NVENC Preset",Location=new Point(16,187),Size=new Size(135,25)};
+                var sfe=new ThemeCheckBox{Text=UiText("HEVC 多引擎", "HEVC split encode"),Location=new Point(347,183),Size=new Size(150,26)};
+                var engines=new ThemeNumericUpDown{Name="BAKE_SFE",Minimum=2,Maximum=Math.Max(2,hardwareCaps==null?2:hardwareCaps.HevcSplitEncodeMaxEngines),Value=2,Location=new Point(516,183),Size=new Size(62,26)};
+                var gpuDecode=new ThemeCheckBox{Name="BAKE_GPU_DECODE",Text=UiText("NVDEC 硬解（实验，需验证颗粒效果）", "NVDEC hardware decode (experimental; verify grain)"),Location=new Point(16,221),Size=new Size(545,28)};
+                bool requestedGpu=config.GetBool("BAKE_GPU_DECODE");
+                var routeNote=new ThemeLabel{Location=new Point(16,254),Size=new Size(746,32),ForeColor=ColorMuted};
+                var editors=new EncoderOptionsEditor[4];
+                for(int i=0;i<4;i++){
+                    editors[i]=BuildEncoderOptions(i==2||i==3?"HEVC":"H264",i==0||i==3,tips);
+                    editors[i].Surface.Location=new Point(16,314);editors[i].Surface.Width=724;
+                    editors[i].Surface.Visible=false;dlg.Controls.Add(editors[i].Surface);
+                }
+                // Multi-pass x264/High10 require a different execution pipeline; keep the
+                // current one-pass baked-grain contract and show those options disabled.
+                ((ComboBox)editors[0].Fields["X264_RATE_MODE"]).Enabled=false;
+                ((CheckBox)editors[0].Fields["H264_HIGH10"]).Enabled=false;
+                var begin=new ThemeButton{Name="BAKE_START",Text=UiText("开始烘焙", "Start baking"),Location=new Point(538,541),Size=new Size(112,32)};
+                var cancel=new ThemeButton{Text=lang.T("config.cancel"),Location=new Point(663,541),Size=new Size(96,32),DialogResult=DialogResult.Cancel};
+                var advancedLabel=new ThemeLabel{Text=UiText("当前编码器高级参数（与普通编码设置共用）", "Advanced encoder settings (shared with normal encoding)"),Location=new Point(16,288),Size=new Size(738,22),ForeColor=ColorMuted};
+                var memory=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
+                int oldIndex=-1;bool switching=false;
+                Action saveCurrent=delegate{
+                    if(oldIndex<0)return;string old=codes[oldIndex];
+                    memory[old+"_RC"]=rateMode.SelectedIndex==1?"CQ":"VBR";
+                    memory[old+"_CQ"]=quality.Value.ToString("0.0",CultureInfo.InvariantCulture);
+                    if(old=="HEVC_NVENC"||old=="H264_NVENC")memory[old+"_PRESET"]=(string)preset.SelectedItem;
+                    if(old=="HEVC_NVENC")memory[old+"_SFE"]=sfe.Checked?engines.Value.ToString(CultureInfo.InvariantCulture):"0";
                 };
-                auto.CheckedChanged+=delegate{if(!auto.Checked)bitrate.Value=manualBitrate;refreshBitrate(null,EventArgs.Empty);};
-                bitrate.ValueChanged+=delegate{if(!auto.Checked)manualBitrate=bitrate.Value;};
-                encoder.SelectedIndexChanged+=refreshBitrate;
-                refreshBitrate(null,EventArgs.Empty);
-                var start=new ThemeButton{Text=UiText("开始烘焙", "Start baking"),Location=new Point(230,191),Size=new Size(106,30),DialogResult=DialogResult.OK};
-                var cancel=new ThemeButton{Text=lang.T("config.cancel"),Location=new Point(342,191),Size=new Size(96,30),DialogResult=DialogResult.Cancel};
-                dlg.Controls.AddRange(new Control[]{description,new ThemeLabel{Text=UiText("视频编码器", "Video encoder"),Location=new Point(16,92),Size=new Size(105,23)},encoder,auto,bitrate,rateSummary,start,cancel});dlg.AcceptButton=start;dlg.CancelButton=cancel;
+                Action refreshRate=delegate{
+                    bool cq=rateMode.SelectedIndex==1;quality.Enabled=cq;auto.Enabled=!cq;bitrate.Enabled=!cq&&!auto.Checked;
+                    if(cq){rateSummary.Text=UiText("固定质量模式：画质目标优先，输出大小随画面和颗粒而变化。", "Quality targeting; size varies with content and grain.");return;}
+                    if(!auto.Checked){rateSummary.Text=UiText("手动目标码率（kbps），实际平均码率允许浮动。", "Manual target bitrate (kbps); actual average may vary.");return;}
+                    int min=int.MaxValue,max=0;
+                    foreach(string input in inputs){MediaProbeInfo info=mediaProbeCache[input];int rec=BitrateRecommendationCore.GetRecommendedBitrate((encoder.SelectedIndex==2||encoder.SelectedIndex==3)?1:2,info.Width,info.Height,BitrateRecommendationCore.ParseMediaFps(info),false);min=Math.Min(min,rec);max=Math.Max(max,rec);}
+                    rateSummary.Text=min==max?UiText("逐文件自动目标码率：", "Auto target: ")+min+" kbps":UiText("逐文件自动目标范围：", "Per-file auto targets: ")+min+"–"+max+" kbps";
+                };
+                Action refreshEncoder=delegate{
+                    if(switching)return;switching=true;
+                    try{
+                        saveCurrent();int index=encoder.SelectedIndex;string codec=codes[index];
+                        string rcKey=codec=="X264"?"BAKE_X264_RATE_CONTROL":codec=="X265"?"BAKE_X265_RATE_CONTROL":codec=="HEVC_NVENC"?"BAKE_HEVC_RATE_CONTROL":"BAKE_H264_RATE_CONTROL";
+                        string cqKey=codec=="X264"?"BAKE_X264_CRF":codec=="X265"?"BAKE_X265_CRF":codec=="HEVC_NVENC"?"BAKE_HEVC_CQ":"BAKE_H264_CQ";
+                        string rc,cq;
+                        if(!memory.TryGetValue(codec+"_RC",out rc))rc=config.Get(rcKey);
+                        if(!memory.TryGetValue(codec+"_CQ",out cq))cq=config.Get(cqKey);
+                        decimal numeric;if(!decimal.TryParse(cq,NumberStyles.Float,CultureInfo.InvariantCulture,out numeric))numeric=codec=="X264"?20:codec=="H264_NVENC"?20:22;
+                        rateMode.SelectedIndex=rc=="CQ"?1:0;quality.Value=Math.Max(quality.Minimum,Math.Min(quality.Maximum,numeric));
+                        foreach(var editor in editors)editor.Surface.Visible=false;
+                        editors[index].Surface.Visible=true;
+                        bool hasPreset=codec=="HEVC_NVENC"||codec=="H264_NVENC";preset.Visible=presetLabel.Visible=hasPreset;
+                        if(hasPreset){string selected;if(!memory.TryGetValue(codec+"_PRESET",out selected))selected=config.Get(codec=="HEVC_NVENC"?"BAKE_HEVC_PRESET":"BAKE_H264_PRESET");int pi=preset.Items.IndexOf(selected);preset.SelectedIndex=pi>=0?pi:6;}
+                        bool hevcNvenc=codec=="HEVC_NVENC";sfe.Visible=engines.Visible=hevcNvenc;
+                        if(hevcNvenc){string saved;if(!memory.TryGetValue(codec+"_SFE",out saved))saved=config.Get("BAKE_HEVC_SFE");int count;if(!int.TryParse(saved,out count))count=0;
+                            sfe.Enabled=hardwareCaps!=null&&hardwareCaps.HevcSplitEncodeMaxEngines>=2;
+                            sfe.Checked=count>=2&&sfe.Enabled;engines.Value=Math.Max(engines.Minimum,Math.Min(engines.Maximum,count>=2?count:2));engines.Enabled=sfe.Checked;}
+                        bool compatible=true,hdrUnsupported=false,gpuBitDepthConversion=false;
+                        foreach(string input in inputs){MediaProbeInfo info=mediaProbeCache[input];compatible&=NativeAv1BakeCore.GpuDecodeCompatible(codec,info);if(info.IsHdr&&(codec=="X264"||codec=="H264_NVENC"))hdrUnsupported=true;if(codec=="HEVC_NVENC"&&info.PixelFormat=="yuv420p")gpuBitDepthConversion=true;}
+                        gpuDecode.Enabled=compatible&&hardwareCapsReady;gpuDecode.Checked=gpuDecode.Enabled&&requestedGpu;
+                        routeNote.Text=hdrUnsupported?UiText("队列中含 HDR：H.264 8-bit 不支持 HDR 直通，请改选 HEVC Main10。", "HDR inputs require HEVC Main10, not H.264 8-bit."):
+                            codec=="X264"?UiText("x264 烘焙固定单遍 8-bit；多遍和 High10 控件已禁用。", "x264 bake is one-pass 8-bit; multi-pass and High10 are disabled."):
+                            !compatible?UiText("此输入/输出存在位深转换：NVDEC 暂禁用，使用 libdav1d 合成颗粒。", "Bit-depth conversion: NVDEC disabled; libdav1d will synthesize grain."):
+                            gpuBitDepthConversion?UiText("8-bit AV1 → HEVC Main10：勾选 NVDEC 后由 GPU 执行 NV12→P010 转换，并逐文件预检。", "8-bit AV1 → HEVC Main10: NVDEC uses GPU NV12-to-P010 conversion with per-file preflight."):
+                            UiText("NVDEC 需逐文件硬解预检；无论软硬解，输出都会检查编码及 HDR 标记。", "NVDEC requires per-file preflight. Output codec and HDR tags are checked.");
+                        begin.Enabled=!hdrUnsupported;
+                        oldIndex=index;refreshRate();
+                    }finally{switching=false;}
+                };
+                rateMode.SelectedIndexChanged+=delegate{if(!switching)refreshRate();};
+                auto.CheckedChanged+=delegate{refreshRate();};
+                sfe.CheckedChanged+=delegate{engines.Enabled=sfe.Checked;};
+                gpuDecode.CheckedChanged+=delegate{if(!switching&&gpuDecode.Enabled)requestedGpu=gpuDecode.Checked;};
+                encoder.SelectedIndexChanged+=delegate{refreshEncoder();};
+                int initial=Array.IndexOf(codes,config.Get("BAKE_ENCODER"));encoder.SelectedIndex=initial>=0?initial:0;
+                dlg.Controls.AddRange(new Control[]{description,new ThemeLabel{Text=UiText("视频编码器", "Video encoder"),Location=new Point(16,80),Size=new Size(135,25)},encoder,
+                    new ThemeLabel{Text=UiText("码率控制", "Rate control"),Location=new Point(16,117),Size=new Size(135,25)},rateMode,quality,auto,bitrate,rateSummary,
+                    presetLabel,preset,sfe,engines,gpuDecode,routeNote,advancedLabel,begin,cancel});
+                tips.SetToolTip(gpuDecode,UiText("NVDEC 可在硬件中执行 AV1 颗粒合成，但仍需 RTX 4080 对比 libdav1d 验证；预检失败不静默回退。", "NVDEC supports AV1 film-grain synthesis; compare with libdav1d on RTX 4080. Failed preflight never falls back silently."));
+                tips.SetToolTip(sfe,UiText("仅 HEVC NVENC、驱动和编码器支持分割并行时生效。", "Only available when HEVC NVENC split-frame encoding is supported."));
+                dlg.CancelButton=cancel;
                 AttachThemeWindow(dlg);
-                if(dlg.ShowDialog(this)!=DialogResult.OK)return;
+                dlg.ResumeLayout(true);
+                begin.Click+=delegate{
                 var tasks=new List<BridgeTaskRequest>();var paths=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                bool trackingStarted=false;
                 try
                 {
+                    queueHistory=new QueueCompletionHistory(chkQueueHistory!=null&&chkQueueHistory.Checked,false);
+                    lock(queueClockSync){queueClock.Restart();queueClockStatus="";}
+                    trackingStarted=true;
+                    UpdateQueueElapsedLabel();
+                    saveCurrent();int index=encoder.SelectedIndex;string codec=codes[index];
+                    var advanced=editors[index].ReadValues();
+                    if(codec=="X264"){advanced.Remove("X264_RATE_MODE");advanced.Remove("H264_HIGH10");}
                     foreach(string input in inputs)
                     {
                         var info=mediaProbeCache[input];double fps=BitrateRecommendationCore.ParseMediaFps(info);
-                        long rate=auto.Checked?BitrateRecommendationCore.GetRecommendedBitrate(encoder.SelectedIndex==2?1:2,info.Width,info.Height,fps,false):(long)bitrate.Value;
+                        long rate=auto.Checked?BitrateRecommendationCore.GetRecommendedBitrate((index==2||index==3)?1:2,info.Width,info.Height,fps,false):(long)bitrate.Value;
                         var state=new SortedDictionary<string,string>(StringComparer.OrdinalIgnoreCase){
-                            {"FG_MODE","AV1BAKE"},{"FG_GRAIN_ENABLED","1"},{"FG_BAKE_ENCODER",encoder.SelectedIndex==2?"HEVC_NVENC":encoder.SelectedIndex==1?"NVENC":"X264"},
-                            {"FG_BAKE_BITRATE",rate.ToString(CultureInfo.InvariantCulture)},
+                            {"FG_MODE","AV1BAKE"},{"FG_GRAIN_ENABLED","1"},{"FG_BAKE_ENCODER",codec},
+                            {"FG_BAKE_BITRATE",rate.ToString(CultureInfo.InvariantCulture)},{"FG_BAKE_RATE_CONTROL",rateMode.SelectedIndex==1?"CQ":"VBR"},
+                            {"FG_BAKE_CQ",quality.Value.ToString("0.0",CultureInfo.InvariantCulture)},
+                            {"FG_BAKE_GPU_DECODE",gpuDecode.Checked?"1":"0"},{"FG_BAKE_SFE",codec=="HEVC_NVENC"&&sfe.Checked?engines.Value.ToString(CultureInfo.InvariantCulture):"0"},
+                            {"FG_BAKE_PRESET",codec=="HEVC_NVENC"||codec=="H264_NVENC"?(string)preset.SelectedItem:""},
                             {"FG_AUDIO_MODE",config.Get("AUDIO_MODE")},{"FG_AUDIO_BITRATE",config.Get("AUDIO_BITRATE")},
                             {"FG_OUTPUT_MODE",config.Get("OUTPUT_MODE")},{"FG_OUTPUT_CUSTOM_DIR",config.Get("OUTPUT_CUSTOM_DIR")}};
-                        string output=Path.GetFullPath(NativeAv1BakeCore.OutputPath(input,state,rate,encoder.SelectedIndex==1));
+                        string prefix=codec=="HEVC_NVENC"?"NVENC_HEVC":codec=="H264_NVENC"?"NVENC_H264":"";
+                        if(prefix.Length>0){state["FG_BAKE_CQ_LIMIT_ENABLED"]=advanced[prefix+"_CQ_LIMIT_ENABLED"];state["FG_BAKE_CQ_MAXRATE"]=advanced[prefix+"_CQ_MAXRATE"];}
+                        foreach(string key in new[]{"HEVC_MULTIPASS","H264_MULTIPASS","HEVC_BFRAMES","H264_BFRAMES","HEVC_BREF_MODE","H264_BREF_MODE","HEVC_LOOKAHEAD","H264_LOOKAHEAD","HEVC_SPATIAL_AQ","HEVC_TEMPORAL_AQ","H264_SPATIAL_AQ","H264_TEMPORAL_AQ","CPU_X265_PRESET","CPU_X265_THREADED_ME","CPU_X265_GRAIN_TUNE","X264_PRESET","X264_GRAIN_TUNE"})
+                            state["FG_"+key]=advanced.ContainsKey(key)?advanced[key]:config.Get(key);
+                        string output=Path.GetFullPath(NativeAv1BakeCore.OutputPath(input,state,rate,index==1));
                         if(!paths.Add(output))throw new IOException("Bake queue output collision: "+output);
                         BridgePreparedExecution prepared;string reason;
                         if(!NativeExecutionPreparationCore.TryPrepare(appRoot,input,info,state,hardwareCaps,false,out prepared,out reason))throw new InvalidOperationException(reason);
                         tasks.Add(BridgeRequestPreparationCore.CreateTask(prepared,fps));
                     }
+                    var settings=new Dictionary<string,string>(advanced,StringComparer.OrdinalIgnoreCase);
+                    settings["BAKE_ENCODER"]=codec;settings["BAKE_GPU_DECODE"]=requestedGpu?"true":"false";
+                    settings["BAKE_AUTO_BITRATE"]=auto.Checked?"true":"false";settings["BAKE_BITRATE"]=bitrate.Value.ToString(CultureInfo.InvariantCulture);
+                    foreach(string savedCodec in codes){string rc,cq;
+                        if(memory.TryGetValue(savedCodec+"_RC",out rc))settings[savedCodec=="X264"?"BAKE_X264_RATE_CONTROL":savedCodec=="X265"?"BAKE_X265_RATE_CONTROL":savedCodec=="HEVC_NVENC"?"BAKE_HEVC_RATE_CONTROL":"BAKE_H264_RATE_CONTROL"]=rc;
+                        if(memory.TryGetValue(savedCodec+"_CQ",out cq))settings[savedCodec=="X264"?"BAKE_X264_CRF":savedCodec=="X265"?"BAKE_X265_CRF":savedCodec=="HEVC_NVENC"?"BAKE_HEVC_CQ":"BAKE_H264_CQ"]=cq;
+                        string p;if(memory.TryGetValue(savedCodec+"_PRESET",out p))settings[savedCodec=="HEVC_NVENC"?"BAKE_HEVC_PRESET":"BAKE_H264_PRESET"]=p;
+                    }
+                    string savedSfe;if(memory.TryGetValue("HEVC_NVENC_SFE",out savedSfe))settings["BAKE_HEVC_SFE"]=savedSfe;
+                    config.Save(settings);
                     if(taskLog!=null)taskLog.Dispose();taskLog=new FullLogFileCore(appRoot,"Task",GetLogEntryLimit());fullLogErrorReported=false;
                     AppendTaskLog("[Task log] "+taskLog.FilePath+Environment.NewLine+"[AV1 Bake] build="+TestBuild+Environment.NewLine);
                     foreach(string input in inputs)AppendTaskLog("[AV1 Bake input] "+input+Environment.NewLine);
                     activeRunNativeBackend=true;activeRunCodecName="AV1 Bake";
                     submittedQueueFiles.Clear();foreach(string input in inputs)submittedQueueFiles.Add(input);
                     bridgeTaskCoordinator.SkipFailedFiles=config.GetBool("QUEUE_SKIP_FAILED");
+                    RegisterQueueHistory(tasks);
                     bridgeTaskCoordinator.StartQueue(tasks);
+                    dlg.DialogResult=DialogResult.OK;dlg.Close();
                 }
-                catch(Exception ex){foreach(var task in tasks)BridgeExecutionCore.CleanupTemporaryFiles(task.ExecutionRequest);FgsMessageBox.Show(this,ex.Message,dlg.Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);}
+                catch(Exception ex){
+                    if(trackingStarted&&!bridgeTaskCoordinator.IsActive){
+                        lock(queueClockSync){queueClock.Stop();queueClockStatus=UiText("未启动","Not started");}
+                        UpdateQueueElapsedLabel();queueHistory=null;
+                    }
+                    foreach(var task in tasks)BridgeExecutionCore.CleanupTemporaryFiles(task.ExecutionRequest);
+                    FgsMessageBox.Show(this,ex.Message,dlg.Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);
+                }
+                };
+                dlg.ShowDialog(this);
             }
         }
 
