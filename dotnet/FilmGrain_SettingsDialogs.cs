@@ -39,6 +39,7 @@ namespace FilmGrainStudioPreview
         private void ShowAv1BakeDialog()
         {
             if(bridgeTaskCoordinator==null||bridgeTaskCoordinator.IsActive)return;
+            if(!CanBakeQueuedAv1())return;
             var inputs=new List<string>();
             foreach(ListViewItem item in listFiles.Items){string path=item.Tag as string;if(IsPendingQueueFile(path))inputs.Add(path);}
             if(inputs.Count==0){FgsMessageBox.Show(this,lang.T("info.add_video"),Text);return;}

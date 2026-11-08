@@ -495,6 +495,7 @@ namespace FilmGrainStudioPreview
                     item.SubItems[2].Text=UiText("等待","Waiting");
                 }
             } finally {listFiles.EndUpdate();}
+            UpdateAv1BakeAvailability();
         }
         private readonly HashSet<string> completedQueueFiles=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> submittedQueueFiles=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -541,6 +542,7 @@ namespace FilmGrainStudioPreview
                 if(!e.Result.Cancelled&&e.Result.ExitCode==0&&e.Result.Exception==null)completedQueueFiles.Add(path);
                 item.SubItems[2].Text=e.Result.Cancelled?UiText("已取消","Cancelled"):
                     e.Result.ExitCode==0&&e.Result.Exception==null?UiText("结束","Finished"):UiText("失败","Failed");
+                UpdateAv1BakeAvailability();
             });}catch(InvalidOperationException){}
         }
         private void StartIndependentQueue()

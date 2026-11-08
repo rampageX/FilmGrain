@@ -310,6 +310,7 @@ namespace FilmGrainStudioPreview
         private Label lblMediaInfo;
         private Label lblHdrRoute;
         private Button btnHdrShortcut;
+        private Button btnAv1Bake;
         private Label lblStatus;
         private Label lblRunStage;
         private Label lblQueueElapsed;
@@ -824,8 +825,8 @@ namespace FilmGrainStudioPreview
             remove.Click += delegate { RemoveSelected(); };
             clear.Click += delegate { ClearInputFiles(); };
             buttons.Controls.Add(add); buttons.Controls.Add(remove); buttons.Controls.Add(clear);
-            var bake = new ThemeButton { Text = UiText("AV1 烘焙...", "AV1 Bake..."), Size = new Size(106,29) };
-            bake.Click += delegate { ShowAv1BakeDialog(); }; buttons.Controls.Add(bake);
+            btnAv1Bake = new ThemeButton { Text = UiText("AV1 烘焙...", "AV1 Bake..."), Size = new Size(106,29), Enabled = false };
+            btnAv1Bake.Click += delegate { ShowAv1BakeDialog(); }; buttons.Controls.Add(btnAv1Bake);
             var inputBars=new TableLayoutPanel { Dock=DockStyle.Fill,ColumnCount=1,RowCount=2,Margin=new Padding(0) };
             inputBars.RowStyles.Add(new RowStyle(SizeType.Absolute,36));inputBars.RowStyles.Add(new RowStyle(SizeType.Absolute,34));
             inputBars.Controls.Add(buttons,0,0);inputBars.Controls.Add(BuildFileSettingsBar(),0,1);
@@ -2118,6 +2119,7 @@ namespace FilmGrainStudioPreview
             UpdateStatusCount();
             if (listFiles.Items.Count > 0 && listFiles.SelectedItems.Count == 0) listFiles.Items[0].Selected = true;
             UpdateNoReencodeAvailability();
+            UpdateAv1BakeAvailability();
             UpdateFileSettingsLabels();
         }
 
@@ -2139,6 +2141,7 @@ namespace FilmGrainStudioPreview
         private void UpdateSelectedInfo()
         {
             QueueMissingMediaProbes();
+            UpdateAv1BakeAvailability();
             StopAv1GrainInspect();
             RefreshAv1GrainTableForMedia();
             UpdateNoReencodeAvailability();
@@ -2278,6 +2281,7 @@ namespace FilmGrainStudioPreview
                         if(result.Info!=null && result.Info.Identity!=null) {mediaProbeCache[result.PathValue]=result.Info;mediaProbeFailures.Remove(result.PathValue);}
                         else mediaProbeFailures[result.PathValue]=result;
                     }
+                    UpdateAv1BakeAvailability();
                     AppendLog("[Media probe] complete valid="+current+" success="+(result.Info!=null)+" input="+result.PathValue+Environment.NewLine);
                     // Cache every completed input, even after selection changes or multi-selection.
                     QueueMissingMediaProbes();
@@ -2327,6 +2331,32 @@ namespace FilmGrainStudioPreview
         private static bool IsAv1Media(MediaProbeInfo info)
         {
             return info != null && string.Equals(info.VideoCodec, "av1", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private bool CanBakeQueuedAv1()
+        {
+            if (listFiles == null) return false;
+            foreach (ListViewItem selected in listFiles.SelectedItems)
+            {
+                MediaProbeInfo selectedInfo;
+                string selectedPath = selected.Tag as string;
+                if (string.IsNullOrEmpty(selectedPath) || !mediaProbeCache.TryGetValue(selectedPath, out selectedInfo) || !IsAv1Media(selectedInfo)) return false;
+            }
+            bool hasPending = false;
+            foreach (ListViewItem item in listFiles.Items)
+            {
+                string path = item.Tag as string;
+                if (!IsPendingQueueFile(path)) continue;
+                hasPending = true;
+                MediaProbeInfo info;
+                if (!mediaProbeCache.TryGetValue(path, out info) || !IsAv1Media(info)) return false;
+            }
+            return hasPending;
+        }
+
+        private void UpdateAv1BakeAvailability()
+        {
+            if (btnAv1Bake != null) btnAv1Bake.Enabled = CanBakeQueuedAv1();
         }
 
         private bool CanSelectNoReencode()
