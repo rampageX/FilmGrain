@@ -270,6 +270,110 @@ function Build-DotNetPreview {
     Test-NativeExecutableMetadata -Executable $rootExecutable -ReleaseVersion $ReleaseVersion
 }
 
+function Get-Ucrt64ImportNames {
+    param([string]$Binary, [string]$Objdump)
+    $output = @(& $Objdump -p $Binary 2>&1)
+    if ($LASTEXITCODE -ne 0) { throw ('Cannot inspect GPU preview dependencies: ' + $Binary) }
+    foreach ($match in [regex]::Matches(($output -join "`n"), '(?im)^\s*DLL Name:\s*(\S+)\s*$')) {
+        $match.Groups[1].Value
+    }
+}
+
+function Build-GpuAdvancedPreview {
+    param([Parameter(Mandatory = $true)][string]$StageRoot)
+
+    $candidates = @($env:FGS_MSYS2_ROOT, $env:MSYS2_ROOT, 'D:\msys64', 'C:\msys64')
+    $msysRoot = ''
+    foreach ($candidate in $candidates) {
+        if ($candidate -and (Test-Path -LiteralPath (Join-Path $candidate 'usr\bin\bash.exe') -PathType Leaf) -and
+            (Test-Path -LiteralPath (Join-Path $candidate 'ucrt64\bin\gcc.exe') -PathType Leaf)) {
+            $msysRoot = $candidate
+            break
+        }
+    }
+    if (-not $msysRoot) { throw 'MSYS2 UCRT64 build tools missing. Install GCC, pkgconf, libplacebo and binutils; set FGS_MSYS2_ROOT.' }
+
+    $ucrtBin = Join-Path $msysRoot 'ucrt64\bin'
+    $bash = Join-Path $msysRoot 'usr\bin\bash.exe'
+    $objdump = Join-Path $ucrtBin 'objdump.exe'
+    if (-not (Test-Path -LiteralPath $objdump -PathType Leaf)) { throw 'MSYS2 UCRT64 objdump.exe is required to collect runtime DLLs.' }
+    $source = Join-Path $StageRoot 'experiments\GpuSingleFrame'
+    $builtExe = Join-Path $source 'fgs_gpu_preview.exe'
+    $runtime = Join-Path $StageRoot 'GpuAdvancedPreview'
+    Assert-File -Root $source -RelativePath 'build_ucrt64.sh'
+    if (Test-Path -LiteralPath $runtime) { Remove-Item -LiteralPath $runtime -Recurse -Force }
+    if (Test-Path -LiteralPath $builtExe) { Remove-Item -LiteralPath $builtExe -Force }
+
+    # Pass directories as the process working directory, not as shell-quoted
+    # text: both local release.bat and the runner must handle special paths.
+    $oldPath = $env:PATH
+    $oldSystem = $env:MSYSTEM
+    $oldChere = $env:CHERE_INVOKING
+    Write-Host '[FGS] Building UCRT64 GPU preview from staged source...'
+    try {
+        $env:MSYSTEM = 'UCRT64'
+        $env:CHERE_INVOKING = '1'
+        $env:PATH = $ucrtBin + ';' + (Join-Path $msysRoot 'usr\bin') + ';' + $oldPath
+        Push-Location -LiteralPath $source
+        try {
+            & $bash --noprofile --norc -c './build_ucrt64.sh'
+            if ($LASTEXITCODE -ne 0) { throw ('GPU preview UCRT64 build/test failed: exit ' + $LASTEXITCODE) }
+        } finally { Pop-Location }
+    } finally {
+        $env:PATH = $oldPath
+        $env:MSYSTEM = $oldSystem
+        $env:CHERE_INVOKING = $oldChere
+    }
+    Assert-File -Root $source -RelativePath 'fgs_gpu_preview.exe'
+    [IO.Directory]::CreateDirectory($runtime) | Out-Null
+    Copy-Item -LiteralPath $builtExe -Destination (Join-Path $runtime 'fgs_gpu_preview.exe') -Force
+
+    # Collect the recursive PE import closure from the SAME UCRT64 toolchain
+    # that compiled the EXE. The portable Stable ZIP must not require MSYS2.
+    $queue = New-Object 'System.Collections.Generic.Queue[string]'
+    $queue.Enqueue((Join-Path $runtime 'fgs_gpu_preview.exe'))
+    $seen = @{}
+    while ($queue.Count -gt 0) {
+        $binary = $queue.Dequeue()
+        foreach ($dll in @(Get-Ucrt64ImportNames -Binary $binary -Objdump $objdump)) {
+            if ($dll -ieq 'msys-2.0.dll') { throw 'The GPU helper accidentally linked the MSYS runtime.' }
+            if ($seen.ContainsKey($dll)) { continue }
+            $seen[$dll] = $true
+            $origin = Join-Path $ucrtBin $dll
+            if (Test-Path -LiteralPath $origin -PathType Leaf) {
+                $target = Join-Path $runtime $dll
+                Copy-Item -LiteralPath $origin -Destination $target -Force
+                $queue.Enqueue($target)
+                continue
+            }
+            if ($dll -match '^(?i:api-ms-|ext-ms-)') { continue }
+            $systemDll = Join-Path (Join-Path $env:WINDIR 'System32') $dll
+            if (-not (Test-Path -LiteralPath $systemDll -PathType Leaf)) {
+                throw ('GPU preview import is neither a bundled UCRT64 DLL nor a Windows system DLL: ' + $dll)
+            }
+        }
+    }
+    if (-not @(Get-ChildItem -LiteralPath $runtime -Filter 'libplacebo-*.dll' -File).Count) {
+        throw 'GPU preview dependency closure is missing the libplacebo runtime.'
+    }
+
+    $license = Join-Path $msysRoot 'ucrt64\share\licenses\libplacebo\LICENSE'
+    if (-not (Test-Path -LiteralPath $license -PathType Leaf)) {
+        throw 'Cannot locate the LGPL libplacebo license required for redistribution.'
+    }
+    Copy-Item -LiteralPath $license -Destination (Join-Path $runtime 'LICENSE_libplacebo.txt') -Force
+    $notice = @(
+        'GPU Advanced Preview runtime dependencies (MSYS2 UCRT64)',
+        'Built from the included experiments/GpuSingleFrame source.',
+        'libplacebo is licensed LGPL-2.1-or-later; see LICENSE_libplacebo.txt.',
+        'Upstream: https://github.com/haasn/libplacebo',
+        'MSYS2 packages: https://packages.msys2.org/',
+        'Bundled DLLs (recursively inspected PE imports):'
+    ) + @(Get-ChildItem -LiteralPath $runtime -Filter '*.dll' -File | ForEach-Object { $_.Name } | Sort-Object)
+    [IO.File]::WriteAllText((Join-Path $runtime 'THIRD_PARTY_RUNTIME.txt'), ($notice -join $CrLf) + $CrLf, $Utf8NoBom)
+    Write-Host ('[FGS] GPU preview staged with ' + @($seen.Keys | Where-Object { Test-Path -LiteralPath (Join-Path $runtime $_) }).Count + ' UCRT64 DLLs.')
+}
+
 function Test-NativeExecutableMetadata {
     param([string]$Executable, [string]$ReleaseVersion)
     & (Join-Path ([IO.Path]::GetDirectoryName($Executable)) 'dotnet\BuildTools\Test_Framework_Api.ps1') -Executable $Executable
@@ -297,6 +401,9 @@ function Test-PackageContent {
     }
     Assert-File -Root $StageRoot -RelativePath 'dotnet\build\FilmGrain_Studio_NET_Preview.exe'
     Assert-File -Root $StageRoot -RelativePath 'FilmGrain_Studio.exe'
+    Assert-File -Root $StageRoot -RelativePath 'GpuAdvancedPreview\fgs_gpu_preview.exe'
+    Assert-File -Root $StageRoot -RelativePath 'GpuAdvancedPreview\LICENSE_libplacebo.txt'
+    Assert-File -Root $StageRoot -RelativePath 'GpuAdvancedPreview\THIRD_PARTY_RUNTIME.txt'
     $nativeExe = Join-Path $StageRoot 'dotnet/build/FilmGrain_Studio_NET_Preview.exe'
     $rootExe = Join-Path $StageRoot 'FilmGrain_Studio.exe'
     if ((Get-FileHash -LiteralPath $nativeExe -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $rootExe -Algorithm SHA256).Hash) { throw 'Root and compatible EXEs differ.' }
@@ -388,7 +495,7 @@ $RuntimeFiles = @(
     'Utils/_FilmGrainSimplified/THIRD_PARTY_LICENSE_FilmGrainSimplified.txt',
     '_LUT_Tools/LUT_Reference_Default.jpg'
 )
-$RuntimeDirectories = @('Lang', '_AV1_Grain_Tables', '_OpenSVPFlow')
+$RuntimeDirectories = @('Lang', '_AV1_Grain_Tables', '_OpenSVPFlow', 'GpuAdvancedPreview')
 
 function Get-RuntimeRelativeFiles {
     param([string]$Directory, [string]$Prefix = '')
@@ -558,6 +665,7 @@ try {
     Remove-PackageExclusions -StageRoot $stageRoot
     Normalize-PackageTextFiles -StageRoot $stageRoot
     Build-DotNetPreview -StageRoot $stageRoot -ReleaseVersion $Version
+    Build-GpuAdvancedPreview -StageRoot $stageRoot
     Test-PackageContent -StageRoot $stageRoot -ReleaseVersion $Version
     New-RuntimeStage -Source $stageRoot -Destination $runtimeRoot
 

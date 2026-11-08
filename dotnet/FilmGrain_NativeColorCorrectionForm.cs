@@ -166,8 +166,7 @@ namespace FilmGrainStudioPreview
 
         private static int NormalizeStrength(int value)
         {
-            if (value == 0 || value == 25 || value == 50 || value == 75 || value == 100) return value;
-            return 75;
+            return Math.Max(0, Math.Min(100, value));
         }
 
         private static string QuoteArg(string value)
@@ -433,8 +432,11 @@ namespace FilmGrainStudioPreview
 
             lutStrengthTrack = new ThemeTrackBar();
             lutStrengthTrack.Minimum = 0;
-            lutStrengthTrack.Maximum = 4;
-            lutStrengthTrack.Value = lutStrength/25;
+            lutStrengthTrack.Maximum = 100;
+            lutStrengthTrack.TickFrequency = 10;
+            lutStrengthTrack.SmallChange = 1;
+            lutStrengthTrack.LargeChange = 5;
+            lutStrengthTrack.Value = lutStrength;
             lutStrengthTrack.TickStyle = TickStyle.BottomRight;
             lutStrengthTrack.Location = new Point(96, strengthY);
             lutStrengthTrack.Size = new Size(previewWidth - 164, 40);
@@ -588,7 +590,7 @@ namespace FilmGrainStudioPreview
 
         private void UpdateLutUi()
         {
-            lutStrength = Math.Max(0,Math.Min(4,lutStrengthTrack.Value))*25;
+            lutStrength = Math.Max(0,Math.Min(100,lutStrengthTrack.Value));
             lutStrengthLabel.Text = lutStrength.ToString(CultureInfo.InvariantCulture) + "%";
             bool available = !string.IsNullOrEmpty(activeCompatLutPath) && File.Exists(activeCompatLutPath);
             checkLut.Enabled = available;

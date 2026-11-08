@@ -19,6 +19,8 @@
 /_OpenSVPFlow/_UserConfig/
 /FilmGrain_Studio.exe
 /dotnet/build/
+/experiments/GpuSingleFrame/*.exe
+/experiments/GpuSingleFrame/*.o
 
 # Local delivery archives and audit manifests
 /FilmGrain_Studio_v*.zip

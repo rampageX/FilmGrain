@@ -66,7 +66,7 @@ namespace FilmGrainStudioPreview
         }
         private FgsPreset CapturePreset(string kind,string name,string description)
         {
-            PresetEditable();var editor=CaptureFileEditor();var p=new FgsPreset {FormatVersion=1,Id=Guid.NewGuid().ToString("D"),Kind=kind,Name=name,Description=description,SubtitlePolicy=!editor.Subtitle.Enabled?"OFF":editor.Subtitle.Mode=="AUTO"?"AUTO":"TARGET",
+            PresetEditable();var editor=CaptureFileEditor();var p=new FgsPreset {FormatVersion=2,Id=Guid.NewGuid().ToString("D"),Kind=kind,Name=name,Description=description,SubtitlePolicy=!editor.Subtitle.Enabled?"OFF":editor.Subtitle.Mode=="AUTO"?"AUTO":"TARGET",
                 Fields=new Dictionary<string,string>(),Controls=new Dictionary<string,string>(editor.Controls),Config=new Dictionary<string,string>(),SubtitleStyle=new Dictionary<string,string>(),Bitrates=(string[])editor.Bitrates.Clone(),Automatic=(bool[])editor.Automatic.Clone()};
             foreach(string k in PresetCore.Fields.Split(' '))p.Fields[k]=Convert.ToString(editor.Fields[k],CultureInfo.InvariantCulture)??"";
             p.Fields["selectedLutPath"]=ResourceReference(selectedLutPath,"lut");p.Fields["selectedAv1GrainTable"]=ResourceReference(selectedAv1GrainTable,"table");p.Fields["selectedGrainPlatePath"]=ResourceReference(selectedGrainPlatePath,"plate");

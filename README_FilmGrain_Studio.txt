@@ -1,7 +1,7 @@
 Film Grain Studio - 使用说明
 ============================
 
-当前产品版本：v5.0.56；构建 Stable。
+当前产品版本：v5.0.57；构建 Stable。
 
 颗粒菜单统一按胶片预设（推荐）、感光度 ISO、扫描颗粒文件、现成 Grain Table、Digital Grain、GPU Film Grain 排列，各路线只显示已支持项目。默认值及已保存预设/队列的选择不变。SVT 扫描颗粒位于第三；HEVC/H.264 软硬编码的扫描颗粒位于第一；NVENC AV1 和 AV1 不重编码替换当前没有扫描颗粒项。
 
@@ -14,6 +14,7 @@ NVENC AV1已接入HEVC HDR10源中已有MDCV/CLLI的写入；SVT/x265沿用各�
 运行：双击 FilmGrain_Studio.exe，或把视频拖到 EXE；启动只导入，不自动编码。
 同路径视频被替换或 FFprobe 变化时，请重新选择视频完成探测；执行前检测到变化会停止，原有用户参数保留。
 预览窗口提示输入变化时，请关闭窗口、重新选择视频后再打开。
+颗粒区「高级预览调整」使用随包提供的 GpuAdvancedPreview/fgs_gpu_preview.exe 和运行 DLL；支持 SDR BT.709 的 AV1 预设／Grain Table、扫描 Grain Plate 及 3D LUT 的 GPU 单帧交互调整。点击应用才回传，详情见主 README 的「高级 GPU 实时预览」。
 Stable 为便携运行包；Source 为开发源码包，二者用途不同。
 请保持运行包内程序、语言文件及资源的相对位置。首次运行按提示指定或安装 FFmpeg/FFprobe 与需要的依赖。
 前处理提供滤波与缩放两页；Resize 使用 Vulkan/libplacebo Lanczos，支持常用分辨率、自定义宽高与保持显示比例，默认关闭。

@@ -89,7 +89,7 @@ namespace FilmGrainStudioPreview
             case "SVP_STILL_EDGE":Number(v,0,100,k);return;
             case "SVP_STILL_TOLERANCE":Number(v,0,100,k);return;
             case "SVP_PEEL_LIMIT":Number(v,0,100,k);return;
-            case "AV1_GRAIN_STRENGTH":Integer(v,10,100,k);return;
+            case "AV1_GRAIN_STRENGTH":Integer(v,1,100,k);return;
             case "CINEMATIC_CROP_PER_SIDE":case "CINEMATIC_CROP_HORIZONTAL":Integer(v,0,10000,k);return;
             case "CINEMATIC_NO_CROP":Choice(v,"0 1",k);return;
             case "COLOR_CONTRAST":Number(v,-2,2,k);return;
@@ -102,7 +102,7 @@ namespace FilmGrainStudioPreview
         }
         internal static void Validate(FgsPreset p)
         {
-            Require(p!=null,"预设为空");Require(p.FormatVersion==1,"不支持的预设格式版本（不会覆盖原文件）");
+            Require(p!=null,"预设为空");Require(p.FormatVersion==1||p.FormatVersion==2,"不支持的预设格式版本（不会覆盖原文件）");
             Guid id;Require(Guid.TryParse(p.Id,out id)&&id!=Guid.Empty&&p.Id==id.ToString("D"),"无效预设 ID（需要标准小写 GUID）");
             SafeText(p.Name,"名称",48);Require(!string.IsNullOrWhiteSpace(p.Name),"名称不能为空");
             Require(p.Description!=null&&p.Description.Length<=4000,"说明过长");Choice(p.Kind,"Simple Full","类型");Choice(p.SubtitlePolicy,"OFF AUTO TARGET","字幕策略");
@@ -127,7 +127,7 @@ namespace FilmGrainStudioPreview
                 if(k.StartsWith("chk"))Choice(v,"0 1",k);
                 else if(k=="cmbInterpolationFps"){InterpolationFrameRate r;string e;Require(InterpolationFrameRateCore.TryParse(v,"24",out r,out e),"无效帧率: "+e);}
                 else if(k=="cmbBitrate")Number(v,1,500000000,k);
-                else Integer(v,0,k=="cmbCodec"||k=="cmbInterpolationMode"?4:k=="cmbSpeed"||k=="cmbDeintMethod"?2:k=="trackLutStrength"?4:1,k);
+                else Integer(v,0,k=="cmbCodec"||k=="cmbInterpolationMode"?4:k=="cmbSpeed"||k=="cmbDeintMethod"?2:k=="trackLutStrength"?(p.FormatVersion==1?4:100):1,k);
             }
             int codec=int.Parse(p.Controls["cmbCodec"],CultureInfo.InvariantCulture);
             bool cpu=codec==2&&p.Config.ContainsKey("CPU_CODEC")&&p.Config["CPU_CODEC"]!="X264";
@@ -200,7 +200,7 @@ namespace FilmGrainStudioPreview
             string hdr=p.Config["HDR_POLICY"],audio=p.Config["AUDIO_MODE"];
             lines.Add("HDR "+(hdr=="AUTO"?"自动":hdr=="SDR"?"转 SDR":"保留")+" · 音频 "+(audio=="FGS"?"FGS 推荐":audio=="SMART"?"智能":audio=="COPY"?"复制":"AAC "+p.Config["AUDIO_BITRATE"]+" kbps"));
             effects.Clear();
-            if(p.Controls["chkLut"]=="1"&&p.Controls["trackLutStrength"]!="0")effects.Add("LUT "+(int.Parse(p.Controls["trackLutStrength"],CultureInfo.InvariantCulture)*25)+"%");
+            if(p.Controls["chkLut"]=="1"&&p.Controls["trackLutStrength"]!="0")effects.Add("LUT "+int.Parse(p.Controls["trackLutStrength"],CultureInfo.InvariantCulture)+"%");
             if(p.Fields["colorCorrectionEnabled"]=="True")effects.Add("调色");
             if(p.Controls["chkCinematic"]=="1")effects.Add(p.Controls["cmbFrameMode"]=="1"?"电影裁剪":"电影黑边");
             if(p.Controls["cmbDeint"]=="0")effects.Add("自动反交错");
@@ -220,6 +220,11 @@ namespace FilmGrainStudioPreview
         internal static FgsPreset CoherentCopy(FgsPreset source)
         {
             Validate(source);var p=Copy(source);
+            // v1 stored LUT slider positions 0..4; only upgrade the in-memory copy.
+            if(p.FormatVersion==1) {
+                p.Controls["trackLutStrength"]=(int.Parse(p.Controls["trackLutStrength"],CultureInfo.InvariantCulture)*25).ToString(CultureInfo.InvariantCulture);
+                p.FormatVersion=2;
+            }
             CompleteOptionalConfig(p.Config);
             for(int i=0;i<PreprocessingCore.Keys.Length;i++)if(!p.Config.ContainsKey(PreprocessingCore.Keys[i]))p.Config[PreprocessingCore.Keys[i]]=PreprocessingCore.Defaults[i];
             bool grain=p.Fields["ordinaryGrainEnabled"]=="True";
@@ -289,7 +294,7 @@ namespace FilmGrainStudioPreview
             s.AppendLine("插帧："+(interp?new[]{"SVP","SVP 场景融合","FRUC","NVEncC FRUC","NVEncC AI"}[int.Parse(p.Controls["cmbInterpolationMode"])]+" → "+p.Controls["cmbInterpolationFps"]+" fps":"关闭"));
             s.AppendLine("HDR 策略："+(p.Config["HDR_POLICY"]=="AUTO"?"自动（根据输入判断）":p.Config["HDR_POLICY"]=="SDR"?"转 SDR":"保留"));
             bool lut=p.Controls["chkLut"]=="1"&&p.Controls["trackLutStrength"]!="0";
-            s.AppendLine("LUT："+(lut?p.Fields["selectedLutPath"]+"；强度 "+(int.Parse(p.Controls["trackLutStrength"])*25)+"%":"关闭"));
+            s.AppendLine("LUT："+(lut?p.Fields["selectedLutPath"]+"；强度 "+int.Parse(p.Controls["trackLutStrength"])+"%":"关闭"));
             bool color=p.Fields["colorCorrectionEnabled"]=="True";s.AppendLine("调色："+(color?"开启":"关闭"));
             if(color)foreach(string k in new[]{"colorContrast","colorBrightness","colorSaturation","colorGamma","colorBlackWhite"})s.AppendLine(Label(k)+" = "+p.Fields[k]);
             s.AppendLine("画幅："+(p.Controls["chkCinematic"]=="1"?(p.Controls["cmbFrameMode"]=="1"?"裁剪":"加黑边"):"关闭"));
@@ -312,7 +317,7 @@ namespace FilmGrainStudioPreview
             case "cmbContainer":return "容器 [0 MP4 / 1 MKV]";case "cmbSpeed":return "编码速度 [0 快速 / 1 标准 / 2 UHQ]";
             case "chkCq":return "CQ 质量模式";case "cmbBitrate":return "码率或 CQ（自动时显示值不作为手动设置）";
             case "chkBitrateAuto":return "自动码率 / 自动 CQ";case "chkGrainEnabled":return "颗粒开关";case "chkLut":return "LUT 开关";
-            case "trackLutStrength":return "LUT 强度 [0 关闭 / 1 25% / 2 50% / 3 75% / 4 100%]";
+            case "trackLutStrength":return "LUT 强度 [0 关闭 / 1..100 按 1% 调节；v1 预设自动换算]";
             case "cmbInterpolationMode":return "插帧算法 [0 SVP / 1 SVP 场景融合 / 2 FRUC / 3 NVEncC FRUC / 4 NVEncC AI]";case "chkInterpolation":return "插帧开关";
             case "cmbInterpolationFps":return "插帧目标帧率";case "cmbDeint":return "反交错 [0 自动 / 1 关闭]";
             case "cmbDeintMethod":return "反交错算法 [0 Vulkan / 1 CUDA / 2 W3FDIF]";case "chkCinematic":return "电影画幅";

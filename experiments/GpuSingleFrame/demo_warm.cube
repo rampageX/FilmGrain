@@ -1,0 +1,13 @@
+# FGS GPU lab: gentle warm/teal test, for verifying LUT hot switching.
+TITLE "FGS GPU Warm Test"
+LUT_3D_SIZE 2
+DOMAIN_MIN 0 0 0
+DOMAIN_MAX 1 1 1
+0.000 0.000 0.000
+1.000 0.045 0.000
+0.035 0.960 0.015
+1.000 1.000 0.025
+0.000 0.025 0.850
+1.000 0.055 0.870
+0.030 0.995 0.885
+1.000 1.000 1.000

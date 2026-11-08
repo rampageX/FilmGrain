@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.0.56 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.57 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 <table>
   <tr>
@@ -138,6 +138,14 @@ FGSIM 在任务执行前以实际 shader 检查 GPU 输出像素，优先选择�
 - 此窗口只比较颗粒，不包含 LUT、调色、插帧或字幕；HDR 使用 Hable 转 SDR 显示，最终 HDR 效果仍需检查正式输出。它与进度条前的“预览编码（默认 30 秒）”是两个不同入口。
 - 100% 保留原处理流程。外部 Grain Table 低于 100% 时，先缩放所选表的强度曲线，再一次应用颗粒，省去强度调整专用的模型提取和第二次视频流重写；正常编码、不重编码及四档预览共用表缩放逻辑。内置预设低于100%也使用完整原始表先缩放、再一次应用；Photon ISO低于100%时，符合条件的普通逐行SDR、无插帧编码（grav1synth 0.2.2）从实际clean码流小前缀生成模型，先缩放小表再整片apply一次；小模型或尺寸／颜色上下文不符时，在整片apply前沿用原路线。其它ISO分支保留原处理方式；视频像素不因此重新编码。小前缀准备有固定成本，短片不保证更快。
 
+### 高级 GPU 实时预览（独立窗口）
+
+颗粒区域的「高级预览调整…」打开独立的 GPU 单帧交互窗口，可同时调整 **颗粒强度与 3D LUT 强度**，直接拖动滑杆观察变化。支持 AV1／SVT-AV1 的内置胶片预设及已选 Grain Table，以及 HEVC／H.264／x264／SVT 像素扫描模式使用的 Grain Plate（MOV）；也可只预览 3D LUT。AV1 参数颗粒按 1% 步进调整，扫描 Grain Plate 为 15%–100%（5% 步进），LUT 为 0%–100%（1% 步进）。点击「应用到 FGS」才回传选项，直接关闭或取消不修改主界面参数。
+
+打开时自动选择适合当前片长的随机帧；底部可输入时间码、随机换帧或跳转到指定位置。窗口会记住上次位置、大小和最大化状态，并在多屏布局变化时避免跑出屏幕。**拖动滑杆**使用 libplacebo／D3D11 GPU 实时重绘，不重新抽取视频；**换帧**仍使用 FFmpeg 解码一次原片，扫描颗粒则同步抽取对应的循环 Grain Plate 帧。ProRes Grain Plate 支持快速循环定位，在 RTX 4080 用户测试中，颗粒抽帧从约 3–4.5 秒降至约 0.28 秒；原片抽帧时间随素材和硬件变化，不能把换帧延迟等同于滑杆渲染延迟。
+
+当前只支持 **SDR BT.709／有限范围／逐行**，不提供 HDR、隔行源、ISO 实时模型生成、Digital Grain、FGSIM、AV1 不重编码路线或连续视频播放。纯 3D `.cube` LUT 可用，1D／复合 LUT 暂不支持。GPU 窗口用于交互判断颗粒和色调，处理顺序与正式编码存在差异，不能承诺逐像素一致；最终画质以原有编码预览和正式输出为准。原有四档颗粒／LUT 预览保留。
+
 
 完整版本变化、Bug 修复与历史发布记录统一维护在 [`CHANGELOG.md`](CHANGELOG.md)。README 只介绍**当前版本的功能、工作原理、设置方式和使用建议**，不重复记录逐版本更新流水。
 
@@ -156,7 +164,7 @@ FGSIM 在任务执行前以实际 shader 检查 GPU 输出像素，优先选择�
 
 从 [Releases](https://github.com/rampageX/FilmGrain/releases) 下载 `FilmGrain_Studio_v版本_Stable.zip`，解压后启动根目录的 EXE，首次运行按提示指定或安装依赖。对应 `.zip.sha256` 用于校验下载文件。
 
-Stable 不附带开发源码、Legacy 历史实现或项目截图，也不预装完整外部依赖环境。请将开发目录和日常运行副本分开；升级运行副本时保留个人配置及已安装依赖。
+Stable 不附带开发源码、Legacy 历史实现或项目截图，也不预装完整外部依赖环境；但已随包提供 `GpuAdvancedPreview/fgs_gpu_preview.exe` 及其 UCRT64 运行 DLL，无须用户安装 MSYS2。请将开发目录和日常运行副本分开；升级运行副本时保留个人配置及已安装依赖。
 
 维护者执行 `release.bat 版本号` 后，当前开发目录会生成 Stable、Source 及各自 SHA256。Source 包含源码、构建与发布工具、项目图片及运行资源，不含编译后的 EXE；它保留在本地和 Windows runner 的工作流 Artifact 中，不作为额外附件上传到 Release 页面。GitHub 自带的 Source code 下载入口仍指向版本 Tag。
 
@@ -1340,14 +1348,18 @@ GPU、驱动、FFmpeg、相关依赖或探测规则变化后会重新检测；�
 
 ## 工具包结构
 
+以下为 Source／开发仓库的目录示意；Stable 只携带必需运行文件和 `GpuAdvancedPreview/`，不包含 `dotnet/`、`experiments/`、`images/` 或 `Legacy/`。
+
 ```text
 FilmGrain_Studio.exe
+GpuAdvancedPreview/（独立实时预览 EXE、运行 DLL、第三方许可）
 FilmGrain_Config.default.ini
 FilmGrain_Config.ini（用户生成；交付包不携带）
 README.md / CHANGELOG.md
 README_FilmGrain_Studio.txt / README_Toolkit.txt
 STABLE_BASELINE.txt（原始基线与当前验收说明）
 dotnet/（C# 源码、build_NET_Preview.bat、build/兼容 EXE）
+experiments/GpuSingleFrame/（GPU 预览 C 源码与 UCRT64 构建、测试；仅 Source 包）
 Lang/（zh-CN.ini、en-US.ini）
 Utils/（FGS.ico、_FilmGrainSimplified/模板与备用纹理）
 _LUT_Tools/（LUT 参考图；Current 为用户生成）
