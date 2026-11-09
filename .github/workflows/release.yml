@@ -35,6 +35,7 @@ jobs:
         uses: msys2/setup-msys2@v2
         with:
           msystem: UCRT64
+          release: false
           update: true
           install: >-
             mingw-w64-ucrt-x86_64-gcc
