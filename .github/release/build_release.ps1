@@ -495,7 +495,7 @@ $RuntimeFiles = @(
     'Utils/_FilmGrainSimplified/THIRD_PARTY_LICENSE_FilmGrainSimplified.txt',
     '_LUT_Tools/LUT_Reference_Default.jpg'
 )
-$RuntimeDirectories = @('Lang', '_AV1_Grain_Tables', '_OpenSVPFlow', 'GpuAdvancedPreview')
+$RuntimeDirectories = @('Lang', '_AV1_Grain_Tables', '_LUT_Tools/FilmLut', '_OpenSVPFlow', 'GpuAdvancedPreview')
 
 function Get-RuntimeRelativeFiles {
     param([string]$Directory, [string]$Prefix = '')
@@ -553,6 +553,16 @@ function Test-ZipContent {
                 $kind + ': ' + $_.InputObject
             }) -join '; '
             throw ('Runtime ZIP does not match the runtime stage. ' + $details)
+        }
+        # The source-stage audit does not cover the smaller runtime ZIP.
+        # These FilmLut assets are needed by the classic-film preview and encoder.
+        $filmLutFiles = @($RequiredPackageFiles | ForEach-Object { $_.Replace('\', '/') } |
+            Where-Object { $_.StartsWith('_LUT_Tools/FilmLut/', [StringComparison]::OrdinalIgnoreCase) })
+        if (@($filmLutFiles | Where-Object { $_ -like '*.cube' }).Count -ne 5) {
+            throw 'Release manifest does not contain all five classic-film CUBE profiles.'
+        }
+        foreach ($required in $filmLutFiles) {
+            if ($entries -notcontains $required) { throw ('Required FilmLut asset missing from runtime ZIP: ' + $required) }
         }
         if (@($entries | Where-Object { $_ -match '^(dotnet|Legacy|images|benchmark|[.]github)/' }).Count) { throw 'Developer content found in runtime ZIP.' }
         foreach ($entry in $archive.Entries) {
