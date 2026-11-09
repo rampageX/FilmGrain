@@ -93,7 +93,10 @@ internal static class FrameworkApiAudit
                 if(Environment.OSVersion.Platform!=PlatformID.Win32NT)throw new InvalidOperationException("Runtime audit requires Windows .NET Framework; Mono is forbidden.");
                 roots=new string[]{typeof(object).Assembly.Location,typeof(Uri).Assembly.Location,typeof(Enumerable).Assembly.Location,
                     typeof(System.Drawing.Color).Assembly.Location,typeof(System.Windows.Forms.Control).Assembly.Location,
-                    typeof(System.Web.Script.Serialization.JavaScriptSerializer).Assembly.Location}.Select(Path.GetDirectoryName).Distinct().ToArray();
+                    typeof(System.Web.Script.Serialization.JavaScriptSerializer).Assembly.Location}.Select(Path.GetDirectoryName)
+                    .Concat(new string[]{"PresentationCore","PresentationFramework","WindowsBase","WindowsFormsIntegration","System.Xaml"}
+                        .Select(name=>Path.GetDirectoryName(System.Reflection.Assembly.Load(new System.Reflection.AssemblyName(name)).Location)))
+                    .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
             }
             else roots=new string[]{Path.GetFullPath(args[1])};
             using(var resolver=new FrameworkOnlyResolver(roots,!windows))
