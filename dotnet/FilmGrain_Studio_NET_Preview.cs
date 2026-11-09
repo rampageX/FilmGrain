@@ -107,8 +107,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.58";
-        internal const string FileReleaseVersion = "5.0.58.0";
+        internal const string ReleaseVersion = "5.0.59";
+        internal const string FileReleaseVersion = "5.0.59.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -442,6 +442,7 @@ namespace FilmGrainStudioPreview
         
         private string selectedLutPath = "";
         private string selectedLutSource = "None";
+        private FilmLutSettings activeFilmLutSettings;
         private bool colorCorrectionEnabled;
         private double colorContrast = 1.0;
         private double colorBrightness = 0.0;
@@ -1786,8 +1787,8 @@ namespace FilmGrainStudioPreview
             box.Controls.Add(t);
 
             chkLut = Check(lang.T("lut.enable"), false);
-            btnLutGallery = new ThemeButton(); btnLutGallery.Text = lang.T("button.open_lut_gallery"); btnLutGallery.Dock = DockStyle.Fill; btnLutGallery.Margin = new Padding(3);
-            btnColorCorrection = new ThemeButton(); btnColorCorrection.Text = lang.T("button.color_correction"); btnColorCorrection.Dock = DockStyle.Fill; btnColorCorrection.Margin = new Padding(3);
+            btnLutGallery = new ThemeButton(); btnLutGallery.Text = UiText("LUT 图库","LUT Gallery"); btnLutGallery.Dock = DockStyle.Fill; btnLutGallery.Margin = new Padding(3);
+            btnColorCorrection = new ThemeButton(); btnColorCorrection.Text = UiText("LUT 工坊","LUT Studio"); btnColorCorrection.Dock = DockStyle.Fill; btnColorCorrection.Margin = new Padding(3);
             Button clear = new ThemeButton(); clear.Text = lang.T("button.clear_lut"); clear.Dock = DockStyle.Fill; clear.Margin = new Padding(3);
             btnLutGallery.Click += delegate { OpenLutGallery(); };
             btnColorCorrection.Click += delegate { OpenColorCorrection(); };
@@ -4223,7 +4224,10 @@ namespace FilmGrainStudioPreview
                     gallery.PrepareTheme(this);
                     if(gallery.ShowDialog(this)==DialogResult.OK) {
                         if(gallery.DisabledLut){selectedLutPath="";selectedLutSource="None";chkLut.Checked=false;}
-                        else {selectedLutPath=gallery.SelectedLut;selectedLutSource="Gallery";chkLut.Checked=true;}
+                        else {
+                            selectedLutPath=gallery.SelectedLut;selectedLutSource="Gallery";
+                            chkLut.Checked=true;
+                        }
                     }
                 }
             }catch(Exception ex){FgsMessageBox.Show(this,LF("error.lut_gallery_open_failed",ex.Message));}
@@ -4233,8 +4237,7 @@ namespace FilmGrainStudioPreview
         private void UpdateColorCorrectionUi()
         {
             if (btnColorCorrection == null) return;
-            string baseText = lang.T("button.color_correction");
-            btnColorCorrection.Text = colorCorrectionEnabled ? UiText("调色已启用", "Color: ON") : baseText;
+            btnColorCorrection.Text = UiText("LUT 工坊", "LUT Studio");
             btnColorCorrection.UseVisualStyleBackColor = !colorCorrectionEnabled;
             btnColorCorrection.BackColor = colorCorrectionEnabled ? Color.FromArgb(185,65,20) : SystemColors.Control;
             btnColorCorrection.ForeColor = colorCorrectionEnabled ? Color.White : SystemColors.ControlText;
@@ -4367,7 +4370,8 @@ namespace FilmGrainStudioPreview
                     colorBlackWhite,
                     chkLut.Checked && !string.IsNullOrEmpty(selectedLutPath),
                     config.GetBool("COLOR_PREVIEW_LARGE_UI"),
-                    lang.Code, GetSelectedMediaInfo(), config.Get("HDR_POLICY")=="PRESERVE", config.Get("TONE_MAP_ALGO")))
+                    lang.Code, GetSelectedMediaInfo(), config.Get("HDR_POLICY")=="PRESERVE", config.Get("TONE_MAP_ALGO"),
+                    selectedLutSource=="FilmLut"?activeFilmLutSettings:null))
                 {
                     if (dlg.ShowDialog(this) == DialogResult.OK && dlg.Result != null)
                     {
@@ -4382,6 +4386,7 @@ namespace FilmGrainStudioPreview
                         colorBlackWhite = result.BlackWhite;
                         selectedLutPath = result.LutPath ?? "";
                         selectedLutSource = string.IsNullOrEmpty(selectedLutPath) ? "None" : (result.LutSource ?? "Gallery");
+                        activeFilmLutSettings=result.FilmSettings==null?null:result.FilmSettings.Copy();
                         trackLutStrength.Value = Math.Max(0,Math.Min(100,result.LutStrength));
                         chkLut.Checked = result.UseLut && !string.IsNullOrEmpty(selectedLutPath);
 

@@ -10,6 +10,22 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Windows.Forms;
 using System.Web.Script.Serialization;
+using System.Windows.Forms.Integration;
+using System.Runtime.InteropServices;
+using WpfCanvas = System.Windows.Controls.Canvas;
+using WpfImage = System.Windows.Controls.Image;
+using WpfBrushes = System.Windows.Media.Brushes;
+using WpfStretch = System.Windows.Media.Stretch;
+using WpfRenderCapability = System.Windows.Media.RenderCapability;
+using WpfBitmapSource = System.Windows.Media.Imaging.BitmapSource;
+using WpfImaging = System.Windows.Interop.Imaging;
+using WpfKeyboard = System.Windows.Input.Keyboard;
+using WpfKey = System.Windows.Input.Key;
+using WpfBitmapSizeOptions = System.Windows.Media.Imaging.BitmapSizeOptions;
+using WpfMouseButtonState = System.Windows.Input.MouseButtonState;
+using WpfCursors = System.Windows.Input.Cursors;
+using WpfRenderOptions = System.Windows.Media.RenderOptions;
+using WpfBitmapScalingMode = System.Windows.Media.BitmapScalingMode;
 
 namespace FilmGrainStudioPreview
 {
@@ -26,6 +42,7 @@ namespace FilmGrainStudioPreview
         public string LutSource = "None";
         public int LutStrength = 75;
         public byte[] VideoReference;
+        public FilmLutSettings FilmSettings;
     }
 
     internal sealed class NativeColorCorrectionForm : Form, IThemeSurface
@@ -44,6 +61,9 @@ namespace FilmGrainStudioPreview
             public int Serial;
             public double Position;
             public bool Original;
+            public bool Zoom;
+            public int PanX;
+            public int PanY;
             public bool Enabled;
             public double Contrast;
             public double Brightness;
@@ -53,6 +73,24 @@ namespace FilmGrainStudioPreview
             public bool UseLut;
             public string CompatLutPath;
             public int LutStrength;
+            public FilmLutSettings FilmSettings;
+        }
+
+        // Captures both key-down and key-up before focused WinForms controls
+        // consume Space as a button click or a checkbox toggle.
+        private sealed class OriginalSpaceFilter : IMessageFilter
+        {
+            private readonly NativeColorCorrectionForm owner;
+            internal OriginalSpaceFilter(NativeColorCorrectionForm owner) { this.owner=owner; }
+            public bool PreFilterMessage(ref Message message)
+            {
+                if(message.Msg!=0x0100 && message.Msg!=0x0101)return false;
+                if(message.WParam.ToInt64()!=(long)Keys.Space)return false;
+                if(owner.closing||owner.IsDisposed||(!owner.ContainsFocus&&Form.ActiveForm!=owner))return false;
+                owner.spaceOriginalHeld=message.Msg==0x0100;
+                owner.UpdateOriginalHold();
+                return true;
+            }
         }
 
         private readonly MediaProbeInfo hdrPreviewInfo;
@@ -66,6 +104,7 @@ namespace FilmGrainStudioPreview
         private readonly string lutRoot;
         private readonly string lutPreviewRoot;
         private readonly bool isZh;
+        private readonly FilmLutSettings initialFilmSettings;
         private readonly string tempRoot;
         private readonly string compatLutPath;
         private readonly int previewWidth;
@@ -73,6 +112,17 @@ namespace FilmGrainStudioPreview
         private readonly object processLock = new object();
 
         private PictureBox pic;
+        private ElementHost gpuView;
+        private WpfCanvas gpuCanvas;
+        private WpfImage gpuImage;
+        private WpfBitmapSource normalGpuSource,zoomGpuSource,originalGpuSource;
+        private Bitmap zoomFullImage,zoomOriginalImage;
+        private double zoomFullPosition=double.NaN,zoomOriginalPosition=double.NaN;
+        private bool zoomGradedDirty=true;
+        private bool gpuReady;
+        [DllImport("gdi32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool DeleteObject(IntPtr handle);
         private Panel timelinePanel;
         private Label timeLabel;
         private Label status;
@@ -85,17 +135,33 @@ namespace FilmGrainStudioPreview
         private TrackBar lutStrengthTrack;
         private Button openLutGallery;
         private Button originalButton;
+        private GroupBox adjustmentGroup;
+        private Panel filmPanel;
+        private Button filmTabButton,colorTabButton;
+        private CheckBox checkFilm;
+        private ComboBox filmStock;
+        private readonly TrackBar[] filmTracks=new TrackBar[3];
+        private readonly Label[] filmAmounts=new Label[3];
+        private readonly List<Control> colorPageControls=new List<Control>();
+        private readonly Dictionary<string,string> filmPreviewCubes=new Dictionary<string,string>(StringComparer.Ordinal);
+        private bool filmUiSync,filmModeActive;
         private readonly Dictionary<string, AdjustmentControl> adjustments = new Dictionary<string, AdjustmentControl>(StringComparer.OrdinalIgnoreCase);
         private System.Windows.Forms.Timer renderTimer;
 
         private double duration = 1.0;
         private double fps = 24.0;
+        private int sourceWidth,sourceHeight;
         private int timelineValue = 1000;
         private bool timelineDragging;
         private long timelineLastClickTicks;
         private int timelineLastClickX = -1000;
         private bool syncing;
         private bool originalHeld;
+        private bool spaceOriginalHeld,mouseOriginalHeld;
+        private bool zoomPreview,panDragging;
+        private Point panDragStart;
+        private int panX,panY;
+        private readonly OriginalSpaceFilter originalSpaceFilter;
         private bool renderWorkerRunning;
         private bool renderPending;
         private bool renderDue;
@@ -131,7 +197,7 @@ namespace FilmGrainStudioPreview
             bool blackWhite,
             bool useLut,
             bool largeUi,
-            string languageCode, MediaProbeInfo mediaInfo = null, bool preserveHdr = false, string tonemap = "hable")
+            string languageCode, MediaProbeInfo mediaInfo = null, bool preserveHdr = false, string tonemap = "hable",FilmLutSettings filmSettings=null)
         {
             this.videoPath = videoPath;
             hdrPreviewInfo=mediaInfo!=null&&mediaInfo.IsHdr?mediaInfo:null;
@@ -145,6 +211,8 @@ namespace FilmGrainStudioPreview
             this.lutSource = string.IsNullOrEmpty(lutSource) ? "None" : lutSource;
             this.lutStrength = NormalizeStrength(lutStrength);
             this.isZh = !string.Equals(languageCode, "en-US", StringComparison.OrdinalIgnoreCase);
+            originalSpaceFilter=new OriginalSpaceFilter(this);
+            initialFilmSettings=filmSettings==null?null:filmSettings.Copy();
             this.previewWidth = largeUi ? 960 : 720;
             this.previewHeight = largeUi ? 540 : 480;
             tempRoot = Path.Combine(Path.GetTempPath(), "FGS_NET_ColorPreview_" + Guid.NewGuid().ToString("N"));
@@ -156,6 +224,10 @@ namespace FilmGrainStudioPreview
             sourceIdentity.RequireCurrent();
             PrepareLut(this.lutPath);
             BuildUi(largeUi, enabled, contrast, brightness, saturation, gamma, blackWhite, useLut);
+            if(initialFilmSettings!=null && hdrPreviewInfo==null) {
+                SetFilmSettings(initialFilmSettings);
+                SwitchAdjustmentPage(true);
+            }
             if(hdrPreviewInfo!=null)Text+=S(" · SDR显示预览（非HDR亮度校准）"," · SDR display preview (not HDR luminance calibration)");
         }
 
@@ -188,6 +260,14 @@ namespace FilmGrainStudioPreview
         {
             duration = ProbeDouble("-v error -show_entries format=duration -of default=nw=1:nk=1 " + QuoteArg(videoPath), 1.0);
             if (duration <= 0) duration = 1.0;
+
+            string[] dimensions=ProbeText("-v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 " + QuoteArg(videoPath)).Split('x');
+            if(dimensions.Length==2)
+            {
+                int w,h;
+                if(int.TryParse(dimensions[0],out w)&&int.TryParse(dimensions[1],out h)&&w>0&&h>0)
+                {sourceWidth=w;sourceHeight=h;}
+            }
 
             string rate = ProbeText("-v error -select_streams v:0 -show_entries stream=avg_frame_rate -of default=nw=1:nk=1 " + QuoteArg(videoPath));
             double parsed = 24.0;
@@ -266,7 +346,7 @@ namespace FilmGrainStudioPreview
 
         private void BuildUi(bool largeUi, bool enabled, double contrast, double brightness, double saturation, double gamma, bool blackWhite, bool useLut)
         {
-            Text = S("色彩纠正与 LUT 实时预览", "Color Correction and LUT Preview");
+            Text = S("LUT 工坊与色彩纠正", "LUT Studio & Color Correction");
             StartPosition = FormStartPosition.CenterParent;
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
@@ -276,7 +356,8 @@ namespace FilmGrainStudioPreview
             Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
 
             int dialogWidth = largeUi ? 1280 : 1040;
-            int dialogHeight = largeUi ? 700 : 690;
+            // The enlarged frame also needs room for its LUT slider and status.
+            int dialogHeight = largeUi ? 770 : 690;
             int timelineY = 14 + previewHeight + 11;
             int timeLabelY = timelineY + 40;
             int lutRowY = timeLabelY + 29;
@@ -290,6 +371,14 @@ namespace FilmGrainStudioPreview
             pic.BackColor = Color.Black;
             pic.BorderStyle = BorderStyle.FixedSingle;
             pic.SizeMode = PictureBoxSizeMode.Zoom;
+            pic.MouseDoubleClick += PictureMouseDoubleClick;
+            pic.MouseDown += PictureMouseDown;
+            pic.MouseMove += PictureMouseMove;
+            pic.MouseUp += PictureMouseUp;
+            pic.MouseCaptureChanged += delegate {if(!pic.Capture)panDragging=false;};
+            pic.Paint += PicturePaint;
+            new ToolTip().SetToolTip(pic,S("双击切换 1:1 原像素预览；1:1 时按住左键拖动画面",
+                "Double-click for 1:1 native pixels; drag to pan at 1:1"));
             Controls.Add(pic);
 
             timelinePanel = new Panel();
@@ -310,10 +399,21 @@ namespace FilmGrainStudioPreview
             timeLabel.TextAlign = ContentAlignment.MiddleCenter;
             Controls.Add(timeLabel);
 
+            colorTabButton=new ThemeButton{Text=S("色彩纠正","Color correction"),Location=new Point(rightX,14),Size=new Size(135,29)};
+            filmTabButton=new ThemeButton{Text=S("经典胶片","Classic film"),Location=new Point(rightX+143,14),Size=new Size(135,29)};
+            Controls.Add(colorTabButton);Controls.Add(filmTabButton);
+            colorTabButton.Click+=delegate{SwitchAdjustmentPage(false);};
+            filmTabButton.Click+=delegate{
+                SwitchAdjustmentPage(true);
+                if(!filmModeActive){filmModeActive=true;checkFilm.Checked=true;checkLut.Checked=true;lutStrengthTrack.Value=100;UpdateLutUi();RequestRender(true);}
+            };
+            filmTabButton.Enabled=hdrPreviewInfo==null;
+
             GroupBox group = new ThemeGroupBox();
+            adjustmentGroup=group;
             group.Text = S("调整参数", "Adjustments");
-            group.Location = new Point(rightX, 14);
-            group.Size = new Size(278, 480);
+            group.Location = new Point(rightX, 51);
+            group.Size = new Size(278, 443);
             Controls.Add(group);
 
             checkEnable = new ThemeCheckBox();
@@ -352,7 +452,7 @@ namespace FilmGrainStudioPreview
 
             Button reset = new ThemeButton();
             reset.Text = S("恢复默认", "Reset");
-            reset.Location = new Point(18, 438);
+            reset.Location = new Point(18, 401);
             reset.Size = new Size(100, 28);
             reset.Click += delegate
             {
@@ -372,29 +472,24 @@ namespace FilmGrainStudioPreview
             };
             group.Controls.Add(reset);
 
+            foreach(Control colorControl in group.Controls)colorPageControls.Add(colorControl);
+            BuildFilmPanel(group);
+            SwitchAdjustmentPage(false);
+
+            // Shared with both adjustment pages; keyboard and mouse holds combine.
             originalButton = new ThemeButton();
-            originalButton.Text = S("按住查看原图", "Hold for original");
-            originalButton.Location = new Point(130, 438);
-            originalButton.Size = new Size(130, 28);
+            originalButton.Text = S("按住查看原图（空格）", "Hold for original (Space)");
+            originalButton.Location = new Point(rightX+44, group.Bottom+8);
+            originalButton.Size = new Size(190, 32);
             originalButton.MouseDown += delegate(object sender, MouseEventArgs e)
-            {
-                if (e.Button != MouseButtons.Left) return;
-                originalHeld = true;
-                RequestRender(true);
-            };
+            { if(e.Button==MouseButtons.Left){mouseOriginalHeld=true;UpdateOriginalHold();} };
             originalButton.MouseUp += delegate(object sender, MouseEventArgs e)
-            {
-                if (!originalHeld) return;
-                originalHeld = false;
-                RequestRender(true);
-            };
+            { if(e.Button==MouseButtons.Left){mouseOriginalHeld=false;UpdateOriginalHold();} };
             originalButton.MouseLeave += delegate
-            {
-                if (!originalHeld || Control.MouseButtons == MouseButtons.Left) return;
-                originalHeld = false;
-                RequestRender(true);
-            };
-            group.Controls.Add(originalButton);
+            { if(Control.MouseButtons!=MouseButtons.Left){mouseOriginalHeld=false;UpdateOriginalHold();} };
+            originalButton.MouseCaptureChanged += delegate
+            { if(Control.MouseButtons!=MouseButtons.Left){mouseOriginalHeld=false;UpdateOriginalHold();} };
+            Controls.Add(originalButton);
 
             openLutGallery = new ThemeButton();
             openLutGallery.Text = S("打开 LUT 图库…", "Open LUT Gallery…");
@@ -425,42 +520,57 @@ namespace FilmGrainStudioPreview
             int strengthY = lutRowY + 25;
             lutStrengthTitle = new ThemeLabel();
             lutStrengthTitle.Text = S("LUT 强度", "LUT Strength");
-            lutStrengthTitle.Location = new Point(14, strengthY);
-            lutStrengthTitle.Size = new Size(82, 34);
+            int strengthLabelWidth=isZh?66:100;
+            lutStrengthTitle.Location = new Point(14, strengthY+2);
+            lutStrengthTitle.Size = new Size(strengthLabelWidth, 27);
             lutStrengthTitle.TextAlign = ContentAlignment.MiddleLeft;
             Controls.Add(lutStrengthTitle);
 
             lutStrengthTrack = new ThemeTrackBar();
             lutStrengthTrack.Minimum = 0;
             lutStrengthTrack.Maximum = 100;
-            lutStrengthTrack.TickFrequency = 10;
             lutStrengthTrack.SmallChange = 1;
             lutStrengthTrack.LargeChange = 5;
             lutStrengthTrack.Value = lutStrength;
-            lutStrengthTrack.TickStyle = TickStyle.BottomRight;
-            lutStrengthTrack.Location = new Point(96, strengthY);
-            lutStrengthTrack.Size = new Size(previewWidth - 164, 40);
+            lutStrengthTrack.AutoSize = false;
+            lutStrengthTrack.TickStyle = TickStyle.None;
+            lutStrengthTrack.Location = new Point(strengthLabelWidth+14, strengthY+2);
+            lutStrengthTrack.Size = new Size(previewWidth-strengthLabelWidth-86, 28);
             lutStrengthTrack.ValueChanged += delegate { UpdateLutUi(); RequestRender(false); };
             Controls.Add(lutStrengthTrack);
 
             lutStrengthLabel = new ThemeLabel();
-            lutStrengthLabel.Location = new Point(previewWidth - 54, strengthY);
-            lutStrengthLabel.Size = new Size(68, 34);
+            lutStrengthLabel.Location = new Point(previewWidth - 56, strengthY+2);
+            lutStrengthLabel.Size = new Size(68, 27);
             lutStrengthLabel.TextAlign = ContentAlignment.MiddleCenter;
             Controls.Add(lutStrengthLabel);
 
             status = new ThemeLabel();
-            status.Location = new Point(rightX, 510);
-            status.Size = new Size(278, 110);
-            status.TextAlign = ContentAlignment.TopLeft;
+            status.Location = new Point(14, dialogHeight-35);
+            status.Size = new Size(previewWidth, 27);
+            status.AutoEllipsis = true;
+            status.TextAlign = ContentAlignment.MiddleLeft;
+            var statusTip=new ToolTip();
+            status.TextChanged+=delegate{statusTip.SetToolTip(status,status.Text);};
             Controls.Add(status);
 
             Button ok = new ThemeButton();
-            ok.Text = S("确定", "OK");
+            ok.Text = S("应用", "Apply");
             ok.Location = new Point(dialogWidth - 214, buttonY);
             ok.Size = new Size(96, 32);
             ok.Click += delegate
             {
+                string appliedLut=lutPath;
+                FilmLutSettings filmSettings=null;
+                if(filmModeActive && checkLut.Checked) {
+                    try {
+                        Cursor=Cursors.WaitCursor;
+                        filmSettings=CaptureFilmSettings();
+                        appliedLut=FilmLutCore.WriteSessionCube(galleryAppRoot,filmSettings);
+                    }
+                    catch(Exception ex){FgsMessageBox.Show(this,S("胶片 LUT 应用失败：","Film LUT apply failed: ")+ex.Message);return;}
+                    finally{Cursor=Cursors.Default;}
+                }
                 Result = new ColorCorrectionResult();
                 Result.Enabled = checkEnable.Checked;
                 Result.Contrast = (double)adjustments["Contrast"].Number.Value;
@@ -469,10 +579,11 @@ namespace FilmGrainStudioPreview
                 Result.Gamma = (double)adjustments["Gamma"].Number.Value;
                 Result.BlackWhite = checkBlackWhite.Checked;
                 Result.UseLut = checkLut.Checked;
-                Result.LutPath = lutPath;
-                Result.LutSource = string.IsNullOrEmpty(lutPath) ? "None" : lutSource;
+                Result.LutPath = appliedLut;
+                Result.LutSource = filmSettings!=null?"FilmLut":(string.IsNullOrEmpty(appliedLut)?"None":lutSource);
                 Result.LutStrength = lutStrength;
                 Result.VideoReference = displayedVideoReference;
+                Result.FilmSettings=filmSettings;
                 DialogResult = DialogResult.OK;
                 Close();
             };
@@ -498,12 +609,21 @@ namespace FilmGrainStudioPreview
 
             UpdateLutUi();
             UpdateTimeLabel();
-            Shown += delegate { RequestRender(true); };
+            Shown += delegate {Application.AddMessageFilter(originalSpaceFilter);InitializeGpuView();RequestRender(true);};
+            Deactivate += delegate {spaceOriginalHeld=false;mouseOriginalHeld=false;UpdateOriginalHold();};
             FormClosing += delegate { closing = true; CancelActiveRender(); };
             FormClosed += delegate
             {
+                Application.RemoveMessageFilter(originalSpaceFilter);
                 try { renderTimer.Stop(); renderTimer.Dispose(); } catch { }
                 Image old = pic.Image; pic.Image = null; if (old != null) old.Dispose();
+                if(zoomFullImage!=null){zoomFullImage.Dispose();zoomFullImage=null;}
+                if(zoomOriginalImage!=null){zoomOriginalImage.Dispose();zoomOriginalImage=null;}
+                normalGpuSource=zoomGpuSource=originalGpuSource=null;
+                if(gpuImage!=null)gpuImage.Source=null;
+                if(gpuCanvas!=null)gpuCanvas.Children.Clear();
+                if(gpuView!=null){gpuView.Child=null;gpuView.Dispose();gpuView=null;}
+                gpuImage=null;gpuCanvas=null;
                 try { Directory.Delete(tempRoot, true); } catch { }
             };
         }
@@ -588,24 +708,147 @@ namespace FilmGrainStudioPreview
             };
         }
 
+        private void BuildFilmPanel(Control parent)
+        {
+            filmPanel=new Panel{Location=new Point(8,27),Size=new Size(262,405)};
+            parent.Controls.Add(filmPanel);
+            filmPanel.Controls.Add(new ThemeLabel{Text=S("胶片组合","Film combination"),Location=new Point(7,2),Size=new Size(248,23)});
+            filmStock=new ThemeComboBox{Location=new Point(7,27),Size=new Size(248,26),DropDownStyle=ComboBoxStyle.DropDownList};
+            foreach(var profile in FilmLutCore.Profiles)filmStock.Items.Add(isZh?profile.Chinese:profile.English);
+            filmPanel.Controls.Add(filmStock);
+            checkFilm=new ThemeCheckBox{Text=S("启用经典胶片 LUT","Enable classic film LUT"),Location=new Point(7,63),Size=new Size(246,26)};
+            filmPanel.Controls.Add(checkFilm);
+            filmPanel.Controls.Add(new ThemeLabel{Text=S("真实光谱基准 · 下方原有滑杆调整 LUT 强度","Spectral film base · LUT strength below preview"),
+                Location=new Point(7,94),Size=new Size(248,29)});
+            AddFilmAdjustment(0,S("曝光","Exposure"),-10,10,0,126);
+            AddFilmAdjustment(1,S("冷暖","Warmth"),-40,40,0,202);
+            AddFilmAdjustment(2,S("饱和度","Saturation"),70,130,100,278);
+            var reset=new ThemeButton{Text=S("恢复默认","Reset"),Location=new Point(5,357),Size=new Size(76,31)};
+            var load=new ThemeButton{Text=S("载入配方","Load recipe"),Location=new Point(88,357),Size=new Size(80,31)};
+            var save=new ThemeButton{Text=S("保存 LUT…","Save LUT…"),Location=new Point(175,357),Size=new Size(80,31)};
+            filmPanel.Controls.Add(reset);filmPanel.Controls.Add(load);filmPanel.Controls.Add(save);
+            filmStock.SelectedIndexChanged+=delegate{if(!filmUiSync&&filmStock.SelectedIndex>=0){filmModeActive=true;checkFilm.Checked=true;checkLut.Checked=true;RequestRender(false);}};
+            checkFilm.CheckedChanged+=delegate{if(!filmUiSync){filmModeActive=checkFilm.Checked;if(filmModeActive)checkLut.Checked=true;UpdateLutUi();RequestRender(false);}};
+            reset.Click+=delegate{SetFilmSettings(FilmLutSettings.Default(FilmLutCore.Profiles[filmStock.SelectedIndex].Id));};
+            load.Click+=delegate{LoadFilmRecipe();};
+            save.Click+=delegate{SaveFilmLut();};
+            filmUiSync=true;
+            filmStock.SelectedIndex=1;
+            filmUiSync=false;
+        }
+
+        private void AddFilmAdjustment(int index,string caption,int min,int max,int value,int y)
+        {
+            var title=new ThemeLabel{Text=caption,Location=new Point(7,y),Size=new Size(161,22)};
+            var amount=new ThemeLabel{Location=new Point(177,y),Size=new Size(76,22),TextAlign=ContentAlignment.MiddleRight};
+            // Native TrackBar.AutoSize otherwise silently increases its height
+            // and covers the following label (three labels were clipped in R7Q4VX).
+            var slider=new ThemeTrackBar{AutoSize=false,Minimum=min,Maximum=max,Value=value,
+                TickStyle=TickStyle.None,SmallChange=1,LargeChange=5,
+                Location=new Point(5,y+26),Size=new Size(250,29)};
+            filmTracks[index]=slider;filmAmounts[index]=amount;
+            filmPanel.Controls.Add(title);filmPanel.Controls.Add(amount);filmPanel.Controls.Add(slider);
+            slider.ValueChanged+=delegate{UpdateFilmLabels();if(!filmUiSync){filmModeActive=true;checkFilm.Checked=true;RequestRender(false);}};
+            UpdateFilmLabels();
+        }
+
+        private void UpdateFilmLabels()
+        {
+            for(int i=0;i<3;i++) {
+                if(filmTracks[i]==null||filmAmounts[i]==null)continue;
+                int n=filmTracks[i].Value;
+                filmAmounts[i].Text=i==0?(n/10.0).ToString("+0.0;-0.0;0.0",CultureInfo.CurrentCulture)+" EV":
+                    i==1?(n>0?"+":"")+n.ToString(CultureInfo.CurrentCulture):n.ToString(CultureInfo.CurrentCulture)+"%";
+            }
+        }
+
+        private void SwitchAdjustmentPage(bool showFilm)
+        {
+            foreach(Control control in colorPageControls)control.Visible=!showFilm;
+            if(filmPanel!=null)filmPanel.Visible=showFilm;
+            if(adjustmentGroup!=null)adjustmentGroup.Text=showFilm?S("经典胶片 LUT","Classic Film LUT"):S("色彩纠正","Color Correction");
+            if(colorTabButton!=null)colorTabButton.Text=(showFilm?"":"● ")+S("色彩纠正","Color correction");
+            if(filmTabButton!=null)filmTabButton.Text=(showFilm?"● ":"")+S("经典胶片","Classic film");
+        }
+
+        private FilmLutSettings CaptureFilmSettings()
+        {
+            if(filmStock==null||filmStock.SelectedIndex<0)throw new InvalidOperationException("No film stock selected.");
+            var settings=new FilmLutSettings{ProfileId=FilmLutCore.Profiles[filmStock.SelectedIndex].Id,
+                ExposureTenths=filmTracks[0].Value,Warmth=filmTracks[1].Value,
+                Saturation=filmTracks[2].Value,Strength=lutStrengthTrack.Value};
+            settings.Validate();return settings;
+        }
+
+        private void SetFilmSettings(FilmLutSettings settings)
+        {
+            settings.Validate();
+            filmUiSync=true;
+            try {
+                for(int i=0;i<FilmLutCore.Profiles.Length;i++)if(FilmLutCore.Profiles[i].Id==settings.ProfileId){filmStock.SelectedIndex=i;break;}
+                filmTracks[0].Value=settings.ExposureTenths;
+                filmTracks[1].Value=settings.Warmth;
+                filmTracks[2].Value=settings.Saturation;
+                lutStrengthTrack.Value=settings.Strength;
+                checkFilm.Checked=true;filmModeActive=true;
+                checkLut.Checked=true;
+            }finally{filmUiSync=false;}
+            UpdateFilmLabels();SwitchAdjustmentPage(true);UpdateLutUi();RequestRender(true);
+        }
+
+        private void LoadFilmRecipe()
+        {
+            using(var dialog=new OpenFileDialog{Title=S("载入胶片配方","Load film recipe"),
+                Filter="FGS Film LUT recipe (*.film.json)|*.film.json|JSON (*.json)|*.json",
+                InitialDirectory=Path.Combine(lutRoot,"FGS_FilmLUT")}) {
+                if(dialog.ShowDialog(this)!=DialogResult.OK)return;
+                try {FilmLutSettings settings;FilmLutCore.ReadRecipe(dialog.FileName,out settings);SetFilmSettings(settings);}
+                catch(Exception ex){FgsMessageBox.Show(this,S("配方读取失败：","Could not read recipe: ")+ex.Message);}
+            }
+        }
+
+        private void SaveFilmLut()
+        {
+            FilmLutSettings settings;
+            try{settings=CaptureFilmSettings();}catch(Exception ex){FgsMessageBox.Show(this,ex.Message);return;}
+            string folder=Path.Combine(lutRoot,"FGS_FilmLUT");
+            try{Directory.CreateDirectory(folder);}catch(Exception ex){FgsMessageBox.Show(this,ex.Message);return;}
+            using(var dialog=new SaveFileDialog{Title=S("保存胶片 LUT（不自动应用）","Save film LUT (without applying)"),
+                Filter="3D LUT (*.cube)|*.cube",DefaultExt="cube",AddExtension=true,OverwritePrompt=true,
+                InitialDirectory=folder,FileName="FGS_"+settings.ProfileId+"_"+DateTime.Now.ToString("yyyyMMdd_HHmmss",CultureInfo.InvariantCulture)+".cube"}) {
+                if(dialog.ShowDialog(this)!=DialogResult.OK)return;
+                try {
+                    Cursor=Cursors.WaitCursor;
+                    FilmLutSettings full=settings.Copy();full.Strength=100;
+                    FilmLutCore.WriteCube(dialog.FileName,FilmLutCube.Read(FilmLutCore.ProfilePath(galleryAppRoot,settings.ProfileId)),full);
+                    FilmLutCore.WriteRecipe(Path.ChangeExtension(dialog.FileName,".film.json"),settings);
+                    status.Text=S("已保存（未应用）：","Saved (not applied): ")+Path.GetFileName(dialog.FileName);
+                }catch(Exception ex){FgsMessageBox.Show(this,S("LUT 保存失败：","Could not save LUT: ")+ex.Message);}
+                finally{Cursor=Cursors.Default;}
+            }
+        }
+
         private void UpdateLutUi()
         {
             lutStrength = Math.Max(0,Math.Min(100,lutStrengthTrack.Value));
             lutStrengthLabel.Text = lutStrength.ToString(CultureInfo.InvariantCulture) + "%";
-            bool available = !string.IsNullOrEmpty(activeCompatLutPath) && File.Exists(activeCompatLutPath);
+            bool available = filmModeActive || (!string.IsNullOrEmpty(activeCompatLutPath) && File.Exists(activeCompatLutPath));
             checkLut.Enabled = available;
             if (!available && checkLut.Checked) checkLut.Checked = false;
             lutStrengthTrack.Enabled = available && checkLut.Checked;
             lutStrengthTitle.Enabled = lutStrengthTrack.Enabled;
             lutStrengthLabel.Enabled = lutStrengthTrack.Enabled;
-            lutLabel.Text = available ? Path.GetFileName(lutPath) : S("未选择 LUT", "No LUT selected");
+            lutLabel.Text = filmModeActive&&filmStock.SelectedIndex>=0?
+                FilmLutCore.Profiles[filmStock.SelectedIndex].Chinese:
+                (available ? Path.GetFileName(lutPath) : S("未选择 LUT", "No LUT selected"));
         }
 
         private void UpdateTimeLabel()
         {
             TimeSpan pos = TimeSpan.FromSeconds(CurrentTime());
             TimeSpan total = TimeSpan.FromSeconds(duration);
-            timeLabel.Text = pos.ToString(@"hh\:mm\:ss\.fff", CultureInfo.InvariantCulture) + " / " + total.ToString(@"hh\:mm\:ss\.fff", CultureInfo.InvariantCulture);
+            timeLabel.Text = pos.ToString(@"hh\:mm\:ss\.fff", CultureInfo.InvariantCulture) + " / " + total.ToString(@"hh\:mm\:ss\.fff", CultureInfo.InvariantCulture) +
+                (zoomPreview?" · 1:1":"");
         }
 
         private double CurrentTime()
@@ -692,9 +935,202 @@ namespace FilmGrainStudioPreview
             if (Control.MouseButtons == MouseButtons.None) timelineDragging = false;
         }
 
+        // WinForms hosts the controls; WPF's D3D compositor owns only the preview
+        // rectangle. Rendering remains the same FFmpeg filter graph as encoding.
+        // The full-resolution frame is uploaded ONCE; pan only updates coordinates.
+        private void InitializeGpuView()
+        {
+            if(gpuReady || closing)return;
+            try
+            {
+                if(WpfRenderCapability.Tier<0x20000)return;
+                gpuCanvas=new WpfCanvas { Background=WpfBrushes.Black, ClipToBounds=true, Focusable=true };
+                gpuImage=new WpfImage { Stretch=WpfStretch.Fill, IsHitTestVisible=false };
+                gpuCanvas.Children.Add(gpuImage);
+                gpuView=new ElementHost { Location=pic.Location, Size=pic.Size, BackColor=Color.Black, Child=gpuCanvas };
+                gpuCanvas.MouseLeftButtonDown+=delegate(object sender,System.Windows.Input.MouseButtonEventArgs e)
+                {
+                    var p=e.GetPosition(gpuCanvas);
+                    int x=(int)Math.Round(p.X*gpuView.ClientSize.Width/Math.Max(1,gpuCanvas.ActualWidth));
+                    int y=(int)Math.Round(p.Y*gpuView.ClientSize.Height/Math.Max(1,gpuCanvas.ActualHeight));
+                    if(e.ClickCount>=2)PictureMouseDoubleClick(sender,new MouseEventArgs(MouseButtons.Left,2,x,y,0));
+                    else
+                    {
+                        PictureMouseDown(sender,new MouseEventArgs(MouseButtons.Left,1,x,y,0));
+                        if(panDragging)gpuCanvas.CaptureMouse();
+                    }
+                    gpuCanvas.Focus();
+                    e.Handled=true;
+                };
+                gpuCanvas.MouseMove+=delegate(object sender,System.Windows.Input.MouseEventArgs e)
+                {
+                    if(!panDragging || e.LeftButton!=WpfMouseButtonState.Pressed)return;
+                    var p=e.GetPosition(gpuCanvas);
+                    int x=(int)Math.Round(p.X*gpuView.ClientSize.Width/Math.Max(1,gpuCanvas.ActualWidth));
+                    int y=(int)Math.Round(p.Y*gpuView.ClientSize.Height/Math.Max(1,gpuCanvas.ActualHeight));
+                    PictureMouseMove(sender,new MouseEventArgs(MouseButtons.Left,1,x,y,0));
+                    e.Handled=true;
+                };
+                gpuCanvas.MouseLeftButtonUp+=delegate(object sender,System.Windows.Input.MouseButtonEventArgs e)
+                {
+                    PictureMouseUp(sender,new MouseEventArgs(MouseButtons.Left,1,0,0,0));
+                    if(gpuCanvas.IsMouseCaptured)gpuCanvas.ReleaseMouseCapture();
+                    e.Handled=true;
+                };
+                gpuCanvas.LostMouseCapture+=delegate{panDragging=false;};
+                gpuCanvas.PreviewKeyDown+=delegate(object sender,System.Windows.Input.KeyEventArgs e)
+                {if(e.Key==WpfKey.Space){spaceOriginalHeld=true;UpdateOriginalHold();e.Handled=true;}};
+                gpuCanvas.PreviewKeyUp+=delegate(object sender,System.Windows.Input.KeyEventArgs e)
+                {if(e.Key==WpfKey.Space){spaceOriginalHeld=false;UpdateOriginalHold();e.Handled=true;}};
+                gpuCanvas.SizeChanged+=delegate{UpdateGpuDisplay();};
+                Controls.Add(gpuView);
+                gpuView.BringToFront();
+                pic.Visible=false;
+                gpuReady=true;
+                UpdateGpuDisplay();
+            }
+            catch { DisableGpuView(); }
+        }
+
+        private void DisableGpuView()
+        {
+            gpuReady=false;
+            normalGpuSource=zoomGpuSource=originalGpuSource=null;
+            try
+            {
+                if(gpuImage!=null)gpuImage.Source=null;
+                if(gpuCanvas!=null)gpuCanvas.Children.Clear();
+            }
+            catch { }
+            if(gpuView!=null)
+            {
+                try { gpuView.Child=null;gpuView.Dispose(); } catch { }
+                gpuView=null;
+            }
+            gpuCanvas=null;gpuImage=null;
+            if(pic!=null && !pic.IsDisposed){pic.Visible=true;pic.Invalidate();}
+        }
+
+        private static WpfBitmapSource UploadGpuFrame(Bitmap bitmap)
+        {
+            if(bitmap==null)return null;
+            IntPtr handle=bitmap.GetHbitmap();
+            try
+            {
+                var source=WpfImaging.CreateBitmapSourceFromHBitmap(handle,IntPtr.Zero,
+                    System.Windows.Int32Rect.Empty,WpfBitmapSizeOptions.FromEmptyOptions());
+                source.Freeze();
+                return source;
+            }
+            finally {DeleteObject(handle);}
+        }
+
+        private void UpdateGpuDisplay()
+        {
+            if(!gpuReady || gpuCanvas==null || gpuImage==null)return;
+            try
+            {
+                bool zoom=zoomPreview;
+                var source=zoom?(originalHeld?originalGpuSource:zoomGpuSource):normalGpuSource;
+                if(source==null) {gpuImage.Source=null;return;}
+                if(!object.ReferenceEquals(gpuImage.Source,source))gpuImage.Source=source;
+                WpfRenderOptions.SetBitmapScalingMode(gpuImage,zoom?WpfBitmapScalingMode.NearestNeighbor:WpfBitmapScalingMode.HighQuality);
+                double w=Math.Max(1,gpuCanvas.ActualWidth),h=Math.Max(1,gpuCanvas.ActualHeight);
+                if(zoom)
+                {
+                    double sx=w/Math.Max(1,gpuView.ClientSize.Width);
+                    double sy=h/Math.Max(1,gpuView.ClientSize.Height);
+                    gpuImage.Width=source.PixelWidth*sx;
+                    gpuImage.Height=source.PixelHeight*sy;
+                    WpfCanvas.SetLeft(gpuImage,(w-gpuImage.Width)/2-panX*sx);
+                    WpfCanvas.SetTop(gpuImage,(h-gpuImage.Height)/2-panY*sy);
+                }
+                else
+                {
+                    gpuImage.Width=w;gpuImage.Height=h;
+                    WpfCanvas.SetLeft(gpuImage,0);
+                    WpfCanvas.SetTop(gpuImage,0);
+                }
+            }
+            catch {DisableGpuView();}
+        }
+
+        // Fallback also draws FROM A CACHED full frame without invoking FFmpeg.
+        private void PicturePaint(object sender,PaintEventArgs e)
+        {
+            if(!zoomPreview || gpuReady)return;
+            Bitmap bitmap=originalHeld?zoomOriginalImage:zoomFullImage;
+            if(bitmap==null)return;
+            e.Graphics.Clear(Color.Black);
+            e.Graphics.InterpolationMode=System.Drawing.Drawing2D.InterpolationMode.NearestNeighbor;
+            e.Graphics.PixelOffsetMode=System.Drawing.Drawing2D.PixelOffsetMode.Half;
+            e.Graphics.DrawImage(bitmap,(pic.ClientSize.Width-bitmap.Width)/2-panX,
+                (pic.ClientSize.Height-bitmap.Height)/2-panY,bitmap.Width,bitmap.Height);
+        }
+
+        private void UpdateOriginalHold()
+        {
+            bool next=spaceOriginalHeld||mouseOriginalHeld;
+            if(originalHeld==next)return;
+            originalHeld=next;
+            if(zoomPreview && (originalHeld || !zoomGradedDirty) && (originalHeld?zoomOriginalImage:zoomFullImage)!=null &&
+                (originalHeld?zoomOriginalPosition:zoomFullPosition)==CurrentTime())
+            {
+                if(gpuReady)UpdateGpuDisplay();else pic.Invalidate();
+                return;
+            }
+            RequestRender(true);
+        }
+
+        private void PictureMouseDoubleClick(object sender,MouseEventArgs e)
+        {
+            if(e.Button!=MouseButtons.Left)return;
+            zoomPreview=!zoomPreview;
+            panDragging=false;
+            panX=0;panY=0;
+            pic.Cursor=zoomPreview?Cursors.SizeAll:Cursors.Default;
+            if(gpuReady)gpuCanvas.Cursor=zoomPreview?WpfCursors.SizeAll:WpfCursors.Arrow;
+            pic.SizeMode=zoomPreview?PictureBoxSizeMode.Normal:PictureBoxSizeMode.Zoom;
+            if(zoomPreview){Image old=pic.Image;pic.Image=null;if(old!=null)old.Dispose();}
+            UpdateTimeLabel();
+            RequestRender(true);
+        }
+
+        private void PictureMouseDown(object sender,MouseEventArgs e)
+        {
+            if(!zoomPreview||e.Button!=MouseButtons.Left)return;
+            panDragging=true;
+            panDragStart=e.Location;
+            if(!gpuReady)pic.Capture=true;
+        }
+
+        private void PictureMouseMove(object sender,MouseEventArgs e)
+        {
+            if(!panDragging||!zoomPreview||e.Button!=MouseButtons.Left)return;
+            int dx=e.X-panDragStart.X,dy=e.Y-panDragStart.Y;
+            panDragStart=e.Location;
+            Bitmap zoomImage=originalHeld?zoomOriginalImage:zoomFullImage;
+            int imageWidth=zoomImage!=null?zoomImage.Width:sourceWidth;
+            int imageHeight=zoomImage!=null?zoomImage.Height:sourceHeight;
+            int limitX=Math.Max(0,(imageWidth-pic.ClientSize.Width)/2);
+            int limitY=Math.Max(0,(imageHeight-pic.ClientSize.Height)/2);
+            int x=Math.Max(-limitX,Math.Min(limitX,panX-dx));
+            int y=Math.Max(-limitY,Math.Min(limitY,panY-dy));
+            if(x==panX&&y==panY)return;
+            panX=x;panY=y;
+            if(gpuReady)UpdateGpuDisplay();else pic.Invalidate();
+        }
+
+        private void PictureMouseUp(object sender,MouseEventArgs e)
+        {
+            if(e.Button!=MouseButtons.Left||!panDragging)return;
+            panDragging=false;
+        }
+
         private void RequestRender(bool immediate)
         {
             if (closing || IsDisposed) return;
+            zoomGradedDirty=true;
             renderSerial++;
             renderPending = true;
             renderDue = false;
@@ -723,6 +1159,7 @@ namespace FilmGrainStudioPreview
             Thread worker = new Thread(delegate()
             {
                 Bitmap image = null;
+                Bitmap fullOriginal = null;
                 string error = "";
                 Stopwatch watch = Stopwatch.StartNew();
                 byte[] reference = null;
@@ -730,6 +1167,8 @@ namespace FilmGrainStudioPreview
                 {
                     if(cachedVideoReference==null || cachedReferencePosition!=state.Position)
                     {
+                        // Keep the whole source frame for the main window's LUT
+                        // reference even if this editor is showing a 1:1 crop.
                         var originalState=new RenderState {Serial=-state.Serial-1,Position=state.Position,Original=true};
                         using(var clean=RenderPreview(originalState))
                         using(var stream=new MemoryStream())
@@ -739,10 +1178,23 @@ namespace FilmGrainStudioPreview
                         }
                     }
                     reference=cachedVideoReference;
+                    // A new time position needs one native original for instant
+                    // Space bypass. Never regenerate it for panning or grading.
+                    if(state.Zoom && zoomOriginalPosition!=state.Position)
+                    {
+                        var cleanState=new RenderState { Serial=-state.Serial-2,
+                            Position=state.Position, Original=true, Zoom=true };
+                        fullOriginal=RenderPreview(cleanState);
+                    }
                     if(state.Original)
                     {
-                        using(var stream=new MemoryStream(reference))
-                        using(var clean=Image.FromStream(stream))image=new Bitmap(clean);
+                        if(state.Zoom)
+                        {
+                            if(fullOriginal!=null){image=fullOriginal;fullOriginal=null;}
+                            else image=RenderPreview(state);
+                        }
+                        else using(var stream=new MemoryStream(reference))
+                            using(var clean=Image.FromStream(stream))image=new Bitmap(clean);
                     }
                     else image=RenderPreview(state);
                 }
@@ -753,6 +1205,7 @@ namespace FilmGrainStudioPreview
                 if (closing || IsDisposed)
                 {
                     if (image != null) image.Dispose();
+                    if (fullOriginal != null) fullOriginal.Dispose();
                     return;
                 }
 
@@ -766,6 +1219,7 @@ namespace FilmGrainStudioPreview
                             if (closing || IsDisposed)
                             {
                                 if (image != null) image.Dispose();
+                                if (fullOriginal != null) fullOriginal.Dispose();
                                 return;
                             }
 
@@ -773,11 +1227,48 @@ namespace FilmGrainStudioPreview
                             if (state.Serial == renderSerial && image != null)
                             {
                                 displayedVideoReference=reference;
-                                Image oldImage = pic.Image;
-                                pic.Image = image;
-                                if (oldImage != null) oldImage.Dispose();
-                                image = null;
-                                status.Text = S("预览已更新 · ", "Preview updated · ") + elapsedMs.ToString(CultureInfo.InvariantCulture) + " ms";
+                                if(state.Zoom)
+                                {
+                                    if(fullOriginal!=null)
+                                    {
+                                        if(zoomOriginalImage!=null)zoomOriginalImage.Dispose();
+                                        zoomOriginalImage=fullOriginal;
+                                        zoomOriginalPosition=state.Position;
+                                        fullOriginal=null;
+                                        if(gpuReady)try{originalGpuSource=UploadGpuFrame(zoomOriginalImage);}catch{DisableGpuView();}
+                                    }
+                                    if(state.Original)
+                                    {
+                                        if(zoomOriginalImage!=null)zoomOriginalImage.Dispose();
+                                        zoomOriginalImage=image;
+                                        zoomOriginalPosition=state.Position;
+                                        image=null;
+                                        if(gpuReady)try{originalGpuSource=UploadGpuFrame(zoomOriginalImage);}catch{DisableGpuView();}
+                                    }
+                                    else
+                                    {
+                                        if(zoomFullImage!=null)zoomFullImage.Dispose();
+                                        zoomFullImage=image;
+                                        zoomFullPosition=state.Position;
+                                        image=null;
+                                        zoomGradedDirty=false;
+                                        if(gpuReady)try{zoomGpuSource=UploadGpuFrame(zoomFullImage);}catch{DisableGpuView();}
+                                    }
+                                    Image oldImage=pic.Image;pic.Image=null;
+                                    if(oldImage!=null)oldImage.Dispose();
+                                    pic.Invalidate();
+                                }
+                                else
+                                {
+                                    Image oldImage=pic.Image;
+                                    pic.Image=image;
+                                    if(gpuReady)try{normalGpuSource=UploadGpuFrame(image);}catch{DisableGpuView();}
+                                    image=null;
+                                    if(oldImage!=null)oldImage.Dispose();
+                                }
+                                UpdateGpuDisplay();
+                                status.Text = S("预览已更新 · ", "Preview updated · ") + elapsedMs.ToString(CultureInfo.InvariantCulture) +
+                                    " ms · " + (gpuReady ? "GPU" : S("缓存显示", "Cached display"));
                             }
                             else if (state.Serial == renderSerial && !string.IsNullOrEmpty(error))
                             {
@@ -785,6 +1276,7 @@ namespace FilmGrainStudioPreview
                             }
 
                             if (image != null) image.Dispose();
+                            if (fullOriginal != null) fullOriginal.Dispose();
 
                             // If the debounce timer already elapsed while FFmpeg was busy,
                             // render the newest state immediately. Otherwise the active timer
@@ -795,12 +1287,14 @@ namespace FilmGrainStudioPreview
                         {
                             renderWorkerRunning = false;
                             if (image != null) image.Dispose();
+                            if (fullOriginal != null) fullOriginal.Dispose();
                         }
                     });
                 }
                 catch
                 {
                     if (image != null) image.Dispose();
+                    if (fullOriginal != null) fullOriginal.Dispose();
                 }
             });
             worker.IsBackground = true;
@@ -814,16 +1308,32 @@ namespace FilmGrainStudioPreview
             state.Serial = renderSerial;
             state.Position = CurrentTime();
             state.Original = originalHeld;
+            state.Zoom=zoomPreview;
+            state.PanX=panX;state.PanY=panY;
             state.Enabled = checkEnable.Checked;
             state.Contrast = (double)adjustments["Contrast"].Number.Value;
             state.Brightness = (double)adjustments["Brightness"].Number.Value;
             state.Saturation = (double)adjustments["Saturation"].Number.Value;
             state.Gamma = (double)adjustments["Gamma"].Number.Value;
             state.BlackWhite = checkBlackWhite.Checked;
-            state.UseLut = checkLut.Checked && lutStrength>0 && !string.IsNullOrEmpty(activeCompatLutPath);
+            state.UseLut = checkLut.Checked && lutStrength>0 && (filmModeActive || !string.IsNullOrEmpty(activeCompatLutPath));
             state.CompatLutPath = activeCompatLutPath;
             state.LutStrength = lutStrength;
+            if(filmModeActive)state.FilmSettings=CaptureFilmSettings();
             return state;
+        }
+
+        private string FilmCubeForPreview(FilmLutSettings settings)
+        {
+            string key=settings.ProfileId+"_"+settings.ExposureTenths.ToString(CultureInfo.InvariantCulture)+"_"+
+                settings.Warmth.ToString(CultureInfo.InvariantCulture)+"_"+settings.Saturation.ToString(CultureInfo.InvariantCulture);
+            string file;
+            if(filmPreviewCubes.TryGetValue(key,out file)&&File.Exists(file))return file;
+            file=Path.Combine(tempRoot,"film_"+filmPreviewCubes.Count.ToString(CultureInfo.InvariantCulture)+".cube");
+            var full=settings.Copy();full.Strength=100;
+            FilmLutCore.WriteCube(file,FilmLutCube.Read(FilmLutCore.ProfilePath(galleryAppRoot,full.ProfileId)),full);
+            filmPreviewCubes[key]=file;
+            return file;
         }
 
         private Bitmap RenderPreview(RenderState state)
@@ -833,7 +1343,11 @@ namespace FilmGrainStudioPreview
             try { if (File.Exists(output)) File.Delete(output); } catch { }
 
             List<string> prefix = new List<string>();
-            prefix.Add("scale=" + previewWidth.ToString(CultureInfo.InvariantCulture) + ":" + previewHeight.ToString(CultureInfo.InvariantCulture) + ":force_original_aspect_ratio=decrease:force_divisible_by=2:flags=bilinear");
+            // At 1:1 keep the ENTIRE native frame, preserving exactly the
+            // encoder's FFmpeg grading filters. WPF/GDI pans this cached image
+            // without FFmpeg, LUT recomputation, decoding, or texture uploads.
+            if(state.Zoom)prefix.Add("null");
+            else prefix.Add("scale=" + previewWidth.ToString(CultureInfo.InvariantCulture) + ":" + previewHeight.ToString(CultureInfo.InvariantCulture) + ":force_original_aspect_ratio=decrease:force_divisible_by=2:flags=bilinear");
             if(hdrPreviewInfo!=null && !preserveHdrColor)prefix.Add(HdrColorProcessingCore.DisplayToSdr(hdrPreviewInfo,previewTonemap));
             if (!state.Original && state.Enabled && hdrPreviewInfo!=null && preserveHdrColor)
             {
@@ -850,13 +1364,14 @@ namespace FilmGrainStudioPreview
             }
 
             string filter = string.Join(",", prefix.ToArray());
-            if (!state.Original && state.UseLut && !string.IsNullOrEmpty(state.CompatLutPath))
+            if (!state.Original && state.UseLut)
             {
-                string lutForPreview=state.CompatLutPath;
+                string lutForPreview=state.FilmSettings!=null?FilmCubeForPreview(state.FilmSettings):state.CompatLutPath;
                 string resolvedOpacity="1.00";
                 if(state.LutStrength<100) {
+                    string strengthSource=lutForPreview;
                     lutForPreview=Path.Combine(tempRoot,"lut_strength_"+state.Serial.ToString(CultureInfo.InvariantCulture)+".cube");
-                    resolvedOpacity=LutStrengthCore.CreateFile(state.CompatLutPath,lutForPreview,state.LutStrength);preparedStrengthLut=lutForPreview;
+                    resolvedOpacity=LutStrengthCore.CreateFile(strengthSource,lutForPreview,state.LutStrength);preparedStrengthLut=lutForPreview;
                 }
                 string escaped = EscapeFilterPath(lutForPreview);
                 if(hdrPreviewInfo!=null && preserveHdrColor)
@@ -870,7 +1385,7 @@ namespace FilmGrainStudioPreview
                 }
             }
             if(hdrPreviewInfo!=null && preserveHdrColor)filter+=","+HdrColorProcessingCore.DisplayToSdr(hdrPreviewInfo,previewTonemap);
-            filter += ",pad=" + previewWidth.ToString(CultureInfo.InvariantCulture) + ":" + previewHeight.ToString(CultureInfo.InvariantCulture) + ":(ow-iw)/2:(oh-ih)/2:black";
+            if(!state.Zoom)filter += ",pad=" + previewWidth.ToString(CultureInfo.InvariantCulture) + ":" + previewHeight.ToString(CultureInfo.InvariantCulture) + ":(ow-iw)/2:(oh-ih)/2:black";
 
             sourceIdentity.RequireCurrent();
             ProcessStartInfo psi = new ProcessStartInfo();
@@ -938,10 +1453,13 @@ namespace FilmGrainStudioPreview
             try {
                 using(var gallery=new NativeLutGalleryForm(galleryAppRoot,ffmpegPath,lutRoot,lutPreviewRoot)) {
                     if(gallery.ShowDialog(this)==DialogResult.OK) {
+                        filmUiSync=true;
+                        try {filmModeActive=false;checkFilm.Checked=false;}finally{filmUiSync=false;}
                         if(gallery.DisabledLut){PrepareLut("");lutSource="None";}
                         else {PrepareLut(gallery.SelectedLut);lutSource="Gallery";}
                         syncing=true;
                         try{checkLut.Checked=!gallery.DisabledLut&&!string.IsNullOrEmpty(activeCompatLutPath);}finally{syncing=false;}
+                        SwitchAdjustmentPage(false);
                     }
                 }
                 UpdateLutUi();RequestRender(true);

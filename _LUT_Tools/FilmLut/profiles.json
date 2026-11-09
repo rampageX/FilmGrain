@@ -1,0 +1,56 @@
+{
+  "generator": "JanLohse/spectral_film_lut",
+  "commit": "bcbcfc6861f49cc706dc5d00ea048e4853060aab",
+  "license": "MIT",
+  "lut_size": 33,
+  "input": "ITU-R BT.709 (transfer decoding by colour-science)",
+  "output": "Rec.709 / Gamma 2.4",
+  "mode": "full, direct spectral printing (APD off)",
+  "profiles": [
+    {
+      "id": "Vision3_50D_2383",
+      "negative": "Kodak Vision3 50D 5203",
+      "print": "Kodak Vision 2383",
+      "file": "Vision3_50D_2383.cube",
+      "sha256": "420eafa17c775f97d51c86c3c2164483ef8a0bf245bdf6b357cb035626dac0de",
+      "min": 0.0208362,
+      "max": 0.8433141
+    },
+    {
+      "id": "Vision3_250D_2383",
+      "negative": "Kodak Vision3 250D 5207",
+      "print": "Kodak Vision 2383",
+      "file": "Vision3_250D_2383.cube",
+      "sha256": "12ce88f47d6312d3cc7f17bf4ac4ecea22631ee861ef206db3fd494bd5232de9",
+      "min": 0.0258953,
+      "max": 0.855432
+    },
+    {
+      "id": "Vision3_500T_2383",
+      "negative": "Kodak Vision3 500T 5219",
+      "print": "Kodak Vision 2383",
+      "file": "Vision3_500T_2383.cube",
+      "sha256": "1dcd6478bb0b7832d8690cbe221263a5f6a39f167ce797a6ad444456efadfcd7",
+      "min": 0.025253,
+      "max": 0.8571123
+    },
+    {
+      "id": "Vision3_500T_2393",
+      "negative": "Kodak Vision3 500T 5219",
+      "print": "Kodak Vision Premier 2393",
+      "file": "Vision3_500T_2393.cube",
+      "sha256": "ca7163438e29731710b429288b5f48f6073e5cc4d2d30cf52f97ef8833997f38",
+      "min": 0.0119281,
+      "max": 0.8480983
+    },
+    {
+      "id": "Eterna500_3513DI",
+      "negative": "Fuji Eterna 500",
+      "print": "Fuji Eterna-CP Type 3513DI",
+      "file": "Eterna500_3513DI.cube",
+      "sha256": "50b9dd5bcf03ddeeaab5118d122f0ee14c093a1af99dbc641644859ccf4290d2",
+      "min": 0.0316136,
+      "max": 0.8094977
+    }
+  ]
+}

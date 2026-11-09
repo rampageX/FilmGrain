@@ -55,6 +55,7 @@ $RequiredPackageFiles = @(
     'dotnet\FilmGrain_InterpolationFrameRateCore.cs',
     'dotnet\FilmGrain_LanguagePack.cs',
     'dotnet\FilmGrain_LutCatalogCore.cs',
+    'dotnet\FilmGrain_FilmLutCore.cs',
     'dotnet\FilmGrain_MediaProbeCore.cs',
     'dotnet\FilmGrain_MediaSummaryCore.cs',
     'dotnet\FilmGrain_NativeArchiveCore.cs',
@@ -80,6 +81,14 @@ $RequiredPackageFiles = @(
     'dotnet\FilmGrain_SubtitleCore.cs',
     'dotnet\FilmGrain_SubtitleDialog.cs',
     'dotnet\FilmGrain_WorkspacePreflightCore.cs',
+    '_LUT_Tools\FilmLut\Profiles\Vision3_50D_2383.cube',
+    '_LUT_Tools\FilmLut\Profiles\Vision3_250D_2383.cube',
+    '_LUT_Tools\FilmLut\Profiles\Vision3_500T_2383.cube',
+    '_LUT_Tools\FilmLut\Profiles\Vision3_500T_2393.cube',
+    '_LUT_Tools\FilmLut\Profiles\Eterna500_3513DI.cube',
+    '_LUT_Tools\FilmLut\profiles.json',
+    '_LUT_Tools\FilmLut\LICENSE_SpectralFilmLUT.txt',
+    '_LUT_Tools\FilmLut\SOURCE_ATTRIBUTION.txt',
     'Legacy\FilmGrain_Universal_CLI.bat',
     'Legacy\FilmGrain_Universal_GUI.bat',
     'Legacy\Utils\AV1_FilmGrain_Bake_for_Social_Upload.bat',
@@ -152,6 +161,7 @@ $ReleaseSourceItems = @(
     'dotnet/*.cs',
     'dotnet/BuildTools',
     'experiments/GpuSingleFrame',
+    'Tools/FilmLut',
     'dotnet/BUILD_NET_FRAMEWORK.md',
     'dotnet/build_NET_Preview.bat',
     '.github/release/version.txt',
@@ -715,7 +725,7 @@ function Test-AllowedReleaseSourcePath {
             if ($n -match '^dotnet/[^/]+\.cs$') { return $true }
         } elseif ($n -eq $item) {
             return $true
-        } elseif ($RequiredPackageDirectories -contains $item -and $n.StartsWith($item + '/', [StringComparison]::OrdinalIgnoreCase)) {
+        } elseif (($RequiredPackageDirectories -contains $item -or $item -eq 'Tools/FilmLut') -and $n.StartsWith($item + '/', [StringComparison]::OrdinalIgnoreCase)) {
             return $true
         }
     }

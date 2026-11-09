@@ -1,0 +1,19 @@
+Film Grain Studio — Curated Spectral Film LUT profiles
+
+The five 33x33x33 SDR film negative/print LUTs in Profiles/ were generated
+offline from Jan Lohse's Spectral Film LUT v0.18.13 source code and film data.
+Upstream: https://github.com/JanLohse/spectral_film_lut
+Revision: bcbcfc6861f49cc706dc5d00ea048e4853060aab
+License: MIT (see LICENSE_SpectralFilmLUT.txt)
+
+Regeneration: Tools/FilmLut/generate_profiles.py (developer tool, Python only).
+These LUT files and the compact FGS C# adjustment code do not embed Python,
+NumPy, SciPy, Numba, Qt, or any upstream executable.
+
+INPUT: SDR ITU-R BT.709 signals only.
+OUTPUT: Rec.709 gamut, display gamma 2.4.
+HDR PQ/HLG signals must NOT be passed directly into these profiles.
+
+FGS adjusts exposure and perceived warmth before the LUT, then saturation
+and blend strength after the LUT. These four edits are creative transforms,
+not a re-simulation of the upstream spectral model at new physical settings.
