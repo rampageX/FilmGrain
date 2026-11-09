@@ -52,6 +52,12 @@ echo           %%WINDIR%%\Microsoft.NET\Framework\v4.0.30319\csc.exe
 exit /b 1
 
 :compiler_found
+rem Framework csc.exe does not search the .NET 4.8 targeting-pack folder for WPF references.
+set "WPF_REF_DIR=%ProgramFiles(x86)%\Reference Assemblies\Microsoft\Framework\.NETFramework\v4.8"
+if not exist "%WPF_REF_DIR%\PresentationCore.dll" goto :missing_wpf_refs
+if not exist "%WPF_REF_DIR%\PresentationFramework.dll" goto :missing_wpf_refs
+if not exist "%WPF_REF_DIR%\WindowsBase.dll" goto :missing_wpf_refs
+if not exist "%WPF_REF_DIR%\WindowsFormsIntegration.dll" goto :missing_wpf_refs
 if not exist "%STARTUPCORE%" exit /b 1
 if not exist "%SRC%" goto :missing_source
 if not exist "%CORE%" goto :missing_core
@@ -112,11 +118,11 @@ if exist "%ICON%" goto :build_with_icon
 goto :build_without_icon
 
 :build_with_icon
-"%CSC%" /nologo /target:winexe /platform:anycpu /optimize+ /utf8output /out:"%OUT_EXE%" /win32icon:"%ICON%" /reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Web.Extensions.dll /reference:PresentationCore.dll /reference:PresentationFramework.dll /reference:WindowsBase.dll /reference:WindowsFormsIntegration.dll /reference:System.Xaml.dll "%SRC%" "%STARTUPCORE%" "%CORE%" "%ENVCORE%" "%HWCORE%" "%SCRIPT_DIR%FilmGrain_PresetCore.cs" "%SCRIPT_DIR%FilmGrain_PresetUI.cs" "%STATECORE%" "%TASKCORE%" "%REQUESTCORE%" "%NATIVEX264%" "%NATIVEHEVC%" "%HDRCORE%" "%~dp0FilmGrain_Preprocessing.cs" "%~dp0FilmGrain_QueueHistory.cs" "%PIPECORE%" "%NATIVEAV1%" "%NATIVEAV1COPY%" "%~dp0FilmGrain_NativeGrainPreviewForm.cs" "%~dp0FilmGrain_GpuAdvancedPreview.cs" "%NATIVESUB%" "%MEDIACORE%" "%MEDIASUMMARY%" "%WORKSPACECORE%" "%AV1INSPECTCORE%" "%SUBCORE%" "%SUBDIALOG%" "%CONFIGUTILITY%" "%BITRATECORE%" "%INTERPOLATIONCORE%" "%TABLECORE%" "%CATALOGCORE%" "%LUTCATALOG%" "%FILMLUTCORE%" "%COLORFORM%" "%LANGCORE%" "%CONFIGCORE%" "%SETTINGSDIALOGS%" "%~dp0FilmGrain_Theme.cs" "%~dp0FilmGrain_ResourceMonitor.cs" "%NETWORKPROXY%" "%FGSIMTEXTURE%" "%~dp0FilmGrain_SetupPhase1.cs" "%~dp0FilmGrain_NativeLibraryTools.cs" "%~dp0FilmGrain_NativeLutRecords.cs" "%~dp0FilmGrain_NativeLutGalleryForm.cs" "%~dp0FilmGrain_NativeArchiveCore.cs" "%~dp0FilmGrain_NativeSetupCore.cs"
+"%CSC%" /nologo /target:winexe /platform:anycpu /optimize+ /utf8output /out:"%OUT_EXE%" /win32icon:"%ICON%" /lib:"%WPF_REF_DIR%" /reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Web.Extensions.dll /reference:PresentationCore.dll /reference:PresentationFramework.dll /reference:WindowsBase.dll /reference:WindowsFormsIntegration.dll /reference:System.Xaml.dll "%SRC%" "%STARTUPCORE%" "%CORE%" "%ENVCORE%" "%HWCORE%" "%SCRIPT_DIR%FilmGrain_PresetCore.cs" "%SCRIPT_DIR%FilmGrain_PresetUI.cs" "%STATECORE%" "%TASKCORE%" "%REQUESTCORE%" "%NATIVEX264%" "%NATIVEHEVC%" "%HDRCORE%" "%~dp0FilmGrain_Preprocessing.cs" "%~dp0FilmGrain_QueueHistory.cs" "%PIPECORE%" "%NATIVEAV1%" "%NATIVEAV1COPY%" "%~dp0FilmGrain_NativeGrainPreviewForm.cs" "%~dp0FilmGrain_GpuAdvancedPreview.cs" "%NATIVESUB%" "%MEDIACORE%" "%MEDIASUMMARY%" "%WORKSPACECORE%" "%AV1INSPECTCORE%" "%SUBCORE%" "%SUBDIALOG%" "%CONFIGUTILITY%" "%BITRATECORE%" "%INTERPOLATIONCORE%" "%TABLECORE%" "%CATALOGCORE%" "%LUTCATALOG%" "%FILMLUTCORE%" "%COLORFORM%" "%LANGCORE%" "%CONFIGCORE%" "%SETTINGSDIALOGS%" "%~dp0FilmGrain_Theme.cs" "%~dp0FilmGrain_ResourceMonitor.cs" "%NETWORKPROXY%" "%FGSIMTEXTURE%" "%~dp0FilmGrain_SetupPhase1.cs" "%~dp0FilmGrain_NativeLibraryTools.cs" "%~dp0FilmGrain_NativeLutRecords.cs" "%~dp0FilmGrain_NativeLutGalleryForm.cs" "%~dp0FilmGrain_NativeArchiveCore.cs" "%~dp0FilmGrain_NativeSetupCore.cs"
 goto :build_done
 
 :build_without_icon
-"%CSC%" /nologo /target:winexe /platform:anycpu /optimize+ /utf8output /out:"%OUT_EXE%" /reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Web.Extensions.dll /reference:PresentationCore.dll /reference:PresentationFramework.dll /reference:WindowsBase.dll /reference:WindowsFormsIntegration.dll /reference:System.Xaml.dll "%SRC%" "%STARTUPCORE%" "%CORE%" "%ENVCORE%" "%HWCORE%" "%SCRIPT_DIR%FilmGrain_PresetCore.cs" "%SCRIPT_DIR%FilmGrain_PresetUI.cs" "%STATECORE%" "%TASKCORE%" "%REQUESTCORE%" "%NATIVEX264%" "%NATIVEHEVC%" "%HDRCORE%" "%~dp0FilmGrain_Preprocessing.cs" "%~dp0FilmGrain_QueueHistory.cs" "%PIPECORE%" "%NATIVEAV1%" "%NATIVEAV1COPY%" "%~dp0FilmGrain_NativeGrainPreviewForm.cs" "%~dp0FilmGrain_GpuAdvancedPreview.cs" "%NATIVESUB%" "%MEDIACORE%" "%MEDIASUMMARY%" "%WORKSPACECORE%" "%AV1INSPECTCORE%" "%SUBCORE%" "%SUBDIALOG%" "%CONFIGUTILITY%" "%BITRATECORE%" "%INTERPOLATIONCORE%" "%TABLECORE%" "%CATALOGCORE%" "%LUTCATALOG%" "%FILMLUTCORE%" "%COLORFORM%" "%LANGCORE%" "%CONFIGCORE%" "%SETTINGSDIALOGS%" "%~dp0FilmGrain_Theme.cs" "%~dp0FilmGrain_ResourceMonitor.cs" "%NETWORKPROXY%" "%FGSIMTEXTURE%" "%~dp0FilmGrain_SetupPhase1.cs" "%~dp0FilmGrain_NativeLibraryTools.cs" "%~dp0FilmGrain_NativeLutRecords.cs" "%~dp0FilmGrain_NativeLutGalleryForm.cs" "%~dp0FilmGrain_NativeArchiveCore.cs" "%~dp0FilmGrain_NativeSetupCore.cs"
+"%CSC%" /nologo /target:winexe /platform:anycpu /optimize+ /utf8output /out:"%OUT_EXE%" /lib:"%WPF_REF_DIR%" /reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Web.Extensions.dll /reference:PresentationCore.dll /reference:PresentationFramework.dll /reference:WindowsBase.dll /reference:WindowsFormsIntegration.dll /reference:System.Xaml.dll "%SRC%" "%STARTUPCORE%" "%CORE%" "%ENVCORE%" "%HWCORE%" "%SCRIPT_DIR%FilmGrain_PresetCore.cs" "%SCRIPT_DIR%FilmGrain_PresetUI.cs" "%STATECORE%" "%TASKCORE%" "%REQUESTCORE%" "%NATIVEX264%" "%NATIVEHEVC%" "%HDRCORE%" "%~dp0FilmGrain_Preprocessing.cs" "%~dp0FilmGrain_QueueHistory.cs" "%PIPECORE%" "%NATIVEAV1%" "%NATIVEAV1COPY%" "%~dp0FilmGrain_NativeGrainPreviewForm.cs" "%~dp0FilmGrain_GpuAdvancedPreview.cs" "%NATIVESUB%" "%MEDIACORE%" "%MEDIASUMMARY%" "%WORKSPACECORE%" "%AV1INSPECTCORE%" "%SUBCORE%" "%SUBDIALOG%" "%CONFIGUTILITY%" "%BITRATECORE%" "%INTERPOLATIONCORE%" "%TABLECORE%" "%CATALOGCORE%" "%LUTCATALOG%" "%FILMLUTCORE%" "%COLORFORM%" "%LANGCORE%" "%CONFIGCORE%" "%SETTINGSDIALOGS%" "%~dp0FilmGrain_Theme.cs" "%~dp0FilmGrain_ResourceMonitor.cs" "%NETWORKPROXY%" "%FGSIMTEXTURE%" "%~dp0FilmGrain_SetupPhase1.cs" "%~dp0FilmGrain_NativeLibraryTools.cs" "%~dp0FilmGrain_NativeLutRecords.cs" "%~dp0FilmGrain_NativeLutGalleryForm.cs" "%~dp0FilmGrain_NativeArchiveCore.cs" "%~dp0FilmGrain_NativeSetupCore.cs"
 
 :build_done
 if errorlevel 1 goto :compile_failed
@@ -132,6 +138,11 @@ echo [OK] Build completed.
 echo "%ROOT_DIR%\FilmGrain_Studio.exe"
 echo "%OUT_EXE%"
 exit /b 0
+
+:missing_wpf_refs
+echo [ERROR] .NET Framework 4.8 WPF reference assemblies are missing.
+echo Expected WPF references in: "%WPF_REF_DIR%"
+exit /b 1
 
 :missing_source
 echo [ERROR] Source file not found:
