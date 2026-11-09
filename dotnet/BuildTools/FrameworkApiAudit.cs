@@ -93,14 +93,24 @@ internal static class FrameworkApiAudit
                 if(Environment.OSVersion.Platform!=PlatformID.Win32NT)throw new InvalidOperationException("Runtime audit requires Windows .NET Framework; Mono is forbidden.");
                 roots=new string[]{typeof(object).Assembly.Location,typeof(Uri).Assembly.Location,typeof(Enumerable).Assembly.Location,
                     typeof(System.Drawing.Color).Assembly.Location,typeof(System.Windows.Forms.Control).Assembly.Location,
-                    typeof(System.Web.Script.Serialization.JavaScriptSerializer).Assembly.Location}.Select(Path.GetDirectoryName)
-                    .Concat(new string[]{"PresentationCore","PresentationFramework","WindowsBase","WindowsFormsIntegration","System.Xaml"}
-                        .Select(name=>Path.GetDirectoryName(System.Reflection.Assembly.Load(new System.Reflection.AssemblyName(name)).Location)))
-                    .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+                    typeof(System.Web.Script.Serialization.JavaScriptSerializer).Assembly.Location}.Select(Path.GetDirectoryName).Distinct().ToArray();
             }
             else roots=new string[]{Path.GetFullPath(args[1])};
             using(var resolver=new FrameworkOnlyResolver(roots,!windows))
             {
+                if(windows)
+                {
+                    // Windows CI can compile WPF against the 4.8 targeting pack without having
+                    // its desktop runtime assemblies registered in the runner's GAC.
+                    string refs=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+                        "Reference Assemblies","Microsoft","Framework",".NETFramework","v4.8");
+                    foreach(string name in new[]{"PresentationCore","PresentationFramework","WindowsBase","WindowsFormsIntegration","System.Xaml"})
+                    {
+                        string path=Path.Combine(refs,name+".dll");
+                        if(!File.Exists(path))throw new FileNotFoundException("WPF targeting-pack assembly is missing: "+path);
+                        resolver.Register(AssemblyDefinition.ReadAssembly(path,new ReaderParameters{AssemblyResolver=resolver}));
+                    }
+                }
                 var framework=resolver.Resolve(new AssemblyNameReference("mscorlib",new Version(4,0,0,0)));
                 if(framework.Name.Name!="mscorlib"||framework.Name.Version.Major!=4)throw new InvalidDataException("Expected Framework mscorlib v4.");
                 if(!windows&&!framework.CustomAttributes.Any(x=>x.AttributeType.FullName=="System.Runtime.CompilerServices.ReferenceAssemblyAttribute"))
@@ -129,7 +139,7 @@ internal static class FrameworkApiAudit
                             catch(Exception ex){failures++;Console.Error.WriteLine("MISSING API: "+member.FullName+" / "+ex.Message);}
                         }
                     }
-                    Console.WriteLine("Framework API audit: "+checks+" resolved, "+failures+" failures; "+(windows?"physical Windows Framework":"Microsoft reference assemblies")+".");
+                    Console.WriteLine("Framework API audit: "+checks+" resolved, "+failures+" failures; "+(windows?"physical Windows Framework + WPF 4.8 targeting pack":"Microsoft reference assemblies")+".");
                     return failures==0?0:1;
                 }
             }
