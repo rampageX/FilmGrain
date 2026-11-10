@@ -839,7 +839,7 @@ namespace FilmGrainStudioPreview
             lutStrengthTitle.Enabled = lutStrengthTrack.Enabled;
             lutStrengthLabel.Enabled = lutStrengthTrack.Enabled;
             lutLabel.Text = filmModeActive&&filmStock.SelectedIndex>=0?
-                FilmLutCore.Profiles[filmStock.SelectedIndex].Chinese:
+                (isZh?FilmLutCore.Profiles[filmStock.SelectedIndex].Chinese:FilmLutCore.Profiles[filmStock.SelectedIndex].English):
                 (available ? Path.GetFileName(lutPath) : S("未选择 LUT", "No LUT selected"));
         }
 
