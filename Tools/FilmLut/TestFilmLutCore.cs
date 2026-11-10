@@ -4,6 +4,7 @@ using System;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Text.RegularExpressions;
 using FilmGrainStudioPreview;
 
 internal static class TestFilmLutCore
@@ -48,6 +49,11 @@ internal static class TestFilmLutCore
                     !object.ReferenceEquals(copy,settings),"independent recipe copy");
                 string session=FilmLutCore.WriteSessionCube(root,settings);
                 Assert(File.Exists(session),"unsaved Apply writes usable session LUT");
+                string fileName=Path.GetFileName(session);
+                string stockPrefix=profile.English.Replace(" · ","_").Replace(' ','_')+"_";
+                Assert(fileName.StartsWith(stockPrefix,StringComparison.Ordinal),"Apply LUT names the original film stock");
+                Assert(Regex.IsMatch(fileName.Substring(stockPrefix.Length),"^[0-9a-f]{8}\\.cube$"),"Apply LUT uses eight hex digits");
+                Assert(!string.Equals(fileName,FilmLutCore.NewCubeFileName(profile.Id),StringComparison.Ordinal),"new LUT filename is randomized");
                 var sessionCube=FilmLutCube.Read(session);
                 var fullStrength=settings.Copy();fullStrength.Strength=100;
                 for(int c=0;c<=32;c+=8){
