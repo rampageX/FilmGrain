@@ -1,5 +1,5 @@
-# Film Grain Studio v5.0.60
+# Film Grain Studio v5.0.61
 
-- 修复 v5.0.59 Stable 运行包漏打包 `_LUT_Tools/FilmLut` 的问题，恢复五套经典胶片 CUBE 文件及 `profiles.json`、许可和来源文件。
-- Windows runner 增加最终 Stable ZIP 的经典胶片资源校验；五个 CUBE 缺失则构建失败，不再把源码阶段校验误认为运行包检查。
-- 其余 LUT 工坊、GPU 缓存预览、AV1/HEVC/H.264 编码流程、HDR/SDR 行为和 GUI 设置保持 v5.0.59 原状。
+- 主界面右侧调整为 LUT → 颗粒 → GPU 高级预览，交换两区布局比例与边距；不改变 LUT/颗粒处理顺序、参数绑定、预设或编码流程。
+- LUT 工坊的五套经典胶片恢复柯达／富士品牌前缀（英文 Kodak/Fujifilm）；直接应用生成的临时 CUBE 与手动保存的默认文件名统一为胶片名加 8 位随机十六进制后缀，不再使用长 GUID 通用名称。
+- 更新高级设置的启动回归检查以匹配当前七页界面。用户已确认常用功能测试通过；未据此宣称所有硬件、格式和组合均经过验证。

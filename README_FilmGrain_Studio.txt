@@ -1,7 +1,7 @@
 Film Grain Studio - 使用说明
 ============================
 
-当前产品版本：v5.0.59；构建 Stable。
+当前产品版本：v5.0.61；构建 Stable。
 
 颗粒菜单统一按胶片预设（推荐）、感光度 ISO、扫描颗粒文件、现成 Grain Table、Digital Grain、GPU Film Grain 排列，各路线只显示已支持项目。默认值及已保存预设/队列的选择不变。SVT 扫描颗粒位于第三；HEVC/H.264 软硬编码的扫描颗粒位于第一；NVENC AV1 和 AV1 不重编码替换当前没有扫描颗粒项。
 

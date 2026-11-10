@@ -107,8 +107,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.60";
-        internal const string FileReleaseVersion = "5.0.60.0";
+        internal const string ReleaseVersion = "5.0.61";
+        internal const string FileReleaseVersion = "5.0.61.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -1157,18 +1157,18 @@ namespace FilmGrainStudioPreview
             right.Margin = new Padding(6, 0, 0, 0);
             right.ColumnCount = 1;
             right.RowCount = 3;
+            right.RowStyles.Add(new RowStyle(SizeType.Percent, 62));
             right.RowStyles.Add(new RowStyle(SizeType.Percent, 38));
             right.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
-            right.RowStyles.Add(new RowStyle(SizeType.Percent, 62));
-            right.Controls.Add(BuildGrainGroup(), 0, 0);
+            right.Controls.Add(BuildLutGroup(), 0, 0);
+            right.Controls.Add(BuildGrainGroup(), 0, 1);
             btnGpuAdvancedPreview = new ThemeButton();
             btnGpuAdvancedPreview.Text = UiText("高级预览调整…", "Advanced GPU Preview...");
             btnGpuAdvancedPreview.Dock = DockStyle.Fill;
             btnGpuAdvancedPreview.Margin = new Padding(0, 2, 0, 2);
             btnGpuAdvancedPreview.Click += delegate { OpenGpuAdvancedPreview(); };
             lutToolTip.SetToolTip(btnGpuAdvancedPreview, UiText("实验性 GPU 单帧实时预览；独立窗口，应用后才更新参数。", "Experimental GPU single-frame preview; changes apply only after confirmation."));
-            right.Controls.Add(btnGpuAdvancedPreview, 0, 1);
-            right.Controls.Add(BuildLutGroup(), 0, 2);
+            right.Controls.Add(btnGpuAdvancedPreview, 0, 2);
             return right;
         }
 
@@ -1770,7 +1770,7 @@ namespace FilmGrainStudioPreview
             grpLut = box;
             box.Text = lang.T("lut.group");
             box.Dock = DockStyle.Fill;
-            box.Margin = new Padding(0, 5, 0, 0);
+            box.Margin = new Padding(0, 0, 0, 5);
 
             TableLayoutPanel t = new TableLayoutPanel();
             t.Dock = DockStyle.Fill; t.Padding = new Padding(6, 5, 6, 5); t.ColumnCount = 4; t.RowCount = 6;

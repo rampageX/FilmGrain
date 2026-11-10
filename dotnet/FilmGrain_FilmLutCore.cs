@@ -136,9 +136,19 @@ namespace FilmGrainStudioPreview
             FilmLutSettings full=settings.Copy();full.Strength=100;
             full.Validate();
             Directory.CreateDirectory(SessionRoot);
-            string path=Path.Combine(SessionRoot,"FGS_FilmLUT_"+Guid.NewGuid().ToString("N")+".cube");
+            string path;
+            do { path=Path.Combine(SessionRoot,NewCubeFileName(full.ProfileId)); }
+            while(File.Exists(path));
             WriteCube(path,FilmLutCube.Read(ProfilePath(appRoot,full.ProfileId)),full);
             return path;
+        }
+
+        internal static string NewCubeFileName(string profileId)
+        {
+            FilmLutProfile profile=Profile(profileId);
+            if(profile==null)throw new InvalidDataException("Unknown film LUT profile.");
+            string stockName=profile.English.Replace(" · ","_").Replace(' ','_');
+            return stockName+"_"+Guid.NewGuid().ToString("N").Substring(0,8)+".cube";
         }
         // Byte-reference preview cache: transfer functions and exposure are
         // calculated 3x256 times per drag, rather than per video-frame pixel.
@@ -161,11 +171,11 @@ namespace FilmGrainStudioPreview
             }
         }
         internal static readonly FilmLutProfile[] Profiles={
-            new FilmLutProfile("Vision3_50D_2383","Vision3 50D · 2383","Vision3 50D · 2383"),
-            new FilmLutProfile("Vision3_250D_2383","Vision3 250D · 2383","Vision3 250D · 2383"),
-            new FilmLutProfile("Vision3_500T_2383","Vision3 500T · 2383","Vision3 500T · 2383"),
-            new FilmLutProfile("Vision3_500T_2393","Vision3 500T · 2393","Vision3 500T · 2393"),
-            new FilmLutProfile("Eterna500_3513DI","Eterna 500 · 3513DI","Eterna 500 · 3513DI")
+            new FilmLutProfile("Vision3_50D_2383","柯达 Vision3 50D · 2383","Kodak Vision3 50D · 2383"),
+            new FilmLutProfile("Vision3_250D_2383","柯达 Vision3 250D · 2383","Kodak Vision3 250D · 2383"),
+            new FilmLutProfile("Vision3_500T_2383","柯达 Vision3 500T · 2383","Kodak Vision3 500T · 2383"),
+            new FilmLutProfile("Vision3_500T_2393","柯达 Vision3 500T · 2393","Kodak Vision3 500T · 2393"),
+            new FilmLutProfile("Eterna500_3513DI","富士 Eterna 500 · 3513DI","Fujifilm Eterna 500 · 3513DI")
         };
 
         internal static FilmLutProfile Profile(string id)

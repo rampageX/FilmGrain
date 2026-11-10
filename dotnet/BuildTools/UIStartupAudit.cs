@@ -127,7 +127,7 @@ internal static class UIStartupSmoke {
       if(page.AutoScroll||page.HorizontalScroll.Visible||page.VerticalScroll.Visible)throw new Exception("Advanced page has scrolling: "+page.Text);
       foreach(Control control in page.Controls)if(!page.ClientRectangle.Contains(control.Bounds))throw new Exception("Advanced control clipped: "+page.Text+" / "+control.Text+" / "+control.Bounds);
      }
-     if(tabs.TabCount!=4||tabs.TabPages[0].Text!="AV1 / HEVC"||tabs.TabPages[1].Text!="H.264 / x264")throw new Exception("Expected split encoder pages");
+     if(tabs.TabCount!=7||tabs.TabPages[0].Name!="ENCODER_AV1"||tabs.TabPages[1].Name!="ENCODER_HEVC"||tabs.TabPages[2].Name!="ENCODER_H264"||tabs.TabPages[5].Name!="AUDIO_PAGE")throw new Exception("Expected seven advanced settings pages");
      tabs.SelectedIndex=0;TabPage enc=tabs.TabPages[0];
      string[] keys={"AV1_MULTIPASS","HEVC_MULTIPASS","H264_MULTIPASS","HEVC_BFRAMES","H264_BFRAMES","HEVC_BREF_MODE","H264_BREF_MODE","HEVC_LOOKAHEAD","H264_LOOKAHEAD"};
      foreach(string key in keys){
@@ -145,16 +145,17 @@ internal static class UIStartupSmoke {
       bool sa=available&&(!ready||caps==null||(bool)caps.GetType().GetProperty(prefix+"SpatialAq").GetValue(caps,null));
       bool ta=available&&(!ready||caps==null||(bool)caps.GetType().GetProperty(prefix+"TemporalAq").GetValue(caps,null));
       if(aq.Enabled!=sa||taq.Enabled!=ta)throw new Exception(encoder+" AQ capability isolation failed");
-      if(!aq.AccessibleDescription.Contains("8")||!taq.AccessibleDescription.Contains("x264"))throw new Exception("AQ scope/default tooltip missing");
+      if(!aq.AccessibleDescription.Contains("Spatial AQ")||!aq.AccessibleDescription.Contains("8")||!taq.AccessibleDescription.Contains("Temporal AQ"))throw new Exception("AQ scope/default tooltip missing");
       if(aq.Top!=taq.Top||aq.Right>=taq.Left)throw new Exception("SAQ/TAQ must share a row without overlap");
      }
-     Control audio=enc.Controls.Find("AUDIO_BITRATE",false)[0],note=enc.Controls.Find("AUDIO_INFO",false)[0];
+     TabPage audioPage=tabs.TabPages[5];
+     Control audio=audioPage.Controls.Find("AUDIO_BITRATE",false)[0],note=audioPage.Controls.Find("AUDIO_INFO",false)[0];
      if(note.Top<audio.Bottom)throw new Exception("Audio note must be below AAC bitrate");
-     for(int page=0;page<2;page++)foreach(Control a in tabs.TabPages[page].Controls)foreach(Control b in tabs.TabPages[page].Controls)if(!object.ReferenceEquals(a,b)&&a.Bounds.IntersectsWith(b.Bounds))throw new Exception("Overlapping encoding controls: "+a.Text+" / "+b.Text);
+     for(int page=0;page<3;page++)foreach(Control a in tabs.TabPages[page].Controls)foreach(Control b in tabs.TabPages[page].Controls)if(!object.ReferenceEquals(a,b)&&a.Bounds.IntersectsWith(b.Bounds))throw new Exception("Overlapping encoding controls: "+a.Text+" / "+b.Text);
      CheckPageDefaults(dialog,tabs);
      inspected=true;
-     lines.Add("PASS advanced dialog: all four pages fit; no scrolling or clipped controls; independent page defaults");
-     lines.Add("PASS encoding page: audio note below AAC bitrate; no control overlaps");
+     lines.Add("PASS advanced dialog: all seven pages fit; no scrolling or clipped controls; independent page defaults");
+     lines.Add("PASS audio page: note below AAC bitrate; encoding controls do not overlap");
      lines.Add("PASS nine FGS recommendation controls expose concrete values; AQ capability state and default/scope tooltips checked");
     }catch(Exception ex){failure=ex;}
     finally{dialog.DialogResult=DialogResult.Cancel;dialog.Close();}
@@ -192,9 +193,9 @@ internal static class UIStartupSmoke {
   var ht=(CheckBox)tabs.Controls.Find("HEVC_TEMPORAL_AQ",true)[0];var nt=(CheckBox)tabs.Controls.Find("H264_TEMPORAL_AQ",true)[0];
   var reset=(Button)dialog.Controls.Find("PAGE_DEFAULTS",false)[0];
   hevc.SelectedIndex=5;ht.Checked=true;h264.SelectedIndex=1;nt.Checked=true;
-  tabs.SelectedIndex=0;reset.PerformClick();
+  tabs.SelectedIndex=1;reset.PerformClick();
   if(hevc.SelectedIndex!=2||ht.Checked||h264.SelectedIndex!=1||!nt.Checked)throw new Exception("AV1/HEVC reset changed H264 settings");
-  hevc.SelectedIndex=5;ht.Checked=true;tabs.SelectedIndex=1;reset.PerformClick();
+  hevc.SelectedIndex=5;ht.Checked=true;tabs.SelectedIndex=2;reset.PerformClick();
   if(h264.SelectedIndex!=2||nt.Checked||hevc.SelectedIndex!=5||!ht.Checked)throw new Exception("H264/x264 reset changed HEVC settings");
  }
  private static void CheckAqCapabilities(Form main,Type type,BindingFlags flags,List<string> lines){

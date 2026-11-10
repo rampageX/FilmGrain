@@ -815,7 +815,7 @@ namespace FilmGrainStudioPreview
             try{Directory.CreateDirectory(folder);}catch(Exception ex){FgsMessageBox.Show(this,ex.Message);return;}
             using(var dialog=new SaveFileDialog{Title=S("保存胶片 LUT（不自动应用）","Save film LUT (without applying)"),
                 Filter="3D LUT (*.cube)|*.cube",DefaultExt="cube",AddExtension=true,OverwritePrompt=true,
-                InitialDirectory=folder,FileName="FGS_"+settings.ProfileId+"_"+DateTime.Now.ToString("yyyyMMdd_HHmmss",CultureInfo.InvariantCulture)+".cube"}) {
+                InitialDirectory=folder,FileName=FilmLutCore.NewCubeFileName(settings.ProfileId)}) {
                 if(dialog.ShowDialog(this)!=DialogResult.OK)return;
                 try {
                     Cursor=Cursors.WaitCursor;
@@ -839,7 +839,7 @@ namespace FilmGrainStudioPreview
             lutStrengthTitle.Enabled = lutStrengthTrack.Enabled;
             lutStrengthLabel.Enabled = lutStrengthTrack.Enabled;
             lutLabel.Text = filmModeActive&&filmStock.SelectedIndex>=0?
-                FilmLutCore.Profiles[filmStock.SelectedIndex].Chinese:
+                (isZh?FilmLutCore.Profiles[filmStock.SelectedIndex].Chinese:FilmLutCore.Profiles[filmStock.SelectedIndex].English):
                 (available ? Path.GetFileName(lutPath) : S("未选择 LUT", "No LUT selected"));
         }
 
