@@ -145,7 +145,7 @@ internal static class UIStartupSmoke {
       bool sa=available&&(!ready||caps==null||(bool)caps.GetType().GetProperty(prefix+"SpatialAq").GetValue(caps,null));
       bool ta=available&&(!ready||caps==null||(bool)caps.GetType().GetProperty(prefix+"TemporalAq").GetValue(caps,null));
       if(aq.Enabled!=sa||taq.Enabled!=ta)throw new Exception(encoder+" AQ capability isolation failed");
-      if(!aq.AccessibleDescription.Contains("8")||!taq.AccessibleDescription.Contains("x264"))throw new Exception("AQ scope/default tooltip missing");
+      if(!aq.AccessibleDescription.Contains("Spatial AQ")||!aq.AccessibleDescription.Contains("8")||!taq.AccessibleDescription.Contains("Temporal AQ"))throw new Exception("AQ scope/default tooltip missing");
       if(aq.Top!=taq.Top||aq.Right>=taq.Left)throw new Exception("SAQ/TAQ must share a row without overlap");
      }
      TabPage audioPage=tabs.TabPages[5];
