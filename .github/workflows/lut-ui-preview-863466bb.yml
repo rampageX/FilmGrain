@@ -1,0 +1,44 @@
+name: FGS LUT UI Preview 863466bb
+on:
+  push:
+    branches:
+      - test/lut-grain-ui-20261110-ce824368
+
+permissions:
+  contents: read
+
+jobs:
+  build-preview:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout preview source
+        uses: actions/checkout@v4
+
+      - name: Test classic film LUT core and filenames
+        shell: powershell
+        run: |
+          $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework\v4.0.30319\csc.exe'
+          & $compiler /nologo /target:exe /out:Tools\FilmLut\FilmLutCoreTests.exe /reference:System.dll /reference:System.Core.dll /reference:System.Web.Extensions.dll dotnet\FilmGrain_FilmLutCore.cs Tools\FilmLut\TestFilmLutCore.cs
+          if ($LASTEXITCODE -ne 0) { throw 'Classic LUT test compilation failed' }
+          & .\Tools\FilmLut\FilmLutCoreTests.exe $env:GITHUB_WORKSPACE
+          if ($LASTEXITCODE -ne 0) { throw 'Classic LUT regression failed' }
+
+      - name: Compile Windows .NET Framework EXE
+        shell: cmd
+        run: call dotnet\build_NET_Preview.bat
+
+      - name: Audit UI startup
+        shell: powershell
+        continue-on-error: true
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File dotnet\BuildTools\Test_UI_Startup.ps1
+
+      - name: Name standalone test EXE
+        shell: powershell
+        run: Copy-Item -LiteralPath 'FilmGrain_Studio.exe' -Destination 'FilmGrain_Studio_UI_863466bb.exe'
+
+      - name: Upload test EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: FGS-LUT-UI-863466bb
+          path: FilmGrain_Studio_UI_863466bb.exe
+          if-no-files-found: error
