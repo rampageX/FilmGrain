@@ -1,0 +1,34 @@
+name: FGS UI Preview ce824368
+on:
+  push:
+    branches:
+      - test/lut-grain-ui-20261110-ce824368
+
+permissions:
+  contents: read
+
+jobs:
+  build-preview:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout preview source
+        uses: actions/checkout@v4
+
+      - name: Compile Windows .NET Framework EXE
+        shell: cmd
+        run: call dotnet\build_NET_Preview.bat
+
+      - name: Audit UI startup
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File dotnet\BuildTools\Test_UI_Startup.ps1
+
+      - name: Name standalone test EXE
+        shell: powershell
+        run: Copy-Item -LiteralPath 'FilmGrain_Studio.exe' -Destination 'FilmGrain_Studio_UI_ce824368.exe'
+
+      - name: Upload test EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: FGS-UI-ce824368
+          path: FilmGrain_Studio_UI_ce824368.exe
+          if-no-files-found: error
