@@ -107,8 +107,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.61";
-        internal const string FileReleaseVersion = "5.0.61.0";
+        internal const string ReleaseVersion = "5.0.62";
+        internal const string FileReleaseVersion = "5.0.62.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -2647,7 +2647,9 @@ namespace FilmGrainStudioPreview
                 {"FG_HDR_POLICY",config.Get("HDR_POLICY")}, {"FG_DEINTERLACE",cmbDeint == null || cmbDeint.SelectedIndex == 0 ? "AUTO" : "OFF"}
             };
             IDictionary<string,string> normalized; string notice,reason;
-            return SharedInterpolationBypassCore.TryResolve(info,current,out normalized,out notice,out reason) && normalized != null;
+            string disabled;
+            return SharedInterpolationBypassCore.TryResolve(info,current,out normalized,out notice,out reason) &&
+                   normalized != null && normalized.TryGetValue("FG_SVP_INTERPOLATE",out disabled) && disabled=="0";
         }
 
         private double GetRecommendedOutputFps(MediaProbeInfo info)
@@ -3775,6 +3777,7 @@ namespace FilmGrainStudioPreview
                 bool lut = IsLutEffectEnabled() && !string.IsNullOrWhiteSpace(selectedLutPath);
                 bool interpolate = chkInterpolation != null && chkInterpolation.Checked && !noReencode;
                 bool fruc = interpolate && cmbInterpolationMode != null && cmbInterpolationMode.SelectedIndex == 2;
+                bool svpHdr = interpolate && cmbInterpolationMode != null && cmbInterpolationMode.SelectedIndex < 2;
                 string policy = config.Get("HDR_POLICY").ToUpperInvariant();
                 if (policy != "PRESERVE" && policy != "SDR") policy = "AUTO";
                 string tone = config.Get("TONE_MAP_ALGO").ToLowerInvariant();
@@ -3807,7 +3810,14 @@ namespace FilmGrainStudioPreview
                 else if (policy == "PRESERVE")
                 {
                     bool av1FgsimPreserveReady = av1;
-                    if (x264)
+                    if(svpHdr && (info.IsInterlaced || info.PixelFormat!="yuv420p10le" ||
+                                  info.ColorPrimaries!="bt2020" || info.ColorTransfer!="smpte2084" || info.ColorSpace!="bt2020nc"))
+                    {
+                        unsupported=true;
+                        detail=UiText("OpenSVPFlow HDR 保留只支持渐进式 10-bit BT.2020/PQ HDR10；其它 HDR 请选 FRUC。",
+                            "OpenSVPFlow HDR Preserve supports progressive 10-bit BT.2020/PQ HDR10 only; use FRUC for other HDR formats.");
+                    }
+                    else if (x264)
                     {
                         unsupported = true;
                         detail = x264
@@ -3829,8 +3839,10 @@ namespace FilmGrainStudioPreview
                                 : lang.T("input.hdr_route_detail_preserve"));
                         if ((hevc || av1) && (lut || color))
                             detail += " " + UiText("调色/LUT使用高位深HDR路线；LUT应匹配源HDR色域与传递函数，预览转SDR显示。", "Color/LUT use the high-depth HDR route; LUT input/output must match the source HDR color domain. Preview uses SDR display conversion.");
-                        if ((interpolate && !fruc))
-                            detail += " " + lang.T("input.hdr_route_detail_bypass");
+                        if (svpHdr)
+                            detail += " " + (config.Get("SVP_HDR_BACKEND")=="CPU10"
+                                ? UiText("OpenSVPFlow 使用 8-bit 运动分析、10-bit CPU 渲染，最终保持 HDR10。", "OpenSVPFlow uses P8 motion analysis and P10 CPU rendering, retaining HDR10.")
+                                : UiText("OpenSVPFlow 使用 8-bit 运动分析、16-bit GPU 渲染，最终保持 10-bit HDR10。", "OpenSVPFlow uses P8 motion analysis and P16 GPU rendering with P10 HDR10 output."));
                     }
                 }
                 else
@@ -3859,7 +3871,7 @@ namespace FilmGrainStudioPreview
                 }
                 text = unsupported ? lang.T("input.hdr_route_unsupported") :
                     (toSdr ? LF("input.hdr_route_tosdr", toneLabel) : lang.T("input.hdr_route_passthrough"));
-                bool hasPreserveBypass = interpolate && !fruc && !nvenc;
+                bool hasPreserveBypass = interpolate && !fruc && !nvenc && HasNativeInterpolationBypass(info);
                 if (preserve && !noReencode && hasPreserveBypass)
                     text += " " + lang.T("input.hdr_route_bypass_short");
             }

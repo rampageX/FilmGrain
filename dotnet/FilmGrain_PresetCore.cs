@@ -83,6 +83,7 @@ namespace FilmGrainStudioPreview
             case "SVP_SPEED":Choice(v,"FGS medium fast faster fastest",k);return;
             case "SVP_TUNING":Choice(v,"FGS weak film smooth animation",k);return;
             case "SVP_BLOCK_SIZE":Choice(v,"auto 8 16 32",k);return;
+            case "SVP_HDR_BACKEND":Choice(v,"GPU16 CPU10",k);return;
             case "SVP_DEDUP":Number(v,0,10,k);return;
             case "SVP_MASK_AREA":Integer(v,0,100,k);return;
             case "SVP_STILL_LIMIT":Number(v,0,100,k);return;
@@ -334,7 +335,7 @@ namespace FilmGrainStudioPreview
                     {"CPU_SVT_TUNING","SVT 调校方案"},{"CPU_SVT_GRAIN_TUNE","SVT Grain 调优（AUTO/ON/OFF）"},{"CPU_X265_GRAIN_TUNE","x265 Grain 调优（AUTO/ON/OFF）"},{"X264_GRAIN_TUNE","x264 Grain 调优（AUTO/ON/OFF）"},{"H264_HIGH10","x264 High10"},{"X264_RATE_MODE","x264 遍数"},{"X264_PRESET","x264 速度"},{"TONE_MAP_ALGO","HDR 色调映射"},{"GRAIN_ENABLED","颗粒总开关"},{"AV1_GRAIN_STRENGTH","AV1 相对强度 (%)"},
                     {"AV1_COPY_FAST","不重编码快速路径"},{"AV1_COPY_FULL_VERIFY","不重编码完整验证"},{"CINEMATIC_CROP_PER_SIDE","纵向单侧裁剪"},{"CINEMATIC_CROP_HORIZONTAL","横向单侧裁剪"},{"CINEMATIC_NO_CROP","恢复完整画幅"},
                     {"INTERPOLATION_TARGET_FPS","插帧目标帧率"},{"FRUC_PERF","FRUC 性能档位"},{"FRUC_GRID","FRUC 网格（auto=最大可用）"},
-                    {"SVP_ALGO","SVP 算法"},{"SVP_ANALYSE","SVP 分析配置"},{"SVP_MASK_AREA","SVP 遮罩区域"},{"SVP_SPEED","SVP 速度"},{"SVP_TUNING","SVP 调校"},{"SVP_BLOCK_SIZE","SVP 分块大小"},{"SVP_DEDUP","SVP 重复帧阈值"},{"SVP_EXACT","SVP 精确分析"},{"SVP_LEAN","SVP 精简 Super"},
+                    {"SVP_ALGO","SVP 算法"},{"SVP_ANALYSE","SVP 分析配置"},{"SVP_MASK_AREA","SVP 遮罩区域"},{"SVP_SPEED","SVP 速度"},{"SVP_TUNING","SVP 调校"},{"SVP_BLOCK_SIZE","SVP 分块大小"},{"SVP_HDR_BACKEND","SVP HDR10 渲染"},{"SVP_DEDUP","SVP 重复帧阈值"},{"SVP_EXACT","SVP 精确分析"},{"SVP_LEAN","SVP 精简 Super"},
                     {"SVP_STILL","SVP 静止保护"},{"SVP_STILL_LIMIT","静止保护阈值"},{"SVP_STILL_EDGE","静止边缘"},{"SVP_STILL_TOLERANCE","静止容差"},{"SVP_PEEL","SVP HUD 剥离"},{"SVP_PEEL_LIMIT","HUD 剥离阈值"}
                 };
                 string label;if(labels.TryGetValue(k,out label))return label;

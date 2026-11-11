@@ -396,6 +396,19 @@ function Test-PackageContent {
     foreach ($relative in $RequiredPackageFiles) {
         Assert-File -Root $StageRoot -RelativePath $relative
     }
+    # Fail the Windows release if either bundled SVP DLL differs from the
+    # tested pair documented alongside it. Keep the two DLLs in lockstep.
+    $svpPlugins = Join-Path $StageRoot '_OpenSVPFlow\Plugins'
+    $svpLines = @(
+        Get-Content -LiteralPath (Join-Path $svpPlugins 'BUNDLED_DLL_SHA256.txt') |
+            Where-Object { $_ -match '^[0-9a-fA-F]{64}\s{2}svpflow[12]_vs\.dll$' }
+    )
+    if ($svpLines.Count -ne 2) { throw 'Expected exactly two OpenSVPFlow DLL SHA-256 entries.' }
+    foreach ($line in $svpLines) {
+        $parts = $line -split '\s+', 2
+        $actual = (Get-FileHash -LiteralPath (Join-Path $svpPlugins $parts[1]) -Algorithm SHA256).Hash
+        if ($actual -ine $parts[0]) { throw ('Bundled OpenSVPFlow DLL SHA-256 mismatch: ' + $parts[1]) }
+    }
     foreach ($relative in $ExcludedPackagePaths) {
         if (Test-Path -LiteralPath (Join-Path $StageRoot $relative)) { throw ('Excluded path remains in stage: ' + $relative) }
     }

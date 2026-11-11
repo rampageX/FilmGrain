@@ -1,0 +1,7 @@
+Film Grain Studio v5.0.62 bundled OpenSVPFlow Windows DLL pair
+Source: FGS v5.0.61 working source, retained for HDR10 tests.
+Marker: nightly-20261106-badc0dee3667 (package marker only; not an upstream asset guarantee)
+SHA-256 (lowercase):
+54a91f5a56ee735cbfda60aedce008fafabb3519904cd94467556d6c3873e479  svpflow1_vs.dll
+4f7526b3200d952d1dcd359c4e83e653cbda5f06cf733fa6dc868511f4551371  svpflow2_vs.dll
+Do not mix DLL versions. The native updater downloads the latest matching Windows pair.

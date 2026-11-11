@@ -105,7 +105,7 @@ namespace FilmGrainStudioPreview
 
             if (fruc && info.IsInterlaced) { reason = "interlaced FRUC is not supported"; return false; }
 
-            if (svp && hdrPreserve) { reason = "OpenSVPFlow HDR preservation is not supported; choose FRUC for validated P010 interpolation."; return false; }
+            if (svp && hdrPreserve && Get(state,"FG_SVP_HDR10")!="1") { reason = "OpenSVPFlow HDR preservation requires the validated HDR10 high-depth path."; return false; }
 
             bool mpegTsSvp = svp && !hdrToSdr && IsMpegTsInput(input);
             // All TS SVP routes keep the original audio lead on the shared common clock.

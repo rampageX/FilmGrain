@@ -566,7 +566,7 @@ namespace FilmGrainStudioPreview
             return true;
         }
 
-        internal static string[] ExtraArguments(IDictionary<string,string> state)
+        internal static string[] ExtraArguments(IDictionary<string,string> state, bool cpu10=false)
         {
             string dedup = ExtraNumber(state,"FG_SVP_DEDUP","0",10);
             string still = ExtraSwitch(state,"FG_SVP_STILL");
@@ -577,6 +577,9 @@ namespace FilmGrainStudioPreview
             string peelLimit = ExtraNumber(state,"FG_SVP_PEEL_LIMIT","6",100);
             string exact = ExtraSwitch(state,"FG_SVP_EXACT","true");
             string lean = ExtraSwitch(state,"FG_SVP_LEAN");
+            // Existing presets/queue snapshots may predate the CPU10 UI mutex.
+            // Enforce the same effective settings at the shared producer boundary.
+            if(cpu10){exact="1";lean="0";}
             if(exact=="1" && lean=="1")
                 throw new ArgumentException("OpenSVPFlow: lean=true requires exact=false / 精简 Super 必须启用实验性高速分析");
             string[] experimental = exact=="0" ? new string[]{"--arg","exact=0","--arg","lean="+lean} : new string[0];
@@ -631,7 +634,10 @@ namespace FilmGrainStudioPreview
             string speed = Option(state, "FG_SVP_SPEED", "FGS"), tuning = Option(state, "FG_SVP_TUNING", "FGS"), block = Option(state, "FG_SVP_BLOCK_SIZE", "auto");
             string optionError;
             if (!TryValidateOptions(speed, tuning, block, analyse, out optionError)) throw new ArgumentException(optionError);
-            string[] extra = ExtraArguments(state);
+            bool hdr10 = Get(state,"FG_SVP_HDR10")=="1";
+            string hdrBackend=hdr10?Option(state,"FG_SVP_HDR_BACKEND","GPU16"):"GPU16";
+            if(hdrBackend.Length==0)hdrBackend="GPU16";
+            string[] extra = ExtraArguments(state,hdr10&&hdrBackend=="CPU10");
             if(extra.Length>0) ValidateExtraPlugins(plugins);
             stage.PipeProducerPath = vspipe;
             var producerArgs = new List<string>(new string[]{"--progress", "-c", "y4m", "--arg", "input=" + input,
@@ -639,6 +645,7 @@ namespace FilmGrainStudioPreview
                 "--arg", "algo=" + algo, "--arg", "analyse_profile=" + analyse,
                 "--arg", "scene_mode=" + scene, "--arg", "mask_area=" + mask,
                 "--arg", "speed=" + speed, "--arg", "tuning=" + tuning, "--arg", "block_size=" + block});
+            if(hdr10){producerArgs.Add("--arg");producerArgs.Add("hdr10=1");producerArgs.Add("--arg");producerArgs.Add("hdr_backend="+hdrBackend);}
             string hw=HardwareDecodeCore.ProducerBackend(input,state);
             if(hw.Length>0){producerArgs.Add("--arg");producerArgs.Add("hwdevice="+hw);}
             producerArgs.AddRange(extra);producerArgs.Add(vpy);producerArgs.Add("-");
@@ -673,7 +680,7 @@ namespace FilmGrainStudioPreview
         {
             var originalArgs = new List<string>{"-hide_banner", "-stats", "-progress", "pipe:2", "-stats_period", "0.5", "-y",
                 "-f", "yuv4mpegpipe", "-i", "pipe:0", "-map", "0:v:0", "-an", "-sn", "-dn",
-                "-c:v", "ffv1", "-level", "3", "-pix_fmt", "yuv420p", "-enc_time_base:v",fps.Contains("/")?fps.Split('/')[1]+"/"+fps.Split('/')[0]:"1/"+fps,"-fps_mode", "passthrough", output};
+                "-c:v", "ffv1", "-level", "3", "-pix_fmt", Get(state,"FG_SVP_HDR10")=="1"?"yuv420p10le":"yuv420p", "-enc_time_base:v",fps.Contains("/")?fps.Split('/')[1]+"/"+fps.Split('/')[0]:"1/"+fps,"-fps_mode", "passthrough", output};
             var stage = new BridgeExecutionStage{ToolPath=ffmpeg, WorkingDirectory=cwd,
                 DirectArguments=JoinArgs(originalArgs), ProgressDurationSeconds=duration,
                 StageCurrent=index, StageTotal=total, StageText="OpenSVPFlow shared video preprocessing"};

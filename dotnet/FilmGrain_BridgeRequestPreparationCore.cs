@@ -6,7 +6,7 @@ namespace FilmGrainStudioPreview
 {
     internal static class SharedInterpolationBypassCore
     {
-        // Normalize only proven Legacy bypass rules. Do not mutate the user's captured state.
+        // Keep interlaced bypass; explicitly opt in to the tested progressive HDR10 high-depth route.
         internal static bool TryResolve(MediaProbeInfo info, IDictionary<string,string> state,
             out IDictionary<string,string> normalized, out string notice, out string reason)
         {
@@ -18,9 +18,21 @@ namespace FilmGrainStudioPreview
             state.TryGetValue("FG_HDR_POLICY",out policy); state.TryGetValue("FG_DEINTERLACE",out deint);
             if (info.IsHdr && !info.IsInterlaced && string.Equals(policy,"PRESERVE",StringComparison.OrdinalIgnoreCase))
             {
-                normalized = new Dictionary<string,string>(state,StringComparer.OrdinalIgnoreCase);
-                normalized["FG_SVP_INTERPOLATE"] = "0"; normalized["FG_FPS_MODE"] = "SOURCE";
-                notice = "[Native .NET] OpenSVPFlow 已绕过：HDR 保留使用原帧率与 10-bit 编码路径，不运行 8-bit 光流。 / OpenSVPFlow bypassed for HDR preservation; source FPS retained.";
+                if(info.PixelFormat!="yuv420p10le" || info.ColorPrimaries!="bt2020" ||
+                   info.ColorTransfer!="smpte2084" || info.ColorSpace!="bt2020nc")
+                { reason="OpenSVPFlow HDR 保留目前只验证了渐进式 YUV420P10 / BT.2020 / PQ HDR10；其它 HDR 格式请使用 FRUC。"; return false; }
+                string backend;
+                if(!state.TryGetValue("FG_SVP_HDR_BACKEND",out backend)||string.IsNullOrEmpty(backend))backend="GPU16";
+                if(backend!="GPU16" && backend!="CPU10")
+                {reason="OpenSVPFlow HDR10 renderer must be GPU16 or CPU10";return false;}
+                string hdrFlag;
+                if(!state.TryGetValue("FG_SVP_HDR10",out hdrFlag) || hdrFlag!="1")
+                {
+                    normalized = new Dictionary<string,string>(state,StringComparer.OrdinalIgnoreCase);
+                    normalized["FG_SVP_HDR10"]="1";
+                }
+                notice = "[Native .NET] OpenSVPFlow HDR10: 8-bit motion analysis + " +
+                    (backend == "CPU10" ? "10-bit CPU render" : "16-bit GPU render") + " + 10-bit output; no SDR conversion.";
                 return true;
             }
             if (!info.IsInterlaced) return true;
@@ -38,7 +50,12 @@ namespace FilmGrainStudioPreview
             if (prepared == null || string.IsNullOrEmpty(notice)) return;
             prepared.ExecutionRequest.ExecutionNotice = (prepared.ExecutionRequest.ExecutionNotice ?? "") + Environment.NewLine + notice;
             if (prepared.ExecutionRequest.DirectStages != null && prepared.ExecutionRequest.DirectStages.Count > 0)
-                prepared.ExecutionRequest.DirectStages[0].StageText += " / OpenSVP 已绕过";
+            {
+                if (notice.IndexOf("OpenSVPFlow 已绕过", StringComparison.Ordinal) >= 0)
+                    prepared.ExecutionRequest.DirectStages[0].StageText += " / OpenSVP 已绕过";
+                else if (notice.IndexOf("OpenSVPFlow HDR10:", StringComparison.Ordinal) >= 0)
+                    prepared.ExecutionRequest.DirectStages[0].StageText += " / OpenSVP HDR10 已启用";
+            }
         }
     }
 

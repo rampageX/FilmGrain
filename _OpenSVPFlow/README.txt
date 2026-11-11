@@ -1,18 +1,21 @@
-OpenSVPFlow runtime for Film Grain Studio v4.8.20 Stable
+OpenSVPFlow runtime for Film Grain Studio v5.0.62 Stable
 
-Use the application's dependency setup / advanced plugin update entry points.
-The legacy BAT/PowerShell installers are archived under Legacy and are not called by the .NET runtime.
+This directory ships FilmGrain_OpenSVPFlow.vpy, Check_OpenSVPFlow.vpy,
+and the matching Windows svpflow1_vs.dll / svpflow2_vs.dll pair under Plugins.
+The private VapourSynth environment (.venv) is deliberately not bundled.
 
-Bundled plugins: nightly-20261011-deadbadae0d9.
-New SmoothFps options: dedup (default 0), mask.still (off), mask.peel (off).
-Still defaults: limit 4.5, edge 5, tolerance 30; Peel limit 6.
-All extras are off by default. Fixed DLL hash restrictions have been removed.
+Install / upgrade through FGS native dependency setup and Advanced >
+Interpolation > Update OpenSVPFlow plugins. The native setup pins
+VapourSynth R82 and BestSource 21.0; the updater preserves the existing
+.venv directory, upgrades its packages, and tests the plugin pair before
+and after replacement. It backs up the previous DLLs and version marker.
 
-Advanced settings retain Algo, Analyse Profile, Artifact Mask Area, Speed, Tuning and Block Size.
-Target FPS is configurable, including exact fractions and multipliers; default 60.
-The verified FGS path uses progressive YUV420P8 + ordinary SmoothFps/OpenCL.
-HDR Preserve and interlaced inputs retain their existing SVP bypass rules.
-FRUC does not receive these options. Dedup is not a VFR or audio-timestamp repair.
+SDR renders YUV420P8. Explicit HDR10 Preserve on supported progressive
+PQ/BT.2020 10-bit 4:2:0 sources supports GPU16 (P8 analysis, P16 GPU
+render, P10 output) and CPU10 (P8 analysis, P10 CPU render/output).
+CPU10 disables experimental fast analysis and Lean Super and uses cubic:0.
+GPU16 and SDR keep their original cubic setting.
 
-New options are located on the right side of Advanced / Interpolation.
-Other DLL builds are allowed. Missing files, plugin load failures and unsupported options are reported at runtime.
+See UPGRADE_GUIDE.md for first-time setup, in-place upgrade, compatibility
+checks, bundled DLL SHA-256 and recovery. Legacy/_OpenSVPFlow installers
+are archived for history and are not called by the native FGS application.

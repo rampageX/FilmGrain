@@ -159,10 +159,16 @@ namespace FilmGrainStudioPreview
         {
             string svp = Path.Combine(root, "_OpenSVPFlow"), plugins = Path.Combine(svp, "Plugins");
             string pipe = Path.Combine(svp, ".venv", "Scripts", "vspipe.exe"), check = Path.Combine(svp, "Check_OpenSVPFlow.vpy");
+            string python = Path.Combine(svp, ".venv", "Scripts", "python.exe");
             string profile = Path.Combine(svp, "_UserConfig");
             if (!File.Exists(pipe) || !File.Exists(check) || !File.Exists(Path.Combine(profile, "vapoursynth", "vapoursynth.toml")))
                 throw new IOException("更新前须安装完整 OpenSVPFlow 与 FGS 私有配置；请先使用依赖安装入口。");
             var env = new Dictionary<string,string>{{"APPDATA",profile},{"PYTHONUTF8","1"},{"PYTHONIOENCODING","utf-8"}};
+            if(!File.Exists(python))throw new IOException("OpenSVPFlow 私有 Python 不存在："+python);
+            log("[0/7] 原地升级 FGS 私有 VapourSynth R82 / BestSource，不重建 .venv");
+            if(Run(python,new[]{"-m","pip","install","--disable-pip-version-check","--timeout","30","--retries","2","--upgrade","vapoursynth==82","vapoursynth-bestsource==21.0"},env,null)!=0)
+                throw new IOException("FGS 私有 VapourSynth R82 升级失败；现有配置保留，请检查安装日志。");
+            if(Run(pipe,new[]{"--version"},env,null)!=0)throw new IOException("VapourSynth R82 vspipe 启动失败");
             log("[1/7] 查询 OpenSVPFlow 最新发布");
             var release = Release("https://api.github.com/repos/Z1xus/open-svpflow/releases/latest");
             if (release == null || !release.ContainsKey("tag_name") || !release.ContainsKey("assets")) throw new IOException("发布信息不完整");
@@ -176,6 +182,11 @@ namespace FilmGrainStudioPreview
                     token.ThrowIfCancellationRequested();
                     if (Run(pipe,new[]{"--arg","plugin_dir="+dir,"--arg","gpu="+gpu,"--arg","algo=13","--start","0","--end","0",check,"--"},env,null)!=0)
                         throw new IOException("OpenSVPFlow " + (gpu=="0"?"CPU":"GPU/OpenCL") + " 自检失败：" + dir);
+                }
+                foreach(string gpu in new[]{"0","1"}) {
+                    token.ThrowIfCancellationRequested();
+                    if(Run(pipe,new[]{"--arg","plugin_dir="+dir,"--arg","gpu="+gpu,"--arg","hdr10_probe=1","--arg","algo=13","--start","0","--end","0",check,"--"},env,null)!=0)
+                        throw new IOException("OpenSVPFlow HDR10 " + (gpu=="0"?"CPU10":"GPU16") + " 高位深自检失败："+dir);
                 }
             };
             string[] files = {"svpflow1_vs.dll","svpflow2_vs.dll","open-svpflow-version.txt"};
@@ -257,7 +268,7 @@ namespace FilmGrainStudioPreview
                 Directory.CreateDirectory(profile);var env=new Dictionary<string,string>{{"APPDATA",profile},{"PYTHONUTF8","1"},{"PYTHONIOENCODING","utf-8"}};
                 Action<IList<string>> pythonRun=a=>{if(Run(venvPython,a,env,null)!=0)throw new IOException("Python 安装步骤失败："+string.Join(" ",a.ToArray()));};
                 log("[1/5] 更新隔离环境 pip");pythonRun(new[]{"-m","pip","install","--disable-pip-version-check","--timeout","30","--retries","2","--upgrade","pip"});
-                log("[2/5] 安装 VapourSynth 79 / BestSource 21.0");pythonRun(new[]{"-m","pip","install","--disable-pip-version-check","--timeout","30","--retries","2","vapoursynth==79","vapoursynth-bestsource==21.0"});
+                log("[2/5] 安装 VapourSynth R82 / BestSource 21.0");pythonRun(new[]{"-m","pip","install","--disable-pip-version-check","--timeout","30","--retries","2","vapoursynth==82","vapoursynth-bestsource==21.0"});
                 log("[3/5] 配置 FGS 私有 VapourSynth");string cli=Path.Combine(venv,"Scripts","vapoursynth.exe");
                 if(File.Exists(cli)){if(Run(cli,new[]{"config"},env,null)!=0)throw new IOException("私有 VS 配置失败");}else pythonRun(new[]{"-m","vapoursynth","config"});
                 if(!File.Exists(Path.Combine(profile,"vapoursynth","vapoursynth.toml")))throw new IOException("私有 VS 配置未生成");

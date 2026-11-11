@@ -7,6 +7,7 @@ ALLOWED_ALGOS = {1, 2, 11, 13, 21, 22, 23}
 plugin_dir = os.path.abspath(globals().get("plugin_dir", ""))
 use_gpu = int(globals().get("gpu", "1")) != 0
 algo_value = int(globals().get("algo", "13"))
+hdr10_probe = str(globals().get("hdr10_probe", "0")) == "1"
 
 if algo_value not in ALLOWED_ALGOS:
     raise vs.Error(f"Unsupported SmoothFps algo: {algo_value}")
@@ -18,6 +19,12 @@ core.std.LoadPlugin(svp1_path)
 core.std.LoadPlugin(svp2_path)
 
 clip = core.std.BlankClip(width=640, height=360, format=vs.YUV420P8, length=8, fpsnum=24, fpsden=1)
+if hdr10_probe:
+    clip = core.std.BlankClip(width=640, height=360, format=vs.YUV420P10, length=8, fpsnum=24, fpsden=1)
+    analysis = core.resize.Point(clip, format=vs.YUV420P8, dither_type="error_diffusion")
+    render = core.resize.Point(clip, format=vs.YUV420P16, dither_type="none") if use_gpu else clip
+else:
+    analysis = render = clip
 
 super_params = "{pel:1,gpu:1,full:true}" if use_gpu else "{pel:1,gpu:0,full:true}"
 smooth_params = (
@@ -28,15 +35,17 @@ smooth_params = (
     "mask:{cover:80,area:100,area_sharp:1.2},scene:{blend:false,mode:0}}}"
 )
 
-super_clip = core.svp1.Super(clip, super_params)
-vectors = core.svp1.Analyse(super_clip["clip"], super_clip["data"], clip, "{}")
-smooth = core.svp2.SmoothFps(
-    clip,
-    super_clip["clip"],
-    super_clip["data"],
-    vectors["clip"],
-    vectors["data"],
-    smooth_params
-)
+super_clip = core.svp1.Super(analysis, super_params)
+vectors = core.svp1.Analyse(super_clip["clip"], super_clip["data"], analysis, "{}")
+if hdr10_probe:
+    smooth = core.svp2.SmoothFps(render, super_clip["clip"], super_clip["data"],
+                                 vectors["clip"], vectors["data"], smooth_params, src=analysis)
+    if use_gpu:
+        smooth = core.resize.Point(smooth, format=vs.YUV420P10, dither_type="none")
+    if smooth.format.id != vs.YUV420P10:
+        raise vs.Error("OpenSVPFlow high-depth probe did not produce YUV420P10")
+else:
+    smooth = core.svp2.SmoothFps(clip, super_clip["clip"], super_clip["data"],
+                                 vectors["clip"], vectors["data"], smooth_params)
 smooth = core.std.AssumeFPS(smooth, fpsnum=60, fpsden=1)
 smooth.set_output()

@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.0.61 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.62 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 <table>
   <tr>
@@ -278,7 +278,7 @@ AV1、HEVC、x264、H.264 NVENC 共用 .NET 串行队列。每个输入分别探
 
 四线共用的辅助功能包括硬件能力检测、LUT 图库与预览、参考图及索引同步、Grain Plate MOV 扫描、首次运行依赖安装、OpenSVPFlow 插件更新，以及 FGSIM 纹理 / hook 准备。这些入口由 .NET 原生实现执行。
 
-Native 支持按具体组合判断。隔行 HDR 的 AUTO/OFF、HDR 保留/转换及已有输出复用沿用累计实现；隔行 OpenSVPFlow 按规则绕过光流、AUTO 输出 2x 场率，HDR 保留的渐进 HEVC/AV1 绕过 8-bit SVP。x264 HDR Preserve、隔行 FRUC 等原本不支持的组合显示原因并停止，不尝试 BAT。未知准备失败也停止并保留诊断。
+Native 支持按具体组合判断。隔行 HDR 的 AUTO/OFF、HDR 保留/转换及已有输出复用沿用累计实现；隔行 OpenSVPFlow 按规则绕过光流、AUTO 输出 2x 场率。逐行 PQ / BT.2020 / YUV420P10 的显式 HDR 保留支持 OpenSVPFlow 高位深测试路线；其它 HDR 输入不进入该实验路径。x264 HDR Preserve、隔行 FRUC 等原本不支持的组合显示原因并停止，不尝试 BAT。未知准备失败也停止并保留诊断。
 
 AV1 不重编码添加／替换颗粒仅对已确认 AV1 的单文件开放；独立配置时按当前单选文件判断，HEVC／H.264、媒体信息未就绪、无选择或多选时不提供该选项。现有不适用的队列请求在启动前停止并提示，不把它当作普通重编码执行。
 
@@ -806,11 +806,11 @@ Field-rate 输出优先于普通电影帧率选择。progressive / unknown 素�
 
 高级 → 插帧提供 SmoothFps Algo、Analyse Profile、Artifact Mask Area 等设置。当前推荐基线为 Algo 13、pel=1 / gpu=1 / full=true、EncodeGUI-inspired Analyse 与 cover=80 / area=100 / area_sharp=1.2。平滑使用 scene.mode=0，自动平衡使用 scene.mode=3。
 
-OpenSVPFlow 光流内部使用 YUV420P8 SDR。逐行 HDR 请求转 SDR 后插帧时，先执行共享 Tone Mapping 并验证中间文件；不能把它视为端到端 HDR / 10-bit 光流。隔行 SDR + AUTO 按规则绕过插帧并输出场率；明确 HDR Preserve 的已覆盖 HEVC/AV1 路线绕过 SVP并保留 HDR 和源帧率。其余特殊组合按实际 Native 支持规则停止并说明原因，不回退 Legacy。
+OpenSVPFlow 普通 SDR 路线仍使用 YUV420P8。逐行 HDR 请求转 SDR 后插帧时，先执行共享 Tone Mapping 并验证中间文件。显式 HDR Preserve + 逐行 PQ/BT.2020 10-bit 4:2:0 输入现可选择 GPU16（默认，8-bit 光流分析 + 16-bit GPU 渲染）或 CPU10（8-bit 分析 + 10-bit CPU 渲染）；两者最后均输出 YUV420P10，AV1 的 FFV1 插帧中间文件也使用 10-bit。隔行 SDR + AUTO 按规则绕过插帧并输出场率；其它 HDR 格式、隔行及不支持的编码组合停止并说明原因，不回退 8-bit/Legacy。T600 上已有 HDR10 GPU16 59.94 fps 的实机成功记录，CPU10 经用户确认其它适配参数测试 OK；不能据此推断所有 HDR10、动态元数据、硬件和编码组合均已验证。
 
 HEVC/x264/H.264 NVENC 已覆盖路线使用 VSPipe Y4M → FFmpeg 管道，AV1 使用共享 FFV1 无损预处理；不能笼统声称全部路线都没有中间视频。逐行 SDR x264 TS/M2TS/MTS 直接读取原媒体，每遍准备公共起点与视频相对延迟，不要求先手工 remux。
 
-高级 → 插帧提供原生“更新 OpenSVPFlow 插件”：下载 / ZIP 校验、暂存自检、备份、替换和安装位置复检，失败或取消恢复原插件与版本记录。成功后重启 FGS 并重检测硬件；更新前关闭其他占用插件的进程。随包插件作为已验证基线，私有环境、缓存与插件备份属于本机运行状态。
+高级 → 插帧提供原生“更新 OpenSVPFlow 插件”：先原地升级私有 VapourSynth R82 / BestSource 21.0，再下载 / ZIP 校验、暂存 CPU/GPU/HDR10 自检、备份、替换和安装位置复检，插件替换失败或取消会尝试恢复原 DLL 与版本记录（pip 环境升级不回滚）。成功后重启 FGS 并重检测硬件；更新前关闭其他占用插件的进程。随包插件作为本次测试基线，私有环境、缓存与插件备份属于本机运行状态。完整操作、版本校验和回退见 [_OpenSVPFlow/UPGRADE_GUIDE.md](_OpenSVPFlow/UPGRADE_GUIDE.md)。
 
 #### 高级参数
 
@@ -824,7 +824,7 @@ HEVC/x264/H.264 NVENC 已覆盖路线使用 VSPipe Y4M → FFmpeg 管道，AV1 �
 
 三项默认 `FGS / FGS / auto` 保持既有 Super、Analyse、SmoothFps 参数；旧 INI 未含新键时使用这些默认值。Algo、Mask Area、主界面场景模式与目标帧率仍独立生效。BASE 仅支持新项默认值，选择其他预设时界面明确切换并禁用 Analyse Profile 为 ENCODEGUI；手动配置非法组合则停止准备并报实际原因。
 
-这是对前端预设的映射，不是向插件直接传入 `speed` / `tuning` API 字段。映射参考 2026-10-12 的 [OpenSVPFlow](https://github.com/Z1xus/open-svpflow) 与 [smoothie 网页](https://smoothie.z1x.us/) 实际脚本；保留 FGS 的 `full:true`、有理数帧率、cubic/linear、Algo、Mask 和场景模式。FGS Speed 配合新 Tuning 时保留 pel=1、自动 16 块（animation 除外），因此不宣称与网页整个输出完全一致。新映射保持 FGS 的 GPU 路径，本批不引入 CPU/GPU 后端切换。
+这是对前端预设的映射，不是向插件直接传入 `speed` / `tuning` API 字段。映射参考 2026-10-12 的 [OpenSVPFlow](https://github.com/Z1xus/open-svpflow) 与 [smoothie 网页](https://smoothie.z1x.us/) 实际脚本；保留 FGS 的 `full:true`、有理数帧率、cubic/linear、Algo、Mask 和场景模式。FGS Speed 配合新 Tuning 时保留 pel=1、自动 16 块（animation 除外），因此不宣称与网页整个输出完全一致。普通 SDR 仍走原 GPU 路径；HDR10 保留模式可选 GPU16/CPU10 高位深渲染。
 
 #### 实验性高速分析
 
@@ -836,6 +836,8 @@ HEVC/x264/H.264 NVENC 已覆盖路线使用 VSPipe Y4M → FFmpeg 管道，AV1 �
 | 精简 Super | 关闭 | 仅高速分析开启时可用，向 Super 增加 `lean:true`；保留现有速度档位的 `pel=1/2,gpu=1,full:true` |
 
 高速分析可能改变运动矢量并增加显存，不承诺固定的速度或画质收益；建议按“默认 → 仅高速 → 高速＋精简”分别比较同一片段。精简 Super 可减少 CPU / 内存工作，但不保证降低整个流程的显存。关闭高速分析会同时取消精简 Super；恢复本页默认会关闭两项。
+
+HDR10 渲染选 CPU10 时，完整和快捷高级设置均自动取消并禁用这两个开关；切回 GPU16 可重新手动启用。保存的 CPU10 设置固定 `SVP_EXACT=true`、`SVP_LEAN=false`；旧预设/队列快照在共用生产端也执行同样约束。CPU10 的 SmoothFps 使用 `cubic:0`，GPU16/SDR 不变。
 
 新项使用 `SVP_EXACT=true`、`SVP_LEAN=false` 作为旧配置缺省值，纳入完整预设、逐文件配置与任务快照；简易预设沿用未包含高级参数保持目标现值的规则。默认不向 DLL 添加新参数，Super / Analyse / SmoothFps 的原参数字符串保持不变。日志包含 `exact`、`lean` 和实际三个参数字符串，便于确认是否生效。
 
@@ -853,9 +855,9 @@ HEVC/x264/H.264 NVENC 已覆盖路线使用 VSPipe Y4M → FFmpeg 管道，AV1 �
 | 保护静止文字 / Logo（Still） | 关闭；limit 4.5、edge 5、tolerance 30 | GPU 静止遮罩，减少固定文字与 Logo 拖影 |
 | 剥离 HUD 后重合成（Peel） | 关闭；limit 6 | GPU HUD 剥离再合成 |
 
-所有新选项默认关闭，保留既有插帧参数。dedup 不重建逐帧时间戳，不是 VFR 或音画同步修复；也不能处理任意连续重复帧。当前脚本输入为 YUV420P8，采用普通 SmoothFps/OpenCL；HDR 直通、隔行旁路及 FRUC 保持原有行为。
+所有新选项默认关闭，保留既有插帧参数。dedup 不重建逐帧时间戳，不是 VFR 或音画同步修复；也不能处理任意连续重复帧。普通 SDR 仍为 YUV420P8/SmoothFps；HDR10 新增 CPU10/GPU16 高位深选项，其它 HDR、隔行旁路及 FRUC 保持原有行为。FGS 私有 VapourSynth 环境改为 R82；现有环境通过「更新 OpenSVPFlow 插件」入口原地升级，不重建 .venv。
 
-原配套插件为 `nightly-20261011-deadbadae0d9`，现已取消新选项对固定 DLL 哈希的限制，可使用其它构建或更新插件。仍检查插件文件是否存在；插件加载或参数不兼容时，由实际运行返回错误。建议先分别启用选项比较效果，再组合使用。
+本次继续携带经测试沿用的两只插件 DLL，具体 SHA-256 见 [_OpenSVPFlow/Plugins/BUNDLED_DLL_SHA256.txt](_OpenSVPFlow/Plugins/BUNDLED_DLL_SHA256.txt)。原配套插件已取消对固定 DLL 哈希的运行门槛；如果使用最新版构建，必须成对更新并通过 CPU/GPU/HDR10 自检，不保证新构建在所有素材上与随包版本表现相同。
 
 ### FRUC Vulkan
 
@@ -1451,8 +1453,8 @@ ffmpeg -hide_banner -h decoder=libdav1d
 - MP4 兼容模式不会保留字幕、附件和数据流；
 - 启用 LUT 时，部分处理链会转为软件滤镜路径，速度可能下降；
 - 自动反交错依赖 FFprobe `field_order`，异常标记素材需要人工确认；
-- OpenSVPFlow 光流仅处理逐行 SDR，默认目标 60 fps；隔行 SDR 和明确 HDR Preserve 按规则绕过，其他特殊组合按门控处理；
-- OpenSVPFlow 当前内部为 YUV420P8 SDR，不是端到端 HDR / 10-bit 插帧；
+- OpenSVPFlow 逐行 SDR 继续使用 YUV420P8；显式 HDR Preserve 的逐行 PQ/BT.2020 10-bit 4:2:0 输入可使用 CPU10 / GPU16 并保持 10-bit 输出，默认目标 60 fps；隔行按原规则绕过；
+- OpenSVPFlow HDR10 采用 8-bit 运动分析与高位深渲染分离：GPU16 输出经 P16 转回 P10；T600 上已有实机成功记录，其它 HDR 格式不得推断受支持；
 - H.264 High10 为实验功能，兼容性明显低于标准 H.264 High 8-bit；
 - HDR Preserve 的 AV1 静态 HDR10 核验限于前述明确准入路线；HEVC Main10 沿用现有处理。Dolby Vision RPU 与 HDR10+ 动态 metadata 不在当前处理范围；
 - LUT 智能过滤属于保守启发式分类，不保证能从任意 `.cube` 数值表完全推断创作者意图；

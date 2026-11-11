@@ -53,6 +53,7 @@ namespace FilmGrainStudioPreview
         public string SvpSpeed = "FGS";
         public string SvpTuning = "FGS";
         public string SvpBlockSize = "auto";
+        public string SvpHdrBackend = "GPU16";
         public string SvpExact = "true";
         public string SvpLean = "false";
         public string SvpDedup = "0";
@@ -188,6 +189,7 @@ namespace FilmGrainStudioPreview
             state["FG_SVP_SPEED"] = snapshot.SvpSpeed;
             state["FG_SVP_TUNING"] = snapshot.SvpTuning;
             state["FG_SVP_BLOCK_SIZE"] = snapshot.SvpBlockSize;
+            state["FG_SVP_HDR_BACKEND"] = snapshot.SvpHdrBackend;
             state["FG_SVP_EXACT"] = snapshot.SvpExact;
             state["FG_SVP_LEAN"] = snapshot.SvpLean;
             state["FG_SVP_DEDUP"] = snapshot.SvpDedup;

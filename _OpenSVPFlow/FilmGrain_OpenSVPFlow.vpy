@@ -126,6 +126,13 @@ mask_area = int(arg("mask_area", "100"))
 speed = str(arg("speed", "FGS"))
 tuning = str(arg("tuning", "FGS"))
 block_size = str(arg("block_size", "auto"))
+hdr10_option = str(arg("hdr10", "0"))
+if hdr10_option not in {"0", "1"}:
+    raise vs.Error("Invalid hdr10 option; expected 0 or 1")
+hdr10 = hdr10_option == "1"
+hdr_backend = str(arg("hdr_backend", "GPU16"))
+if hdr10 and hdr_backend not in {"GPU16", "CPU10"}:
+    raise vs.Error("HDR10 renderer must be GPU16 or CPU10")
 def option_bool(name, default="0"):
     value = str(arg(name, default)).lower()
     if value not in {"0", "1", "false", "true"}:
@@ -151,7 +158,16 @@ try:
         still_edge, still_tolerance, peel_value, peel_limit, exact_value, lean_value)
 except ValueError as exc:
     raise vs.Error(str(exc))
-print(f"[OpenSVPFlow options] speed={speed} tuning={tuning} block_size={block_size} analyse={analyse_profile} exact={exact_value} lean={lean_value} dedup={dedup_value:g} still={still_value} peel={peel_value} effective=YUV420P8/OpenCL", file=sys.stderr, flush=True)
+if hdr10 and hdr_backend == "CPU10":
+    if not exact_value or lean_value:
+        raise vs.Error("OpenSVPFlow CPU10 requires exact analysis and lean Super disabled")
+    super_params = super_params.replace("gpu:1", "gpu:0")
+    analyse_params = analyse_params.replace("gpu:1,", "")
+    smooth_params = smooth_params.replace("gpuid:0,", "")
+    # CPU vectors reject cubic; an explicit zero also prevents the plugin's
+    # vector-metadata default from re-enabling it when the key is absent.
+    smooth_params = smooth_params.replace("cubic:1", "cubic:0")
+print(f"[OpenSVPFlow options] speed={speed} tuning={tuning} block_size={block_size} analyse={analyse_profile} exact={exact_value} lean={lean_value} dedup={dedup_value:g} still={still_value} peel={peel_value} effective={'HDR10/P8-analysis/P16-GPU/P10-output' if hdr10 and hdr_backend == 'GPU16' else 'HDR10/P8-analysis/CPU10-output' if hdr10 else 'YUV420P8/OpenCL'}", file=sys.stderr, flush=True)
 print(f"[OpenSVPFlow params] Super={super_params} Analyse={analyse_params} SmoothFps={smooth_params}", file=sys.stderr, flush=True)
 
 if algo_value not in {1, 2, 11, 13, 21, 22, 23}:
@@ -208,30 +224,38 @@ else:
     if clip.format is None:
         raise vs.Error("Variable-format input is not supported by the current OpenSVPFlow integration.")
 
-    # Current verified open-svpflow baseline is YUV420P8. Film Grain Studio converts
-    # the interpolated result back to its normal P010/Main10 processing chain.
-    if clip.format.id != vs.YUV420P8:
-        if clip.format.color_family == vs.RGB:
-            clip = core.resize.Bicubic(clip, format=vs.YUV420P8, matrix_s="709")
-        else:
-            clip = core.resize.Bicubic(clip, format=vs.YUV420P8)
+    if hdr10:
+        if clip.format.id != vs.YUV420P10:
+            raise vs.Error("HDR10 SVP requires planar YUV420P10 input; no 8-bit fallback")
+        # Motion search sees a P8 copy; SmoothFps samples the untouched high-depth source.
+        # OpenSVPFlow 0.1.3 GPU rendering requires P16, then return to Main10 P10.
+        analysis = core.resize.Point(clip, format=vs.YUV420P8, dither_type="error_diffusion")
+        render = core.resize.Point(clip, format=vs.YUV420P16, dither_type="none") if hdr_backend == "GPU16" else clip
+    else:
+        # Preserve the verified SDR path and its existing conversion behavior.
+        if clip.format.id != vs.YUV420P8:
+            if clip.format.color_family == vs.RGB:
+                clip = core.resize.Bicubic(clip, format=vs.YUV420P8, matrix_s="709")
+            else:
+                clip = core.resize.Bicubic(clip, format=vs.YUV420P8)
+        analysis = render = clip
 
-    super_clip = core.svp1.Super(clip, super_params)
+    super_clip = core.svp1.Super(analysis, super_params)
     vectors = core.svp1.Analyse(
         super_clip["clip"],
         super_clip["data"],
-        clip,
+        analysis,
         analyse_params
     )
 
-    smooth = core.svp2.SmoothFps(
-        clip,
-        super_clip["clip"],
-        super_clip["data"],
-        vectors["clip"],
-        vectors["data"],
-        smooth_params
-    )
+    if hdr10:
+        smooth = core.svp2.SmoothFps(render, super_clip["clip"], super_clip["data"],
+                                     vectors["clip"], vectors["data"], smooth_params, src=analysis)
+        if hdr_backend == "GPU16":
+            smooth = core.resize.Point(smooth, format=vs.YUV420P10, dither_type="none")
+    else:
+        smooth = core.svp2.SmoothFps(render, super_clip["clip"], super_clip["data"],
+                                     vectors["clip"], vectors["data"], smooth_params)
 
     smooth = core.std.AssumeFPS(smooth, fpsnum=target_num, fpsden=target_den)
     smooth.set_output()

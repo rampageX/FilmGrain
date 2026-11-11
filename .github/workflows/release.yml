@@ -58,6 +58,8 @@ jobs:
           $shaFile = $zip + '.sha256'
           $sourceZip = Join-Path $env:GITHUB_WORKSPACE ('FilmGrain_Studio_v' + $version + '_Source.zip')
           $sourceSha = $sourceZip + '.sha256'
+          $combinedZip = Join-Path $env:GITHUB_WORKSPACE ('FilmGrain_Studio_v' + $version + '_Release_and_Source.zip')
+          $combinedSha = $combinedZip + '.sha256'
 
           & '.\.github\release\build_release.ps1' `
             -RepositoryRoot $env:GITHUB_WORKSPACE `
@@ -74,10 +76,17 @@ jobs:
           foreach ($file in @($sourceZip, $sourceSha)) {
             if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "Shared release core did not create: $file" }
           }
+          Compress-Archive -LiteralPath @($zip, $shaFile, $sourceZip, $sourceSha) -DestinationPath $combinedZip -CompressionLevel Optimal -Force
+          $combinedHash = (Get-FileHash -LiteralPath $combinedZip -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText($combinedSha, ($combinedHash + '  ' + [IO.Path]::GetFileName($combinedZip) + "`r`n"), (New-Object System.Text.UTF8Encoding($false)))
           "FGS_SOURCE_ZIP=$sourceZip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "FGS_SOURCE_SHA=$sourceSha" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "source_zip_name=$([IO.Path]::GetFileName($sourceZip))" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "source_sha_name=$([IO.Path]::GetFileName($sourceSha))" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "FGS_COMBINED_ZIP=$combinedZip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "FGS_COMBINED_SHA=$combinedSha" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "combined_zip_name=$([IO.Path]::GetFileName($combinedZip))" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "combined_sha_name=$([IO.Path]::GetFileName($combinedSha))" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "FGS_RELEASE_TAG=v$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "FGS_RELEASE_ZIP=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "FGS_RELEASE_SHA=$shaFile" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
@@ -91,7 +100,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$env:FGS_RELEASE_TAG" "$env:FGS_RELEASE_ZIP" "$env:FGS_RELEASE_SHA" --target "$env:GITHUB_SHA" --title "Film Grain Studio $env:FGS_RELEASE_TAG" --notes-file ".github/release/RELEASE_NOTES.md"
+          gh release create "$env:FGS_RELEASE_TAG" "$env:FGS_RELEASE_ZIP" "$env:FGS_RELEASE_SHA" "$env:FGS_SOURCE_ZIP" "$env:FGS_SOURCE_SHA" "$env:FGS_COMBINED_ZIP" "$env:FGS_COMBINED_SHA" --target "$env:GITHUB_SHA" --title "Film Grain Studio $env:FGS_RELEASE_TAG" --notes-file ".github/release/RELEASE_NOTES.md"
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
@@ -102,6 +111,8 @@ jobs:
             ${{ steps.build.outputs.sha_name }}
             ${{ steps.build.outputs.source_zip_name }}
             ${{ steps.build.outputs.source_sha_name }}
+            ${{ steps.build.outputs.combined_zip_name }}
+            ${{ steps.build.outputs.combined_sha_name }}
           if-no-files-found: error
 
       - name: Delete merged release branch

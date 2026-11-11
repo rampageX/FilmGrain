@@ -1,3 +1,14 @@
+## v5.0.62 — OpenSVPFlow HDR10 高位深插帧（2026-11-11）
+
+- 保留 SDR 既有插帧流程；显式 HDR Preserve 的逐行 10-bit PQ/BT.2020 4:2:0 输入支持 OpenSVPFlow 0.1.3 的高位深渲染。高级设置默认 GPU16，也可选 CPU10，光流分析均用独立 P8 副本；渲染和 Main10 输出不降到 8-bit。
+- AV1 插帧 FFV1 中间文件改用 10-bit；HEVC/AV1/CPU 共用 SVP Producer 传参；不改变 FRUC、NVEncC 或隔行绕过规则。不支持的 HDR 输入明确停止。
+- FGS 私有 VapourSynth 安装与插件在线更新改为 R82 + BestSource 21.0，在已有 .venv 原地升级并保留配置；新增 CPU10/GPU16 高位深插件探测，避免旧插件误判。
+- 修正 HDR10 开通标记触发的执行阶段误报：实际启用时标记「OpenSVP HDR10 已启用」，仅隔行真正旁路才显示「OpenSVP 已绕过」；执行通知同步区分 GPU16 与 CPU10 渲染。
+- CPU10 实测启动失败修复：该分支显式传 `cubic:0`，避免 `SVSmoothFps: 'cubic' mode isn't available with CPU rendering`；GPU16 与 SDR 的 `cubic:1` 配置不动。用户确认 CPU10 适配后其它测试 OK。
+- CPU10 高级设置互斥：完整和快捷 SVP 设置中，选择 CPU10 自动取消并禁用「实验性高速分析」与「精简 Super」，切回 GPU16 恢复可选；保存时强制 `SVP_EXACT=true`/`SVP_LEAN=false`。共享 Producer 对旧预设和队列快照也强制使用 CPU10 兼容参数，不修改 GPU16 或 SDR 的执行参数。
+- 用户实机验证：T600 上 GPU16 的 HEVC HDR10 29.97→59.94 fps 任务输出 1237 帧、exit 0；CPU10 经修正 cubic 与参数冲突后，用户反馈其它 SVP 测试 OK，GUI 互斥测试亦已验收。Python 语法及 SDR/GPU16/CPU10 模拟管线通过；未逐项确认的音画同步、HDR 元数据和其它硬件组合不作扩大推断。
+- 随包保留本轮测试所用的 OpenSVPFlow DLL 基线，记录两只 DLL 的 SHA-256；提供原生 R82 环境及 DLL 原地升级、验证、回退指引。在线更新仍会获取上游最新 Windows 配套插件，并执行暂存自检与失败回滚。
+
 ## v5.0.61 — LUT 与颗粒操作顺序、经典胶片命名
 
 - 主界面右侧调整为 LUT → 颗粒 → GPU 高级预览，交换两区布局比例与边距；不改变 LUT/颗粒处理顺序、参数绑定、预设或编码流程。

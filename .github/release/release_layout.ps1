@@ -33,6 +33,8 @@ $RequiredPackageFiles = @(
     '_OpenSVPFlow\Plugins\open-svpflow-version.txt',
     '_OpenSVPFlow\Plugins\svpflow1_vs.dll',
     '_OpenSVPFlow\Plugins\svpflow2_vs.dll',
+    '_OpenSVPFlow\Plugins\BUNDLED_DLL_SHA256.txt',
+    '_OpenSVPFlow\UPGRADE_GUIDE.md',
     'Utils\_FilmGrainSimplified\NoiseFallback_512x512_RGBA8.rgba',
     'dotnet\FilmGrain_Av1GrainInspectCore.cs',
     'dotnet\FilmGrain_Av1GrainTableSelectionCore.cs',
