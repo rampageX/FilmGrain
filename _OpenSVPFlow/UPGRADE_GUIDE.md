@@ -1,4 +1,4 @@
-# OpenSVPFlow 安装、升级与回退（FGS v5.0.63）
+# OpenSVPFlow 安装、升级与回退（FGS v5.0.64）
 
 ## 新安装
 
@@ -9,7 +9,7 @@
 ## 已有 FGS 升级（推荐）
 
 1. 停止任务并关闭 FGS、`vspipe.exe` 及可能占用 DLL 的其它播放器/工具。先备份原目录里的 `FilmGrain_Config.ini`、`Presets/User`、`_OpenSVPFlow/_UserConfig` 和 `_OpenSVPFlow/.venv`；不要删除原目录。
-2. 推荐把 v5.0.63 Stable 解压到**新的独立目录**，避免 Windows 占用与旧版本脚本混用。按需迁移个人配置；需沿用已有私有 VapourSynth 环境时，请连同 `_UserConfig` 一起迁移 `.venv`，并注意迁移后 `.venv` 中的绝对路径可能失效，若失效则在新位置使用原生依赖安装重建。
+2. 推荐把 v5.0.64 Stable 解压到**新的独立目录**，避免 Windows 占用与旧版本脚本混用。按需迁移个人配置；需沿用已有私有 VapourSynth 环境时，请连同 `_UserConfig` 一起迁移 `.venv`，并注意迁移后 `.venv` 中的绝对路径可能失效，若失效则在新位置使用原生依赖安装重建。
 3. 如必须原目录覆盖升级，先确认进程已退出，再以新包内 `.vpy`、`Check_OpenSVPFlow.vpy`、`Plugins` 中的两只 DLL 和版本标记**成套更新**；保留 `.venv`、`_UserConfig` 和个人配置，不用 Legacy 下的旧安装脚本替换它们。
 4. 启动新 FGS，在「高级 → 插帧 → 更新 OpenSVPFlow 插件」可选择今后升级至上游新 DLL；该操作**不是使用随包 DLL 的前提**。本版已携带用户更新并验证 HLG GPU16/CPU10 的 `nightly-20261106-badc0de392ac` 配对，不必立即再点更新。后续升级属于新组合，建议先用短 HDR10 与 HLG 样本验证再跑长片。
 
@@ -18,7 +18,7 @@
 - 在同一个 `_OpenSVPFlow/.venv` 中用 pip 安装/升级 `vapoursynth==82`、`vapoursynth-bestsource==21.0`，不删除整个虚拟环境；pip 升级步骤与 DLL 回滚独立。
 - 查询上游最新 Release，下载 `x86_64-pc-windows-msvc.zip`，检查资产大小、ZIP 条目、可用时核对 GitHub SHA-256 digest；在临时目录测试 CPU、GPU/OpenCL、CPU10 和 GPU16 高位深插件能力。
 - 通过后备份旧 `svpflow1_vs.dll`、`svpflow2_vs.dll`、`open-svpflow-version.txt` 到 `_OpenSVPFlow/_PluginBackup/UpdateNET_*`，再成套替换并复检。替换失败或取消时尝试恢复这三个原文件；若发生文件占用而回滚不完整，安装日志会指出具体备份目录。
-- 成功后 FGS 自动刷新一次 SVP 能力检测。CPU10 使用 `cubic:0` 与 `exact=true/lean=false`；任何其它插件错误以任务日志为准，不会静默降到 SDR。
+- 成功后 FGS 只刷新一次 SVP 能力。CPU10 使用 `cubic:0` 与 `exact=true/lean=false`；任何其它插件错误以任务日志为准，不会静默降到 SDR。
 
 ## 核验 DLL / 环境
 
@@ -44,6 +44,6 @@ Get-FileHash -LiteralPath '.\_OpenSVPFlow\Plugins\svpflow2_vs.dll' -Algorithm SH
 3. 如果更新后私有环境本身启动失败，备份后通过原生依赖安装入口修复 R82 / BestSource 21.0；插件回滚不会自动撤销 pip 已完成的更改。
 4. 要完全回到 v5.0.62，应使用旧版本完整目录/备份运行，不要把旧 EXE 与新 `.vpy`、新 DLL 混装。
 
-旧目录 `Legacy/_OpenSVPFlow` 中的 PowerShell/BAT 属历史兼容归档，包含旧版 R79 安装逻辑；v5.0.63 的更新以 **FGS 原生界面**为准。版本标记仅用于显示与更新决策，不能单独证明 DLL 来自同名的官方发布资产，实际身份请核对 SHA-256。
+旧目录 `Legacy/_OpenSVPFlow` 中的 PowerShell/BAT 属历史兼容归档，包含旧版 R79 安装逻辑；v5.0.64 的更新以 **FGS 原生界面**为准。版本标记仅用于显示与更新决策，不能单独证明 DLL 来自同名的官方发布资产，实际身份请核对 SHA-256。
 
 随包两只 DLL 均与上游 `nightly-20261106-badc0de392ac` 的 `x86_64-pc-windows-msvc.zip` 逐字节一致。

@@ -731,13 +731,46 @@ namespace FilmGrainStudioPreview
             string path=Exe(directory);if(!File.Exists(path))return "";
             var f=new FileInfo(path);return "v2-full-help|"+f.FullName+"|"+f.Length+"|"+f.LastWriteTimeUtc.Ticks;
         }
-        static string CachePath(string root) {return Path.Combine(root,"NVEncC_Interpolation.cache.json");}
+        private const string CacheFileName = "NVEncC_Interpolation.cache.json";
+        private static string CachePath(string root) { return Path.Combine(root,"Utils",CacheFileName); }
+
+        private static NvencInterpolationReport ReadCache(string path, string stamp)
+        {
+            try
+            {
+                var report = new System.Web.Script.Serialization.JavaScriptSerializer()
+                    .Deserialize<NvencInterpolationReport>(File.ReadAllText(path));
+                return report != null && report.Stamp == stamp ? report : null;
+            }
+            catch { return null; }
+        }
+
+        private static void WriteCache(string root, NvencInterpolationReport report)
+        {
+            string path = CachePath(root), temp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(path));
+                File.WriteAllText(temp,new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(report),new UTF8Encoding(false));
+                if (File.Exists(path)) File.Replace(temp,path,null); else File.Move(temp,path);
+                File.Delete(Path.Combine(root,CacheFileName));
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+            finally { try { File.Delete(temp); } catch (IOException) { } catch (UnauthorizedAccessException) { } }
+        }
         internal static NvencInterpolationReport Cached(string root,string directory) {
             string stamp;try{stamp=Stamp(directory);}catch{return null;}if(stamp.Length==0)return null;
             lock(gate) {
                 NvencInterpolationReport r;if(reports.TryGetValue(stamp,out r))return r;
-                try {r=new System.Web.Script.Serialization.JavaScriptSerializer().Deserialize<NvencInterpolationReport>(File.ReadAllText(CachePath(root)));if(r!=null&&r.Stamp==stamp){reports[stamp]=r;return r;}}catch{}
-                return null;
+                r = ReadCache(CachePath(root),stamp);
+                if (r == null)
+                {
+                    r = ReadCache(Path.Combine(root,CacheFileName),stamp);
+                    if (r != null) WriteCache(root,r);
+                }
+                if (r != null) reports[stamp] = r;
+                return r;
             }
         }
         internal static NvencInterpolationReport Inspect(string root,string directory,bool force) {
@@ -760,8 +793,11 @@ namespace FilmGrainStudioPreview
                     r.Devices=devices;
                 } catch(Exception ex){r.Error=ex.Message;r.Fruc=false;r.Ai=false;}
                 if(!string.IsNullOrEmpty(r.Stamp)) {
-                    lock(gate)reports[r.Stamp]=r;
-                    try {File.WriteAllText(CachePath(root),new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(r),new UTF8Encoding(false));}catch{}
+                    lock(gate)
+                    {
+                        reports[r.Stamp]=r;
+                        WriteCache(root,r);
+                    }
                 }
                 return r;
             }

@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.0.63 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.64 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 <table>
   <tr>
@@ -806,7 +806,7 @@ Field-rate 输出优先于普通电影帧率选择。progressive / unknown 素�
 
 在 .NET 首次运行设置中安装可选环境；私有 Python / VapourSynth 环境位于 `_OpenSVPFlow`。CPU 与 GPU/OpenCL 自检通过后才启用，不按 GPU 型号硬编码。
 
-高级 → 插帧提供 SmoothFps Algo、Analyse Profile、Artifact Mask Area 等设置。当前推荐基线为 Algo 13、pel=1 / gpu=1 / full=true、EncodeGUI-inspired Analyse 与 cover=80 / area=100 / area_sharp=1.2。平滑使用 scene.mode=0，自动平衡使用 scene.mode=3。
+高级 → 插帧提供 SmoothFps Algo、Analyse Profile、Artifact Mask Area 等设置。当前推荐基线为 Algo 13、pel=1 / gpu=1 / full=true、EncodeGUI-inspired Analyse 与 cover=80 / area=100 / area_sharp=1.2。平滑使用 scene.mode=0，平衡使用 scene.mode=3。
 
 OpenSVPFlow 普通 SDR 路线仍使用 YUV420P8。逐行 HDR 需转 SDR 时，先执行共享 Tone Mapping。AUTO 或显式 Preserve 的逐行 10-bit 4:2:0 BT.2020/PQ HDR10 可选择 GPU16（8-bit 光流分析 + 16-bit GPU 渲染）或 CPU10（8-bit 分析 + 10-bit CPU 渲染），输出 YUV420P10；HLG 使用相同高位深路径，用户反馈更新至 `nightly-20261106-badc0de392ac` 配对后 GPU16/CPU10 均测试通过，其它规格尚未覆盖。AV1 FFV1 插帧中间文件使用 10-bit。隔行 HDR/HLG/SDR 输入一律跳过所选插帧器，改走已测试的反交错和 2x 场率；不兼容的编码/插帧格式转 SDR。T600 上 HDR10 GPU16 的 59.94 fps 及 CPU10 参数互斥已完成用户实测；HLG 元数据及未测硬件组合仍需按输出逐项核对。
 

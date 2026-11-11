@@ -439,7 +439,7 @@ namespace FilmGrainStudioPreview
         private void ShowPathConfigurationDialog()
         {
             config.Load();
-            string hardwareBefore = HardwareCapabilityCore.RequestKey(CreateHardwareRequest());
+            string hardwareBefore = HardwareCapabilityCore.ConfigurationKey(CreateHardwareRequest());
             using (Form dlg = new SettingsDialogForm())
             {
                 dlg.Text = lang.T("config.title");
@@ -811,8 +811,8 @@ namespace FilmGrainStudioPreview
             if (result.Success > 0 && !result.Cancelled && result.Failed == 0) {
                 // An updater can replace DLLs in place while retaining their cached identity.
                 // Refresh explicitly after a successful installation; never on dialog open.
-                BeginHardwareDetection(true);
-                FgsMessageBox.Show(owner, "插件更新并完成自检，相关硬件能力已安排刷新。", "更新完成");
+                BeginSvpRefresh(true);
+                FgsMessageBox.Show(owner, "插件更新并完成自检，已安排刷新 SVP 能力。", "更新完成");
             }
         }
 
@@ -846,7 +846,7 @@ namespace FilmGrainStudioPreview
         private void ShowAdvancedSettingsDialog(int initialTab,string quickScope)
         {
             config.Load();
-            string hardwareBefore = quickScope==null?HardwareCapabilityCore.RequestKey(CreateHardwareRequest()):null;
+            string hardwareBefore = quickScope==null?HardwareCapabilityCore.ConfigurationKey(CreateHardwareRequest()):null;
             using (Form dlg = new SettingsDialogForm())
             using (ToolTip interpTips = new ThemeToolTip())
             {

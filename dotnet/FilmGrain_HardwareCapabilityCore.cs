@@ -118,6 +118,9 @@ namespace FilmGrainStudioPreview
         }
     }
 
+    [Flags]
+    internal enum CapabilityRefresh { None = 0, Svp = 1, Fruc = 2, SvtHdr = 4 }
+
     internal sealed class HardwareCapabilityCore : IDisposable
     {
         private readonly object sync = new object();
@@ -158,9 +161,17 @@ namespace FilmGrainStudioPreview
         // Change only when native probe semantics/required capabilities change, not on product releases.
         // A successful cache write acknowledges the contract; ordinary EXE replacement is irrelevant.
         internal const string NativeProbeContract = "native-probe-contract-v2-svp-vspipe-null-target";
+        private static string NativeBaseKey(HardwareCapabilityRequest r)
+        {
+            return "full-version-v1|vulkan-selected-gpu-v1|no-x264-startup-probes-v1|" +
+                ToolBundleStamp(r.FfmpegPath) + "|" + ToolStamp(r.Grav1synthPath) + "|" + NativeProbeContract;
+        }
+        internal static string ConfigurationKey(HardwareCapabilityRequest r)
+        { return NativeBaseKey(r) + "|FRUC|" + FrucKey(r); }
+
         internal static string NativeKey(HardwareCapabilityRequest r)
         {
-            var b = new StringBuilder("full-version-v1|vulkan-selected-gpu-v1|no-x264-startup-probes-v1|"+ToolBundleStamp(r.FfmpegPath)).Append('|').Append(ToolStamp(r.Grav1synthPath)).Append('|').Append(NativeProbeContract);
+            var b = new StringBuilder(NativeBaseKey(r));
             foreach (string p in new string[] {".venv/Scripts/vspipe.exe", "Plugins/svpflow1_vs.dll", "Plugins/svpflow2_vs.dll", "Check_OpenSVPFlow.vpy", ".venv/pyvenv.cfg", "_UserConfig/vapoursynth/vapoursynth.toml"})
                 b.Append('|').Append(ToolStamp(Path.Combine(r.AppRoot, "_OpenSVPFlow", p)));
             return b.ToString();
@@ -172,11 +183,29 @@ namespace FilmGrainStudioPreview
         { return s.Clone(); }
         private static void CopyFruc(HardwareCapabilitySnapshot a, HardwareCapabilitySnapshot b)
         {
-            b.FrucReady=a.FrucReady; b.FrucAvailable=a.FrucAvailable; b.FrucFailureKind=a.FrucFailureKind;
-            b.FrucReason=a.FrucReason; b.FrucFfmpegPath=a.FrucFfmpegPath; b.FrucPerf=a.FrucPerf; b.FrucGrid=a.FrucGrid;
-            b.FrucVersion=a.FrucVersion; b.FrucEvidence=a.FrucEvidence;
-            b.SvtHdrReady=a.SvtHdrReady;b.SvtHdrAvailable=a.SvtHdrAvailable;b.SvtHdrReason=a.SvtHdrReason;b.SvtHdrStamp=a.SvtHdrStamp;
+            CopyRefresh(a,b,CapabilityRefresh.Fruc);
+            CopyRefresh(a,b,CapabilityRefresh.SvtHdr);
             SvtHdrCapabilityDetection.Restore(b);
+        }
+
+        internal static void CopyRefresh(HardwareCapabilitySnapshot source, HardwareCapabilitySnapshot target, CapabilityRefresh scope)
+        {
+            switch (scope)
+            {
+                case CapabilityRefresh.Svp:
+                    target.OpenSvpGpuAvailable = source.OpenSvpGpuAvailable;
+                    target.OpenSvpGpuReason = source.OpenSvpGpuReason;
+                    break;
+                case CapabilityRefresh.Fruc:
+                    target.FrucReady=source.FrucReady; target.FrucAvailable=source.FrucAvailable; target.FrucFailureKind=source.FrucFailureKind;
+                    target.FrucReason=source.FrucReason; target.FrucFfmpegPath=source.FrucFfmpegPath; target.FrucPerf=source.FrucPerf; target.FrucGrid=source.FrucGrid;
+                    target.FrucVersion=source.FrucVersion; target.FrucEvidence=source.FrucEvidence;
+                    break;
+                case CapabilityRefresh.SvtHdr:
+                    target.SvtHdrReady=source.SvtHdrReady; target.SvtHdrAvailable=source.SvtHdrAvailable;
+                    target.SvtHdrReason=source.SvtHdrReason; target.SvtHdrStamp=source.SvtHdrStamp;
+                    break;
+            }
         }
 
         private bool PersistentEnabled { get { return IsolatedPersistentCacheTest || (NativeTest == null && FrucTest == null); } }
@@ -350,6 +379,72 @@ namespace FilmGrainStudioPreview
                 workerThread.Name = "FGS Hardware Capability Detection";
                 workerThread.Start();
             }
+        }
+
+        internal bool StartScopedRefresh(HardwareCapabilityRequest request, CapabilityRefresh scope, Action<HardwareCapabilitySnapshot, string> completed)
+        {
+            lock (sync)
+            {
+                if (disposed || activeProcess != null || (workerThread != null && workerThread.IsAlive)) return false;
+                cancelRequested = false;
+                workerThread = new Thread(new ThreadStart(delegate
+                {
+                    HardwareCapabilitySnapshot result = null;
+                    string refreshedNativeKey = null;
+                    try
+                    {
+                        string key = RefreshKey(request,scope);
+                        if (scope == CapabilityRefresh.Svp)
+                            result = NativeHardwareProbe.DetectSvp(request,CaptureProbe);
+                        else
+                        {
+                            result = new HardwareCapabilitySnapshot { FrucFfmpegPath = request.FrucFfmpegPath };
+                            if (scope == CapabilityRefresh.Fruc)
+                                FrucCapabilityDetection.DetectFruc(request,result,CaptureRawProbe);
+                            else
+                                SvtHdrCapabilityDetection.Detect(request.FrucFfmpegPath,result,CaptureRawProbe,true);
+                        }
+                        if (cancelRequested || key != RefreshKey(request,scope)) result = null;
+                        else if (scope == CapabilityRefresh.Svp && nativeCached != null && nativeKey != null &&
+                            nativeKey.StartsWith(NativeBaseKey(request) + "|", StringComparison.Ordinal))
+                        {
+                            CopyRefresh(result,nativeCached,scope);
+                            nativeKey = refreshedNativeKey = key;
+                            if (!string.IsNullOrWhiteSpace(cachedEnvironment)) SavePersistent(request,cachedEnvironment);
+                        }
+                        else if (scope != CapabilityRefresh.Svp && frucCached != null && frucKey == FrucKey(request))
+                        {
+                            CopyRefresh(result,frucCached,scope);
+                            if (!CanCacheFruc(frucCached)) frucCached = null;
+                            if (!string.IsNullOrWhiteSpace(cachedEnvironment)) SavePersistent(request,cachedEnvironment);
+                        }
+                    }
+                    catch (OperationCanceledException) { result = null; }
+                    catch (Exception ex)
+                    {
+                        result = new HardwareCapabilitySnapshot {
+                            OpenSvpGpuReason = ex.Message, FrucReady = true, FrucReason = ex.Message,
+                            SvtHdrReady = true, SvtHdrReason = ex.Message, FrucFfmpegPath = request.FrucFfmpegPath
+                        };
+                    }
+                    finally
+                    {
+                        lock (sync) { activeProcess = null; workerThread = null; }
+                        if (!disposed && !cancelRequested) completed(result, refreshedNativeKey);
+                    }
+                }));
+                workerThread.IsBackground = true;
+                workerThread.Name = "FGS " + scope + " Capability Refresh";
+                workerThread.Start();
+                return true;
+            }
+        }
+
+        internal static string RefreshKey(HardwareCapabilityRequest request, CapabilityRefresh scope)
+        {
+            if (scope == CapabilityRefresh.Svp) return NativeKey(request);
+            if (scope == CapabilityRefresh.Fruc) return FrucKey(request);
+            return ToolBundleStamp(request.FrucFfmpegPath);
         }
 
         public void Cancel()
@@ -645,8 +740,13 @@ namespace FilmGrainStudioPreview
 
         internal static void Detect(HardwareCapabilityRequest request, HardwareCapabilitySnapshot snapshot, SharedFrucCore.ProbeRunner runner = null)
         {
-            if (runner == null) runner = SharedFrucCore.Run;
             SvtHdrCapabilityDetection.Detect(request.FrucFfmpegPath,snapshot,runner,request.ForceDetection);
+            DetectFruc(request,snapshot,runner);
+        }
+
+        internal static void DetectFruc(HardwareCapabilityRequest request, HardwareCapabilitySnapshot snapshot, SharedFrucCore.ProbeRunner runner)
+        {
+            if (runner == null) runner = SharedFrucCore.Run;
             SharedFrucCore.InvalidatePreflightCache();
             snapshot.FrucFfmpegPath = request.FrucFfmpegPath ?? "";
             snapshot.FrucPerf = request.FrucPerf ?? "medium";
@@ -999,7 +1099,8 @@ namespace FilmGrainStudioPreview
         {
             var caps=Map("runtimeReady",false,"cpu",false,"gpu",false,"gpuReason","");
             string pipe=Path.Combine(root,".venv","Scripts","vspipe.exe"),check=Path.Combine(root,"Check_OpenSVPFlow.vpy"),plugins=Path.Combine(root,"Plugins");
-            if(!File.Exists(pipe)||!File.Exists(check)||!File.Exists(Path.Combine(plugins,"svpflow1_vs.dll"))||!File.Exists(Path.Combine(plugins,"svpflow2_vs.dll")))return caps;
+            foreach (string dependency in new[] { pipe, check, Path.Combine(plugins,"svpflow1_vs.dll"), Path.Combine(plugins,"svpflow2_vs.dll") })
+                if (!File.Exists(dependency)) { caps["gpuReason"] = "Missing: " + dependency; return caps; }
             caps["runtimeReady"]=true;string config=Path.Combine(root,"_UserConfig");
             string appData=File.Exists(Path.Combine(config,"vapoursynth","vapoursynth.toml"))?config:null;
             // Match the successful installer smoke test: vspipe uses "--" as its
@@ -1064,6 +1165,17 @@ namespace FilmGrainStudioPreview
             finally{try{if(File.Exists(temp))File.Delete(temp);}catch{}}
             result.Diagnostics=trace.ToString();return result;
         }
+        internal static HardwareCapabilitySnapshot DetectSvp(HardwareCapabilityRequest request, NativeProbeRunner runner)
+        {
+            var probe = new NativeHardwareProbe(request, runner);
+            var svp = probe.Svp(Path.Combine(request.AppRoot, "_OpenSVPFlow"));
+            return new HardwareCapabilitySnapshot {
+                OpenSvpGpuAvailable = (bool)svp["gpu"],
+                OpenSvpGpuReason = (string)svp["gpuReason"],
+                Diagnostics = probe.trace.ToString()
+            };
+        }
+
         internal static HardwareCapabilitySnapshot Detect(HardwareCapabilityRequest request, NativeProbeRunner runner)
         { return new NativeHardwareProbe(request,runner).Detect(); }
     }

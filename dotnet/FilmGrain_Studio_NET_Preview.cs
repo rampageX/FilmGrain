@@ -107,8 +107,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.63";
-        internal const string FileReleaseVersion = "5.0.63.0";
+        internal const string ReleaseVersion = "5.0.64";
+        internal const string FileReleaseVersion = "5.0.64.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -368,6 +368,7 @@ namespace FilmGrainStudioPreview
         private readonly Dictionary<string, ToolStripStatusLabel> statusCapabilities = new Dictionary<string, ToolStripStatusLabel>();
         private bool updatingFrucUi;
         private bool hardwareRefreshQueued;
+        private CapabilityRefresh refreshQueued, refreshInProgress;
         private string hardwareActiveKey, hardwareAppliedKey;
         private bool hardwareForceQueued;
         private int previousSvpSelection;
@@ -1071,8 +1072,8 @@ namespace FilmGrainStudioPreview
             interp.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 92));
             interp.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             chkInterpolation = Check(lang.T("encode.enable"), false); chkInterpolation.Dock = DockStyle.Fill;
-            cmbInterpolationMode = Combo(new string[] { "OpenSVP · " + lang.T("interp.smooth"), "OpenSVP · " + lang.T("interp.adaptive"), "FRUC Vulkan · HDR", "NVEncC FRUC", "NVEncC AI" }, 0);
-            cmbInterpolationMode.Dock = DockStyle.Fill; cmbInterpolationMode.DropDownWidth = 340;
+            cmbInterpolationMode = Combo(new string[] { "OpenSVP · " + lang.T("interp.smooth") + " · HDR", "OpenSVP · " + UiText("平衡", lang.T("interp.adaptive")) + " · HDR", "FRUC Vulkan · HDR", "NVEncC FRUC", "NVEncC AI" }, 0);
+            cmbInterpolationMode.Dock = DockStyle.Fill;
             cmbInterpolationMode.DrawMode = DrawMode.OwnerDrawFixed;
             cmbInterpolationMode.DrawItem += delegate(object sender, DrawItemEventArgs e)
             {
@@ -1080,7 +1081,7 @@ namespace FilmGrainStudioPreview
                 e.DrawBackground();
                 bool disabled = e.Index == 2 && ((hardwareDetectionInProgress && !hardwareCapsReady) || hardwareCaps == null || !hardwareCaps.FrucReady || !hardwareCaps.FrucAvailable);
                 TextRenderer.DrawText(e.Graphics, Convert.ToString(cmbInterpolationMode.Items[e.Index]), e.Font,
-                    e.Bounds, (disabled || (e.Index>=3 && NvencOptionReason(e.Index).Length>0)) ? SystemColors.GrayText : e.ForeColor, TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
+                    e.Bounds, (disabled || (e.Index>=3 && NvencOptionReason(e.Index).Length>0)) ? SystemColors.GrayText : e.ForeColor, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);
                 e.DrawFocusRectangle();
             };
             cmbInterpolationMode.DropDown += delegate { BeginNvencInspection(); };
@@ -2056,9 +2057,9 @@ namespace FilmGrainStudioPreview
             AddCapabilityGroup(strip,"NVEncC",UiText("可选插帧工具；点击只刷新 NVEncC 检测，不重测整机硬件。","Optional interpolation tool; click refreshes NVEncC only."),"NVEncC");
             statusCapabilities["NVEncC"].Click+=delegate {BeginNvencInspection(true);};
             UpdateNvencStatus();
-            statusCapabilities["FRUC"].Click += delegate { BeginHardwareDetection(true); };
-            statusCapabilities["SVP"].Click += delegate { BeginHardwareDetection(true); };
-            statusCapabilities["SVT-HDR"].Click += delegate { BeginHardwareDetection(true); };
+            statusCapabilities["FRUC"].Click += delegate { BeginScopedRefresh(CapabilityRefresh.Fruc); };
+            statusCapabilities["SVP"].Click += delegate { BeginSvpRefresh(); };
+            statusCapabilities["SVT-HDR"].Click += delegate { BeginScopedRefresh(CapabilityRefresh.SvtHdr); };
             BuildThemeMenu(strip);
             strip.Items.Add(version); return strip;
         }
@@ -2721,15 +2722,13 @@ namespace FilmGrainStudioPreview
 
         private bool HasNativeInterpolationBypass(MediaProbeInfo info)
         {
-            if (chkInterpolation == null || !chkInterpolation.Checked || info == null) return false;
-            var current = new Dictionary<string,string> {
-                {"FG_SVP_INTERPOLATE","1"}, {"FG_INTERPOLATION_ENGINE",NvencInterpolationCore.Engine(cmbInterpolationMode==null?0:cmbInterpolationMode.SelectedIndex)},
-                {"FG_HDR_POLICY",config.Get("HDR_POLICY")}, {"FG_DEINTERLACE",cmbDeint == null || cmbDeint.SelectedIndex == 0 ? "AUTO" : "OFF"}
-            };
-            IDictionary<string,string> normalized; string notice,reason;
-            string disabled;
-            return SharedInterpolationBypassCore.TryResolve(info,current,out normalized,out notice,out reason) &&
-                   normalized != null && normalized.TryGetValue("FG_SVP_INTERPOLATE",out disabled) && disabled=="0";
+            return chkInterpolation != null && chkInterpolation.Checked && info != null && info.IsInterlaced;
+        }
+
+        private bool BypassesQueuedInterpolation(string input, IDictionary<string,string> state)
+        {
+            MediaProbeInfo info;
+            return mediaProbeCache.TryGetValue(input,out info) && SharedInterpolationBypassCore.BypassesInterlacedInput(info,state);
         }
 
         private double GetRecommendedOutputFps(MediaProbeInfo info)
@@ -2880,7 +2879,7 @@ namespace FilmGrainStudioPreview
 
         private void RefreshChangedHardware(string before)
         {
-            if (before != HardwareCapabilityCore.RequestKey(CreateHardwareRequest())) BeginHardwareDetection();
+            if (before != HardwareCapabilityCore.ConfigurationKey(CreateHardwareRequest())) BeginHardwareDetection();
         }
 
         private void BeginHardwareDetection(bool force = false)
@@ -2893,6 +2892,11 @@ namespace FilmGrainStudioPreview
             string requestedNativeKey = HardwareCapabilityCore.NativeKey(request);
             string requestedFrucKey = HardwareCapabilityCore.FrucKey(request);
             string key = requestedNativeKey + "|FRUC|" + requestedFrucKey;
+            if (refreshInProgress != CapabilityRefresh.None) {
+                hardwareRefreshQueued = true;
+                hardwareForceQueued |= force;
+                return;
+            }
             if (hardwareCapabilityCore.IsRunning) {
                 // Identical requests join the active pass, including repeated refresh clicks.
                 hardwareRefreshQueued = key != hardwareActiveKey;
@@ -2942,7 +2946,7 @@ namespace FilmGrainStudioPreview
                 {
                     if (e == null || hardwareCapabilityCore == null || e.Generation != hardwareCapabilityCore.Generation) return;
                     hardwareDetectionInProgress = false;
-                    if (hardwareRefreshQueued) { BeginHardwareDetection(); return; }
+                    if (hardwareRefreshQueued) { BeginHardwareDetection(); if (hardwareDetectionInProgress) return; }
                     HardwareCapabilitySnapshot caps = e != null ? e.Snapshot : null;
                     if (caps != null && caps.Ready) hardwareAppliedKey = hardwareActiveKey;
                     if (caps != null && caps.Ready)
@@ -2968,14 +2972,85 @@ namespace FilmGrainStudioPreview
                     }
                     UpdateFrucAvailabilityUi();
                     UpdateFrucStatus();
+                    UpdateSvtHdrStatus();
                     if(caps!=null)AppendDiagnosticLog("[Hardware SVT-HDR] available="+caps.SvtHdrAvailable+" path="+caps.FrucFfmpegPath+" reason="+caps.SvtHdrReason+Environment.NewLine);
                     if (caps != null) AppendDiagnosticLog("[Hardware FRUC] available=" + caps.FrucAvailable + " kind=" + caps.FrucFailureKind + " path=" + caps.FrucFfmpegPath + " reason=" + caps.FrucReason + Environment.NewLine);
                     if (btnStart != null && (bridgeTaskCoordinator == null || !bridgeTaskCoordinator.IsActive)) btnStart.Enabled = hardwareCapsReady;
                     StartupTiming.Mark("hardware.applied", "ready=" + hardwareCapsReady + " native=" + hardwareCapabilityCore.NativeRuns + " fruc=" + hardwareCapabilityCore.FrucRuns + " children=" + hardwareCapabilityCore.ChildProcesses);
                     ScrollLogToEnd();
+                    StartQueuedRefresh();
                 });
             }
             catch (InvalidOperationException) { }
+        }
+
+        private void BeginSvpRefresh(bool afterPluginUpdate = false)
+        {
+            BeginScopedRefresh(CapabilityRefresh.Svp,afterPluginUpdate);
+        }
+
+        private void BeginScopedRefresh(CapabilityRefresh scope, bool repeat = false)
+        {
+            if (hardwareCapabilityCore == null || startupClosing || (refreshInProgress == scope && !repeat)) return;
+            refreshQueued |= scope;
+            StartQueuedRefresh();
+        }
+
+        private void StartQueuedRefresh()
+        {
+            if (refreshQueued == CapabilityRefresh.None || startupClosing || !startupCatalogReady ||
+                hardwareDetectionInProgress || refreshInProgress != CapabilityRefresh.None ||
+                (bridgeTaskCoordinator != null && bridgeTaskCoordinator.IsActive)) return;
+            var scope = (refreshQueued & CapabilityRefresh.Svp) != 0 ? CapabilityRefresh.Svp :
+                (refreshQueued & CapabilityRefresh.Fruc) != 0 ? CapabilityRefresh.Fruc : CapabilityRefresh.SvtHdr;
+            var request = CreateHardwareRequest();
+            string key = HardwareCapabilityCore.RefreshKey(request,scope);
+            string label = scope == CapabilityRefresh.Svp ? "SVP" : scope == CapabilityRefresh.Fruc ? "FRUC" : "SVT-HDR";
+            if (!hardwareCapabilityCore.StartScopedRefresh(request,scope,delegate(HardwareCapabilitySnapshot result, string nativeKey)
+            {
+                try { BeginInvoke((MethodInvoker)delegate
+                {
+                    refreshInProgress = CapabilityRefresh.None;
+                    if (startupClosing) return;
+                    if (result != null && key == HardwareCapabilityCore.RefreshKey(CreateHardwareRequest(),scope))
+                    {
+                        hardwareCaps = hardwareCaps == null ? new HardwareCapabilitySnapshot() : hardwareCaps.Clone();
+                        HardwareCapabilityCore.CopyRefresh(result,hardwareCaps,scope);
+                        if (nativeKey != null)
+                        {
+                            hardwareNativeAppliedKey = nativeKey;
+                            if (hardwareFrucAppliedKey == HardwareCapabilityCore.FrucKey(request))
+                                hardwareAppliedKey = nativeKey + "|FRUC|" + hardwareFrucAppliedKey;
+                        }
+                        string details = scope == CapabilityRefresh.Svp ? result.Diagnostics ?? result.OpenSvpGpuReason :
+                            scope == CapabilityRefresh.Fruc ? result.FrucReason : result.SvtHdrReason;
+                        AppendDiagnosticLog("[Hardware " + label + "] " + details + Environment.NewLine);
+                    }
+                    if (hardwareCaps != null)
+                    {
+                        if (scope == CapabilityRefresh.Svp) UpdateSvpStatus(hardwareCaps);
+                        else if (scope == CapabilityRefresh.Fruc) { UpdateFrucAvailabilityUi(); UpdateFrucStatus(); }
+                        else UpdateSvtHdrStatus();
+                    }
+                    if (hardwareRefreshQueued) BeginHardwareDetection();
+                    StartQueuedRefresh();
+                }); } catch (InvalidOperationException) { }
+            })) return;
+            refreshQueued &= ~scope;
+            refreshInProgress = scope;
+            if (statusCapabilities.ContainsKey(label))
+            {
+                statusCapabilities[label].Text = CapabilityDisplayName(label) + " …";
+                statusCapabilities[label].ForeColor = ColorMuted;
+            }
+        }
+
+        private void UpdateSvtHdrStatus()
+        {
+            if (hardwareCaps == null || !hardwareCaps.SvtHdrReady) return;
+            SetCapabilityStatus("SVT-HDR",hardwareCaps.SvtHdrAvailable);
+            if (statusCapabilities.ContainsKey("SVT-HDR"))
+                statusCapabilities["SVT-HDR"].ToolTipText = "SVT-AV1-HDR · " + CreateHardwareRequest().FrucFfmpegPath + "\r\n" + hardwareCaps.SvtHdrReason;
         }
 
         private void ApplyHardwareCapabilities()
@@ -3000,11 +3075,7 @@ namespace FilmGrainStudioPreview
             SetCapabilityStatus("H.264",hardwareCaps.H264Available);
             SetCapabilityStatus("SVT-HDR",hardwareCaps.SvtHdrAvailable);
             if(statusCapabilities.ContainsKey("SVT-HDR"))statusCapabilities["SVT-HDR"].ToolTipText="SVT-AV1-HDR · "+hardwareCaps.FrucFfmpegPath+"\r\n"+hardwareCaps.SvtHdrReason;
-            SetCapabilityStatus("SVP", hardwareCaps.OpenSvpGpuAvailable);
-            if (statusCapabilities.ContainsKey("SVP"))
-                statusCapabilities["SVP"].ToolTipText = UiText(
-                    "SVP-GPU：" + (hardwareCaps.OpenSvpGpuAvailable ? "插件 GPU 自检通过" : "插件 GPU 自检失败：" + hardwareCaps.OpenSvpGpuReason) + "。点击重新检测。",
-                    "SVP-GPU: " + (hardwareCaps.OpenSvpGpuAvailable ? "GPU plugin probe passed" : "GPU plugin probe failed: " + hardwareCaps.OpenSvpGpuReason) + ". Click to refresh.");
+            UpdateSvpStatus(hardwareCaps);
             UpdateFrucAvailabilityUi(); UpdateFrucStatus(); UpdateNvencStatus();
 
 
@@ -3093,6 +3164,15 @@ namespace FilmGrainStudioPreview
             finally { updatingFrucUi = false; }
             cmbInterpolationMode.Invalidate();
             if (lutToolTip != null) lutToolTip.SetToolTip(cmbInterpolationMode, FrucToolTipText());
+        }
+
+        private void UpdateSvpStatus(HardwareCapabilitySnapshot caps)
+        {
+            SetCapabilityStatus("SVP", caps.OpenSvpGpuAvailable);
+            if (statusCapabilities.ContainsKey("SVP"))
+                statusCapabilities["SVP"].ToolTipText = UiText(
+                    "SVP-GPU：" + (caps.OpenSvpGpuAvailable ? "插件 GPU 自检通过" : "插件 GPU 自检失败：" + caps.OpenSvpGpuReason) + "。点击只复检 SVP。",
+                    "SVP-GPU: " + (caps.OpenSvpGpuAvailable ? "GPU plugin probe passed" : "GPU plugin probe failed: " + caps.OpenSvpGpuReason) + ". Click to refresh SVP only.");
         }
 
         private void UpdateFrucStatus()
@@ -3342,7 +3422,8 @@ namespace FilmGrainStudioPreview
                         warning.Path, FormatWorkspaceBytes(warning.Available), FormatWorkspaceBytes(warning.Required), FormatWorkspaceBytes(warning.Reserve));
                     return FgsMessageBox.Show(this, message, Text, MessageBoxButtons.YesNo, MessageBoxIcon.Warning,
                         MessageBoxDefaultButton.Button2) == DialogResult.Yes;
-                }, !noReencode && state["FG_MODE"] == "AV1" && prepared.ExecutionRequest.Environment["FG_SVP_INTERPOLATE"] == "1", !noReencode ? state["FG_INTERPOLATION_TARGET_FPS"] : "", out workspaceIssue))
+                }, !noReencode && state["FG_MODE"] == "AV1" && state["FG_SVP_INTERPOLATE"] == "1",
+                !noReencode ? state["FG_INTERPOLATION_TARGET_FPS"] : "", input => BypassesQueuedInterpolation(input,state), out workspaceIssue))
             {
                 if (workspaceIssue != null)
                     FgsMessageBox.Show(this, LF(workspaceIssue.Key, workspaceIssue.Path, workspaceIssue.Detail), Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
@@ -3418,10 +3499,7 @@ namespace FilmGrainStudioPreview
                             warning.Path, FormatWorkspaceBytes(warning.Available), FormatWorkspaceBytes(warning.Required), FormatWorkspaceBytes(warning.Reserve)),
                             Text, MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) == DialogResult.Yes;
                     }, !noReencode && capturedState["FG_MODE"] == "AV1" && capturedState["FG_SVP_INTERPOLATE"] == "1",
-                    !noReencode ? capturedState["FG_INTERPOLATION_TARGET_FPS"] : "", delegate(string input) {
-                        MediaProbeInfo probe; IDictionary<string,string> normalized; string notice,reason;
-                        return mediaProbeCache.TryGetValue(input,out probe) && SharedInterpolationBypassCore.TryResolve(probe,capturedState,out normalized,out notice,out reason) && normalized != null;
-                    }, out issue))
+                    !noReencode ? capturedState["FG_INTERPOLATION_TARGET_FPS"] : "", input => BypassesQueuedInterpolation(input,capturedState), out issue))
                     throw new InvalidOperationException(issue == null ? "Queue workspace check was declined." : LF(issue.Key, issue.Path, issue.Detail));
                 foreach (string input in inputs)
                 {
@@ -3432,7 +3510,7 @@ namespace FilmGrainStudioPreview
                         if(!WorkspacePreflightCore.Check(new List<string>{input},noReencode?"AV1":capturedState["FG_MODE"],noReencode,
                             config.Get("TEMP_MODE"),config.Get("TEMP_CUSTOM_DIR"),config.Get("OUTPUT_MODE"),config.Get("OUTPUT_CUSTOM_DIR"),mediaProbeCache,
                             delegate(WorkspaceSpaceWarning warning) {return FgsMessageBox.Show(this,LF(warning.IsOutput?"warning.output_space":"warning.temp_space",warning.Path,FormatWorkspaceBytes(warning.Available),FormatWorkspaceBytes(warning.Required),FormatWorkspaceBytes(warning.Reserve)),Text,MessageBoxButtons.YesNo,MessageBoxIcon.Warning,MessageBoxDefaultButton.Button2)==DialogResult.Yes;},
-                            !noReencode&&capturedState["FG_MODE"]=="AV1"&&capturedState["FG_SVP_INTERPOLATE"]=="1",!noReencode?capturedState["FG_INTERPOLATION_TARGET_FPS"]:"",out issue))throw new InvalidOperationException(issue==null?"Workspace check declined":LF(issue.Key,issue.Path,issue.Detail));
+                            !noReencode&&capturedState["FG_MODE"]=="AV1"&&capturedState["FG_SVP_INTERPOLATE"]=="1",!noReencode?capturedState["FG_INTERPOLATION_TARGET_FPS"]:"",path => BypassesQueuedInterpolation(path,capturedState),out issue))throw new InvalidOperationException(issue==null?"Workspace check declined":LF(issue.Key,issue.Path,issue.Detail));
                     }
                     foreach(var pair in capturedState)AppendTaskDiagnosticLog("[Queue snapshot] input="+input+" "+pair.Key+"="+pair.Value+Environment.NewLine);
                     string targetDir = capturedState["FG_OUTPUT_MODE"] == "CUSTOM" ? capturedState["FG_OUTPUT_CUSTOM_DIR"] : Path.GetDirectoryName(input);
@@ -3799,6 +3877,7 @@ namespace FilmGrainStudioPreview
                     }
 
                     if (hardwareRefreshQueued) BeginHardwareDetection();
+                    StartQueuedRefresh();
                     if (history != null && history.Enabled && !e.Result.Cancelled && detailedRecord.Length > 0) ShowQueueCompletionRecord(detailedRecord);
                     if (log != null)
                     {

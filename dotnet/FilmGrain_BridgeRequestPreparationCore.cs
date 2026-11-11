@@ -6,7 +6,7 @@ namespace FilmGrainStudioPreview
 {
     internal static class SharedInterpolationBypassCore
     {
-        // PQ is validated; HLG uses the same high-depth YUV path for experimental verification.
+        // PQ and HLG share the validated high-depth 4:2:0 path.
         internal static bool SupportsHighDepthSvpHdr(MediaProbeInfo info)
         {
             return info != null && info.IsHdr && !info.IsInterlaced &&
@@ -26,6 +26,19 @@ namespace FilmGrainStudioPreview
 
         private static string Get(IDictionary<string,string> state, string key)
         { string value; return state.TryGetValue(key, out value) ? value ?? "" : ""; }
+
+        internal static bool BypassesInterlacedInput(MediaProbeInfo info, IDictionary<string,string> state)
+        {
+            return info != null && info.IsInterlaced && state != null && Get(state,"FG_SVP_INTERPOLATE") == "1";
+        }
+
+        private static bool AutoSvpPreservesHdr(MediaProbeInfo info, IDictionary<string,string> state)
+        {
+            string mode = Get(state,"FG_MODE").ToUpperInvariant();
+            return AutoHdrSvpReady(info,state) && mode != "H264" && mode != "X264" &&
+                Get(state,"FG_COLOR_ENABLED") != "1" && string.IsNullOrWhiteSpace(Get(state,"FG_LUT_PATH")) &&
+                SharedGrainCore.Engine(state) != "FGSIM";
+        }
 
         internal static string SdrFallbackReason(MediaProbeInfo info, IDictionary<string,string> state)
         {
@@ -50,7 +63,7 @@ namespace FilmGrainStudioPreview
             if (info == null || state == null) return true;
             string enabled=Get(state,"FG_SVP_INTERPOLATE"),engine=Get(state,"FG_INTERPOLATION_ENGINE");
             string policy=Get(state,"FG_HDR_POLICY");
-            if(info.IsInterlaced && enabled=="1")
+            if(BypassesInterlacedInput(info,state))
             {
                 normalized=new Dictionary<string,string>(state,StringComparer.OrdinalIgnoreCase);
                 normalized["FG_SVP_INTERPOLATE"]="0";
@@ -73,7 +86,7 @@ namespace FilmGrainStudioPreview
             if(enabled!="1" || (engine!="" && !string.Equals(engine,"SVP",StringComparison.OrdinalIgnoreCase)))return true;
             if (info.IsHdr && !info.IsInterlaced &&
                 (string.Equals(policy,"PRESERVE",StringComparison.OrdinalIgnoreCase) ||
-                 (string.Equals(policy,"AUTO",StringComparison.OrdinalIgnoreCase) && SupportsHighDepthSvpHdr(info))))
+                 (string.Equals(policy,"AUTO",StringComparison.OrdinalIgnoreCase) && AutoSvpPreservesHdr(info,state))))
             {
                 string backend;
                 if(!state.TryGetValue("FG_SVP_HDR_BACKEND",out backend)||string.IsNullOrEmpty(backend))backend="GPU16";
@@ -169,13 +182,6 @@ namespace FilmGrainStudioPreview
             if(info.Identity==null || !info.Identity.IsCurrent(input,currentProbe)) { reason="Input or FFprobe changed; reselect and probe again: "+input;return false; }
             if(!info.HasVideo){reason="input has no usable video stream: "+input;return false;}
             if(state==null){reason="missing execution state";return false;}
-            string routeNotice="";
-            if(!noReencode)
-            {
-                IDictionary<string,string> effective;
-                if(!SharedInterpolationBypassCore.TryResolve(info,state,out effective,out routeNotice,out reason))return false;
-                if(effective!=null)state=effective;
-            }
             try { AudioOutputCore.EstimateMissing(input,currentProbe,info,state); }
             catch(Exception ex){reason=ex.Message;return false;}
 
@@ -185,6 +191,14 @@ namespace FilmGrainStudioPreview
                 bool ok=SharedEncodePreviewCore.TryPrepare(appRoot,input,info,state,caps,noReencode,out prepared,out reason);
                 if(ok) { prepared.ExecutionRequest.SourceIdentity=info.Identity;prepared.ExecutionRequest.SourceConfigRoot=appRoot; }
                 return ok;
+            }
+
+            string routeNotice="";
+            if(!noReencode)
+            {
+                IDictionary<string,string> effective;
+                if(!SharedInterpolationBypassCore.TryResolve(info,state,out effective,out routeNotice,out reason))return false;
+                if(effective!=null)state=effective;
             }
             if(!noReencode && NvencInterpolationCore.Enabled(state)) {
                 string gpu=caps==null?VulkanDevicePolicy.DeviceName:caps.GpuName;

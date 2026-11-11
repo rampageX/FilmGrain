@@ -1,4 +1,4 @@
-OpenSVPFlow runtime for Film Grain Studio v5.0.63 Stable
+OpenSVPFlow runtime for Film Grain Studio v5.0.64 Stable
 
 This directory ships FilmGrain_OpenSVPFlow.vpy, Check_OpenSVPFlow.vpy,
 and the matching Windows svpflow1_vs.dll / svpflow2_vs.dll pair under Plugins.

@@ -86,3 +86,4 @@
 
 # Optional NVEncC tool metadata, machine-specific
 NVEncC_Interpolation.cache.json
+/Utils/NVEncC_Interpolation.cache.json.*.tmp

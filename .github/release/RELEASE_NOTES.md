@@ -1,6 +1,7 @@
-# Film Grain Studio v5.0.63
+# Film Grain Studio v5.0.64
 
-- HDR AUTO 支持逐行 10-bit 4:2:0 BT.2020/PQ HDR10 与 HLG 使用 OpenSVPFlow GPU16 或 CPU10 高位深插帧，保留源色彩标签。隔行 HDR/HLG 使用 2x 场率反交错并绕过插帧器。不兼容的 HDR 组合按实际路线转 SDR。
-- 修复 SVP-GPU 状态栏误报。点击可强制复检，悬停可查看失败原因，插件更新成功后自动刷新一次。HDR 插帧输出名以 C/G 区分 CPU10 与 GPU16。
-- 输入区可打开配置的自定义输出目录，同名输出冲突时直接显示提示。
-- 随包提供用户实测的 OpenSVPFlow `nightly-20261106-badc0de392ac` DLL 对及 SHA-256 清单。两只 DLL 均与上游同标签 Windows 发布资产逐字节一致。
+- SVP-GPU、FRUC 和 SVT-HDR 状态栏按钮各自只复检对应项目。OpenSVPFlow 插件更新成功后只刷新 SVP 能力。
+- NVEncC 插帧检测缓存迁入 `Utils`。匹配当前工具的旧根目录缓存会自动迁移。
+- 插帧下拉列表跟随控件宽度。OpenSVP 两项改为「平滑 · HDR」和「平衡 · HDR」。
+- 修正 AV1 插帧队列的 FFV1 临时空间估算。高位深 HDR 按 16-bit 样本存储估算，只有实际绕过插帧的隔行源才跳过这项估算。
+- 修正 HDR AUTO 转 SDR 时传入 SVP 的渲染标记。编码预览按裁剪后重新探测的输入判定路线。

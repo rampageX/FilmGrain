@@ -108,8 +108,9 @@ namespace FilmGrainStudioPreview
                 !double.TryParse(info.Duration, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out duration) || duration <= 0 ||
                 !InterpolationFrameRateCore.TryParse(rate, info.AvgFrameRate, out target, out reason))
                 throw new IOException("FRUC workfile size estimate requires known dimensions, duration and FPS.");
-            // Conservative 8-bit 4:2:0 raw bound plus margin; FFV1 compression is content-dependent.
-            double required = info.Width * (double)info.Height * 1.5 * target.Fps * duration * 1.05;
+            // Use the 16-bit storage bound for HDR 4:2:0 workfiles. FFV1 compression is content-dependent.
+            double bytesPerPixel = info.IsHdr ? 3.0 : 1.5;
+            double required = info.Width * (double)info.Height * bytesPerPixel * target.Fps * duration * 1.05;
             if (double.IsNaN(required) || double.IsInfinity(required)) throw new IOException("FRUC workfile size estimate is invalid.");
             return required;
         }
