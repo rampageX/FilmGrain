@@ -47,7 +47,8 @@ namespace FilmGrainStudioPreview
             bool hdrToSdr = info.IsHdr && !Eq(state, "FG_HDR_POLICY", "PRESERVE") &&
                 (Eq(state, "FG_HDR_POLICY", "SDR") || fgsimGrain ||
                  (Eq(state, "FG_HDR_POLICY", "AUTO") &&
-                  (Get(state, "FG_COLOR_ENABLED") == "1" || !string.IsNullOrWhiteSpace(Get(state, "FG_LUT_PATH")) || svp)));
+                  (Get(state, "FG_COLOR_ENABLED") == "1" || !string.IsNullOrWhiteSpace(Get(state, "FG_LUT_PATH")) ||
+                   (svp && !SharedInterpolationBypassCore.AutoHdrSvpReady(info,state)))));
             bool hdrPreserve = info.IsHdr && !hdrToSdr;
 
 
@@ -158,7 +159,7 @@ namespace FilmGrainStudioPreview
                 if (Math.Abs(outputFps - (24000.0 / 1001.0)) <= 0.03) fpsSuffix = "_23976p";
                 else if (Math.Abs(outputFps - 24.0) <= 0.03) fpsSuffix = "_24p";
             }
-            if (interpolate) fpsSuffix = (NvencInterpolationCore.Enabled(state) ? (Eq(state,"FG_INTERPOLATION_ENGINE","NVENC_AI")?"_NVAI":"_NVFRUC") : fruc ? "_FRUC" : "_SVP") + frucRate.Label;
+            if (interpolate) fpsSuffix = (NvencInterpolationCore.Enabled(state) ? (Eq(state,"FG_INTERPOLATION_ENGINE","NVENC_AI")?"_NVAI":"_NVFRUC") : fruc ? "_FRUC" : "_SVP") + frucRate.Label + (svp && !fruc && !NvencInterpolationCore.Enabled(state) ? SharedSvpCore.BackendFileSuffix(state) : "");
             string output = Path.Combine(outputDirectory,
                 Path.GetFileNameWithoutExtension(input) + "_AV1_" + speed + "_" + NvencRateControlCore.FileToken(state,bitrate) + fpsSuffix + deinterlaceSuffix + frame.FileSuffix + (grainEnabled ? "_GS_" + grainTag : "") + colorSuffix + lutNamingSuffix + (hdrToSdr ? "_SDR_" + tonemapLabel : "") + subtitleSuffix + HardwareDecodeCore.FileSuffix(state) + extension);
             if (File.Exists(output)) { reason = "native output already exists: " + output; return false; }

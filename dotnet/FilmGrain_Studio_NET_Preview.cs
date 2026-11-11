@@ -107,8 +107,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.62";
-        internal const string FileReleaseVersion = "5.0.62.0";
+        internal const string ReleaseVersion = "5.0.63";
+        internal const string FileReleaseVersion = "5.0.63.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -308,6 +308,8 @@ namespace FilmGrainStudioPreview
 
         private ListView listFiles;
         private Label lblMediaInfo;
+        private LinkLabel lblInputNote;
+        private Label lblExistingOutput;
         private Label lblHdrRoute;
         private Button btnHdrShortcut;
         private Button btnAv1Bake;
@@ -822,9 +824,9 @@ namespace FilmGrainStudioPreview
             Button add = new ThemeButton(); add.Text = lang.T("button.add"); add.Size = new Size(92, 29);
             Button remove = new ThemeButton(); remove.Text = lang.T("button.remove"); remove.Size = new Size(82, 29);
             Button clear = new ThemeButton(); clear.Text = lang.T("button.clear"); clear.Size = new Size(62, 29);
-            add.Click += delegate { AddFilesWithDialog(); };
-            remove.Click += delegate { RemoveSelected(); };
-            clear.Click += delegate { ClearInputFiles(); };
+            add.Click += delegate { ClearExistingOutputNotice(); AddFilesWithDialog(); };
+            remove.Click += delegate { ClearExistingOutputNotice(); RemoveSelected(); };
+            clear.Click += delegate { ClearExistingOutputNotice(); ClearInputFiles(); };
             buttons.Controls.Add(add); buttons.Controls.Add(remove); buttons.Controls.Add(clear);
             btnAv1Bake = new ThemeButton { Text = UiText("AV1 烘焙...", "AV1 Bake..."), Size = new Size(106,29), Enabled = false };
             btnAv1Bake.Click += delegate { ShowAv1BakeDialog(); }; buttons.Controls.Add(btnAv1Bake);
@@ -857,7 +859,7 @@ namespace FilmGrainStudioPreview
             FitFileColumns();
             listFiles.DragEnter += OnDragEnter;
             listFiles.DragDrop += OnDragDrop;
-            listFiles.SelectedIndexChanged += delegate { SelectFileEditor(); UpdateSelectedInfo(); UpdateNoReencodeAvailability(); };
+            listFiles.SelectedIndexChanged += delegate { ClearExistingOutputNotice(); SelectFileEditor(); UpdateSelectedInfo(); UpdateNoReencodeAvailability(); };
             listFiles.MouseDoubleClick += delegate(object sender,MouseEventArgs e) {
                 if(e.Button==MouseButtons.Left && listFiles.GetItemAt(e.X,e.Y)!=null)ResetSelectedQueueStatus();
             };
@@ -886,13 +888,29 @@ namespace FilmGrainStudioPreview
             inputStatus.RowCount = 2;
             inputStatus.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));
             inputStatus.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            Label note = new ThemeLabel();
+            LinkLabel note = lblInputNote = new LinkLabel();
             note.Dock = DockStyle.Fill;
             note.ForeColor = ColorMuted;
-            note.Padding = new Padding(6, 3, 4, 0);
+            note.LinkColor = ColorAccent;
+            note.ActiveLinkColor = ColorAccent;
+            note.VisitedLinkColor = ColorAccent;
+            note.TextAlign = ContentAlignment.MiddleLeft;
+            note.Margin = Padding.Empty;
+            note.Padding = new Padding(6, 0, 4, 0);
             note.AutoEllipsis = true;
-            note.Text = lang.T("input.note");
-            inputStatus.Controls.Add(note, 0, 0);
+            note.LinkClicked += delegate { OpenConfiguredOutputDirectory(); };
+            var outputNoticeRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = Padding.Empty };
+            outputNoticeRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            outputNoticeRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 112));
+            outputNoticeRow.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            lblExistingOutput = new ThemeLabel { Dock = DockStyle.Fill, Margin = Padding.Empty,
+                Padding = new Padding(0, 0, 4, 0), TextAlign = ContentAlignment.MiddleRight,
+                ForeColor = Color.FromArgb(189, 42, 42), Font = UiFont(8.5f, FontStyle.Bold),
+                Text = lang.T("input.note_conflict"), Visible = false };
+            outputNoticeRow.Controls.Add(note, 0, 0);
+            outputNoticeRow.Controls.Add(lblExistingOutput, 1, 0);
+            UpdateOutputDirectoryNote();
+            inputStatus.Controls.Add(outputNoticeRow, 0, 0);
             lblHdrRoute = new ThemeLabel();
             lblHdrRoute.Dock = DockStyle.Fill;
             lblHdrRoute.ForeColor = ColorMuted;
@@ -904,6 +922,67 @@ namespace FilmGrainStudioPreview
             btnHdrShortcut.Visible = false;
             layout.Controls.Add(inputStatus, 0, 4);
             return box;
+        }
+
+        private void UpdateOutputDirectoryNote()
+        {
+            if (lblInputNote == null) return;
+            string customPath = config.Get("OUTPUT_CUSTOM_DIR");
+            bool custom = string.Equals(config.Get("OUTPUT_MODE"), "CUSTOM", StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrWhiteSpace(customPath);
+            string destination = lang.T(custom ? "input.note_custom" : "input.note_source");
+            lblInputNote.Text = LF("input.note", destination);
+            lblInputNote.Links.Clear();
+            if (custom)
+            {
+                int offset = lblInputNote.Text.IndexOf(destination, StringComparison.Ordinal);
+                if (offset >= 0) lblInputNote.Links.Add(offset, destination.Length);
+            }
+            lutToolTip.SetToolTip(lblInputNote, custom ? LF("input.note_custom_tip", customPath) : lblInputNote.Text);
+        }
+
+        private void OpenConfiguredOutputDirectory()
+        {
+            if (!string.Equals(config.Get("OUTPUT_MODE"), "CUSTOM", StringComparison.OrdinalIgnoreCase)) return;
+            string directory = config.Get("OUTPUT_CUSTOM_DIR");
+            if (!Directory.Exists(directory))
+            {
+                FgsMessageBox.Show(this, LF("error.output_unavailable", directory, "Directory not found"), Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            try { Process.Start(new ProcessStartInfo { FileName = directory, UseShellExecute = true, Verb = "open" }); }
+            catch (Exception ex) { FgsMessageBox.Show(this, ex.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+        }
+
+        private void ClearExistingOutputNotice()
+        {
+            if (lblExistingOutput != null) lblExistingOutput.Visible = false;
+            lock (runUiSync) pendingExistingOutput = null;
+        }
+
+        private static string FindExistingOutputPath(string reason)
+        {
+            if (string.IsNullOrEmpty(reason)) return null;
+            string[] markers = { "native output already exists:", "native AV1 no-reencode output already exists:",
+                "Output already exists:", "烘焙输出已存在，不覆盖：" };
+            foreach (string marker in markers)
+            {
+                int index = reason.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+                if (index < 0) continue;
+                string path = reason.Substring(index + marker.Length).TrimStart();
+                int lineEnd = path.IndexOfAny(new[] { '\r', '\n' });
+                if (lineEnd >= 0) path = path.Substring(0, lineEnd);
+                path = path.Trim();
+                return path.Length == 0 ? null : path;
+            }
+            return null;
+        }
+
+        private void ShowExistingOutputNotice(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path) || lblExistingOutput == null) return;
+            lblExistingOutput.Visible = true;
+            lutToolTip.SetToolTip(lblExistingOutput, path);
         }
 
         private Control WithAdvancedShortcut(Control content, int tabIndex, string page, out Button shortcut)
@@ -1978,6 +2057,7 @@ namespace FilmGrainStudioPreview
             statusCapabilities["NVEncC"].Click+=delegate {BeginNvencInspection(true);};
             UpdateNvencStatus();
             statusCapabilities["FRUC"].Click += delegate { BeginHardwareDetection(true); };
+            statusCapabilities["SVP"].Click += delegate { BeginHardwareDetection(true); };
             statusCapabilities["SVT-HDR"].Click += delegate { BeginHardwareDetection(true); };
             BuildThemeMenu(strip);
             strip.Items.Add(version); return strip;
@@ -2921,6 +3001,10 @@ namespace FilmGrainStudioPreview
             SetCapabilityStatus("SVT-HDR",hardwareCaps.SvtHdrAvailable);
             if(statusCapabilities.ContainsKey("SVT-HDR"))statusCapabilities["SVT-HDR"].ToolTipText="SVT-AV1-HDR · "+hardwareCaps.FrucFfmpegPath+"\r\n"+hardwareCaps.SvtHdrReason;
             SetCapabilityStatus("SVP", hardwareCaps.OpenSvpGpuAvailable);
+            if (statusCapabilities.ContainsKey("SVP"))
+                statusCapabilities["SVP"].ToolTipText = UiText(
+                    "SVP-GPU：" + (hardwareCaps.OpenSvpGpuAvailable ? "插件 GPU 自检通过" : "插件 GPU 自检失败：" + hardwareCaps.OpenSvpGpuReason) + "。点击重新检测。",
+                    "SVP-GPU: " + (hardwareCaps.OpenSvpGpuAvailable ? "GPU plugin probe passed" : "GPU plugin probe failed: " + hardwareCaps.OpenSvpGpuReason) + ". Click to refresh.");
             UpdateFrucAvailabilityUi(); UpdateFrucStatus(); UpdateNvencStatus();
 
 
@@ -3165,6 +3249,7 @@ namespace FilmGrainStudioPreview
         private void StartBridgeExecutionCore()
         {
             if (bridgeTaskCoordinator == null || bridgeTaskCoordinator.IsActive) return;
+            ClearExistingOutputNotice();
             if (listFiles == null || listFiles.Items.Count == 0)
             {
                 FgsMessageBox.Show(this, lang.T("info.add_video"), Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -3234,6 +3319,7 @@ namespace FilmGrainStudioPreview
             string nativeReason;
             if(!NativeExecutionPreparationCore.TryPrepare(appRoot,inputs[0],nativeInfo,state,hardwareCaps,noReencode,out prepared,out nativeReason))
             {
+                ShowExistingOutputNotice(FindExistingOutputPath(nativeReason));
                 AppendTaskLog("[Native boundary] stopped: "+nativeReason+Environment.NewLine);
                 FgsMessageBox.Show(this,nativeReason,Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);
                 return;
@@ -3380,6 +3466,7 @@ namespace FilmGrainStudioPreview
                 if (prepared != null) BridgeExecutionCore.CleanupTemporaryFiles(prepared.ExecutionRequest);
                 foreach (BridgeTaskRequest task in tasks) BridgeExecutionCore.CleanupTemporaryFiles(task.ExecutionRequest);
                 SetTaskbarProgress(0,0);
+                ShowExistingOutputNotice(FindExistingOutputPath(ex.Message));
                 AppendTaskLog("[Queue] preparation/start failed: " + ex + Environment.NewLine);
                 if (lblRunStage != null) lblRunStage.Text = UiText("队列未启动", "Queue not started");
                 FgsMessageBox.Show(this, ex.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -3468,6 +3555,7 @@ namespace FilmGrainStudioPreview
 
         private readonly object runUiSync=new object();
         private readonly StringBuilder pendingRunLog=new StringBuilder();
+        private string pendingExistingOutput;
         private BridgeProgressEventArgs pendingRunStage,pendingRunMetrics,pendingRunProgress;
         private System.Windows.Forms.Timer runUiTimer;
         private void InitializeRunUiUpdates()
@@ -3478,6 +3566,8 @@ namespace FilmGrainStudioPreview
         }
         private void OnBridgeExecutionLogLine(object sender, BridgeLogLineEventArgs e)
         {
+            string conflict = FindExistingOutputPath(e.Line);
+            if (conflict != null) lock(runUiSync) pendingExistingOutput = conflict;
             string prefix=e.Stream==BridgeLogStream.StandardError?"[stderr] ":e.Stream==BridgeLogStream.StandardOutput?"[stdout] ":"[runner] ";
             string line=prefix+e.Line+Environment.NewLine;
             QueueCompletionHistory history = queueHistory; if (history != null) history.Log(e.Line);
@@ -3507,12 +3597,14 @@ namespace FilmGrainStudioPreview
         private void FlushRunUiUpdates()
         {
             if(IsDisposed||Disposing)return;
-            string text;BridgeProgressEventArgs stage,metrics,progress;
+            string text, conflict;BridgeProgressEventArgs stage,metrics,progress;
             lock(runUiSync) {
                 text=pendingRunLog.ToString();pendingRunLog.Clear();
+                conflict=pendingExistingOutput;pendingExistingOutput=null;
                 stage=pendingRunStage;metrics=pendingRunMetrics;progress=pendingRunProgress;
                 pendingRunStage=pendingRunMetrics=pendingRunProgress=null;
             }
+            if(conflict!=null)ShowExistingOutputNotice(conflict);
             if(text.Length>0){AppendVisibleLog(text);ScrollLogToEnd();}
             if(encodingMonitor!=null)encodingMonitor.RefreshSnapshot();
             UpdateQueueElapsedLabel();
@@ -3731,17 +3823,35 @@ namespace FilmGrainStudioPreview
             return BridgeEnvironmentCore.Build(snapshot);
         }
 
+        private void SetHdrRouteColor(bool passthrough, bool toSdr, bool blocked)
+        {
+            lblHdrRoute.ForeColor=blocked?Color.FromArgb(189,42,42):toSdr?Color.FromArgb(191,99,18):
+                passthrough?Color.FromArgb(42,137,82):ColorMuted;
+        }
+
         private void UpdateHdrRouteStatus(MediaProbeInfo info)
         {
             if (lblHdrRoute == null) return;
+            SetHdrRouteColor(false,false,false);
             if (btnHdrShortcut != null) btnHdrShortcut.Visible = info != null && info.IsHdr && (listFiles == null || listFiles.SelectedItems.Count <= 1);
             if(info!=null&&info.IsHdr&&NewCpuSelected()&&(listFiles==null||listFiles.SelectedItems.Count<=1)) {
                 // Route display needs processing choices only: no bitrate/file/catalog readiness validation.
                 string error="";var state=CaptureCpuHdrRouteState();
+                state["FG_DEINTERLACE"]=cmbDeint==null||cmbDeint.SelectedIndex==0?"AUTO":"OFF";
+                IDictionary<string,string> effective;string notice;
+                if(!SharedInterpolationBypassCore.TryResolve(info,state,out effective,out notice,out error))
+                {
+                    lblHdrRoute.Text=UiText("HDR：处理条件错误", "HDR: processing error");
+                    SetHdrRouteColor(false,false,true);
+                    lutToolTip.SetToolTip(lblHdrRoute,error);
+                    return;
+                }
+                if(effective!=null)state=effective;
                 bool toSdr=SharedGrainCore.CpuHdrToSdr(info,state);
                 bool allowed=toSdr||(SharedGrainCore.ValidateHdr(info,state,out error)&&SvtHdr10Core.CheckScope(info,state,SharedGrainCore.IsEnabled(state)&&SharedGrainCore.Engine(state)!="AV1_METADATA",state["FG_SVP_INTERPOLATE"]=="1",out error));
                 string tone=config.Get("TONE_MAP_ALGO");if(string.IsNullOrWhiteSpace(tone))tone="hable";
-                lblHdrRoute.Text=!allowed?lang.T("input.hdr_route_unsupported"):toSdr?LF("input.hdr_route_tosdr",tone):lang.T("input.hdr_route_passthrough");
+                lblHdrRoute.Text=!allowed?UiText("HDR：处理条件错误", "HDR: processing error"):toSdr?LF("input.hdr_route_tosdr",tone):lang.T("input.hdr_route_passthrough");
+                SetHdrRouteColor(allowed&&!toSdr,toSdr,!allowed);
                 lutToolTip.SetToolTip(lblHdrRoute,!allowed?error:toSdr?UiText("按明确的转SDR选择或当前SDR处理路线转换。","SDR selected or required by the chosen SDR processing."):UiText("SVT/x265默认保留HDR；硬解、缩放和缺失静态信息不阻止保留。","SVT/x265 preserve HDR by default; hardware decode, resize and missing static metadata do not block it."));
                 return;
             }
@@ -3778,8 +3888,35 @@ namespace FilmGrainStudioPreview
                 bool interpolate = chkInterpolation != null && chkInterpolation.Checked && !noReencode;
                 bool fruc = interpolate && cmbInterpolationMode != null && cmbInterpolationMode.SelectedIndex == 2;
                 bool svpHdr = interpolate && cmbInterpolationMode != null && cmbInterpolationMode.SelectedIndex < 2;
+                bool nvenc = interpolate && cmbInterpolationMode != null && cmbInterpolationMode.SelectedIndex >= 3;
                 string policy = config.Get("HDR_POLICY").ToUpperInvariant();
                 if (policy != "PRESERVE" && policy != "SDR") policy = "AUTO";
+                string routeNotice="";
+                if(!noReencode)
+                {
+                    int interpolationIndex=cmbInterpolationMode==null?0:cmbInterpolationMode.SelectedIndex;
+                    var selected=new Dictionary<string,string> {
+                        {"FG_MODE",av1?"AV1":hevc?"HEVC":codec==3?"H264":"X264"},
+                        {"FG_HDR_POLICY",policy},{"FG_SVP_INTERPOLATE",interpolate?"1":"0"},
+                        {"FG_INTERPOLATION_ENGINE",NvencInterpolationCore.Engine(interpolationIndex)},
+                        {"FG_DEINTERLACE",cmbDeint==null||cmbDeint.SelectedIndex==0?"AUTO":"OFF"}
+                    };
+                    IDictionary<string,string> effective;string routeError;
+                    if(!SharedInterpolationBypassCore.TryResolve(info,selected,out effective,out routeNotice,out routeError))
+                    {
+                        lblHdrRoute.Text=UiText("HDR：处理条件错误", "HDR: processing error");
+                        SetHdrRouteColor(false,false,true);
+                        lutToolTip.SetToolTip(lblHdrRoute,routeError);
+                        return;
+                    }
+                    if(effective!=null)
+                    {
+                        string value;
+                        if(effective.TryGetValue("FG_HDR_POLICY",out value))policy=value.ToUpperInvariant();
+                        if(effective.TryGetValue("FG_SVP_INTERPOLATE",out value) && value=="0")
+                        {interpolate=false;fruc=false;svpHdr=false;nvenc=false;}
+                    }
+                }
                 string tone = config.Get("TONE_MAP_ALGO").ToLowerInvariant();
                 if (tone != "mobius" && tone != "reinhard" && tone != "gamma" && tone != "linear" && tone != "clip") tone = "hable";
                 string toneLabel = char.ToUpperInvariant(tone[0]) + tone.Substring(1);
@@ -3787,12 +3924,7 @@ namespace FilmGrainStudioPreview
                 bool toSdr = false;
                 bool unsupported = false;
 
-                if (fruc && !hevc && !x264 && !av1)
-                {
-                    unsupported = true;
-                    detail = lang.T("input.hdr_route_detail_fruc");
-                }
-                else if (noReencode)
+                if (noReencode)
                 {
                     preserve = true;
                     detail = UiText("AV1 不重编码只更换颗粒元数据，不执行色调映射。", "AV1 no-reencode only changes grain metadata; tone mapping is not run.");
@@ -3810,12 +3942,11 @@ namespace FilmGrainStudioPreview
                 else if (policy == "PRESERVE")
                 {
                     bool av1FgsimPreserveReady = av1;
-                    if(svpHdr && (info.IsInterlaced || info.PixelFormat!="yuv420p10le" ||
-                                  info.ColorPrimaries!="bt2020" || info.ColorTransfer!="smpte2084" || info.ColorSpace!="bt2020nc"))
+                    if(svpHdr && !SharedInterpolationBypassCore.SupportsHighDepthSvpHdr(info))
                     {
                         unsupported=true;
-                        detail=UiText("OpenSVPFlow HDR 保留只支持渐进式 10-bit BT.2020/PQ HDR10；其它 HDR 请选 FRUC。",
-                            "OpenSVPFlow HDR Preserve supports progressive 10-bit BT.2020/PQ HDR10 only; use FRUC for other HDR formats.");
+                        detail=UiText("OpenSVPFlow 高位深保留支持渐进式 10-bit BT.2020/PQ HDR10，HLG 目前为实验性；其它 HDR 请选 FRUC。",
+                            "OpenSVPFlow high-depth output supports progressive 10-bit BT.2020/PQ HDR10; HLG is experimental. Use FRUC for other HDR formats.");
                     }
                     else if (x264)
                     {
@@ -3843,11 +3974,15 @@ namespace FilmGrainStudioPreview
                             detail += " " + (config.Get("SVP_HDR_BACKEND")=="CPU10"
                                 ? UiText("OpenSVPFlow 使用 8-bit 运动分析、10-bit CPU 渲染，最终保持 HDR10。", "OpenSVPFlow uses P8 motion analysis and P10 CPU rendering, retaining HDR10.")
                                 : UiText("OpenSVPFlow 使用 8-bit 运动分析、16-bit GPU 渲染，最终保持 10-bit HDR10。", "OpenSVPFlow uses P8 motion analysis and P16 GPU rendering with P10 HDR10 output."));
+                        if (svpHdr && info.ColorTransfer == "arib-std-b67")
+                            detail += " " + UiText("HLG + SVP 为实验性路线，请核验输出仍为 ARIB STD-B67 且帧率正确。", "HLG + SVP is experimental: verify ARIB STD-B67 transfer and output frame rate.");
                     }
                 }
                 else
                 {
-                    bool autoToSdr = x264 || lut || color || (interpolate && !fruc) || fgsim;
+                    bool svpAutoHdr = svpHdr && (SharedInterpolationBypassCore.SupportsHighDepthSvpHdr(info) ||
+                        HasNativeInterpolationBypass(info));
+                    bool autoToSdr = x264 || lut || color || (interpolate && !fruc && !svpAutoHdr) || fgsim;
                     if (autoToSdr)
                     {
                         toSdr = true;
@@ -3857,23 +3992,24 @@ namespace FilmGrainStudioPreview
                     {
                         preserve = true;
                         detail = lang.T("input.hdr_route_detail_auto_preserve");
+                        if (svpHdr && info.ColorTransfer == "arib-std-b67" && !info.IsInterlaced)
+                            detail += " " + UiText("HLG + SVP 为实验性路线，请核验输出仍为 ARIB STD-B67 且帧率正确。", "HLG + SVP is experimental: verify ARIB STD-B67 transfer and output frame rate.");
                     }
                 }
 
                 if(preserve && fruc)
                     detail += " " + UiText("FRUC 使用 P010 10-bit 路线；执行前验证当前工具及设备的高位深能力，不降为 8bit。", "FRUC uses the P010 10-bit path; tool/device precision is validated before execution, without 8-bit fallback.");
-                bool nvenc=interpolate && cmbInterpolationMode.SelectedIndex>=3;
-                if(nvenc && policy=="PRESERVE") {unsupported=true;preserve=false;detail=UiText("NVEncC 插帧仅支持 SDR；HDR 保留请用 FRUC Vulkan。","NVEncC interpolation is SDR only; use FRUC Vulkan for HDR Preserve.");}
-                if((fruc || nvenc) && info.IsInterlaced)
-                {
-                    unsupported = true;
-                    detail = UiText("隔行输入当前不支持 FRUC 插帧。", "FRUC interpolation currently requires progressive input.");
-                }
-                text = unsupported ? lang.T("input.hdr_route_unsupported") :
+                text = unsupported ? UiText("HDR：处理条件错误", "HDR: processing error") :
                     (toSdr ? LF("input.hdr_route_tosdr", toneLabel) : lang.T("input.hdr_route_passthrough"));
-                bool hasPreserveBypass = interpolate && !fruc && !nvenc && HasNativeInterpolationBypass(info);
-                if (preserve && !noReencode && hasPreserveBypass)
+                bool hasPreserveBypass = routeNotice.IndexOf(" 已绕过：隔行输入",StringComparison.Ordinal)>=0;
+                if (!noReencode && hasPreserveBypass)
+                {
                     text += " " + lang.T("input.hdr_route_bypass_short");
+                    detail += " " + routeNotice;
+                }
+                else if(!noReencode && routeNotice.IndexOf("[HDR route]",StringComparison.Ordinal)>=0)
+                    detail += " " + routeNotice;
+                SetHdrRouteColor(!unsupported&&!toSdr,toSdr,unsupported);
             }
             lblHdrRoute.Text = text;
             lutToolTip.SetToolTip(lblHdrRoute, detail ?? text);

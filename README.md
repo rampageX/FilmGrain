@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.0.62 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.63 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 <table>
   <tr>
@@ -14,6 +14,8 @@
 基于 **FFmpeg、NVIDIA NVENC、libx264 与 grav1synth** 的 Windows 视频处理工具。当前入口为 .NET 图形界面，支持向 EXE 传入或拖入视频文件。
 
 Film Grain Studio 的目标不是只提供一种“加颗粒”方法，而是把几种不同思路的 Film Grain 处理方式统一到同一套工作流中：可以使用 AV1 Film Grain metadata，也可以把真实扫描 Grain Plate、数字颗粒或 GPU Film Grain 直接烘焙进像素；同时保留 HDR、LUT、反交错、插帧、字幕、Cinematic Style、自动码率和多文件处理。
+
+HDR 高位深 OpenSVPFlow 插帧按后端区分输出文件名：`_SVP50C` 为 CPU10，`_SVP50G` 为 GPU16；SDR 原有 `_SVP50` 命名不变。右下角 `SVP-GPU` 使用与在线更新相同的 `vspipe` GPU 自检命令，悬停查看失败原因、点击主动刷新；其余硬件能力仍按缓存策略检测。
 
 主界面提供 AV1 / HEVC / H264 三个编码家族，勾选旁边 CPU 开关切换软件编码：
 
@@ -278,7 +280,7 @@ AV1、HEVC、x264、H.264 NVENC 共用 .NET 串行队列。每个输入分别探
 
 四线共用的辅助功能包括硬件能力检测、LUT 图库与预览、参考图及索引同步、Grain Plate MOV 扫描、首次运行依赖安装、OpenSVPFlow 插件更新，以及 FGSIM 纹理 / hook 准备。这些入口由 .NET 原生实现执行。
 
-Native 支持按具体组合判断。隔行 HDR 的 AUTO/OFF、HDR 保留/转换及已有输出复用沿用累计实现；隔行 OpenSVPFlow 按规则绕过光流、AUTO 输出 2x 场率。逐行 PQ / BT.2020 / YUV420P10 的显式 HDR 保留支持 OpenSVPFlow 高位深测试路线；其它 HDR 输入不进入该实验路径。x264 HDR Preserve、隔行 FRUC 等原本不支持的组合显示原因并停止，不尝试 BAT。未知准备失败也停止并保留诊断。
+Native 按当前处理组合选择 HDR 保留或 SDR 转换。隔行 HDR/HLG 通过 BWDIF CUDA、BWDIF Vulkan、W3FDIF 的已测试路线直通；隔行启用任一插帧器时，自动跳过插帧并按所选反交错算法输出 2x 场率。逐行 10-bit BT.2020/PQ 的 OpenSVPFlow 高位深路线已验证；HLG 使用相同高位深采样路径，用户已反馈更新 DLL 后 GPU16 与 CPU10 两条路线通过实测（其它格式仍需逐项验证）。H.264/x264、CPU FGSIM、NVEncC 插帧或非兼容 SVP 格式要求 HDR 保留时，实际执行自动改为 SDR 并记录原因。硬件/依赖缺失及其它真正的准备失败仍明确报错，不尝试 BAT。
 
 AV1 不重编码添加／替换颗粒仅对已确认 AV1 的单文件开放；独立配置时按当前单选文件判断，HEVC／H.264、媒体信息未就绪、无选择或多选时不提供该选项。现有不适用的队列请求在启动前停止并提示，不把它当作普通重编码执行。
 
@@ -693,7 +695,7 @@ AV1／HEVC 的逐行 HDR 保留路线支持 FRUC Vulkan：插帧输入和输出�
 强制转换为 SDR
 ```
 
-自动模式下，若当前任务需要 x264 主输出、BT.709 LUT、OpenSVPFlow 或 H.264 NVENC 等 SDR-only 流程，HDR 输入会先 Tone Mapping 为 BT.709 SDR，再进入后续处理。
+自动模式下，兼容 HDR/HLG 的反交错与逐行高位深 OpenSVPFlow 不执行 Tone Mapping；不兼容的 x264/H.264、BT.709 LUT、CPU FGSIM 或 SDR-only 插帧路线先转换为 BT.709 SDR。即使显式选择「保持 HDR」，当前输出组合必须使用 SDR 时也自动切换并记录原因。HLG + OpenSVPFlow 是待实测实验路线，不能视为已验证。
 
 Tone Mapping 默认使用 **Hable**，还可选择：
 
@@ -723,7 +725,7 @@ HDR 调色使用 16-bit YUV 信号计算对比度、亮度、饱和度、Gamma �
 
 SVT / x265 的 AUTO 默认保留源 HDR。硬解、源编码/位深/采样、帧率、缩放、画幅、字幕及静态 metadata 缺失不再作为拒绝保留的条件。最终视频按当前 CPU 编码器的 10-bit 4:2:0 编码，沿用已知源颜色标记；这不表示源采样或位深逐字节不变。GUI、CLI、统一和独立队列使用同一策略。
 
-明确选择转 SDR 时仍转换。AUTO在启用调色/LUT、CPU FGSIM或OpenSVPFlow时仍沿用转SDR规则。显式保持HDR可使用上节的高位深调色/LUT；其它不兼容处理仍说明具体原因。FRUC 保留已有 P010 精度检查和失败停止，不以未经测试为由增加门限。x264 的既有 HDR 策略不变。
+明确选择转 SDR 时仍转换。AUTO 在启用 SDR 调色/LUT、CPU FGSIM 或不兼容的插帧路线时转换；渐进式 10-bit BT.2020/PQ OpenSVPFlow 可保留 HDR10，HLG 同路线已有用户 GPU16/CPU10 测试记录。显式保持 HDR 仍可使用高位深调色/LUT；不兼容的输出编码/插帧处理会自动转 SDR。FRUC 保留 P010 精度检查和失败停止；硬件不支持不冒充成功。
 
 HEVC PQ/BT.2020 源在编码前尝试读取已有 MDCV/CLLI，分别经 mastering-display/content-light 参数交给 SVT，或经原始整数单位的 master-display/max-cll 参数交给 x265；源中没有的值不编造，读取不到也不阻止保留 HDR。最终检查已知颜色标记的明确冲突；静态信息不完整不再判失败。此处不承诺所有输入格式的静态信息提取，也不承诺 Dolby Vision/HDR10+ 动态信息保留。
 
@@ -806,7 +808,7 @@ Field-rate 输出优先于普通电影帧率选择。progressive / unknown 素�
 
 高级 → 插帧提供 SmoothFps Algo、Analyse Profile、Artifact Mask Area 等设置。当前推荐基线为 Algo 13、pel=1 / gpu=1 / full=true、EncodeGUI-inspired Analyse 与 cover=80 / area=100 / area_sharp=1.2。平滑使用 scene.mode=0，自动平衡使用 scene.mode=3。
 
-OpenSVPFlow 普通 SDR 路线仍使用 YUV420P8。逐行 HDR 请求转 SDR 后插帧时，先执行共享 Tone Mapping 并验证中间文件。显式 HDR Preserve + 逐行 PQ/BT.2020 10-bit 4:2:0 输入现可选择 GPU16（默认，8-bit 光流分析 + 16-bit GPU 渲染）或 CPU10（8-bit 分析 + 10-bit CPU 渲染）；两者最后均输出 YUV420P10，AV1 的 FFV1 插帧中间文件也使用 10-bit。隔行 SDR + AUTO 按规则绕过插帧并输出场率；其它 HDR 格式、隔行及不支持的编码组合停止并说明原因，不回退 8-bit/Legacy。T600 上已有 HDR10 GPU16 59.94 fps 的实机成功记录，CPU10 经用户确认其它适配参数测试 OK；不能据此推断所有 HDR10、动态元数据、硬件和编码组合均已验证。
+OpenSVPFlow 普通 SDR 路线仍使用 YUV420P8。逐行 HDR 需转 SDR 时，先执行共享 Tone Mapping。AUTO 或显式 Preserve 的逐行 10-bit 4:2:0 BT.2020/PQ HDR10 可选择 GPU16（8-bit 光流分析 + 16-bit GPU 渲染）或 CPU10（8-bit 分析 + 10-bit CPU 渲染），输出 YUV420P10；HLG 使用相同高位深路径，用户反馈更新至 `nightly-20261106-badc0de392ac` 配对后 GPU16/CPU10 均测试通过，其它规格尚未覆盖。AV1 FFV1 插帧中间文件使用 10-bit。隔行 HDR/HLG/SDR 输入一律跳过所选插帧器，改走已测试的反交错和 2x 场率；不兼容的编码/插帧格式转 SDR。T600 上 HDR10 GPU16 的 59.94 fps 及 CPU10 参数互斥已完成用户实测；HLG 元数据及未测硬件组合仍需按输出逐项核对。
 
 HEVC/x264/H.264 NVENC 已覆盖路线使用 VSPipe Y4M → FFmpeg 管道，AV1 使用共享 FFV1 无损预处理；不能笼统声称全部路线都没有中间视频。逐行 SDR x264 TS/M2TS/MTS 直接读取原媒体，每遍准备公共起点与视频相对延迟，不要求先手工 remux。
 
@@ -855,9 +857,9 @@ HDR10 渲染选 CPU10 时，完整和快捷高级设置均自动取消并禁用�
 | 保护静止文字 / Logo（Still） | 关闭；limit 4.5、edge 5、tolerance 30 | GPU 静止遮罩，减少固定文字与 Logo 拖影 |
 | 剥离 HUD 后重合成（Peel） | 关闭；limit 6 | GPU HUD 剥离再合成 |
 
-所有新选项默认关闭，保留既有插帧参数。dedup 不重建逐帧时间戳，不是 VFR 或音画同步修复；也不能处理任意连续重复帧。普通 SDR 仍为 YUV420P8/SmoothFps；HDR10 新增 CPU10/GPU16 高位深选项，其它 HDR、隔行旁路及 FRUC 保持原有行为。FGS 私有 VapourSynth 环境改为 R82；现有环境通过「更新 OpenSVPFlow 插件」入口原地升级，不重建 .venv。
+所有新选项默认关闭，保留既有插帧参数。dedup 不重建逐帧时间戳，不是 VFR 或音画同步修复；也不能处理任意连续重复帧。普通 SDR 仍为 YUV420P8/SmoothFps；逐行 HDR10 与符合条件的 HLG 可选 CPU10/GPU16 高位深路径，其它 HDR、隔行旁路及 FRUC 仍按实际能力处理。FGS 私有 VapourSynth 环境首次安装即为 R82 / BestSource 21.0；现有环境通过「更新 OpenSVPFlow 插件」入口原地升级，不重建 .venv。
 
-本次继续携带经测试沿用的两只插件 DLL，具体 SHA-256 见 [_OpenSVPFlow/Plugins/BUNDLED_DLL_SHA256.txt](_OpenSVPFlow/Plugins/BUNDLED_DLL_SHA256.txt)。原配套插件已取消对固定 DLL 哈希的运行门槛；如果使用最新版构建，必须成对更新并通过 CPU/GPU/HDR10 自检，不保证新构建在所有素材上与随包版本表现相同。
+本次实验包携带用户在线更新并反馈 HDR10/HLG 测试通过的 `nightly-20261106-badc0de392ac` 两只插件 DLL，实际 SHA-256 见 [_OpenSVPFlow/Plugins/BUNDLED_DLL_SHA256.txt](_OpenSVPFlow/Plugins/BUNDLED_DLL_SHA256.txt)。原配套插件已取消对固定 DLL 哈希的运行门槛；后续如再次在线更新，必须成对更新并通过 CPU/GPU/HDR 自检，不保证新构建在所有素材上与本次测试配对表现相同。
 
 ### FRUC Vulkan
 
@@ -1453,8 +1455,8 @@ ffmpeg -hide_banner -h decoder=libdav1d
 - MP4 兼容模式不会保留字幕、附件和数据流；
 - 启用 LUT 时，部分处理链会转为软件滤镜路径，速度可能下降；
 - 自动反交错依赖 FFprobe `field_order`，异常标记素材需要人工确认；
-- OpenSVPFlow 逐行 SDR 继续使用 YUV420P8；显式 HDR Preserve 的逐行 PQ/BT.2020 10-bit 4:2:0 输入可使用 CPU10 / GPU16 并保持 10-bit 输出，默认目标 60 fps；隔行按原规则绕过；
-- OpenSVPFlow HDR10 采用 8-bit 运动分析与高位深渲染分离：GPU16 输出经 P16 转回 P10；T600 上已有实机成功记录，其它 HDR 格式不得推断受支持；
+- OpenSVPFlow 逐行 SDR 继续使用 YUV420P8；AUTO/Preserve 下符合条件的逐行 BT.2020/PQ 或 HLG 10-bit 4:2:0 输入可使用 CPU10 / GPU16 并保持 10-bit 输出，默认目标 60 fps；隔行按原规则绕过；
+- OpenSVPFlow 高位深路线采用 8-bit 运动分析与高位深渲染分离：GPU16 输出经 P16 转回 P10；T600 上已有 HDR10 实机成功记录，用户更新 DLL 后报告 HLG GPU16/CPU10 通过，其它未测 HDR 格式不能据此推断支持；
 - H.264 High10 为实验功能，兼容性明显低于标准 H.264 High 8-bit；
 - HDR Preserve 的 AV1 静态 HDR10 核验限于前述明确准入路线；HEVC Main10 沿用现有处理。Dolby Vision RPU 与 HDR10+ 动态 metadata 不在当前处理范围；
 - LUT 智能过滤属于保守启发式分类，不保证能从任意 `.cube` 数值表完全推断创作者意图；

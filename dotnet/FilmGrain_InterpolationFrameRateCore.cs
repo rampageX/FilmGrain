@@ -550,6 +550,14 @@ namespace FilmGrainStudioPreview
     // Shared .NET process preparation; VapourSynth remains the interpolation engine.
     internal static class SharedSvpCore
     {
+        // Only the 10-bit HDR producer has a selectable CPU10/GPU16 renderer.
+        // Distinguish both output files without changing legacy SDR names.
+        internal static string BackendFileSuffix(IDictionary<string,string> state)
+        {
+            if (Get(state, "FG_SVP_HDR10") != "1") return "";
+            return string.Equals(Get(state, "FG_SVP_HDR_BACKEND"), "CPU10", StringComparison.OrdinalIgnoreCase) ? "C" : "G";
+        }
+
         internal static bool TryValidateOptions(string speed, string tuning, string block, string analyse, out string reason)
         {
             reason = "";

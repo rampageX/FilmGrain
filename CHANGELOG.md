@@ -1,3 +1,14 @@
+## v5.0.63 — HDR/HLG 自动直通与 OpenSVPFlow 插帧（2026-11-12）
+
+- 修正状态栏 SVP-GPU 自检与在线更新自检不一致的问题：原状态栏将 FFmpeg 的 `NUL` 输出目标传给 `vspipe`，现统一使用在线更新已经采用的 `--` 丢弃输出目标；同时使旧检测缓存失效一次。点击 SVP-GPU 可手动强制刷新并悬停查看失败原因；插件在线更新成功后自动刷新一次检测，平时不反复检测。
+- HDR 高位深 SVP 输出名补 C/G：`_SVP50C` 表示 CPU10、`_SVP50G` 表示 GPU16；AV1、HEVC/H.264 及 CPU 编码路线共用，避免切换后端产生同名误跳过。原有 SDR 8-bit SVP 文件名维持不变。
+- HDR/HLG 隔行源使用 BWDIF CUDA、BWDIF Vulkan、W3FDIF 时，AUTO 不再因启用插帧而强制转 SDR；隔行自动绕过 OpenSVPFlow、FRUC Vulkan、NVEncC 插帧，执行 2x 场率反交错并记录实际原因。
+- 逐行 BT.2020/PQ HDR10 的 OpenSVPFlow 高位深处理接入 AUTO；同样开放 10-bit BT.2020/HLG，保持源 HLG 标签。用户反馈更新 OpenSVPFlow 后 HLG + SVP CPU10/GPU16 两条路线均通过播放测试；其它未测试格式不据此扩展。不兼容的 HDR Preserve 编码/插帧组合自动转 SDR，实际硬件或依赖错误仍停止。
+- HDR 状态整行使用加粗绿色（直通）、橙色（转 SDR）、红色（处理条件错误）；去除笼统的“部分处理旁路”和“当前组合暂不支持”。补全输出目录提示、设置说明、运行日志。
+- 修正输入区提示：根据 `OUTPUT_MODE` 显示源目录或可点击的「自定义目录」链接（调用资源管理器打开已配置路径）；配置保存后即时刷新。输入栏右侧仅在实际出现同名输出冲突时显示醒目红色「文件已存在！」，平时隐藏，不占用新增行高；长路径通过鼠标悬停查看。
+- 用户确认本轮测试通过。
+- 随正式包提供用户在线更新并实测的 `nightly-20261106-badc0de392ac` Windows DLL 对，更新哈希清单和原生升级说明；用户反馈旧 DLL 在 HLG GPU16 出现右半黑绿，新 DLL 下 GPU16/CPU10 均通过。两只 DLL 均与上游同标签 Windows 发布资产逐字节一致。
+
 ## v5.0.62 — OpenSVPFlow HDR10 高位深插帧（2026-11-11）
 
 - 保留 SDR 既有插帧流程；显式 HDR Preserve 的逐行 10-bit PQ/BT.2020 4:2:0 输入支持 OpenSVPFlow 0.1.3 的高位深渲染。高级设置默认 GPU16，也可选 CPU10，光流分析均用独立 P8 副本；渲染和 Main10 输出不降到 8-bit。

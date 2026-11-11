@@ -104,6 +104,7 @@ namespace FilmGrainStudioPreview
         public bool HevcMultipassQres { get; set; }
         public bool HevcMultipassFullres { get; set; }
         public bool OpenSvpGpuAvailable { get; set; }
+        public string OpenSvpGpuReason { get; set; }
     }
 
     internal sealed class HardwareCapabilityCompletedEventArgs : EventArgs
@@ -156,7 +157,7 @@ namespace FilmGrainStudioPreview
         }
         // Change only when native probe semantics/required capabilities change, not on product releases.
         // A successful cache write acknowledges the contract; ordinary EXE replacement is irrelevant.
-        internal const string NativeProbeContract = "native-probe-contract-v1";
+        internal const string NativeProbeContract = "native-probe-contract-v2-svp-vspipe-null-target";
         internal static string NativeKey(HardwareCapabilityRequest r)
         {
             var b = new StringBuilder("full-version-v1|vulkan-selected-gpu-v1|no-x264-startup-probes-v1|"+ToolBundleStamp(r.FfmpegPath)).Append('|').Append(ToolStamp(r.Grav1synthPath)).Append('|').Append(NativeProbeContract);
@@ -528,6 +529,7 @@ namespace FilmGrainStudioPreview
             result.HevcMultipassQres = GetBool(hevc, "multipassQres");
             result.HevcMultipassFullres = GetBool(hevc, "multipassFullres");
             result.OpenSvpGpuAvailable = GetBool(svp, "gpu");
+            result.OpenSvpGpuReason = GetString(svp, "gpuReason");
             return result;
         }
 
@@ -995,12 +997,17 @@ namespace FilmGrainStudioPreview
         }
         private Dictionary<string,object> Svp(string root)
         {
-            var caps=Map("runtimeReady",false,"cpu",false,"gpu",false);
+            var caps=Map("runtimeReady",false,"cpu",false,"gpu",false,"gpuReason","");
             string pipe=Path.Combine(root,".venv","Scripts","vspipe.exe"),check=Path.Combine(root,"Check_OpenSVPFlow.vpy"),plugins=Path.Combine(root,"Plugins");
             if(!File.Exists(pipe)||!File.Exists(check)||!File.Exists(Path.Combine(plugins,"svpflow1_vs.dll"))||!File.Exists(Path.Combine(plugins,"svpflow2_vs.dll")))return caps;
             caps["runtimeReady"]=true;string config=Path.Combine(root,"_UserConfig");
             string appData=File.Exists(Path.Combine(config,"vapoursynth","vapoursynth.toml"))?config:null;
-            foreach(string gpu in new string[]{"0","1"})caps[gpu=="0"?"cpu":"gpu"]=Run(pipe,new string[]{"--arg","plugin_dir="+plugins,"--arg","gpu="+gpu,"--arg","algo=13","--start","0","--end","0",check,NullOutput},appData).Success;
+            // Match the successful installer smoke test: vspipe uses "--" as its
+            // output-discard sentinel, not the FFmpeg "NUL" sink.
+            caps["cpu"]=Run(pipe,new string[]{"--arg","plugin_dir="+plugins,"--arg","gpu=0","--arg","algo=13","--start","0","--end","0",check,"--"},appData).Success;
+            NativeProbeResult gpu=Run(pipe,new string[]{"--arg","plugin_dir="+plugins,"--arg","gpu=1","--arg","algo=13","--start","0","--end","0",check,"--"},appData);
+            caps["gpu"]=gpu.Success;
+            caps["gpuReason"]=gpu.Success?"":Short(gpu.Reason);
             return caps;
         }
         private Dictionary<string,object> DetectProfile(string version, Dictionary<string,object> gpu, Dictionary<string,object> grav, string signature, string svpRoot)

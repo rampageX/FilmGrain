@@ -1,12 +1,12 @@
 Film Grain Studio - 使用说明
 ============================
 
-当前产品版本：v5.0.62；构建 Stable。
+当前产品版本：v5.0.63；构建 Stable。
 
 颗粒菜单统一按胶片预设（推荐）、感光度 ISO、扫描颗粒文件、现成 Grain Table、Digital Grain、GPU Film Grain 排列，各路线只显示已支持项目。默认值及已保存预设/队列的选择不变。SVT 扫描颗粒位于第三；HEVC/H.264 软硬编码的扫描颗粒位于第一；NVENC AV1 和 AV1 不重编码替换当前没有扫描颗粒项。
 
 SVT Film Preset / ISO / Grain Table 使用 grav1synth 0.2.2 的外部参数颗粒，内部 film-grain=0。支持AV1源；此路线关闭旧颗粒合成，使用软件解码，GPU滤镜仍按能力运行。颗粒OFF不主动移除源颗粒。
-显式选择「保持HDR」后，AV1/HEVC NVENC、SVT和x265支持LUT与高位深CC；AUTO仍沿用原策略。请选择匹配源HDR输入/输出颜色域的LUT。调色窗口及LUT四档转换为SDR显示，不作HDR亮度校准。
+显式选择「保持HDR」后，AV1/HEVC NVENC、SVT和x265支持LUT与高位深CC；逐行 10-bit 4:2:0 BT.2020/PQ HDR10 和 HLG 在「自动」下可使用 OpenSVPFlow GPU16 或 CPU10。隔行输入按 2x 场率反交错并跳过插帧器。请选择匹配源HDR输入/输出颜色域的LUT。调色窗口及LUT四档转换为SDR显示，不作HDR亮度校准。
 NVENC AV1已接入HEVC HDR10源中已有MDCV/CLLI的写入；SVT/x265沿用各自既有静态信息传递。源缺失值不编造，调色后的峰值不重新测量。具体格式能力及限制见README.md。
 切换编码/软硬后端时颗粒区使用缓冲刷新；保存Resize立即更新Grain Table筛选和HDR提示。
 像素颗粒直接调整各自原有强度，不再使用额外相对强度混合。

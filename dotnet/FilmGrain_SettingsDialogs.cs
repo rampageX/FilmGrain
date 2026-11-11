@@ -778,6 +778,8 @@ namespace FilmGrainStudioPreview
                 if (result == DialogResult.OK)
                 {
                     config.Load();
+                    ClearExistingOutputNotice();
+                    UpdateOutputDirectoryNote();
                     if (!string.IsNullOrEmpty(selectedLutPath) && !File.Exists(selectedLutPath))
                     {
                         selectedLutPath = "";
@@ -807,7 +809,9 @@ namespace FilmGrainStudioPreview
                 return core.Install("OpenSVPFlowUpdate");
             });
             if (result.Success > 0 && !result.Cancelled && result.Failed == 0) {
-                BeginHardwareDetection();
+                // An updater can replace DLLs in place while retaining their cached identity.
+                // Refresh explicitly after a successful installation; never on dialog open.
+                BeginHardwareDetection(true);
                 FgsMessageBox.Show(owner, "插件更新并完成自检，相关硬件能力已安排刷新。", "更新完成");
             }
         }
@@ -1098,7 +1102,7 @@ namespace FilmGrainStudioPreview
                 setInterpTip(stillTolerance,stillToleranceLabel,UiText("Still tolerance：静止保护容差，默认 30.00。","Still tolerance: still-protection tolerance; default 30.00.")+"\n"+extraHelp);
                 setInterpTip(peelLimit,peelLimitLabel,UiText("Peel limit：HUD 剥离阈值，默认 6.00。","Peel limit: HUD peeling threshold; default 6.00.")+"\n"+extraHelp);
                 setInterpTip(aiMode,aiModeLabel,UiText("仅 NVEncC AI 插帧生效，默认 medium。low / medium / high 为上游质量档位；不影响其它插帧引擎。","NVEncC AI interpolation only; default medium. low / medium / high are upstream quality modes; other engines are unaffected."));
-                setInterpTip(svpHdrBackend,svpHdrBackendLabel,UiText("仅 HDR10 保留 + OpenSVPFlow 使用。默认 GPU16：8-bit 运动分析、16-bit GPU 渲染、10-bit 输出；CPU10 用于高位深对照，并自动关闭及禁用实验性高速分析和精简 Super。两种模式均不降到 SDR/8-bit。", "HDR10 Preserve + OpenSVPFlow only. GPU16 default: P8 motion analysis, P16 GPU render, P10 output. CPU10 is for comparison and automatically disables experimental fast analysis and Lean Super. Neither falls back to SDR/8-bit."));
+                setInterpTip(svpHdrBackend,svpHdrBackendLabel,UiText("HDR10 自动/保留及实验性 HLG + OpenSVPFlow 使用。默认 GPU16：8-bit 运动分析、16-bit GPU 渲染、10-bit 输出；CPU10 自动禁用实验性高速分析和精简 Super。HLG 输出需实测核验。", "OpenSVPFlow HDR10 Auto/Preserve and experimental HLG. GPU16 defaults to P8 motion analysis, P16 GPU render and P10 output; CPU10 disables experimental fast analysis and Lean Super. Verify HLG output experimentally."));
                 interpTips.SetToolTip(svpFast,interpTips.GetToolTip(svpFast)+"\n"+UiText("精简 Super 可减少 CPU / 内存开销。","Lean Super can reduce CPU / RAM work."));
                 interpTips.SetToolTip(svpLean,interpTips.GetToolTip(svpLean)+"\n"+UiText("高速分析可能增加显存并改变运动矢量。","Fast analysis may increase VRAM use and change motion vectors."));
 

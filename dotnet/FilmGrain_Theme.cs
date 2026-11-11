@@ -171,6 +171,10 @@ namespace FilmGrainStudioPreview
         }
         internal static Color Foreground(Color value)
         {
+            // Preserve HDR status semantics across light/dark themes.
+            if(value.ToArgb()==Color.FromArgb(42,137,82).ToArgb())return Color.FromArgb(109,219,154);
+            if(value.ToArgb()==Color.FromArgb(191,99,18).ToArgb())return Color.FromArgb(255,181,83);
+            if(value.ToArgb()==Color.FromArgb(189,42,42).ToArgb())return Color.FromArgb(255,110,110);
             if (value.ToArgb() == Color.White.ToArgb() || value.ToArgb() == Color.Gainsboro.ToArgb()) return value;
             if (value.G > value.R * 1.25 && value.G > value.B) return Color.FromArgb(109, 219, 154);
             if (value.R > value.G * 1.5 && value.R > value.B * 1.5) return Color.FromArgb(255, 157, 126);

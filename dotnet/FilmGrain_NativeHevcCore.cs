@@ -83,7 +83,8 @@ namespace FilmGrainStudioPreview
 
                 fgsimMode || (Eq(state, "FG_HDR_POLICY", "AUTO") &&
 
-                (Get(state, "FG_COLOR_ENABLED") == "1" || !string.IsNullOrWhiteSpace(Get(state, "FG_LUT_PATH")) || svp)));
+                (Get(state, "FG_COLOR_ENABLED") == "1" || !string.IsNullOrWhiteSpace(Get(state, "FG_LUT_PATH")) ||
+                 (svp && !SharedInterpolationBypassCore.AutoHdrSvpReady(info,state)))));
 
             if(h264&&info.IsHdr&&!Eq(state,"FG_HDR_POLICY","PRESERVE"))hdrToSdr=true;
             bool hdrPreserve = info.IsHdr && !hdrToSdr;
@@ -170,7 +171,7 @@ namespace FilmGrainStudioPreview
 
                 fps = targetRate.Rational;
 
-                fpsSuffix = (NvencInterpolationCore.Enabled(state) ? (Eq(state,"FG_INTERPOLATION_ENGINE","NVENC_AI")?"_NVAI":"_NVFRUC") : fruc ? "_FRUC" : "_SVP") + targetRate.Label;
+                fpsSuffix = (NvencInterpolationCore.Enabled(state) ? (Eq(state,"FG_INTERPOLATION_ENGINE","NVENC_AI")?"_NVAI":"_NVFRUC") : fruc ? "_FRUC" : "_SVP") + targetRate.Label + (svp && !fruc && !NvencInterpolationCore.Enabled(state) ? SharedSvpCore.BackendFileSuffix(state) : "");
 
             }
 

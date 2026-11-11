@@ -405,7 +405,9 @@ namespace FilmGrainStudioPreview
             state.TryGetValue("FG_COLOR_ENABLED",out color);state.TryGetValue("FG_LUT_PATH",out lut);
             state.TryGetValue("FG_SVP_INTERPOLATE",out interpolate);state.TryGetValue("FG_INTERPOLATION_ENGINE",out engine);
             return color=="1"||!string.IsNullOrWhiteSpace(lut)||Engine(state)=="FGSIM"||
-                (interpolate=="1"&&!string.Equals(engine,"FRUC",StringComparison.OrdinalIgnoreCase));
+                (interpolate=="1"&&!string.Equals(engine,"FRUC",StringComparison.OrdinalIgnoreCase) &&
+                 !(info.IsInterlaced && (string.IsNullOrEmpty(engine) || string.Equals(engine,"SVP",StringComparison.OrdinalIgnoreCase))) &&
+                 !SharedInterpolationBypassCore.AutoHdrSvpReady(info,state));
         }
         internal static bool ValidateHdr(MediaProbeInfo info, IDictionary<string,string> state, out string reason)
         {

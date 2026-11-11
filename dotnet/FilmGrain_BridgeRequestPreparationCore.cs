@@ -6,21 +6,75 @@ namespace FilmGrainStudioPreview
 {
     internal static class SharedInterpolationBypassCore
     {
-        // Keep interlaced bypass; explicitly opt in to the tested progressive HDR10 high-depth route.
+        // PQ is validated; HLG uses the same high-depth YUV path for experimental verification.
+        internal static bool SupportsHighDepthSvpHdr(MediaProbeInfo info)
+        {
+            return info != null && info.IsHdr && !info.IsInterlaced &&
+                info.PixelFormat == "yuv420p10le" && info.ColorPrimaries == "bt2020" &&
+                (info.ColorTransfer == "smpte2084" || info.ColorTransfer == "arib-std-b67") &&
+                info.ColorSpace == "bt2020nc";
+        }
+        internal static bool AutoHdrSvpReady(MediaProbeInfo info, IDictionary<string,string> state)
+        {
+            if (!SupportsHighDepthSvpHdr(info) || state == null) return false;
+            string enabled, engine;
+            state.TryGetValue("FG_SVP_INTERPOLATE", out enabled);
+            state.TryGetValue("FG_INTERPOLATION_ENGINE", out engine);
+            return enabled == "1" && (string.IsNullOrEmpty(engine) ||
+                string.Equals(engine, "SVP", StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static string Get(IDictionary<string,string> state, string key)
+        { string value; return state.TryGetValue(key, out value) ? value ?? "" : ""; }
+
+        internal static string SdrFallbackReason(MediaProbeInfo info, IDictionary<string,string> state)
+        {
+            if(info == null || !info.IsHdr || state == null) return "";
+            string mode=Get(state,"FG_MODE").ToUpperInvariant();
+            if(mode=="H264" || mode=="X264") return "8-bit H.264/x264 输出不保留 HDR";
+            if((mode=="SVT" || mode=="X265") && SharedGrainCore.IsEnabled(state) && SharedGrainCore.Engine(state)=="FGSIM")
+                return "CPU FGSIM 当前使用 SDR 路线";
+            if(Get(state,"FG_SVP_INTERPOLATE")!="1") return "";
+            string engine=Get(state,"FG_INTERPOLATION_ENGINE").ToUpperInvariant();
+            if(engine=="NVENC_FRUC" || engine=="NVENC_AI") return "NVEncC 插帧使用 SDR 路线";
+            if((engine=="SVP" || engine=="") && !SupportsHighDepthSvpHdr(info))
+                return "此 HDR 采样/传递格式未接入 OpenSVPFlow 高位深路线";
+            return "";
+        }
+
+        // All interpolation engines bypass interlaced fields; incompatible HDR processing gets SDR.
         internal static bool TryResolve(MediaProbeInfo info, IDictionary<string,string> state,
             out IDictionary<string,string> normalized, out string notice, out string reason)
         {
             normalized = null; notice = ""; reason = "";
             if (info == null || state == null) return true;
-            string enabled, engine, policy, deint;
-            state.TryGetValue("FG_SVP_INTERPOLATE",out enabled); state.TryGetValue("FG_INTERPOLATION_ENGINE",out engine);
-            if (enabled != "1" || (!string.IsNullOrEmpty(engine) && !string.Equals(engine,"SVP",StringComparison.OrdinalIgnoreCase))) return true;
-            state.TryGetValue("FG_HDR_POLICY",out policy); state.TryGetValue("FG_DEINTERLACE",out deint);
-            if (info.IsHdr && !info.IsInterlaced && string.Equals(policy,"PRESERVE",StringComparison.OrdinalIgnoreCase))
+            string enabled=Get(state,"FG_SVP_INTERPOLATE"),engine=Get(state,"FG_INTERPOLATION_ENGINE");
+            string policy=Get(state,"FG_HDR_POLICY");
+            if(info.IsInterlaced && enabled=="1")
             {
-                if(info.PixelFormat!="yuv420p10le" || info.ColorPrimaries!="bt2020" ||
-                   info.ColorTransfer!="smpte2084" || info.ColorSpace!="bt2020nc")
-                { reason="OpenSVPFlow HDR 保留目前只验证了渐进式 YUV420P10 / BT.2020 / PQ HDR10；其它 HDR 格式请使用 FRUC。"; return false; }
+                normalized=new Dictionary<string,string>(state,StringComparer.OrdinalIgnoreCase);
+                normalized["FG_SVP_INTERPOLATE"]="0";
+                normalized["FG_FPS_MODE"]="AUTO";
+                normalized["FG_DEINTERLACE"]="AUTO";
+                notice="[Native .NET] " + (engine=="SVP" || engine=="" ? "OpenSVPFlow" : engine) +
+                    " 已绕过：隔行输入改用所选反交错算法的 2x 场率输出；不会向插帧器传递交错帧。";
+                state=normalized;
+                enabled="0";
+            }
+            string fallback=SdrFallbackReason(info,state);
+            if(string.Equals(policy,"PRESERVE",StringComparison.OrdinalIgnoreCase) && fallback.Length>0)
+            {
+                if(normalized==null)normalized=new Dictionary<string,string>(state,StringComparer.OrdinalIgnoreCase);
+                normalized["FG_HDR_POLICY"]="SDR";
+                notice+=(notice.Length>0?Environment.NewLine:"")+"[HDR route] HDR 保留请求自动改走 SDR："+fallback;
+                state=normalized;
+                policy="SDR";
+            }
+            if(enabled!="1" || (engine!="" && !string.Equals(engine,"SVP",StringComparison.OrdinalIgnoreCase)))return true;
+            if (info.IsHdr && !info.IsInterlaced &&
+                (string.Equals(policy,"PRESERVE",StringComparison.OrdinalIgnoreCase) ||
+                 (string.Equals(policy,"AUTO",StringComparison.OrdinalIgnoreCase) && SupportsHighDepthSvpHdr(info))))
+            {
                 string backend;
                 if(!state.TryGetValue("FG_SVP_HDR_BACKEND",out backend)||string.IsNullOrEmpty(backend))backend="GPU16";
                 if(backend!="GPU16" && backend!="CPU10")
@@ -28,21 +82,13 @@ namespace FilmGrainStudioPreview
                 string hdrFlag;
                 if(!state.TryGetValue("FG_SVP_HDR10",out hdrFlag) || hdrFlag!="1")
                 {
-                    normalized = new Dictionary<string,string>(state,StringComparer.OrdinalIgnoreCase);
+                    if(normalized==null)normalized = new Dictionary<string,string>(state,StringComparer.OrdinalIgnoreCase);
                     normalized["FG_SVP_HDR10"]="1";
                 }
-                notice = "[Native .NET] OpenSVPFlow HDR10: 8-bit motion analysis + " +
+                notice += (notice.Length>0?Environment.NewLine:"") + "[Native .NET] OpenSVPFlow " + (info.ColorTransfer == "arib-std-b67" ? "HLG experimental" : "HDR10") + ": 8-bit motion analysis + " +
                     (backend == "CPU10" ? "10-bit CPU render" : "16-bit GPU render") + " + 10-bit output; no SDR conversion.";
                 return true;
             }
-            if (!info.IsInterlaced) return true;
-            if (!string.Equals(deint,"AUTO",StringComparison.OrdinalIgnoreCase))
-            { reason = "隔行源启用 OpenSVPFlow 时必须选择 AUTO 反交错；不会向光流传递交错帧。 / Interlaced OpenSVPFlow requires AUTO deinterlace."; return false; }
-            normalized = new Dictionary<string,string>(state,StringComparer.OrdinalIgnoreCase);
-            normalized["FG_SVP_INTERPOLATE"] = "0"; normalized["FG_FPS_MODE"] = "AUTO";
-            // Retain the original AUTO tonemap decision even though SVP is bypassed.
-            if(info.IsHdr && !string.Equals(policy,"PRESERVE",StringComparison.OrdinalIgnoreCase))normalized["FG_HDR_POLICY"]="SDR";
-            notice = "[Native .NET] OpenSVPFlow 已绕过：隔行输入使用所选反交错方式的 2x 场率输出，目标插帧 FPS 不参与。 / OpenSVPFlow bypassed for interlaced input; selected field-rate deinterlace used.";
             return true;
         }
         internal static void Attach(BridgePreparedExecution prepared,string notice)
@@ -51,10 +97,12 @@ namespace FilmGrainStudioPreview
             prepared.ExecutionRequest.ExecutionNotice = (prepared.ExecutionRequest.ExecutionNotice ?? "") + Environment.NewLine + notice;
             if (prepared.ExecutionRequest.DirectStages != null && prepared.ExecutionRequest.DirectStages.Count > 0)
             {
-                if (notice.IndexOf("OpenSVPFlow 已绕过", StringComparison.Ordinal) >= 0)
-                    prepared.ExecutionRequest.DirectStages[0].StageText += " / OpenSVP 已绕过";
-                else if (notice.IndexOf("OpenSVPFlow HDR10:", StringComparison.Ordinal) >= 0)
-                    prepared.ExecutionRequest.DirectStages[0].StageText += " / OpenSVP HDR10 已启用";
+                if (notice.IndexOf(" 已绕过：隔行输入", StringComparison.Ordinal) >= 0)
+                    prepared.ExecutionRequest.DirectStages[0].StageText += " / 隔行源插帧已绕过";
+                else if (notice.IndexOf("OpenSVPFlow HDR10:", StringComparison.Ordinal) >= 0 ||
+                         notice.IndexOf("OpenSVPFlow HLG experimental:", StringComparison.Ordinal) >= 0)
+                    prepared.ExecutionRequest.DirectStages[0].StageText += notice.IndexOf("HLG experimental", StringComparison.Ordinal) >= 0
+                        ? " / OpenSVP HLG 实验已启用" : " / OpenSVP HDR10 已启用";
             }
         }
     }
@@ -121,6 +169,13 @@ namespace FilmGrainStudioPreview
             if(info.Identity==null || !info.Identity.IsCurrent(input,currentProbe)) { reason="Input or FFprobe changed; reselect and probe again: "+input;return false; }
             if(!info.HasVideo){reason="input has no usable video stream: "+input;return false;}
             if(state==null){reason="missing execution state";return false;}
+            string routeNotice="";
+            if(!noReencode)
+            {
+                IDictionary<string,string> effective;
+                if(!SharedInterpolationBypassCore.TryResolve(info,state,out effective,out routeNotice,out reason))return false;
+                if(effective!=null)state=effective;
+            }
             try { AudioOutputCore.EstimateMissing(input,currentProbe,info,state); }
             catch(Exception ex){reason=ex.Message;return false;}
 
@@ -172,6 +227,7 @@ namespace FilmGrainStudioPreview
                 }
                 if(success && prepared!=null && prepared.ExecutionRequest!=null)
                 {
+                    SharedInterpolationBypassCore.Attach(prepared,routeNotice);
                     if(NvencInterpolationCore.Enabled(state))prepared.ExecutionRequest.ExecutionNotice=(prepared.ExecutionRequest.ExecutionNotice??"")+Environment.NewLine+
                         "[NVEncC SDR] "+NvencInterpolationCore.Label(NvencInterpolationCore.Get(state,"FG_INTERPOLATION_ENGINE"))+"; raw NUT binary pipe; no extra lossy encode; software decode explicitly selected; no engine fallback; existing AV1/multipass/HDR workfiles retained.";
                     if(info.ColorSignalSource!="ffprobe-stream")prepared.ExecutionRequest.ExecutionNotice=(prepared.ExecutionRequest.ExecutionNotice??"")+Environment.NewLine+"[Color probe] "+info.ColorSignalSource+"; raw primaries="+info.OriginalColorPrimaries+"; raw transfer="+info.OriginalColorTransfer;
