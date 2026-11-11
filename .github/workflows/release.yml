@@ -100,7 +100,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$env:FGS_RELEASE_TAG" "$env:FGS_RELEASE_ZIP" "$env:FGS_RELEASE_SHA" "$env:FGS_SOURCE_ZIP" "$env:FGS_SOURCE_SHA" "$env:FGS_COMBINED_ZIP" "$env:FGS_COMBINED_SHA" --target "$env:GITHUB_SHA" --title "Film Grain Studio $env:FGS_RELEASE_TAG" --notes-file ".github/release/RELEASE_NOTES.md"
+          gh release create "$env:FGS_RELEASE_TAG" "$env:FGS_RELEASE_ZIP" --target "$env:GITHUB_SHA" --title "Film Grain Studio $env:FGS_RELEASE_TAG" --notes-file ".github/release/RELEASE_NOTES.md"
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
