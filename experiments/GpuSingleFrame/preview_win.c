@@ -44,7 +44,12 @@ static bool s_has_grain = true;
 static bool s_plate_mode = false;
 static const wchar_t *s_plate_path, *s_plate_frame_path;
 static double s_plate_cycle_seconds;
-static struct pl_hook s_plate_hook;
+static struct pl_hook s_plate_hook, s_pixel_hook;
+static bool s_fgsim_mode, s_digital_mode;
+static const wchar_t *s_fgsim_noise_path, *s_fgsim_shader_path, *s_digital_path, *s_noise_ffmpeg;
+static char *s_fgsim_shader;
+static pl_tex s_pixel_noise;
+static const wchar_t *const s_fgsim_names[] = {L"Light",L"Normal",L"Medium",L"Heavy"};
 static const wchar_t *s_result_path;
 static struct pl_custom_lut *s_lut_source;
 static struct pl_custom_lut s_lut_variants[3];
@@ -168,7 +173,14 @@ static bool write_result(void)
     FILE *file = _wfopen(temp, L"wb");
     if (!file) { free(temp); return false; }
     int rc;
-    if (s_plate_mode) {
+    if (s_fgsim_mode || s_digital_mode) {
+        rc = fprintf(file,
+            "{\"Version\":3,\"PixelMode\":\"%s\",\"%s\":%d,"
+            "\"GrainEnabled\":%s,\"LutStrength\":%d,\"LutEnabled\":%s}\n",
+            s_fgsim_mode?"FGSIM":"DIGITAL", s_fgsim_mode?"FgsimPreset":"GrainStrength",
+            s_strength, s_display_grain?"true":"false", s_lut_strength,
+            s_lut_source && s_lut_enabled && s_lut_strength?"true":"false");
+    } else if (s_plate_mode) {
         rc = fprintf(file,
             "{\"Version\":2,\"PixelMode\":\"PLATE\",\"PlateStrength\":%d,"
             "\"GrainEnabled\":%s,\"LutStrength\":%d,\"LutEnabled\":%s}\n",
@@ -320,7 +332,7 @@ static void set_grain(int strength)
 {
     struct pl_film_grain_data *fg = &s_image.film_grain;
     memset(fg, 0, sizeof(*fg));
-    if (s_plate_mode) return;
+    if (s_plate_mode || s_fgsim_mode || s_digital_mode) return;
     if (!s_has_grain || !s_display_grain || strength == 0) return;
     FgsGrainModel model;
     fgs_scale_model(&s_original, strength, &model);
@@ -477,6 +489,86 @@ static struct pl_hook_res plate_overlay_hook(void *priv, const struct pl_hook_pa
     };
 }
 
+static struct pl_hook_res pixel_grain_hook(void *priv, const struct pl_hook_params *params)
+{
+    (void)priv;
+    const struct pl_shader_desc texture = {
+        .desc={.name=s_fgsim_mode?"FGS_NOISE":"fgsNoise",.type=PL_DESC_SAMPLED_TEX},
+        .binding={.object=s_pixel_noise,.address_mode=PL_TEX_ADDRESS_CLAMP,.sample_mode=PL_TEX_SAMPLE_NEAREST},
+    };
+    const float strengths[] = {0.10f,0.15f,0.20f,0.30f};
+    float strength = s_fgsim_mode ? strengths[s_strength] : s_strength/100.0f;
+    float frame = (float)((uint64_t)llround(s_frame_seconds*s_fps_num/s_fps_den)%512);
+    float offset[] = {s_plate_origin_x,s_plate_origin_y};
+    const struct pl_shader_var uniforms[] = {
+        {.var=pl_var_float("fgsStrength"),.data=&strength,.dynamic=true},
+        {.var=pl_var_float("fgsFrame"),.data=&frame,.dynamic=true},
+        {.var=pl_var_vec2("fgsOffset"),.data=offset,.dynamic=true},
+    };
+    // RGB here is still in the source transfer function, before display mapping.
+    const char fgsim_sdr[] =
+        "color = fgsim_apply(color, ivec2(floor(gl_FragCoord.xy + fgsOffset)), int(fgsFrame), fgsStrength);\n";
+    const char fgsim_hdr[] =
+        "vec4 effected = fgsim_apply(color, ivec2(floor(gl_FragCoord.xy + fgsOffset)), int(fgsFrame), fgsStrength);\n"
+        "vec3 weights = vec3(0.2627, 0.6780, 0.0593);\n"
+        "float span = FGS_Y_SPAN, black = FGS_Y_BLACK;\n"
+        "float y = floor(clamp(dot(color.rgb, weights)*span+black,0.0,1023.0)+0.5);\n"
+        "float fy = floor(clamp(dot(effected.rgb, weights)*span+black,0.0,1023.0)+0.5);\n"
+        "float delta = clamp(512.0+y-fy,0.0,1023.0)-512.0;\n"
+        "color.rgb += vec3((clamp(y+delta,0.0,1023.0)-y)/span);\n";
+    const char digital[] =
+        "ivec2 px = ivec2(floor(gl_FragCoord.xy + fgsOffset));\n"
+        "px = clamp(px, ivec2(0), textureSize(fgsNoise,0)-ivec2(1));\n"
+        "float n = floor(texelFetch(fgsNoise,px,0).r*255.0+0.5);\n"
+        "vec3 weights = FGS_WEIGHTS;\n"
+        "float luma = dot(color.rgb,weights);\n"
+        "float maskY = clamp(floor(luma*219.0+16.5),0.0,255.0);\n"
+        "float mask = floor(fgsStrength*(182.0-abs(75.0-maskY))+0.0001);\n"
+        "float alpha8 = 255.0-floor(n*mask/255.0);\n"
+        "#if FGS_HDR\n"
+        "float alpha10 = floor(clamp((alpha8-16.0)*1023.0/219.0,0.0,1023.0)+0.5);\n"
+        "float y = floor(clamp(luma*FGS_Y_SPAN+FGS_Y_BLACK,0.0,1023.0)+0.5);\n"
+        "float outY = floor(FGS_Y_BLACK+(y-FGS_Y_BLACK)*alpha10/1023.0);\n"
+        "color.rgb += vec3((outY-y)/FGS_Y_SPAN);\n"
+        "#else\n"
+        "color.rgb *= alpha8/255.0;\n"
+        "#endif\n";
+    char prelude[256];
+    snprintf(prelude,sizeof(prelude),
+        "#define FGS_Y_SPAN %s\n#define FGS_Y_BLACK %s\n#define FGS_HDR %d\n#define FGS_WEIGHTS %s\n",
+        s_source_full?"1023.0":"876.0", s_source_full?"0.0":"64.0", !!s_hdr_transfer,
+        s_hdr_transfer?"vec3(0.2627,0.6780,0.0593)":"vec3(0.2126,0.7152,0.0722)");
+    bool okay = pl_shader_custom(params->sh,&(struct pl_custom_shader){
+        .description=s_fgsim_mode?"FGSIM preview":"Digital Grain preview",
+        .input=PL_SHADER_SIG_COLOR,.output=PL_SHADER_SIG_COLOR,.prelude=prelude,
+        .header=s_fgsim_shader,
+        .body=s_fgsim_mode ? (s_hdr_transfer?fgsim_hdr:fgsim_sdr) : digital,
+        .descriptors=&texture,.num_descriptors=1,
+        .variables=uniforms,.num_variables=sizeof(uniforms)/sizeof(uniforms[0]),
+    });
+    if (!okay) return (struct pl_hook_res){.failed=true};
+    return (struct pl_hook_res){
+        .output=PL_HOOK_SIG_COLOR,.sh=params->sh,.repr=params->repr,
+        .color=params->color,.components=params->components,.rect=params->rect,
+    };
+}
+
+static bool upload_pixel_noise(const unsigned char *raw, bool rgba)
+{
+    int components = rgba ? 4 : 1;
+    int width = rgba ? 512 : s_width;
+    int height = rgba ? 512 : s_height;
+    struct pl_plane_data plane = {
+        .type=PL_FMT_UNORM,.width=width,.height=height,
+        .pixel_stride=components,.row_stride=(size_t)width*components,.pixels=raw,
+    };
+    int sizes[] = {8,rgba?8:0,rgba?8:0,rgba?8:0};
+    int shifts[] = {0,8,16,24};
+    pl_plane_data_from_comps(&plane,sizes,shifts);
+    struct pl_plane uploaded;
+    return pl_upload_plane(s_device->gpu,&uploaded,&s_pixel_noise,&plane);
+}
+
 /* A separate D3D11 child window keeps GDI slider painting completely outside
  * the GPU swapchain. No GDI-over-D3D overlays or repeated video uploads. */
 static void track_bounds(RECT *client, int *left, int *right, int *top)
@@ -500,7 +592,7 @@ static void bottom_frame_controls(const RECT *client, RECT *edit,
 }
 
 static void draw_slider(HDC dc, RECT *client, int y, const wchar_t *name,
-                        int percent, bool enabled)
+                        int percent, bool enabled, const wchar_t *label_value)
 {
     int left, right, top;
     track_bounds(client, &left, &right, &top);
@@ -530,7 +622,7 @@ static void draw_slider(HDC dc, RECT *client, int y, const wchar_t *name,
     swprintf(value, 32, L"%d%%", percent);
     SetTextColor(dc, RGB(229,240,232));
     RECT amount = {right+17, y-15, client->right-12, y+15};
-    DrawTextW(dc, value, -1, &amount, DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+    DrawTextW(dc, label_value ? label_value : value, -1, &amount, DT_LEFT|DT_VCENTER|DT_SINGLELINE);
 }
 
 static void paint_sliders(HWND window)
@@ -543,10 +635,18 @@ static void paint_sliders(HWND window)
     FillRect(dc, &panel, s_panel_brush);
     HGDIOBJ old_font = s_panel_font ? SelectObject(dc, s_panel_font) : NULL;
     int y = panel.top+32;
-    draw_slider(dc, &client, y, L"颗粒强度", s_has_grain && s_display_grain ? s_strength : 0, s_has_grain);
+    wchar_t digital_value[16];
+    swprintf(digital_value,16,L"%.2f",s_strength/100.0);
+    int grain_position = s_fgsim_mode ? s_strength*100/3 :
+        s_digital_mode ? (s_strength-15)*100/85 : s_strength;
+    const wchar_t *value = s_fgsim_mode ? s_fgsim_names[s_strength] :
+        s_digital_mode ? digital_value : NULL;
+    draw_slider(dc,&client,y,s_fgsim_mode?L"FGSIM 档位":L"颗粒强度",
+                s_display_grain?grain_position:0,s_has_grain,
+                (s_fgsim_mode || s_digital_mode) && !s_display_grain?L"关闭 · G":value);
     draw_slider(dc, &client, y+45, L"LUT 强度",
                 s_lut_source && s_lut_enabled ? s_lut_strength : 0,
-                s_lut_source != NULL);
+                s_lut_source != NULL,NULL);
     if (s_video_path) {
         int left, right, unused;
         track_bounds(&client, &left, &right, &unused);
@@ -724,6 +824,39 @@ static bool finish_frame_decoder(PROCESS_INFORMATION *process, double *elapsed_m
     return waited==WAIT_OBJECT_0 && exit_code==0;
 }
 
+/* The formal noise branch has a constant input. Generate it independently
+ * of video, and keep only its luma texture for all strength adjustments. */
+static bool load_digital_noise(double seconds)
+{
+    unsigned seed = 1u+(unsigned)((uint64_t)llround(seconds*s_fps_num/s_fps_den)%2147483646u);
+    int width = (((s_width*4+2)/3)+1)&~1;
+    int height = (((s_height*4+2)/3)+1)&~1;
+    size_t capacity = wcslen(s_noise_ffmpeg)+wcslen(s_digital_path)+600;
+    wchar_t *command = calloc(capacity,sizeof(*command));
+    if (!command) return false;
+    swprintf(command,capacity,
+        L"\"%ls\" -hide_banner -nostdin -v error -y -f lavfi -i "
+        L"\"nullsrc=s=%dx%d,format=yuv420p,lutyuv=y=128:u=128:v=128,"
+        L"noise=all_seed=%u:c0s=100:c0f=t+u,deflate=threshold0=15,"
+        L"dilation=threshold0=10,eq=contrast=3,scale=%d:%d,format=yuv420p\" "
+        L"-frames:v 1 -f rawvideo \"%ls\"",
+        s_noise_ffmpeg,width,height,seed,s_width,s_height,s_digital_path);
+    STARTUPINFOW startup={0};
+    startup.cb=sizeof(startup);
+    PROCESS_INFORMATION process={0};
+    bool okay=CreateProcessW(s_noise_ffmpeg,command,NULL,NULL,FALSE,CREATE_NO_WINDOW,
+                            NULL,NULL,&startup,&process)!=0;
+    free(command);
+    double elapsed_ms;
+    if (!okay || !finish_frame_decoder(&process,&elapsed_ms)) return false;
+    size_t bytes=(size_t)s_width*s_height*3/2;
+    unsigned char *raw=NULL;
+    okay=read_file(s_digital_path,bytes,bytes,&raw,NULL) && upload_pixel_noise(raw,false);
+    free(raw);
+    DeleteFileW(s_digital_path);
+    return okay;
+}
+
 static bool decode_selected_frame(double seconds)
 {
     if (!s_video_path || !s_ffmpeg_path || !s_frame_path || s_frame_loading) return false;
@@ -769,6 +902,7 @@ static bool decode_selected_frame(double seconds)
             if (s_plate_mode && !read_file(s_plate_frame_path,expected,expected,&plate_raw,NULL))
                 okay=false;
             if (okay && s_plate_mode) okay=upload_plate(plate_raw);
+            if (okay && s_digital_mode) okay=load_digital_noise(seconds);
             if (okay) okay=upload_frame(raw,s_frame_depth);
             free(plate_raw);
             free(raw);
@@ -847,6 +981,8 @@ static void change_slider(int kind, int x)
         /* Grain Plate uses FGS's 15..100% / 5% stops; zero turns it off. */
         if (s_plate_mode) percent=percent<10?0:((percent+2)/5)*5;
         if (s_plate_mode && percent>0 && percent<15) percent=15;
+        if (s_fgsim_mode) percent=(percent*3+50)/100;
+        if (s_digital_mode) percent=15+5*((percent*17+50)/100);
         if (s_strength == percent && s_display_grain) return;
         s_strength = percent; s_display_grain = true;
     } else {
@@ -926,7 +1062,16 @@ static double render_once(bool report)
     params.lut = selected_lut();
     params.lut_type = PL_LUT_NATIVE;
     const struct pl_hook *plate_hooks[] = {&s_plate_hook};
+    const struct pl_hook *pixel_hooks[] = {&s_pixel_hook};
     if (s_plate_mode) {params.hooks=plate_hooks;params.num_hooks=1;}
+    if (s_fgsim_mode || s_digital_mode) {
+        if (!s_hdr_transfer) {
+            source.lut=params.lut;
+            source.lut_type=PL_LUT_NORMALIZED;
+            params.lut=NULL;
+        }
+        if (s_display_grain) {params.hooks=pixel_hooks;params.num_hooks=1;}
+    }
     bool okay = pl_render_image(s_renderer, &source, &target, &params);
     if (!okay || !pl_swapchain_submit_frame(s_swapchain)) return -1;
     pl_swapchain_swap_buffers(s_swapchain);
@@ -934,11 +1079,14 @@ static double render_once(bool report)
     pl_gpu_finish(s_device->gpu);
     double delta = timer_ms() - start;
     wchar_t title[256];
-    swprintf(title, 256, L"FGS GPU Preview%ls | %ls | %ls %d%% | LUT %d%% | %.2f ms | G / L / ESC",
+    wchar_t grain_label[40];
+    if (s_fgsim_mode) swprintf(grain_label,40,L"FGSIM %ls",s_display_grain?s_fgsim_names[s_strength]:L"Off");
+    else if (s_digital_mode) swprintf(grain_label,40,L"Digital Grain %.2f",s_display_grain?s_strength/100.0:0.0);
+    else swprintf(grain_label,40,L"%ls %d%%",s_plate_mode?L"Plate":L"Grain",s_display_grain?s_strength:0);
+    swprintf(title, 256, L"FGS GPU Preview%ls | %ls | %ls | LUT %d%% | %.2f ms | G / L / ESC",
              !s_hdr_transfer ? L"" : pl_color_transfer_is_hdr(swap.color_space.transfer) ? L" [HDR display]" : L" [HDR to SDR display]",
              s_pixel_view?L"1:1":L"Fit",
-             s_plate_mode?L"Plate":L"Grain",
-             s_display_grain ? s_strength : 0,
+             grain_label,
              s_lut_enabled && s_lut_source ? s_lut_strength : 0, delta);
     SetWindowTextW(s_window, title);
     if (report) {
@@ -1105,16 +1253,19 @@ static LRESULT CALLBACK window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM
             s_lut_enabled = true;
         }
         else if (s_has_grain && (wparam == VK_LEFT || wparam == VK_DOWN)) {
-            s_strength = s_plate_mode ? (s_strength<=15 ? 0 : s_strength-5) :
+            s_strength = s_digital_mode ? (s_strength>15?s_strength-5:15) :
+                s_plate_mode ? (s_strength<=15 ? 0 : s_strength-5) :
                 (s_strength>=1 ? s_strength-1 : 0);
             s_display_grain = true;
         } else if (s_has_grain && (wparam == VK_RIGHT || wparam == VK_UP)) {
-            s_strength = s_plate_mode ? (s_strength<15 ? 15 :
+            s_strength = s_fgsim_mode ? (s_strength<3?s_strength+1:3) :
+                s_digital_mode ? (s_strength<100?s_strength+5:100) :
+                s_plate_mode ? (s_strength<15 ? 15 :
                 (s_strength<=95 ? s_strength+5 : 100)) :
                 (s_strength<100 ? s_strength+1 : 100);
             s_display_grain = true;
-        } else if (wparam == VK_HOME && s_has_grain) {s_strength = s_plate_mode ? 15 : 0; s_display_grain = true;}
-        else if (wparam == VK_END && s_has_grain) {s_strength = 100; s_display_grain = true;}
+        } else if (wparam == VK_HOME && s_has_grain) {s_strength = (s_plate_mode || s_digital_mode) ? 15 : 0; s_display_grain = true;}
+        else if (wparam == VK_END && s_has_grain) {s_strength = s_fgsim_mode ? 3 : 100; s_display_grain = true;}
         else return DefWindowProcW(window, msg, wparam, lparam);
         redraw_controls();
         return 0;
@@ -1152,6 +1303,7 @@ static void destroy_gpu(void)
     if (s_device) {
         for (int i=0; i<3; i++) pl_tex_destroy(s_device->gpu, &s_textures[i]);
         for (int i=0; i<3; i++) pl_tex_destroy(s_device->gpu, &s_plate_textures[i]);
+        pl_tex_destroy(s_device->gpu,&s_pixel_noise);
     }
     if (s_swapchain) pl_swapchain_destroy(&s_swapchain);
     if (s_device) pl_d3d11_destroy(&s_device);
@@ -1163,6 +1315,7 @@ static void destroy_gpu(void)
     if (s_edit_brush) DeleteObject(s_edit_brush);
     if (s_panel_font) DeleteObject(s_panel_font);
     free(s_table_data);
+    free(s_fgsim_shader);
 }
 
 static bool gpu_init(void)
@@ -1258,6 +1411,15 @@ int wmain(int argc, wchar_t **argv)
         else if (!wcscmp(key, L"--lut-on")) {if (!int_arg(value, 0, 1, &flag)) return 2;lut_on = flag != 0;}
         else if (!wcscmp(key, L"--video")) s_video_path = value;
         else if (!wcscmp(key, L"--ffmpeg")) s_ffmpeg_path = value;
+        else if (!wcscmp(key,L"--pixel-mode")) {
+            if (!wcscmp(value,L"FGSIM")) s_fgsim_mode=true;
+            else if (!wcscmp(value,L"DIGITAL")) s_digital_mode=true;
+            else return 2;
+        }
+        else if (!wcscmp(key,L"--fgsim-noise")) s_fgsim_noise_path=value;
+        else if (!wcscmp(key,L"--fgsim-shader")) s_fgsim_shader_path=value;
+        else if (!wcscmp(key,L"--digital-noise")) s_digital_path=value;
+        else if (!wcscmp(key,L"--noise-ffmpeg")) s_noise_ffmpeg=value;
         else if (!wcscmp(key, L"--plate")) s_plate_path = value;
         else if (!wcscmp(key, L"--plate-frame")) s_plate_frame_path = value;
         else if (!wcscmp(key, L"--plate-cycle")) {
@@ -1298,7 +1460,12 @@ int wmain(int argc, wchar_t **argv)
     }
     if (s_plate_cycle_seconds>0 && !s_plate_path) return 2;
     s_plate_mode = s_plate_path != NULL;
-    s_has_grain = s_plate_mode || wcscmp(argv[4], L"-") != 0;
+    bool pixel_mode=s_fgsim_mode || s_digital_mode;
+    if ((s_fgsim_mode && s_digital_mode) ||
+        (pixel_mode && (s_plate_mode || wcscmp(argv[4],L"-") || bench_count)) ||
+        (s_fgsim_mode && (!s_fgsim_noise_path || !s_fgsim_shader_path || s_strength>3)) ||
+        (s_digital_mode && (!s_digital_path || !s_noise_ffmpeg || s_strength<15 || s_strength%5))) return 2;
+    s_has_grain = pixel_mode || s_plate_mode || wcscmp(argv[4], L"-") != 0;
     s_display_grain = s_has_grain && grain_on;
     if (!int_arg(argv[2], 2, 8192, &s_width) ||
         !int_arg(argv[3], 2, 8192, &s_height) ||
@@ -1318,7 +1485,7 @@ int wmain(int argc, wchar_t **argv)
     size_t frame_bytes = (size_t)s_width * s_height * 3 / 2 * bytes_per_sample;
     char reason[256];
     bool okay = true;
-    if (s_has_grain && !s_plate_mode) {
+    if (s_has_grain && !s_plate_mode && !pixel_mode) {
         if (!read_file(argv[4], 0, 4*1024*1024, &table, NULL)) return 3;
         okay = fgs_parse_table_at_event((const char *)table, timeline_ticks,
                                         &s_original,&s_grain_event_start,reason,sizeof(reason));
@@ -1332,6 +1499,11 @@ int wmain(int argc, wchar_t **argv)
     s_plate_hook = (struct pl_hook){
         .stages=PL_HOOK_NATIVE,.input=PL_HOOK_SIG_COLOR,
         .hook=plate_overlay_hook,.signature=UINT64_C(0x464753504c415445),
+    };
+
+    s_pixel_hook = (struct pl_hook){
+        .stages=PL_HOOK_RGB,.input=PL_HOOK_SIG_COLOR,.hook=pixel_grain_hook,
+        .signature=s_fgsim_mode?UINT64_C(0x464753494d):UINT64_C(0x4647534447),
     };
 
     HINSTANCE instance = GetModuleHandleW(NULL);
@@ -1405,6 +1577,18 @@ int wmain(int argc, wchar_t **argv)
         fprintf(stderr, "GPU initialization/upload failed\n");
         result = 6;
         goto done;
+    }
+    if (s_fgsim_mode) {
+        unsigned char *noise=NULL,*shader=NULL;
+        bool ready=read_file(s_fgsim_shader_path,0,64*1024,&shader,NULL) &&
+            read_file(s_fgsim_noise_path,1048576,1048576,&noise,NULL) &&
+            upload_pixel_noise(noise,true);
+        free(noise);
+        s_fgsim_shader=(char*)shader;
+        if (!ready) {fprintf(stderr,"FGSIM shader/texture initialization failed\n");result=6;goto done;}
+    }
+    if (s_digital_mode && !load_digital_noise(s_frame_seconds)) {
+        fprintf(stderr,"Digital Grain noise initialization failed\n");result=6;goto done;
     }
     free(raw); raw = NULL; /* One CPU -> GPU upload, no re-upload per adjustment. */
     free(plate_raw);plate_raw=NULL;

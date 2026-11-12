@@ -15,6 +15,7 @@ namespace FilmGrainStudioPreview
         public int Version { get; set; }
         public string PixelMode { get; set; }
         public int PlateStrength { get; set; }
+        public int FgsimPreset { get; set; }
         public int GrainStrength { get; set; }
         public bool GrainEnabled { get; set; }
         public int LutStrength { get; set; }
@@ -105,7 +106,14 @@ namespace FilmGrainStudioPreview
             string hdrSignal = !media.IsHdr ? "" : media.ColorTransfer=="smpte2084" ? "pq" : "hlg";
             if (media.IsHdr && fullRange) hdrSignal += "-full";
             string exe = ResolveGpuAdvancedPreviewExecutable();
-            bool embeddedHdr = media.IsHdr && typeof(MainForm).Assembly.GetManifestResourceInfo(HdrGpuPreviewResource)!=null;
+            bool pixelSelection = !ParameterGrainSelected();
+            int selectedMode = CurrentGrainMode();
+            bool fgsimMode = pixelSelection && selectedMode == (cmbCodec.SelectedIndex==0?4:2);
+            bool digitalMode = pixelSelection && selectedMode == (cmbCodec.SelectedIndex==0?3:0);
+            bool newPixelMode = fgsimMode || digitalMode;
+            string pixelMode = fgsimMode ? "FGSIM" : digitalMode ? "DIGITAL" : "";
+            bool grainInitiallyEnabled = IsGrainEnabled();
+            bool embeddedHdr = !newPixelMode && media.IsHdr && typeof(MainForm).Assembly.GetManifestResourceInfo(HdrGpuPreviewResource)!=null;
             if (exe.Length == 0 && !embeddedHdr) {
                 FgsMessageBox.Show(this,UiText("未找到独立 GPU 预览程序。请将 fgs_gpu_preview.exe 放在 FGS\\GpuAdvancedPreview 目录，或设置 FGS_GPU_PREVIEW_EXE 环境变量。",
                     "GPU preview is missing. Place fgs_gpu_preview.exe in FGS\\GpuAdvancedPreview or set FGS_GPU_PREVIEW_EXE."));return;
@@ -116,17 +124,16 @@ namespace FilmGrainStudioPreview
             bool hasAv1Grain = IsGrainEnabled() && ParameterGrainSelected() &&
                 (SvtSelected()?CurrentGrainMode()-3:CurrentGrainMode()) != 1;
             // The stored pixel mode ID for Grain Plate is 1 (also on SVT-AV1).
-            // Digital Grain / FGSIM still use the original accurate preview.
             bool plateMode = IsGrainEnabled() && !ParameterGrainSelected() && CurrentGrainMode() == 1;
-            bool hasGrain = hasAv1Grain || plateMode;
+            bool hasGrain = hasAv1Grain || plateMode || newPixelMode;
             string platePath = plateMode ? selectedGrainPlatePath : "";
             if (plateMode && (string.IsNullOrEmpty(platePath) || !File.Exists(platePath))) {
                 FgsMessageBox.Show(this,UiText("扫描颗粒文件不存在，请重新选择。","Grain Plate is missing. Select a valid plate."));return;
             }
             bool hasLut = !string.IsNullOrEmpty(selectedLutPath) && File.Exists(selectedLutPath);
             if (!hasGrain && !hasLut && !media.IsHdr) {
-                FgsMessageBox.Show(this,UiText("当前需要 AV1 胶片预设／颗粒表、扫描颗粒文件或 3D LUT。ISO、Digital Grain 与 FGSIM 尚未接入 GPU 实时预览。",
-                    "Select an AV1 preset/table, Grain Plate or 3D LUT. ISO, digital grain and FGSIM are not yet supported."));return;
+                FgsMessageBox.Show(this,UiText("请选择 AV1 胶片预设／颗粒表、扫描颗粒、Digital Grain、FGSIM 或 3D LUT。",
+                    "Select an AV1 preset/table, Grain Plate, Digital Grain, FGSIM or a 3D LUT."));return;
             }
             if (!hasGrain && IsGrainEnabled() &&
                 FgsMessageBox.Show(this,UiText("当前颗粒类型尚不支持 GPU 实时合成；本次仅调整 LUT，颗粒设置保持不变。继续？",
@@ -141,7 +148,9 @@ namespace FilmGrainStudioPreview
             if (hasAv1Grain && !string.IsNullOrEmpty(model) && !File.Exists(model)) {
                 FgsMessageBox.Show(this,UiText("颗粒表文件不存在。","Grain table is missing."));return;
             }
-            int initialGrain = plateMode ? GrainControlCore.SnapFive(scannedGrainStrengthPercent) : Av1GrainStrengthPercent;
+            int initialGrain = fgsimMode ? Math.Max(0,Math.Min(3,fgsimPresetIndex)) :
+                digitalMode ? GrainControlCore.SnapFive(proceduralStrength) :
+                plateMode ? GrainControlCore.SnapFive(scannedGrainStrengthPercent) : Av1GrainStrengthPercent;
             int initialLut = GetLutStrength();
             bool initialLutOn = IsLutEffectEnabled();
             string[] formats = {"Classic35","Modern35","16mm","Super8","MaxMid"};
@@ -170,6 +179,7 @@ namespace FilmGrainStudioPreview
             if (height < 2) height = 2;
             if (height > 8192 || width > 8192) {FgsMessageBox.Show(this,UiText("预览分辨率超出原型限制。","Preview dimensions exceed the prototype limit."));return;}
 
+            string previewRoot = appRoot;
             string temporary = Path.Combine(Path.GetTempPath(),"FilmGrain_Studio","GpuPreview_"+Guid.NewGuid().ToString("N"));
             gpuAdvancedPreviewBusy = true;
             btnGpuAdvancedPreview.Enabled = false;
@@ -185,6 +195,14 @@ namespace FilmGrainStudioPreview
                     if (hasAv1Grain && table.Length == 0) {
                         table = Path.Combine(temporary,"preset.tbl");
                         File.WriteAllText(table,Av1GrainStrengthCore.PresetTable(presetName),new UTF8Encoding(false));
+                    }
+                    string fgsimNoise = "", fgsimShader = "";
+                    if (fgsimMode) {
+                        string reason;
+                        if (!FgsimTextureCore.TryEnsureLocal(previewRoot,out fgsimNoise,out reason))
+                            throw new InvalidOperationException(reason);
+                        fgsimShader = Path.Combine(temporary,"fgsim.glsl");
+                        WriteFgsimPreviewShader(previewRoot,fgsimShader);
                     }
                     string frame = Path.Combine(temporary,"frame.yuv");
                     string result = Path.Combine(temporary,"result.json");
@@ -259,8 +277,11 @@ namespace FilmGrainStudioPreview
                         hasAv1Grain?table:"-","10","0",seconds.ToString("0.######",CultureInfo.InvariantCulture)};
                     if (hasLut) args.Add(lut);
                     args.AddRange(new[]{"--result",result,"--grain",initialGrain.ToString(CultureInfo.InvariantCulture),
-                        "--lut",initialLut.ToString(CultureInfo.InvariantCulture),"--grain-on",hasGrain?"1":"0",
+                        "--lut",initialLut.ToString(CultureInfo.InvariantCulture),"--grain-on",hasGrain && grainInitiallyEnabled?"1":"0",
                         "--lut-on",initialLutOn?"1":"0"});
+                    if (newPixelMode) args.AddRange(new[]{"--pixel-mode",pixelMode});
+                    if (fgsimMode) args.AddRange(new[]{"--fgsim-noise",fgsimNoise,"--fgsim-shader",fgsimShader});
+                    if (digitalMode) args.AddRange(new[]{"--digital-noise",Path.Combine(temporary,"digital.yuv"),"--noise-ffmpeg",ffmpeg});
                     if (plateMode) args.AddRange(new[]{"--plate",platePath,"--plate-frame",plateFrame});
                     if (plateCycle>0) args.AddRange(new[]{"--plate-cycle",plateCycle.ToString("0.#########",CultureInfo.InvariantCulture)});
                     // grav1synth advances AV1 grain seeds per output frame. Use the
@@ -287,7 +308,10 @@ namespace FilmGrainStudioPreview
                     if (File.Exists(result)) {
                         string json = File.ReadAllText(result,Encoding.UTF8);
                         applied = new JavaScriptSerializer().Deserialize<GpuAdvancedPreviewResult>(json);
-                        if (applied == null || applied.Version != (plateMode?2:1) ||
+                        if (applied == null || applied.Version != (newPixelMode?3:plateMode?2:1) ||
+                            (newPixelMode && !string.Equals(applied.PixelMode,pixelMode,StringComparison.Ordinal)) ||
+                            (fgsimMode && (applied.FgsimPreset < 0 || applied.FgsimPreset > 3)) ||
+                            (digitalMode && (applied.GrainStrength < 15 || applied.GrainStrength > 100 || applied.GrainStrength%5!=0)) ||
                             (plateMode ? !string.Equals(applied.PixelMode,"PLATE",StringComparison.Ordinal) ||
                                 (applied.PlateStrength != 0 && (applied.PlateStrength < 15 || applied.PlateStrength > 100 || applied.PlateStrength%5!=0)) :
                                 applied.GrainStrength < 0 || applied.GrainStrength > 100) ||
@@ -310,14 +334,24 @@ namespace FilmGrainStudioPreview
                                 cmbCodec.SelectedIndex != originalCodec ||
                                 (hasGrain && (originalMode != (SvtSelected()?CurrentGrainMode()-3:CurrentGrainMode()) ||
                                     (plateMode && !string.Equals(selectedGrainPlatePath,platePath,StringComparison.OrdinalIgnoreCase)) ||
-                                    (originalMode==2 && !string.Equals(selectedAv1GrainTable,model,StringComparison.OrdinalIgnoreCase)) ||
-                                    (originalMode==0 && !string.Equals(formats[Math.Max(0,Math.Min(4,av1FormatIndex))]+
+                                    (hasAv1Grain && originalMode==2 && !string.Equals(selectedAv1GrainTable,model,StringComparison.OrdinalIgnoreCase)) ||
+                                    (hasAv1Grain && originalMode==0 && !string.Equals(formats[Math.Max(0,Math.Min(4,av1FormatIndex))]+
                                         (av1FormatIndex<3?stocks[Math.Max(0,Math.Min(3,av1StockIndex))]:""),originalPreset,StringComparison.Ordinal)))) ||
                                 (hasLut && !string.Equals(selectedLutPath,lut,StringComparison.OrdinalIgnoreCase))) {
                                 FgsMessageBox.Show(this,UiText("预览期间视频、颗粒或 LUT 已改变，本次结果未应用。","The video, grain mode or LUT changed; result discarded."));return;
                             }
                             string appliedGrain = "未更改";
-                            if (plateMode) {
+                            if (newPixelMode) {
+                                int value = fgsimMode ? applied.FgsimPreset : applied.GrainStrength/5;
+                                if (trackFilmGrainStrength == null || value < trackFilmGrainStrength.Minimum ||
+                                    value > trackFilmGrainStrength.Maximum) {
+                                    FgsMessageBox.Show(this,UiText("颗粒控件已改变，本次结果未应用。",
+                                        "Grain control changed; result discarded."));return;
+                                }
+                                trackFilmGrainStrength.Value = value;
+                                chkGrainEnabled.Checked = applied.GrainEnabled;
+                                appliedGrain = applied.GrainEnabled ? pixelMode+" "+lblFilmGrainValue.Text : "关闭";
+                            } else if (plateMode) {
                                 if (applied.GrainEnabled && applied.PlateStrength >= 15) {
                                     if (trackFilmGrainStrength == null || trackFilmGrainStrength.Minimum > applied.PlateStrength/5 ||
                                         trackFilmGrainStrength.Maximum < applied.PlateStrength/5) {
@@ -360,6 +394,24 @@ namespace FilmGrainStudioPreview
                 Path.Combine(appRoot,"experiments","GpuSingleFrame","fgs_gpu_preview.exe")};
             foreach (string path in candidates) if (!string.IsNullOrEmpty(path) && File.Exists(path)) return Path.GetFullPath(path);
             return "";
+        }
+
+        private static void WriteFgsimPreviewShader(string root,string path)
+        {
+            string template = File.ReadAllText(Path.Combine(root,"Utils","_FilmGrainSimplified","FilmGrainSimplified.hook.template"));
+            int start = template.IndexOf("const int FG_TILE",StringComparison.Ordinal);
+            if (start < 0) throw new InvalidDataException("FGSIM shader template is invalid.");
+            string shader = template.Substring(start)
+                .Replace("@@TILE_SIZE@@","2").Replace("@@HL_START@@","0.55")
+                .Replace("@@HL_END@@","0.85").Replace("@@HL_REDUCE@@","0.50")
+                .Replace("const float FG_STRENGTH = @@STRENGTH@@;","")
+                .Replace("vec4 hook()","vec4 fgsim_apply(vec4 src, ivec2 px, int frame, float strength)")
+                .Replace("    vec4 src = HOOKED_tex(HOOKED_pos);","")
+                .Replace("    ivec2 px = ivec2(floor(HOOKED_pos * HOOKED_size));","")
+                .Replace("FG_STRENGTH","strength");
+            if (shader.Contains("@@") || shader.Contains("HOOKED") || !shader.Contains("vec4 fgsim_apply("))
+                throw new InvalidDataException("FGSIM shader template is incompatible with GPU preview.");
+            File.WriteAllText(path,shader,new UTF8Encoding(false));
         }
 
         private static string RunGpuAdvancedPreviewProcess(string executable,IList<string> arguments,string runtime)

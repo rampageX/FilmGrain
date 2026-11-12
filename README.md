@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.0.66 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.67 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 <table>
   <tr>
@@ -142,11 +142,11 @@ FGSIM 在任务执行前以实际 shader 检查 GPU 输出像素，优先选择�
 
 ### 高级 GPU 实时预览（独立窗口）
 
-颗粒区域的「高级预览调整…」打开独立的 GPU 单帧交互窗口，可同时调整 **颗粒强度与 3D LUT 强度**，直接拖动滑杆观察变化。支持 AV1／SVT-AV1 的内置胶片预设及已选 Grain Table，以及 HEVC／H.264／x264／SVT 像素扫描模式使用的 Grain Plate（MOV）；也可只预览 3D LUT。AV1 参数颗粒按 1% 步进调整，扫描 Grain Plate 为 15%–100%（5% 步进），LUT 为 0%–100%（1% 步进）。点击「应用到 FGS」才回传选项，直接关闭或取消不修改主界面参数。
+颗粒区域的「高级预览调整…」打开独立的 GPU 单帧交互窗口，可同时调整 **颗粒强度与 3D LUT 强度**，直接拖动滑杆观察变化。支持 AV1／SVT-AV1 的内置胶片预设及已选 Grain Table，以及 HEVC／H.264／x264／SVT 像素扫描模式使用的 Grain Plate（MOV）。FGSIM 支持 Light／Normal／Medium／Heavy 四档，Digital Grain 支持 0.15–1.00（0.05 步进）。也可只预览 3D LUT。AV1 参数颗粒按 1% 步进调整，扫描 Grain Plate 为 15%–100%（5% 步进），LUT 为 0%–100%（1% 步进）。点击「应用到 FGS」才回传选项，直接关闭或取消不修改主界面参数。
 
 打开时自动选择适合当前片长的随机帧；底部可输入时间码、随机换帧或跳转到指定位置。窗口会记住上次位置、大小和最大化状态，并在多屏布局变化时避免跑出屏幕。**拖动滑杆**使用 libplacebo／D3D11 GPU 实时重绘，不重新抽取视频；**换帧**仍使用 FFmpeg 解码一次原片，扫描颗粒则同步抽取对应的循环 Grain Plate 帧。ProRes Grain Plate 支持快速循环定位，在 RTX 4080 用户测试中，颗粒抽帧从约 3–4.5 秒降至约 0.28 秒；原片抽帧时间随素材和硬件变化，不能把换帧延迟等同于滑杆渲染延迟。
 
-支持逐行 **SDR BT.709（有限范围）**，以及逐行或隔行 **HDR BT.2020 PQ／HLG**。隔行 HDR 在首次抽帧和换帧时按场序反交错，再上传 10-bit 逐行帧。Windows HDR 显示启用时请求 HDR 交换链，否则在 GPU 上映射为 SDR 显示。HDR 预览可直接查看原片或实时调整 3D LUT。当前不提供隔行 SDR、ISO 实时模型生成、Digital Grain、FGSIM、AV1 不重编码路线或连续视频播放。纯 3D `.cube` LUT 可用，1D／复合 LUT 暂不支持。GPU 窗口用于交互判断颗粒和色调，处理顺序与正式编码存在差异，不能承诺逐像素一致；最终画质以原有编码预览和正式输出为准。原有四档颗粒／LUT 预览保留。
+支持逐行 **SDR BT.709（有限范围）**，以及逐行或隔行 **HDR BT.2020 PQ／HLG**。隔行 HDR 在首次抽帧和换帧时按场序反交错，再上传 10-bit 逐行帧。Windows HDR 显示启用时请求 HDR 交换链，否则在 GPU 上映射为 SDR 显示。保留 HDR 的兼容组合也可预览 FGSIM 和 Digital Grain。Digital Grain 在首次抽帧及换帧时生成固定种子的噪声底图。当前不提供隔行 SDR、ISO 实时模型生成、AV1 不重编码路线或连续视频播放。纯 3D `.cube` LUT 可用，1D／复合 LUT 暂不支持。GPU 窗口用于交互判断颗粒和色调，处理顺序与正式编码存在差异，不能承诺逐像素一致；最终画质以原有编码预览和正式输出为准。原有四档颗粒／LUT 预览保留。
 
 
 完整版本变化、Bug 修复与历史发布记录统一维护在 [`CHANGELOG.md`](CHANGELOG.md)。README 只介绍**当前版本的功能、工作原理、设置方式和使用建议**，不重复记录逐版本更新流水。
