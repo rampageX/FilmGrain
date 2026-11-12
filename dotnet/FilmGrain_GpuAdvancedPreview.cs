@@ -84,9 +84,9 @@ namespace FilmGrainStudioPreview
             bool supportedColor = media.IsHdr
                 ? media.ColorPrimaries=="bt2020" && media.ColorSpace=="bt2020nc"
                 : !fullRange && (string.IsNullOrEmpty(media.ColorSpace) || media.ColorSpace=="bt709");
-            if (media.IsInterlaced || !supportedColor) {
-                FgsMessageBox.Show(this,UiText("GPU 预览支持逐行 BT.709 SDR（有限范围）及 BT.2020 PQ／HLG。",
-                    "GPU preview supports progressive limited-range BT.709 SDR and BT.2020 PQ/HLG."));return;
+            if ((media.IsInterlaced && !media.IsHdr) || !supportedColor) {
+                FgsMessageBox.Show(this,UiText("GPU 预览支持逐行 BT.709 SDR（有限范围），以及逐行或隔行 BT.2020 PQ／HLG。",
+                    "GPU preview supports progressive limited-range BT.709 SDR and progressive or interlaced BT.2020 PQ/HLG."));return;
             }
             if (media.Width < 2 || media.Height < 2) {
                 FgsMessageBox.Show(this,UiText("视频分辨率无效。","Invalid video dimensions."));return;
@@ -99,6 +99,9 @@ namespace FilmGrainStudioPreview
                 FgsMessageBox.Show(this,UiText("当前编码组合会转 SDR，请使用原有预览查看该输出路线。",
                     "The current encode route converts to SDR. Use the original preview for that route."));return;
             }
+            string parity = media.IsInterlaced
+                ? SharedHdrPreprocessCore.ResolveDeinterlaceParity("parity=auto",media).Substring("parity=".Length)
+                : "";
             string hdrSignal = !media.IsHdr ? "" : media.ColorTransfer=="smpte2084" ? "pq" : "hlg";
             if (media.IsHdr && fullRange) hdrSignal += "-full";
             string exe = ResolveGpuAdvancedPreviewExecutable();
@@ -199,6 +202,7 @@ namespace FilmGrainStudioPreview
                     var ffmpegLog = new StringBuilder();
                     var ffArgs = new List<string> {"-hide_banner","-v","error","-y","-ss",seconds.ToString("0.######",CultureInfo.InvariantCulture),
                         "-i",input,"-map","0:v:0","-an","-sn","-dn","-frames:v","1","-vf",
+                        (parity.Length==0?"":"bwdif=mode=send_frame:parity="+parity+":deint=all,")+
                         "scale="+width.ToString(CultureInfo.InvariantCulture)+":"+height.ToString(CultureInfo.InvariantCulture)+":flags=bicubic"+
                         (!media.IsHdr?"":fullRange?":in_range=full:out_range=full":":in_range=limited:out_range=limited")+",format=yuv420p10le",
                         "-f","rawvideo",frame};
@@ -265,6 +269,7 @@ namespace FilmGrainStudioPreview
                     if (duration>0) args.AddRange(new[]{"--video",input,"--ffmpeg",ffmpeg,
                         "--duration",Math.Min(86400,duration).ToString("0.######",CultureInfo.InvariantCulture)});
                     if (media.IsHdr) args.AddRange(new[]{"--source-color",hdrSignal});
+                    if (parity.Length>0) args.AddRange(new[]{"--deinterlace",parity});
                     string child = exe;
                     string runtime = null;
                     if (embeddedHdr) {

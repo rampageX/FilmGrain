@@ -37,6 +37,7 @@ static pl_tex s_plate_textures[3];
 static struct pl_frame s_image;
 static enum pl_color_transfer s_hdr_transfer;
 static bool s_source_full, s_hdr_display;
+static const wchar_t *s_deinterlace = L"";
 static FgsGrainModel s_original;
 static int s_strength = 100, s_width, s_height;
 static bool s_has_grain = true;
@@ -683,9 +684,9 @@ static bool start_frame_decoder(double seconds, bool plate, PROCESS_INFORMATION 
         swprintf(command,capacity,
             L"\"%ls\" -hide_banner -nostdin -v error -y -ss %.6f -i \"%ls\" "
             L"-map 0:v:0 -an -sn -dn -frames:v 1 "
-            L"-vf \"scale=%d:%d:flags=bicubic%ls,format=yuv420p%ls\" "
+            L"-vf \"%lsscale=%d:%d:flags=bicubic%ls,format=yuv420p%ls\" "
             L"-f rawvideo \"%ls\"",
-            s_ffmpeg_path,seconds,source,s_width,s_height,
+            s_ffmpeg_path,seconds,source,s_deinterlace,s_width,s_height,
             !s_hdr_transfer ? L"" : s_source_full ? L":in_range=full:out_range=full" : L":in_range=limited:out_range=limited",
             s_frame_depth==10?L"10le":L"",output);
     }
@@ -1232,7 +1233,7 @@ int wmain(int argc, wchar_t **argv)
     QueryPerformanceFrequency(&s_frequency);
     double start = timer_ms();
     if (argc < 6) {
-        fwprintf(stderr, L"Usage: %ls FRAME.yuv WIDTH HEIGHT FILMGRN1.tbl|- 8|10 [BENCH_COUNT] [MODEL_TIME_SEC] [LUT.cube] [--fps NUM/DEN --result FILE --grain 0..100 --lut 0..100 --grain-on 0|1 --lut-on 0|1 --video FILE --ffmpeg EXE --duration SECONDS --plate MOV --plate-frame YUV --plate-cycle SECONDS --source-color pq|hlg|pq-full|hlg-full]\n", argv[0]);
+        fwprintf(stderr, L"Usage: %ls FRAME.yuv WIDTH HEIGHT FILMGRN1.tbl|- 8|10 [BENCH_COUNT] [MODEL_TIME_SEC] [LUT.cube] [--fps NUM/DEN --result FILE --grain 0..100 --lut 0..100 --grain-on 0|1 --lut-on 0|1 --video FILE --ffmpeg EXE --duration SECONDS --plate MOV --plate-frame YUV --plate-cycle SECONDS --source-color pq|hlg|pq-full|hlg-full --deinterlace auto|tff|bff]\n", argv[0]);
         return 2;
     }
     int depth, bench_count = 0;
@@ -1269,6 +1270,12 @@ int wmain(int argc, wchar_t **argv)
             else if (!wcscmp(value,L"hlg") || !wcscmp(value,L"hlg-full")) s_hdr_transfer = PL_COLOR_TRC_HLG;
             else return 2;
             s_source_full = wcsstr(value,L"-full") != NULL;
+        }
+        else if (!wcscmp(key, L"--deinterlace")) {
+            if (!wcscmp(value,L"auto")) s_deinterlace = L"bwdif=mode=send_frame:parity=auto:deint=all,";
+            else if (!wcscmp(value,L"tff")) s_deinterlace = L"bwdif=mode=send_frame:parity=tff:deint=all,";
+            else if (!wcscmp(value,L"bff")) s_deinterlace = L"bwdif=mode=send_frame:parity=bff:deint=all,";
+            else return 2;
         }
         else if (!wcscmp(key, L"--fps")) {if (!frame_rate_arg(value,&s_fps_num,&s_fps_den)) return 2;}
         else if (!wcscmp(key, L"--duration")) {
