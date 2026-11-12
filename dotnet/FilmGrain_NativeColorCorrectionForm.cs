@@ -224,7 +224,7 @@ namespace FilmGrainStudioPreview
             sourceIdentity.RequireCurrent();
             PrepareLut(this.lutPath);
             BuildUi(largeUi, enabled, contrast, brightness, saturation, gamma, blackWhite, useLut);
-            if(initialFilmSettings!=null && hdrPreviewInfo==null) {
+            if(initialFilmSettings!=null) {
                 SetFilmSettings(initialFilmSettings);
                 SwitchAdjustmentPage(true);
             }
@@ -407,7 +407,6 @@ namespace FilmGrainStudioPreview
                 SwitchAdjustmentPage(true);
                 if(!filmModeActive){filmModeActive=true;checkFilm.Checked=true;checkLut.Checked=true;lutStrengthTrack.Value=100;UpdateLutUi();RequestRender(true);}
             };
-            filmTabButton.Enabled=hdrPreviewInfo==null;
 
             GroupBox group = new ThemeGroupBox();
             adjustmentGroup=group;
@@ -766,7 +765,7 @@ namespace FilmGrainStudioPreview
         {
             foreach(Control control in colorPageControls)control.Visible=!showFilm;
             if(filmPanel!=null)filmPanel.Visible=showFilm;
-            if(adjustmentGroup!=null)adjustmentGroup.Text=showFilm?S("经典胶片 LUT","Classic Film LUT"):S("色彩纠正","Color Correction");
+            if(adjustmentGroup!=null)adjustmentGroup.Text=showFilm?(preserveHdrColor ? S("经典胶片 LUT · HDR","Classic Film LUT · HDR") : S("经典胶片 LUT","Classic Film LUT")):S("色彩纠正","Color Correction");
             if(colorTabButton!=null)colorTabButton.Text=(showFilm?"":"● ")+S("色彩纠正","Color correction");
             if(filmTabButton!=null)filmTabButton.Text=(showFilm?"● ":"")+S("经典胶片","Classic film");
         }
@@ -1348,8 +1347,9 @@ namespace FilmGrainStudioPreview
             // without FFmpeg, LUT recomputation, decoding, or texture uploads.
             if(state.Zoom)prefix.Add("null");
             else prefix.Add("scale=" + previewWidth.ToString(CultureInfo.InvariantCulture) + ":" + previewHeight.ToString(CultureInfo.InvariantCulture) + ":force_original_aspect_ratio=decrease:force_divisible_by=2:flags=bilinear");
-            if(hdrPreviewInfo!=null && !preserveHdrColor)prefix.Add(HdrColorProcessingCore.DisplayToSdr(hdrPreviewInfo,previewTonemap));
-            if (!state.Original && state.Enabled && hdrPreviewInfo!=null && preserveHdrColor)
+            bool gradeInHdr = hdrPreviewInfo!=null && preserveHdrColor;
+            if(hdrPreviewInfo!=null && !gradeInHdr)prefix.Add(HdrColorProcessingCore.DisplayToSdr(hdrPreviewInfo,previewTonemap));
+            if (!state.Original && state.Enabled && gradeInHdr)
             {
                 var cc=new Dictionary<string,string>();cc["FG_COLOR_ENABLED"]="1";
                 cc["FG_COLOR_CONTRAST"]=F(state.Contrast);cc["FG_COLOR_BRIGHTNESS"]=F(state.Brightness);
@@ -1374,7 +1374,7 @@ namespace FilmGrainStudioPreview
                     resolvedOpacity=LutStrengthCore.CreateFile(strengthSource,lutForPreview,state.LutStrength);preparedStrengthLut=lutForPreview;
                 }
                 string escaped = EscapeFilterPath(lutForPreview);
-                if(hdrPreviewInfo!=null && preserveHdrColor)
+                if(gradeInHdr)
                     filter+=","+HdrColorProcessingCore.Lut(hdrPreviewInfo,escaped,resolvedOpacity).TrimEnd(',');
                 else if (resolvedOpacity=="1.00")
                     filter += ",format=gbrp16le,lut3d=file='" + escaped + "':interp=tetrahedral";
@@ -1384,7 +1384,7 @@ namespace FilmGrainStudioPreview
                     filter += ",format=gbrp16le,split=2[lutorig][lutsrc];[lutsrc]lut3d=file='" + escaped + "':interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=" + opacity;
                 }
             }
-            if(hdrPreviewInfo!=null && preserveHdrColor)filter+=","+HdrColorProcessingCore.DisplayToSdr(hdrPreviewInfo,previewTonemap);
+            if(gradeInHdr)filter+=","+HdrColorProcessingCore.DisplayToSdr(hdrPreviewInfo,previewTonemap);
             if(!state.Zoom)filter += ",pad=" + previewWidth.ToString(CultureInfo.InvariantCulture) + ":" + previewHeight.ToString(CultureInfo.InvariantCulture) + ":(ow-iw)/2:(oh-ih)/2:black";
 
             sourceIdentity.RequireCurrent();

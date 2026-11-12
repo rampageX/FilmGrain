@@ -4,7 +4,9 @@
  */
 #define WIN32_LEAN_AND_MEAN
 #define _WIN32_WINNT 0x0A00
+#define COBJMACROS
 #include <windows.h>
+#include <dxgi1_6.h>
 #include <psapi.h>
 
 #include <libplacebo/log.h>
@@ -33,6 +35,8 @@ static pl_renderer s_renderer;
 static pl_tex s_textures[3];
 static pl_tex s_plate_textures[3];
 static struct pl_frame s_image;
+static enum pl_color_transfer s_hdr_transfer;
+static bool s_source_full, s_hdr_display;
 static FgsGrainModel s_original;
 static int s_strength = 100, s_width, s_height;
 static bool s_has_grain = true;
@@ -377,14 +381,16 @@ static bool upload_frame(const unsigned char *raw, int depth)
     }
     s_image.num_planes = 3;
     s_image.repr = (struct pl_color_repr) {
-        .sys = PL_COLOR_SYSTEM_BT_709,
-        .levels = PL_COLOR_LEVELS_LIMITED,
+        .sys = s_hdr_transfer ? PL_COLOR_SYSTEM_BT_2020_NC : PL_COLOR_SYSTEM_BT_709,
+        .levels = s_source_full ? PL_COLOR_LEVELS_FULL : PL_COLOR_LEVELS_LIMITED,
         .bits = { .sample_depth = depth == 8 ? 8 : 16,
                   .color_depth = depth, .bit_shift = 0 },
     };
     s_image.color = (struct pl_color_space) {
         .primaries = PL_COLOR_PRIM_BT_709, .transfer = PL_COLOR_TRC_BT_1886,
     };
+    if (s_hdr_transfer)
+        s_image.color = s_hdr_transfer == PL_COLOR_TRC_PQ ? pl_color_space_hdr10 : pl_color_space_bt2020_hlg;
     s_image.crop = (pl_rect2df) {0, 0, s_width, s_height};
     pl_gpu_finish(s_device->gpu);
     return true;
@@ -677,9 +683,10 @@ static bool start_frame_decoder(double seconds, bool plate, PROCESS_INFORMATION 
         swprintf(command,capacity,
             L"\"%ls\" -hide_banner -nostdin -v error -y -ss %.6f -i \"%ls\" "
             L"-map 0:v:0 -an -sn -dn -frames:v 1 "
-            L"-vf \"scale=%d:%d:flags=bicubic,format=yuv420p%ls\" "
+            L"-vf \"scale=%d:%d:flags=bicubic%ls,format=yuv420p%ls\" "
             L"-f rawvideo \"%ls\"",
             s_ffmpeg_path,seconds,source,s_width,s_height,
+            !s_hdr_transfer ? L"" : s_source_full ? L":in_range=full:out_range=full" : L":in_range=limited:out_range=limited",
             s_frame_depth==10?L"10le":L"",output);
     }
     STARTUPINFOW startup={0};
@@ -848,6 +855,31 @@ static void change_slider(int kind, int x)
     redraw_controls();
 }
 
+static void update_hdr_display(void)
+{
+    if (!s_hdr_transfer) return;
+    bool hdr = false;
+    IDXGISwapChain *chain = pl_d3d11_swapchain_unwrap(s_swapchain);
+    if (chain) {
+        IDXGIOutput *output = NULL;
+        if (SUCCEEDED(IDXGISwapChain_GetContainingOutput(chain, &output))) {
+            IDXGIOutput6 *output6 = NULL;
+            if (SUCCEEDED(IDXGIOutput_QueryInterface(output, &IID_IDXGIOutput6, (void **)&output6))) {
+                DXGI_OUTPUT_DESC1 desc;
+                if (SUCCEEDED(IDXGIOutput6_GetDesc1(output6, &desc)))
+                    hdr = desc.ColorSpace == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020;
+                IDXGIOutput6_Release(output6);
+            }
+            IDXGIOutput_Release(output);
+        }
+        IDXGISwapChain_Release(chain);
+    }
+    if (hdr != s_hdr_display) {
+        pl_swapchain_colorspace_hint(s_swapchain, hdr ? &pl_color_space_hdr10 : &pl_color_space_srgb);
+        s_hdr_display = hdr;
+    }
+}
+
 static double render_once(bool report)
 {
     if (!s_renderer || !s_view) return -1;
@@ -859,6 +891,7 @@ static double render_once(bool report)
         if (!pl_swapchain_resize(s_swapchain, &width, &height)) return -1;
         s_swap_width = width; s_swap_height = height;
     }
+    update_hdr_display();
     double start = timer_ms();
     set_grain(s_strength);
     struct pl_swapchain_frame swap;
@@ -900,7 +933,8 @@ static double render_once(bool report)
     pl_gpu_finish(s_device->gpu);
     double delta = timer_ms() - start;
     wchar_t title[256];
-    swprintf(title, 256, L"FGS GPU Preview | %ls | %ls %d%% | LUT %d%% | %.2f ms | G / L / ESC",
+    swprintf(title, 256, L"FGS GPU Preview%ls | %ls | %ls %d%% | LUT %d%% | %.2f ms | G / L / ESC",
+             !s_hdr_transfer ? L"" : pl_color_transfer_is_hdr(swap.color_space.transfer) ? L" [HDR display]" : L" [HDR to SDR display]",
              s_pixel_view?L"1:1":L"Fit",
              s_plate_mode?L"Plate":L"Grain",
              s_display_grain ? s_strength : 0,
@@ -1142,7 +1176,7 @@ static bool gpu_init(void)
         return false;
     }
     s_swapchain = pl_d3d11_create_swapchain(s_device, pl_d3d11_swapchain_params(
-        .window = s_view, .disable_10bit_sdr = true));
+        .window = s_view, .disable_10bit_sdr = !s_hdr_transfer));
     if (!s_swapchain) return false;
     s_renderer = pl_renderer_create(s_log, s_device->gpu);
     return s_renderer != NULL;
@@ -1198,7 +1232,7 @@ int wmain(int argc, wchar_t **argv)
     QueryPerformanceFrequency(&s_frequency);
     double start = timer_ms();
     if (argc < 6) {
-        fwprintf(stderr, L"Usage: %ls FRAME.yuv WIDTH HEIGHT FILMGRN1.tbl|- 8|10 [BENCH_COUNT] [MODEL_TIME_SEC] [LUT.cube] [--fps NUM/DEN --result FILE --grain 0..100 --lut 0..100 --grain-on 0|1 --lut-on 0|1 --video FILE --ffmpeg EXE --duration SECONDS --plate MOV --plate-frame YUV --plate-cycle SECONDS]\n", argv[0]);
+        fwprintf(stderr, L"Usage: %ls FRAME.yuv WIDTH HEIGHT FILMGRN1.tbl|- 8|10 [BENCH_COUNT] [MODEL_TIME_SEC] [LUT.cube] [--fps NUM/DEN --result FILE --grain 0..100 --lut 0..100 --grain-on 0|1 --lut-on 0|1 --video FILE --ffmpeg EXE --duration SECONDS --plate MOV --plate-frame YUV --plate-cycle SECONDS --source-color pq|hlg|pq-full|hlg-full]\n", argv[0]);
         return 2;
     }
     int depth, bench_count = 0;
@@ -1230,6 +1264,12 @@ int wmain(int argc, wchar_t **argv)
             if (!time_arg(value,&ticks) || ticks==0) return 2;
             s_plate_cycle_seconds=(double)ticks/10000000.0;
         }
+        else if (!wcscmp(key, L"--source-color")) {
+            if (!wcscmp(value,L"pq") || !wcscmp(value,L"pq-full")) s_hdr_transfer = PL_COLOR_TRC_PQ;
+            else if (!wcscmp(value,L"hlg") || !wcscmp(value,L"hlg-full")) s_hdr_transfer = PL_COLOR_TRC_HLG;
+            else return 2;
+            s_source_full = wcsstr(value,L"-full") != NULL;
+        }
         else if (!wcscmp(key, L"--fps")) {if (!frame_rate_arg(value,&s_fps_num,&s_fps_den)) return 2;}
         else if (!wcscmp(key, L"--duration")) {
             uint64_t duration_ticks;
@@ -1256,7 +1296,7 @@ int wmain(int argc, wchar_t **argv)
     if (!int_arg(argv[2], 2, 8192, &s_width) ||
         !int_arg(argv[3], 2, 8192, &s_height) ||
         !int_arg(argv[5], 8, 10, &depth) || (depth != 8 && depth != 10) ||
-        (s_width & 1) || (s_height & 1) ||
+        (s_width & 1) || (s_height & 1) || (s_hdr_transfer && depth != 10) ||
         (s_strength < 0 || s_strength > 100) || (s_plate_mode && depth != 10) ||
         (s_plate_mode && s_strength != 0 && (s_strength < 15 || s_strength%5))) {
         fprintf(stderr, "Invalid even dimensions, bit depth, bench count or timeline seconds\n");

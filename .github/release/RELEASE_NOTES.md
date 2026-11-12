@@ -1,7 +1,5 @@
-# Film Grain Studio v5.0.64
+# Film Grain Studio v5.0.65
 
-- SVP-GPU、FRUC 和 SVT-HDR 状态栏按钮各自只复检对应项目。OpenSVPFlow 插件更新成功后只刷新 SVP 能力。
-- NVEncC 插帧检测缓存迁入 `Utils`。匹配当前工具的旧根目录缓存会自动迁移。
-- 插帧下拉列表跟随控件宽度。OpenSVP 两项改为「平滑 · HDR」和「平衡 · HDR」。
-- 修正 AV1 插帧队列的 FFV1 临时空间估算。高位深 HDR 按 16-bit 样本存储估算，只有实际绕过插帧的隔行源才跳过这项估算。
-- 修正 HDR AUTO 转 SDR 时传入 SVP 的渲染标记。编码预览按裁剪后重新探测的输入判定路线。
+- HDR 自动模式支持高位深色彩纠正及 3D LUT。AV1／HEVC NVENC、SVT-AV1 与 x265 在兼容组合下保留 PQ／HLG 输出。
+- LUT 工坊的五套经典胶片可用于 HDR 素材，支持曝光、冷暖、饱和度及 LUT 强度。LUT 工坊和四格对照先应用效果，再转换为 SDR 图片显示。
+- 高级 GPU 预览接入逐行 BT.2020 PQ／HLG，支持实时调整 LUT 和切换原片帧。Windows HDR 显示启用时请求 HDR 输出，SDR 显示使用 GPU 色调映射。

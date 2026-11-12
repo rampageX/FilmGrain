@@ -24,6 +24,7 @@ namespace FilmGrainStudioPreview
     internal sealed partial class MainForm
     {
         private bool gpuAdvancedPreviewBusy;
+        private const string HdrGpuPreviewResource = "FGS.HdrGpuPreview.exe";
 
         // ProRes is intra-frame. A bounded seek into a short, regular plate
         // avoids decoding earlier repetitions of a ten-second grain loop.
@@ -79,11 +80,13 @@ namespace FilmGrainStudioPreview
             if (string.IsNullOrEmpty(input) || !mediaProbeCache.TryGetValue(input,out media)) {
                 FgsMessageBox.Show(this,UiText("请先选择并完成视频探测。","Select and probe a video first."));return;
             }
-            if (media.IsHdr || media.IsInterlaced ||
-                string.Equals(media.ColorRange,"pc",StringComparison.OrdinalIgnoreCase) ||
-                (!string.IsNullOrEmpty(media.ColorSpace) && !string.Equals(media.ColorSpace,"bt709",StringComparison.OrdinalIgnoreCase))) {
-                FgsMessageBox.Show(this,UiText("首轮 GPU 原型仅支持 SDR BT.709、有限范围、逐行视频。HDR 等路线继续使用原有预览。",
-                    "This GPU prototype only accepts progressive limited-range SDR BT.709. Use the original preview for HDR."));return;
+            bool fullRange = media.ColorRange=="pc" || media.ColorRange=="jpeg";
+            bool supportedColor = media.IsHdr
+                ? media.ColorPrimaries=="bt2020" && media.ColorSpace=="bt2020nc"
+                : !fullRange && (string.IsNullOrEmpty(media.ColorSpace) || media.ColorSpace=="bt709");
+            if (media.IsInterlaced || !supportedColor) {
+                FgsMessageBox.Show(this,UiText("GPU 预览支持逐行 BT.709 SDR（有限范围）及 BT.2020 PQ／HLG。",
+                    "GPU preview supports progressive limited-range BT.709 SDR and BT.2020 PQ/HLG."));return;
             }
             if (media.Width < 2 || media.Height < 2) {
                 FgsMessageBox.Show(this,UiText("视频分辨率无效。","Invalid video dimensions."));return;
@@ -92,8 +95,15 @@ namespace FilmGrainStudioPreview
                 FgsMessageBox.Show(this,UiText("AV1 不重编码路线暂不接入独立 GPU 预览，请使用原有预览。",
                     "The AV1 copy route is not integrated with GPU preview yet."));return;
             }
+            if (media.IsHdr && !UsesHdrColorPreview(media)) {
+                FgsMessageBox.Show(this,UiText("当前编码组合会转 SDR，请使用原有预览查看该输出路线。",
+                    "The current encode route converts to SDR. Use the original preview for that route."));return;
+            }
+            string hdrSignal = !media.IsHdr ? "" : media.ColorTransfer=="smpte2084" ? "pq" : "hlg";
+            if (media.IsHdr && fullRange) hdrSignal += "-full";
             string exe = ResolveGpuAdvancedPreviewExecutable();
-            if (exe.Length == 0) {
+            bool embeddedHdr = media.IsHdr && typeof(MainForm).Assembly.GetManifestResourceInfo(HdrGpuPreviewResource)!=null;
+            if (exe.Length == 0 && !embeddedHdr) {
                 FgsMessageBox.Show(this,UiText("未找到独立 GPU 预览程序。请将 fgs_gpu_preview.exe 放在 FGS\\GpuAdvancedPreview 目录，或设置 FGS_GPU_PREVIEW_EXE 环境变量。",
                     "GPU preview is missing. Place fgs_gpu_preview.exe in FGS\\GpuAdvancedPreview or set FGS_GPU_PREVIEW_EXE."));return;
             }
@@ -111,7 +121,7 @@ namespace FilmGrainStudioPreview
                 FgsMessageBox.Show(this,UiText("扫描颗粒文件不存在，请重新选择。","Grain Plate is missing. Select a valid plate."));return;
             }
             bool hasLut = !string.IsNullOrEmpty(selectedLutPath) && File.Exists(selectedLutPath);
-            if (!hasGrain && !hasLut) {
+            if (!hasGrain && !hasLut && !media.IsHdr) {
                 FgsMessageBox.Show(this,UiText("当前需要 AV1 胶片预设／颗粒表、扫描颗粒文件或 3D LUT。ISO、Digital Grain 与 FGSIM 尚未接入 GPU 实时预览。",
                     "Select an AV1 preset/table, Grain Plate or 3D LUT. ISO, digital grain and FGSIM are not yet supported."));return;
             }
@@ -189,7 +199,8 @@ namespace FilmGrainStudioPreview
                     var ffmpegLog = new StringBuilder();
                     var ffArgs = new List<string> {"-hide_banner","-v","error","-y","-ss",seconds.ToString("0.######",CultureInfo.InvariantCulture),
                         "-i",input,"-map","0:v:0","-an","-sn","-dn","-frames:v","1","-vf",
-                        "scale="+width.ToString(CultureInfo.InvariantCulture)+":"+height.ToString(CultureInfo.InvariantCulture)+":flags=bicubic,format=yuv420p10le",
+                        "scale="+width.ToString(CultureInfo.InvariantCulture)+":"+height.ToString(CultureInfo.InvariantCulture)+":flags=bicubic"+
+                        (!media.IsHdr?"":fullRange?":in_range=full:out_range=full":":in_range=limited:out_range=limited")+",format=yuv420p10le",
                         "-f","rawvideo",frame};
                     // Start both independent FFmpeg decoders before waiting for
                     // either. Keep their own files, arguments and error buffers.
@@ -253,7 +264,16 @@ namespace FilmGrainStudioPreview
                     if (validRate || plateMode) args.AddRange(new[]{"--fps",fps});
                     if (duration>0) args.AddRange(new[]{"--video",input,"--ffmpeg",ffmpeg,
                         "--duration",Math.Min(86400,duration).ToString("0.######",CultureInfo.InvariantCulture)});
-                    string frameTiming = RunGpuAdvancedPreviewProcess(exe,args);
+                    if (media.IsHdr) args.AddRange(new[]{"--source-color",hdrSignal});
+                    string child = exe;
+                    string runtime = null;
+                    if (embeddedHdr) {
+                        child = Path.Combine(temporary,"fgs_gpu_preview.exe");
+                        runtime = exe.Length>0?Path.GetDirectoryName(exe):Path.Combine(appRoot,"GpuAdvancedPreview");
+                        using (var payload = typeof(MainForm).Assembly.GetManifestResourceStream(HdrGpuPreviewResource))
+                        using (var output = File.Create(child)) payload.CopyTo(output);
+                    }
+                    string frameTiming = RunGpuAdvancedPreviewProcess(child,args,runtime);
                     if (plateMode) decodeTiming += "[GPU Preview] Grain Plate 定位："+
                         (plateCycle>0 ? "ProRes 快速循环定位（周期 "+plateCycle.ToString("0.######",CultureInfo.InvariantCulture)+" s）" :
                             "普通循环定位（未满足快速路径条件）")+Environment.NewLine;
@@ -337,7 +357,7 @@ namespace FilmGrainStudioPreview
             return "";
         }
 
-        private static string RunGpuAdvancedPreviewProcess(string executable,IList<string> arguments)
+        private static string RunGpuAdvancedPreviewProcess(string executable,IList<string> arguments,string runtime)
         {
             var log = new StringBuilder();
             var frameTimings = new StringBuilder();
@@ -354,6 +374,8 @@ namespace FilmGrainStudioPreview
                 }
                 if (!string.IsNullOrEmpty(msys) && Directory.Exists(msys))
                     process.StartInfo.EnvironmentVariables["PATH"] = msys+Path.PathSeparator+process.StartInfo.EnvironmentVariables["PATH"];
+                if (!string.IsNullOrEmpty(runtime) && Directory.Exists(runtime))
+                    process.StartInfo.EnvironmentVariables["PATH"] = runtime+Path.PathSeparator+process.StartInfo.EnvironmentVariables["PATH"];
                 DataReceivedEventHandler record = delegate(object sender,DataReceivedEventArgs e) {
                     if (e.Data == null) return;
                     lock(log) {if(log.Length<14000)log.AppendLine(e.Data);}

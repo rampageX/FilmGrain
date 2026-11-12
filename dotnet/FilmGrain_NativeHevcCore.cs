@@ -79,14 +79,7 @@ namespace FilmGrainStudioPreview
 
             if (speed != "FAST" && speed != "STANDARD") { reason = "unsupported HEVC speed"; return false; }
 
-            bool hdrToSdr = info.IsHdr && !Eq(state, "FG_HDR_POLICY", "PRESERVE") && (Eq(state, "FG_HDR_POLICY", "SDR") ||
-
-                fgsimMode || (Eq(state, "FG_HDR_POLICY", "AUTO") &&
-
-                (Get(state, "FG_COLOR_ENABLED") == "1" || !string.IsNullOrWhiteSpace(Get(state, "FG_LUT_PATH")) ||
-                 (svp && !SharedInterpolationBypassCore.AutoHdrSvpReady(info,state)))));
-
-            if(h264&&info.IsHdr&&!Eq(state,"FG_HDR_POLICY","PRESERVE"))hdrToSdr=true;
+            bool hdrToSdr = HdrColorProcessingCore.NvencToSdr(info,state);
             bool hdrPreserve = info.IsHdr && !hdrToSdr;
             if(h264&&hdrPreserve){reason="H.264 NVENC 本线输出 8bit；HDR 源请选 HDR→SDR，不能保留 HDR10。 / H.264 8-bit output requires HDR to SDR.";return false;}
 

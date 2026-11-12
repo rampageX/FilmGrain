@@ -397,14 +397,13 @@ namespace FilmGrainStudioPreview
         internal static bool CpuHdrToSdr(MediaProbeInfo info,IDictionary<string,string> state)
         {
             if(info==null||!info.IsHdr)return false;
-            string policy,mode,color,lut,interpolate,engine;
+            string policy,mode,interpolate,engine;
             state.TryGetValue("FG_HDR_POLICY",out policy);state.TryGetValue("FG_MODE",out mode);
             if(string.Equals(policy,"SDR",StringComparison.OrdinalIgnoreCase))return true;
             if(string.Equals(policy,"PRESERVE",StringComparison.OrdinalIgnoreCase))return false;
             if(mode!="SVT"&&mode!="X265")return true; // x264 keeps its established policy.
-            state.TryGetValue("FG_COLOR_ENABLED",out color);state.TryGetValue("FG_LUT_PATH",out lut);
             state.TryGetValue("FG_SVP_INTERPOLATE",out interpolate);state.TryGetValue("FG_INTERPOLATION_ENGINE",out engine);
-            return color=="1"||!string.IsNullOrWhiteSpace(lut)||Engine(state)=="FGSIM"||
+            return Engine(state)=="FGSIM"||
                 (interpolate=="1"&&!string.Equals(engine,"FRUC",StringComparison.OrdinalIgnoreCase) &&
                  !(info.IsInterlaced && (string.IsNullOrEmpty(engine) || string.Equals(engine,"SVP",StringComparison.OrdinalIgnoreCase))) &&
                  !SharedInterpolationBypassCore.AutoHdrSvpReady(info,state));
@@ -695,6 +694,21 @@ namespace FilmGrainStudioPreview
     {
         private static string Get(System.Collections.Generic.IDictionary<string,string> s,string key)
         {string v;return s!=null&&s.TryGetValue(key,out v)?v??"":"";}
+        // The caller resolves mandatory SDR fallbacks before evaluating the native route.
+        internal static bool NvencToSdr(MediaProbeInfo info, IDictionary<string,string> state)
+        {
+            if (info == null || !info.IsHdr) return false;
+            string policy = Get(state,"FG_HDR_POLICY");
+            if (string.Equals(policy,"PRESERVE",StringComparison.OrdinalIgnoreCase)) return false;
+            return string.Equals(policy,"SDR",StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(Get(state,"FG_MODE"),"H264",StringComparison.OrdinalIgnoreCase) ||
+                SharedGrainCore.Engine(state)=="FGSIM" ||
+                (string.Equals(policy,"AUTO",StringComparison.OrdinalIgnoreCase) &&
+                 Get(state,"FG_SVP_INTERPOLATE")=="1" &&
+                 !string.Equals(Get(state,"FG_INTERPOLATION_ENGINE"),"FRUC",StringComparison.OrdinalIgnoreCase) &&
+                 !SharedInterpolationBypassCore.AutoHdrSvpReady(info,state));
+        }
+
         private static string F(double n){return n.ToString("0.################",System.Globalization.CultureInfo.InvariantCulture);}
         private static double Number(System.Collections.Generic.IDictionary<string,string> s,string key)
         {

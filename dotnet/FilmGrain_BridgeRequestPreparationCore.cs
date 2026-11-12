@@ -36,7 +36,6 @@ namespace FilmGrainStudioPreview
         {
             string mode = Get(state,"FG_MODE").ToUpperInvariant();
             return AutoHdrSvpReady(info,state) && mode != "H264" && mode != "X264" &&
-                Get(state,"FG_COLOR_ENABLED") != "1" && string.IsNullOrWhiteSpace(Get(state,"FG_LUT_PATH")) &&
                 SharedGrainCore.Engine(state) != "FGSIM";
         }
 

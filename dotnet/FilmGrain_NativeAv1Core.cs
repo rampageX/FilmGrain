@@ -44,11 +44,7 @@ namespace FilmGrainStudioPreview
             { reason = "unsupported AV1 interpolation engine"; return false; }
             if (svp && info.IsInterlaced) { reason = "interlaced OpenSVPFlow follows Legacy field-rate handling"; return false; }
             if (fruc && info.IsInterlaced) { reason = "AV1 FRUC requires progressive input; interlaced FRUC is not supported"; return false; }
-            bool hdrToSdr = info.IsHdr && !Eq(state, "FG_HDR_POLICY", "PRESERVE") &&
-                (Eq(state, "FG_HDR_POLICY", "SDR") || fgsimGrain ||
-                 (Eq(state, "FG_HDR_POLICY", "AUTO") &&
-                  (Get(state, "FG_COLOR_ENABLED") == "1" || !string.IsNullOrWhiteSpace(Get(state, "FG_LUT_PATH")) ||
-                   (svp && !SharedInterpolationBypassCore.AutoHdrSvpReady(info,state)))));
+            bool hdrToSdr = HdrColorProcessingCore.NvencToSdr(info,state);
             bool hdrPreserve = info.IsHdr && !hdrToSdr;
 
 

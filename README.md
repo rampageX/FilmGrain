@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.0.64 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.65 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 <table>
   <tr>
@@ -114,7 +114,7 @@ AV1、HEVC、x264、H.264 NVENC 与可视化窗口共用画幅几何核心。自
 
 在LUT四档对照中点击任一档确认，或在调色窗口点击确定后，最后成功预览时刻的原始视频帧成为当前主窗口的“临时参考图”。参考帧不含调色和LUT；HDR帧转换为SDR供缩略图显示。主界面切换强度、最近使用、我的最爱，或进入图库选择其他LUT返回后，均使用此图重新生成小图；再次确认其他对照帧或调色预览帧才替换。取消或没有成功预览帧时不替换。临时参考图不会修改图库参考图或配置，关闭主窗口后清理。
 
-点击小图，从当前已探测视频随机截取一帧，生成25%、50%、75%、100%四格对照。可以拖动时间轴或输入HH:MM:SS后点击生成，也可按回车更新。默认全图缩放显示，可查看原图、切换1:1居中或点击档位回填并启用LUT。四格共用同一基础帧，仅比较LUT，不叠加颗粒和调色；隔行输入先反交错，HDR输入先应用对应HDR LUT，再转SDR供预览。调色窗口的LUT预览也使用相同临时LUT强度处理。
+点击小图，从当前已探测视频随机截取一帧，生成25%、50%、75%、100%四格对照。可以拖动时间轴或输入HH:MM:SS后点击生成，也可按回车更新。默认全图缩放显示，可查看原图、切换1:1居中或点击档位回填并启用LUT。四格共用同一基础帧，仅比较LUT，不叠加颗粒和调色；隔行输入先反交错，HDR 保留路线先应用对应 HDR LUT，再转 SDR 供预览。调色窗口的LUT预览也使用相同临时LUT强度处理。
 
 ### 像素颗粒强度与四档对比
 
@@ -146,7 +146,7 @@ FGSIM 在任务执行前以实际 shader 检查 GPU 输出像素，优先选择�
 
 打开时自动选择适合当前片长的随机帧；底部可输入时间码、随机换帧或跳转到指定位置。窗口会记住上次位置、大小和最大化状态，并在多屏布局变化时避免跑出屏幕。**拖动滑杆**使用 libplacebo／D3D11 GPU 实时重绘，不重新抽取视频；**换帧**仍使用 FFmpeg 解码一次原片，扫描颗粒则同步抽取对应的循环 Grain Plate 帧。ProRes Grain Plate 支持快速循环定位，在 RTX 4080 用户测试中，颗粒抽帧从约 3–4.5 秒降至约 0.28 秒；原片抽帧时间随素材和硬件变化，不能把换帧延迟等同于滑杆渲染延迟。
 
-当前只支持 **SDR BT.709／有限范围／逐行**，不提供 HDR、隔行源、ISO 实时模型生成、Digital Grain、FGSIM、AV1 不重编码路线或连续视频播放。纯 3D `.cube` LUT 可用，1D／复合 LUT 暂不支持。GPU 窗口用于交互判断颗粒和色调，处理顺序与正式编码存在差异，不能承诺逐像素一致；最终画质以原有编码预览和正式输出为准。原有四档颗粒／LUT 预览保留。
+支持逐行 **SDR BT.709（有限范围）** 及 **HDR BT.2020 PQ／HLG**。Windows HDR 显示启用时请求 HDR 交换链，否则在 GPU 上映射为 SDR 显示。HDR 预览可直接查看原片或实时调整 3D LUT。当前不提供隔行源、ISO 实时模型生成、Digital Grain、FGSIM、AV1 不重编码路线或连续视频播放。纯 3D `.cube` LUT 可用，1D／复合 LUT 暂不支持。GPU 窗口用于交互判断颗粒和色调，处理顺序与正式编码存在差异，不能承诺逐像素一致；最终画质以原有编码预览和正式输出为准。原有四档颗粒／LUT 预览保留。
 
 
 完整版本变化、Bug 修复与历史发布记录统一维护在 [`CHANGELOG.md`](CHANGELOG.md)。README 只介绍**当前版本的功能、工作原理、设置方式和使用建议**，不重复记录逐版本更新流水。
@@ -683,7 +683,7 @@ FGS 的原则是：
 
 因此某些网络 HDR 文件只有 BT.2020 + PQ + 10-bit、没有 Mastering Display / MaxCLL / MaxFALL 时，输出也不会人为补写虚构值。
 
-AV1／HEVC 的逐行 HDR 保留路线支持 FRUC Vulkan：插帧输入和输出使用 P010 10bit；AV1 的无损插帧中间文件使用 FFV1 10bit。首次使用会验证当前 FRUC FFmpeg 和设备的高位深处理，失败明确停止，不自动降为 8bit。PQ／BT.2020 和 HLG 可按原信号处理；SDR 调色／LUT 冲突、隔行 FRUC、H.264／x264 的 HDR 保留限制仍需遵守。此路线不代表 Dolby Vision RPU、HDR10+ 动态元数据或全部静态元数据的完整保留。
+AV1／HEVC 的逐行 HDR 保留路线支持 FRUC Vulkan：插帧输入和输出使用 P010 10bit；AV1 的无损插帧中间文件使用 FFV1 10bit。首次使用会验证当前 FRUC FFmpeg 和设备的高位深处理，失败明确停止，不自动降为 8bit。PQ／BT.2020 和 HLG 可按原信号处理；隔行 FRUC、H.264／x264 的 HDR 保留限制仍需遵守。此路线不代表 Dolby Vision RPU、HDR10+ 动态元数据或全部静态元数据的完整保留。
 
 ### HDR 处理策略
 
@@ -695,7 +695,7 @@ AV1／HEVC 的逐行 HDR 保留路线支持 FRUC Vulkan：插帧输入和输出�
 强制转换为 SDR
 ```
 
-自动模式下，兼容 HDR/HLG 的反交错与逐行高位深 OpenSVPFlow 不执行 Tone Mapping；不兼容的 x264/H.264、BT.709 LUT、CPU FGSIM 或 SDR-only 插帧路线先转换为 BT.709 SDR。即使显式选择「保持 HDR」，当前输出组合必须使用 SDR 时也自动切换并记录原因。HLG + OpenSVPFlow 是待实测实验路线，不能视为已验证。
+自动模式下，兼容 HDR/HLG 的反交错与逐行高位深 OpenSVPFlow 不执行 Tone Mapping；不兼容的 x264/H.264、CPU FGSIM 或 SDR-only 插帧路线先转换为 BT.709 SDR。即使显式选择「保持 HDR」，当前输出组合必须使用 SDR 时也自动切换并记录原因。HLG + OpenSVPFlow 是待实测实验路线，不能视为已验证。
 
 Tone Mapping 默认使用 **Hable**，还可选择：
 
@@ -715,7 +715,7 @@ HDR→SDR 会建立随机后缀的 10-bit HEVC Main10 无损工作文件，任�
 
 ### LUT / CC 与保持 HDR
 
-AV1 NVENC、HEVC NVENC、SVT-AV1 和 x265 在明确选择「保持 HDR」时，支持调色与 LUT，不再因启用这两项而拒绝，也不再静默跳过 LUT。AUTO 沿用原策略：启用调色/LUT 时转 SDR；明确转 SDR 的路线不变。H.264/x264 原有输出限制不变。
+AV1 NVENC、HEVC NVENC、SVT-AV1 和 x265 在 AUTO 或「保持 HDR」下，可对 HDR 源应用色彩纠正、外部 HDR LUT，或同时应用两者，并保留 HDR 输出。五套经典胶片 LUT 也可应用于 HDR 编码信号，并保留 PQ／HLG。选择「转 SDR」时始终走 SDR 处理。
 
 HDR 调色使用 16-bit YUV 信号计算对比度、亮度、饱和度、Gamma 与黑白；中性参数直接通过。它调整 PQ/HLG 编码信号，不是以尼特为单位的曝光控制，也不先做色调映射。SDR 继续使用原 eq/hue 算法。HDR LUT 经显式矩阵/范围转换进入 16-bit RGB，再返回原 HDR 颜色域；不自动识别或转换 LUT 的创作域，需选择输入与输出都匹配源 HDR 的 LUT。普通 BT.709 或 HDR→SDR LUT 可能改变颜色与亮度，不代表程序会自动重新解释为 SDR 输出。
 
@@ -725,7 +725,7 @@ HDR 调色使用 16-bit YUV 信号计算对比度、亮度、饱和度、Gamma �
 
 SVT / x265 的 AUTO 默认保留源 HDR。硬解、源编码/位深/采样、帧率、缩放、画幅、字幕及静态 metadata 缺失不再作为拒绝保留的条件。最终视频按当前 CPU 编码器的 10-bit 4:2:0 编码，沿用已知源颜色标记；这不表示源采样或位深逐字节不变。GUI、CLI、统一和独立队列使用同一策略。
 
-明确选择转 SDR 时仍转换。AUTO 在启用 SDR 调色/LUT、CPU FGSIM 或不兼容的插帧路线时转换；渐进式 10-bit BT.2020/PQ OpenSVPFlow 可保留 HDR10，HLG 同路线已有用户 GPU16/CPU10 测试记录。显式保持 HDR 仍可使用高位深调色/LUT；不兼容的输出编码/插帧处理会自动转 SDR。FRUC 保留 P010 精度检查和失败停止；硬件不支持不冒充成功。
+明确选择转 SDR 时仍转换。AUTO 在使用 CPU FGSIM 或不兼容的插帧路线时转换；渐进式 10-bit BT.2020/PQ OpenSVPFlow 可保留 HDR10，HLG 同路线已有用户 GPU16/CPU10 测试记录。显式保持 HDR 仍可使用高位深调色/LUT；不兼容的输出编码/插帧处理会自动转 SDR。FRUC 保留 P010 精度检查和失败停止；硬件不支持不冒充成功。
 
 HEVC PQ/BT.2020 源在编码前尝试读取已有 MDCV/CLLI，分别经 mastering-display/content-light 参数交给 SVT，或经原始整数单位的 master-display/max-cll 参数交给 x265；源中没有的值不编造，读取不到也不阻止保留 HDR。最终检查已知颜色标记的明确冲突；静态信息不完整不再判失败。此处不承诺所有输入格式的静态信息提取，也不承诺 Dolby Vision/HDR10+ 动态信息保留。
 
@@ -926,7 +926,7 @@ Gallery 支持：
 
 「应用」直接将当前效果带回主界面，**不强制保存文件**；「保存 LUT…」单独生成可复用的 `.cube` 与 `.film.json` 编辑配方，**不自动应用**。导出的 `.cube` 始终为完整胶片效果，配方记录当前强度，避免再次通过 FGS 的 LUT 强度滑杆时重复叠加。未保存直接应用的 LUT 为程序运行期临时文件，关闭 FGS 后失效；需要跨次运行复用时请手动保存。
 
-五套基准 LUT 来自 [Spectral Film LUT](https://github.com/JanLohse/spectral_film_lut) v0.18.13 的光谱引擎离线计算，运行时无需 Python / Qt 或其约 200MB 独立程序；许可及生成来源见 `_LUT_Tools/FilmLut/`。创意滑杆不重新计算光谱模型。**经典胶片仅支持 SDR BT.709 输入／Rec.709 Gamma 2.4 输出，不负责 HDR PQ/HLG 色域或传递函数转换**；检测到 HDR 时此页不可用，原有 HDR 色彩纠正路径不受影响。正式编码继续走既有 `lut3d` 管线，无额外中间视频文件。
+五套基准 LUT 来自 [Spectral Film LUT](https://github.com/JanLohse/spectral_film_lut) v0.18.13 的光谱引擎离线计算，运行时无需 Python / Qt 或其约 200MB 独立程序；许可及生成来源见 `_LUT_Tools/FilmLut/`。创意滑杆不重新计算光谱模型。五套 LUT 原本按 SDR BT.709／Gamma 2.4 制作。HDR 保留路线直接在 PQ／HLG 信号上应用同一套风格曲线，保留源传递函数。正式编码继续走既有 `lut3d` 管线，无额外中间视频文件。
 
 ### 参考图
 

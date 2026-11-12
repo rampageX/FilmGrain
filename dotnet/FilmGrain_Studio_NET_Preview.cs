@@ -107,8 +107,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.64";
-        internal const string FileReleaseVersion = "5.0.64.0";
+        internal const string ReleaseVersion = "5.0.65";
+        internal const string FileReleaseVersion = "5.0.65.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -3908,6 +3908,44 @@ namespace FilmGrainStudioPreview
                 passthrough?Color.FromArgb(42,137,82):ColorMuted;
         }
 
+        private IDictionary<string,string> CaptureNativeHdrRouteState()
+        {
+            if (NewCpuSelected())
+            {
+                var cpu = CaptureCpuHdrRouteState();
+                cpu["FG_DEINTERLACE"] = cmbDeint==null||cmbDeint.SelectedIndex==0?"AUTO":"OFF";
+                return cpu;
+            }
+
+            int codec = cmbCodec==null?0:cmbCodec.SelectedIndex;
+            int interpolation = cmbInterpolationMode==null?0:cmbInterpolationMode.SelectedIndex;
+            bool fgsim = IsGrainEnabled() && ((codec==1 && IsNvencFgsim()) ||
+                (codec==0 && cmbGrainMode!=null && cmbGrainMode.SelectedIndex==4));
+            return new Dictionary<string,string> {
+                {"FG_MODE",codec==0?"AV1":codec==1?"HEVC":codec==3?"H264":"X264"},
+                {"FG_HDR_POLICY",config.Get("HDR_POLICY").ToUpperInvariant()},
+                {"FG_SVP_INTERPOLATE",chkInterpolation!=null&&chkInterpolation.Checked?"1":"0"},
+                {"FG_INTERPOLATION_ENGINE",NvencInterpolationCore.Engine(interpolation)},
+                {"FG_DEINTERLACE",cmbDeint==null||cmbDeint.SelectedIndex==0?"AUTO":"OFF"},
+                {"FG_GRAIN_ENGINE",fgsim?"FGSIM":""},
+                {"FG_LUT_PATH",IsLutEffectEnabled()?selectedLutPath:""}
+            };
+        }
+
+        private bool UsesHdrColorPreview(MediaProbeInfo info)
+        {
+            if (info==null || !info.IsHdr || (cmbCodec!=null && cmbCodec.SelectedIndex==4)) return false;
+            var state = CaptureNativeHdrRouteState();
+            if (state["FG_MODE"]=="X264") return false;
+            // The editor can change or disable the LUT before applying its settings.
+            state.Remove("FG_LUT_PATH");
+            IDictionary<string,string> effective;
+            string notice, error;
+            if (!SharedInterpolationBypassCore.TryResolve(info,state,out effective,out notice,out error)) return false;
+            state = effective ?? state;
+            return !(NewCpuSelected()?SharedGrainCore.CpuHdrToSdr(info,state):HdrColorProcessingCore.NvencToSdr(info,state));
+        }
+
         private void UpdateHdrRouteStatus(MediaProbeInfo info)
         {
             if (lblHdrRoute == null) return;
@@ -3915,8 +3953,7 @@ namespace FilmGrainStudioPreview
             if (btnHdrShortcut != null) btnHdrShortcut.Visible = info != null && info.IsHdr && (listFiles == null || listFiles.SelectedItems.Count <= 1);
             if(info!=null&&info.IsHdr&&NewCpuSelected()&&(listFiles==null||listFiles.SelectedItems.Count<=1)) {
                 // Route display needs processing choices only: no bitrate/file/catalog readiness validation.
-                string error="";var state=CaptureCpuHdrRouteState();
-                state["FG_DEINTERLACE"]=cmbDeint==null||cmbDeint.SelectedIndex==0?"AUTO":"OFF";
+                string error="";var state=CaptureNativeHdrRouteState();
                 IDictionary<string,string> effective;string notice;
                 if(!SharedInterpolationBypassCore.TryResolve(info,state,out effective,out notice,out error))
                 {
@@ -3931,7 +3968,10 @@ namespace FilmGrainStudioPreview
                 string tone=config.Get("TONE_MAP_ALGO");if(string.IsNullOrWhiteSpace(tone))tone="hable";
                 lblHdrRoute.Text=!allowed?UiText("HDR：处理条件错误", "HDR: processing error"):toSdr?LF("input.hdr_route_tosdr",tone):lang.T("input.hdr_route_passthrough");
                 SetHdrRouteColor(allowed&&!toSdr,toSdr,!allowed);
-                lutToolTip.SetToolTip(lblHdrRoute,!allowed?error:toSdr?UiText("按明确的转SDR选择或当前SDR处理路线转换。","SDR selected or required by the chosen SDR processing."):UiText("SVT/x265默认保留HDR；硬解、缩放和缺失静态信息不阻止保留。","SVT/x265 preserve HDR by default; hardware decode, resize and missing static metadata do not block it."));
+                string detailCpu = !allowed ? error : toSdr
+                    ? (notice.IndexOf("[HDR route]",StringComparison.Ordinal)>=0 ? notice : UiText("按明确的转SDR选择或当前SDR处理路线转换。","SDR selected or required by the chosen SDR processing."))
+                    : UiText("SVT/x265保留HDR。色彩纠正和匹配源HDR的外部LUT使用高位深处理。","SVT/x265 keep HDR. Color correction and matching external HDR LUTs use high-depth processing.");
+                lutToolTip.SetToolTip(lblHdrRoute,detailCpu);
                 return;
             }
 
@@ -3971,15 +4011,10 @@ namespace FilmGrainStudioPreview
                 string policy = config.Get("HDR_POLICY").ToUpperInvariant();
                 if (policy != "PRESERVE" && policy != "SDR") policy = "AUTO";
                 string routeNotice="";
+                var selected=CaptureNativeHdrRouteState();
                 if(!noReencode)
                 {
-                    int interpolationIndex=cmbInterpolationMode==null?0:cmbInterpolationMode.SelectedIndex;
-                    var selected=new Dictionary<string,string> {
-                        {"FG_MODE",av1?"AV1":hevc?"HEVC":codec==3?"H264":"X264"},
-                        {"FG_HDR_POLICY",policy},{"FG_SVP_INTERPOLATE",interpolate?"1":"0"},
-                        {"FG_INTERPOLATION_ENGINE",NvencInterpolationCore.Engine(interpolationIndex)},
-                        {"FG_DEINTERLACE",cmbDeint==null||cmbDeint.SelectedIndex==0?"AUTO":"OFF"}
-                    };
+                    selected["FG_HDR_POLICY"]=policy;
                     IDictionary<string,string> effective;string routeError;
                     if(!SharedInterpolationBypassCore.TryResolve(info,selected,out effective,out routeNotice,out routeError))
                     {
@@ -3990,6 +4025,7 @@ namespace FilmGrainStudioPreview
                     }
                     if(effective!=null)
                     {
+                        selected=effective;
                         string value;
                         if(effective.TryGetValue("FG_HDR_POLICY",out value))policy=value.ToUpperInvariant();
                         if(effective.TryGetValue("FG_SVP_INTERPOLATE",out value) && value=="0")
@@ -4047,8 +4083,6 @@ namespace FilmGrainStudioPreview
                             : (hevc && fgsim
                                 ? UiText("HEVC Native 将使用 10-bit FGSIM 亮度颗粒路径，保留 HDR 信号。", "HEVC Native will use the 10-bit FGSIM luma-grain path and preserve the HDR signal.")
                                 : lang.T("input.hdr_route_detail_preserve"));
-                        if ((hevc || av1) && (lut || color))
-                            detail += " " + UiText("调色/LUT使用高位深HDR路线；LUT应匹配源HDR色域与传递函数，预览转SDR显示。", "Color/LUT use the high-depth HDR route; LUT input/output must match the source HDR color domain. Preview uses SDR display conversion.");
                         if (svpHdr)
                             detail += " " + (config.Get("SVP_HDR_BACKEND")=="CPU10"
                                 ? UiText("OpenSVPFlow 使用 8-bit 运动分析、10-bit CPU 渲染，最终保持 HDR10。", "OpenSVPFlow uses P8 motion analysis and P10 CPU rendering, retaining HDR10.")
@@ -4059,9 +4093,7 @@ namespace FilmGrainStudioPreview
                 }
                 else
                 {
-                    bool svpAutoHdr = svpHdr && (SharedInterpolationBypassCore.SupportsHighDepthSvpHdr(info) ||
-                        HasNativeInterpolationBypass(info));
-                    bool autoToSdr = x264 || lut || color || (interpolate && !fruc && !svpAutoHdr) || fgsim;
+                    bool autoToSdr = x264 || HdrColorProcessingCore.NvencToSdr(info,selected);
                     if (autoToSdr)
                     {
                         toSdr = true;
@@ -4076,6 +4108,8 @@ namespace FilmGrainStudioPreview
                     }
                 }
 
+                if (preserve && (av1 || hevc) && (lut || color))
+                    detail += " " + UiText("调色/LUT使用高位深HDR路线；外部LUT的输入和输出应匹配源HDR色域与传递函数。", "Color/LUT use the high-depth HDR route; external LUT input and output must match the source HDR color domain.");
                 if(preserve && fruc)
                     detail += " " + UiText("FRUC 使用 P010 10-bit 路线；执行前验证当前工具及设备的高位深能力，不降为 8bit。", "FRUC uses the P010 10-bit path; tool/device precision is validated before execution, without 8-bit fallback.");
                 text = unsupported ? UiText("HDR：处理条件错误", "HDR: processing error") :
@@ -4417,7 +4451,7 @@ namespace FilmGrainStudioPreview
             string video=GetPreviewVideoPath();MediaProbeInfo media=null;
             if(!string.IsNullOrEmpty(video))mediaProbeCache.TryGetValue(video,out media);
             if(string.IsNullOrEmpty(video)||media==null){FgsMessageBox.Show(this,UiText("请选择一个已完成探测的视频。","Select one fully probed video."));return;}
-            using(var window=new NativeLutStrengthPreviewForm(Path.Combine(config.Get("FFMPEG_DIR"),"ffmpeg.exe"),selectedLutPath,video,lang.Code,media,config.Get("HDR_POLICY")=="PRESERVE",config.Get("TONE_MAP_ALGO"))) {
+            using(var window=new NativeLutStrengthPreviewForm(Path.Combine(config.Get("FFMPEG_DIR"),"ffmpeg.exe"),selectedLutPath,video,lang.Code,media,UsesHdrColorPreview(media),config.Get("TONE_MAP_ALGO"))) {
                 AttachOwnedTheme(window,this,log);window.ShowDialog(this);
                 if(window.SelectedStrength>0){
                     try{lutSessionReference.Set(window.SelectedReference);}
@@ -4597,7 +4631,7 @@ namespace FilmGrainStudioPreview
                     colorBlackWhite,
                     chkLut.Checked && !string.IsNullOrEmpty(selectedLutPath),
                     config.GetBool("COLOR_PREVIEW_LARGE_UI"),
-                    lang.Code, GetSelectedMediaInfo(), config.Get("HDR_POLICY")=="PRESERVE", config.Get("TONE_MAP_ALGO"),
+                    lang.Code, GetSelectedMediaInfo(), UsesHdrColorPreview(GetSelectedMediaInfo()), config.Get("TONE_MAP_ALGO"),
                     selectedLutSource=="FilmLut"?activeFilmLutSettings:null))
                 {
                     if (dlg.ShowDialog(this) == DialogResult.OK && dlg.Result != null)
