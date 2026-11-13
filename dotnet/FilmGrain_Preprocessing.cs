@@ -157,4 +157,199 @@ namespace FilmGrainStudioPreview
                 enabled.CheckedChanged+=delegate {spatial.Enabled=range.Enabled=planes.Enabled=enabled.Checked;};
                 spatial.Enabled=range.Enabled=planes.Enabled=enabled.Checked;
                 ok.Click+=delegate {
-     
+                    if(!planes.ValidateInput())return;
+                    var values=new Dictionary<string,string> { {"PRE_BILATERAL_ENABLED",enabled.Checked?"true":"false"},{"PRE_BILATERAL_SIGMA_S",spatial.Text.Trim()},{"PRE_BILATERAL_SIGMA_R",range.Text.Trim()},{"PRE_BILATERAL_PLANES",planes.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)} };
+                    try {
+                        foreach(var pair in resizeValues())values[pair.Key]=pair.Value;
+                        foreach(var pair in values)PresetCore.ValidateConfig(pair.Key,pair.Value);
+                        MediaProbeInfo media=GetBitrateMediaContext();
+                        if(media!=null) {
+                            var state=PreprocessEnvironment();
+                            foreach(var pair in values)state["FG_"+pair.Key]=pair.Value;
+                            CinematicFramePlan frame;ResizePlan plan;string error;
+                            if(!CinematicFrameCore.TryBuild(media,state,out frame,out error)||!ResizeCore.TryBuild(media,state,frame,out plan,out error))
+                                throw new InvalidOperationException(error);
+                        }
+                        config.Save(values);RefreshPreprocessButton();UpdateBitrateDisplays();
+                        RefreshAv1GrainTableForMedia();
+                        UpdateHdrRouteStatus(GetSelectedMediaInfo());
+                        dialog.DialogResult=DialogResult.OK;dialog.Close();
+                    }catch(Exception ex){FgsMessageBox.Show(dialog,ex.Message,dialog.Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);}
+                };
+                buttons.Controls.Add(cancel);buttons.Controls.Add(ok);buttons.Controls.Add(reset);shell.Controls.Add(buttons,0,1);
+                dialog.Controls.Add(shell);dialog.AcceptButton=ok;dialog.CancelButton=cancel;
+                AttachThemeWindow(dialog);AttachPreprocessWindowMemory(dialog);dialog.ShowDialog(this);
+            }
+        }
+        private void AttachPreprocessWindowMemory(Form dialog)
+        {
+            bool ready=false;FormWindowState remembered=FormWindowState.Normal;
+            dialog.Load+=delegate {
+                if(!SuppressWindowMemory)try {
+                    string[] parts=config.Get("PREPROCESS_WINDOW").Split(',');int x,y,w,h;
+                    if(parts.Length==5&&int.TryParse(parts[0],out x)&&int.TryParse(parts[1],out y)&&int.TryParse(parts[2],out w)&&int.TryParse(parts[3],out h)&&w>0&&h>0) {
+                        var areas=new List<Rectangle>();foreach(Screen screen in Screen.AllScreens)areas.Add(screen.WorkingArea);
+                        dialog.StartPosition=FormStartPosition.Manual;dialog.Bounds=FitWindowBounds(new Rectangle(x,y,w,h),areas.ToArray(),dialog.MinimumSize);
+                        remembered=parts[4]=="Maximized"?FormWindowState.Maximized:FormWindowState.Normal;dialog.WindowState=remembered;
+                    }
+                }catch(Exception ex){System.Diagnostics.Trace.WriteLine(ex.Message);}
+                ready=true;
+            };
+            dialog.Resize+=delegate {if(ready&&dialog.WindowState!=FormWindowState.Minimized)remembered=dialog.WindowState;};
+            dialog.FormClosed+=delegate {
+                if(!ready||SuppressWindowMemory)return;
+                try {
+                    Rectangle b=dialog.WindowState==FormWindowState.Normal?dialog.Bounds:dialog.RestoreBounds;
+                    config.SaveValue("PREPROCESS_WINDOW",string.Join(",",new[]{b.X.ToString(System.Globalization.CultureInfo.InvariantCulture),b.Y.ToString(System.Globalization.CultureInfo.InvariantCulture),b.Width.ToString(System.Globalization.CultureInfo.InvariantCulture),b.Height.ToString(System.Globalization.CultureInfo.InvariantCulture),remembered==FormWindowState.Maximized?"Maximized":"Normal"}));
+                }catch(Exception ex){System.Diagnostics.Trace.WriteLine(ex.Message);}
+            };
+        }
+    }
+}
+
+namespace FilmGrainStudioPreview
+{
+    internal sealed class ResizePlan
+    {
+        internal bool Enabled;
+        internal int Width,Height;
+        internal string Prefix="";
+        internal string Algorithm="LANCZOS";
+        internal string HdrTransfer="";
+    }
+    // Geometry only: never rewrites source metadata, frame rates or timestamps.
+    internal static class ResizeCore
+    {
+        internal static readonly string[] Keys={"RESIZE_MODE","RESIZE_WIDTH","RESIZE_HEIGHT","RESIZE_KEEP_ASPECT","RESIZE_ALGORITHM","RESIZE_FACTOR"};
+        internal static readonly string[] Defaults={"OFF","1920","1080","true","LANCZOS",""};
+        static readonly object Sync=new object();
+        static readonly HashSet<string> Verified=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        static string Get(IDictionary<string,string> state,string key,string fallback)
+        {string v;return state!=null&&state.TryGetValue("FG_"+key,out v)?v:fallback;}
+        internal static bool Enabled(IDictionary<string,string> state){return Get(state,Keys[0],"OFF")!="OFF";}
+        static int Even(double n){return Math.Max(2,(int)Math.Round(n/2,MidpointRounding.AwayFromZero)*2);}
+        internal static string AlgorithmName(string algorithm)
+        {
+            return algorithm=="EWA_SHARP_HQ"?"EWA Lanczos SharpHQ":algorithm=="EWA_SHARP"?"EWA Lanczos Sharp":"Lanczos";
+        }
+
+        internal static bool TryParseFactor(string value,out double factor)
+        {
+            factor=0;
+            string expression=value.Trim().ToLowerInvariant().Replace('×','x');
+            if(expression.EndsWith("x",StringComparison.Ordinal)&&!expression.Contains("/"))
+                expression=expression.Substring(0,expression.Length-1).TrimEnd();
+            string[] terms=expression.Split('/');
+            double numerator,denominator=1;
+            if(terms.Length>2 || (terms.Length==2&&!double.TryParse(terms[1].Trim(),NumberStyles.AllowDecimalPoint,CultureInfo.InvariantCulture,out denominator)) ||
+               !double.TryParse(terms[0].Trim(),NumberStyles.AllowDecimalPoint,CultureInfo.InvariantCulture,out numerator) ||
+               denominator<=0 || numerator<=0)return false;
+            factor=numerator/denominator;
+            return factor>0&&!double.IsInfinity(factor);
+        }
+
+        internal static bool TryBuild(MediaProbeInfo info,IDictionary<string,string> state,CinematicFramePlan frame,out ResizePlan plan,out string reason,bool? preserveHdr=null)
+        {
+            plan=new ResizePlan {Width=frame.ActiveWidth,Height=frame.ActiveHeight};reason="";
+            if(!Enabled(state))return true;
+            string mode=Get(state,Keys[0],"OFF");int bw,bh;
+            string factorText=mode=="CUSTOM"?Get(state,Keys[5],""):mode;
+            bool relative=mode=="CUSTOM"?factorText.Length>0:mode=="2x"||mode=="4x"||mode=="1/2"||mode=="1/4";
+            if(relative) {
+                double factor;
+                if(!TryParseFactor(factorText,out factor)){reason="无效缩放倍数。示例：1.5x、3/2、1/3。";return false;}
+                double width=frame.ActiveWidth*factor,height=frame.ActiveHeight*factor;
+                if(width<2||height<2||width>16384||height>16384){reason="缩放后的宽高必须为 2–16384。";return false;}
+                bw=Even(width);bh=Even(height);
+            } else if(mode=="CUSTOM") {
+                if(!int.TryParse(Get(state,Keys[1],"1920"),out bw)||!int.TryParse(Get(state,Keys[2],"1080"),out bh)||bw<2||bh<2||bw>16384||bh>16384)
+                {reason="Resize 自定义宽高必须为 2–16384。";return false;}
+            } else {
+                if(!int.TryParse(mode,out bh)||(bh!=720&&bh!=1080&&bh!=1440&&bh!=2160)){reason="无效 Resize 档位。";return false;}
+                bw=bh==720?1280:bh==1080?1920:bh==1440?2560:3840;
+            }
+            string keep=Get(state,Keys[3],"true");
+            if(keep!="true"&&keep!="false"){reason="无效 Resize 宽高比设置。";return false;}
+            int inputW=frame.ActiveWidth,inputH=frame.ActiveHeight;
+            if(inputW<2||inputH<2){reason="Resize 输入尺寸无效。";return false;}
+            double sar=1;string[] parts=(info.SampleAspectRatio??"").Split(':');double sn,sd;
+            if(parts.Length==2&&double.TryParse(parts[0],System.Globalization.NumberStyles.Float,System.Globalization.CultureInfo.InvariantCulture,out sn)&&double.TryParse(parts[1],System.Globalization.NumberStyles.Float,System.Globalization.CultureInfo.InvariantCulture,out sd)&&sn>0&&sd>0)sar=sn/sd;
+            int w=bw-bw%2,h=bh-bh%2;
+            if(keep=="true") {
+                double ratio=inputW*sar/inputH;
+                if(relative){
+                    double displayWidth=h*ratio;
+                    if(displayWidth<2||displayWidth>16384){reason="缩放后的显示宽度必须为 2–16384。";return false;}
+                    w=Even(displayWidth);
+                }
+                else if(ratio>=bw/(double)bh){w=bw-bw%2;h=Math.Min(bh-bh%2,Even(w/ratio));}
+                else {h=bh-bh%2;w=Math.Min(bw-bw%2,Even(h*ratio));}
+            }
+            string codec=Get(state,"MODE","");int limit=codec=="H264"?4096:codec=="AV1"||codec=="HEVC"?8192:16384;
+            if(w>limit||h>limit){reason="Resize 输出尺寸超过当前编码路线限制："+limit;return false;}
+            string algorithm=Get(state,Keys[4],"LANCZOS");
+            if(algorithm!="LANCZOS"&&algorithm!="EWA_SHARP"&&algorithm!="EWA_SHARP_HQ"){reason="无效缩放算法。";return false;}
+            // Move real cropping before scaling only on the enabled route. Bars are redrawn after grain.
+            string crop=frame.Filter.StartsWith(",crop=",StringComparison.Ordinal)?frame.Filter.Substring(1)+",":"";
+            string format="yuv420p10le";
+            if((info.PixelFormat??"").IndexOf("12",StringComparison.Ordinal)>=0||(info.PixelFormat??"").IndexOf("16",StringComparison.Ordinal)>=0)format="yuv420p16le";
+            plan.Enabled=true;plan.Width=w;plan.Height=h;
+            plan.Algorithm=algorithm;
+            bool keepHdr=preserveHdr??info.IsHdr;
+            if(keepHdr)plan.HdrTransfer=info.ColorTransfer;
+            plan.Prefix=crop+BuildFilters(algorithm,w,h,format,keepHdr?info:null)+",setsar=1,";
+            bool bars=frame.Filter.StartsWith(",drawbox=",StringComparison.Ordinal);
+            if(bars) {
+                int x=Even(frame.ContentX*w/(double)inputW),y=Even(frame.ContentY*h/(double)inputH);
+                if(frame.ContentX==0)x=0;if(frame.ContentY==0)y=0;
+                frame.Filter="";
+                if(x>0)frame.Filter+=",drawbox=x=0:y=0:w="+x+":h=ih:color=black:t=fill,drawbox=x=iw-"+x+":y=0:w="+x+":h=ih:color=black:t=fill";
+                if(y>0)frame.Filter+=",drawbox=x=0:y=0:w=iw:h="+y+":color=black:t=fill,drawbox=x=0:y=ih-"+y+":w=iw:h="+y+":color=black:t=fill";
+            } else frame.Filter="";
+            frame.ActiveWidth=w;frame.ActiveHeight=h;
+            frame.ContentX=bars&&frame.ContentX>0?Even(frame.ContentX*w/(double)inputW):0;frame.ContentY=bars&&frame.ContentY>0?Even(frame.ContentY*h/(double)inputH):0;
+            frame.ContentWidth=bars?Even(frame.ContentWidth*w/(double)inputW):w;frame.ContentHeight=bars?Even(frame.ContentHeight*h/(double)inputH):h;
+            frame.FileSuffix+="_RS"+w+"x"+h+(algorithm=="EWA_SHARP_HQ"?"_EWAHQ":algorithm=="EWA_SHARP"?"_EWA":"");
+            return true;
+        }
+        static string BuildFilters(string algorithm,int w,int h,string format,MediaProbeInfo hdr)
+        {
+            const string options=":normalize_sar=0:peak_detect=0";
+            string size="w="+w+":h="+h;
+            string scaler=algorithm=="LANCZOS"?"lanczos":"ewa_lanczossharp";
+            string downscaler=algorithm=="LANCZOS"?"lanczos":"ewa_lanczos";
+            if(algorithm!="EWA_SHARP_HQ")
+                return "format="+format+",hwupload,libplacebo="+size+":upscaler="+scaler+":downscaler="+downscaler+options+":format="+format+",hwdownload,format="+format;
+
+            string colors="";
+            if(hdr!=null) {
+                string matrix=hdr.ColorSpace=="bt2020c"?"bt2020c":"bt2020nc";
+                string range=hdr.ColorRange=="pc"?"pc":"tv";
+                string transfer=hdr.ColorTransfer=="arib-std-b67"?"arib-std-b67":"smpte2084";
+                string primaries=hdr.ColorPrimaries=="smpte432"?"smpte432":hdr.ColorPrimaries=="smpte431"?"smpte431":"bt2020";
+                colors=":colorspace="+matrix+":range="+range+":color_primaries="+primaries+":color_trc="+transfer+
+                       ":apply_dolbyvision=0:sigmoid=0";
+            }
+            string yuv444=format=="yuv420p16le"?"yuv444p16le":"yuv444p10le";
+            return "libplacebo="+size+":upscaler="+scaler+":downscaler="+downscaler+
+                   ":antiringing=0.6:dithering=blue"+options+":format="+yuv444+colors+",format="+format;
+        }
+
+        internal static bool TryCheckTool(string ffmpeg,ResizePlan plan,out string reason)
+        {
+            reason="";
+            try {
+                var file=new System.IO.FileInfo(ffmpeg);string id=file.FullName+"|"+file.Length+"|"+file.LastWriteTimeUtc.Ticks+"|"+VulkanDevicePolicy.DeviceName+"|"+plan.Algorithm+"|"+plan.HdrTransfer;
+                lock(Sync)if(Verified.Contains(id))return true;
+                string output,detail;
+                var hdr=plan.HdrTransfer.Length>0?new MediaProbeInfo{ColorTransfer=plan.HdrTransfer}:null;
+                string filter=BuildFilters(plan.Algorithm,128,128,"yuv420p10le",hdr);
+                if(hdr!=null)filter="format=yuv420p10le,setparams=range=tv:color_primaries=bt2020:color_trc="+hdr.ColorTransfer+":colorspace=bt2020nc,"+filter;
+                string args="-hide_banner -nostdin -v error -init_hw_device "+SharedFrucCore.Quote(VulkanDevicePolicy.Spec("vk"))+
+                    " -filter_hw_device vk -f lavfi -i testsrc2=s=64x64:d=0.04 -vf "+SharedFrucCore.Quote(filter)+" -frames:v 1 -f null -";
+                if(!SharedFrucCore.Run(ffmpeg,args,15000,out output,out detail)){reason="Resize Vulkan/libplacebo "+AlgorithmName(plan.Algorithm)+" 检查失败（不自动替换算法）："+detail+" / "+output;return false;}
+                lock(Sync)Verified.Add(id);return true;
+            }catch(Exception ex){reason="Resize 检查失败："+ex.Message;return false;}
+        }
+    }
+}

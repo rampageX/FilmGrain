@@ -332,49 +332,6 @@ defaults["CPU_X265_CQ_AUTO"] = "false";
             Load();
             foreach (KeyValuePair<string, string> pair in updates)
             {
-                string key = (pair.Key ?? "").Trim().ToUpperInvarialue) ? value : "";
-        }
-
-        public bool GetBool(string key)
-        {
-            bool value;
-            return bool.TryParse(Get(key), out value) && value;
-        }
-
-        public int GetInt(string key, int fallback)
-        {
-            int value;
-            return int.TryParse(Get(key), NumberStyles.Integer, CultureInfo.InvariantCulture, out value) ? value : fallback;
-        }
-
-        public double GetDouble(string key, double fallback)
-        {
-            double value;
-            return double.TryParse(Get(key), NumberStyles.Float, CultureInfo.InvariantCulture, out value) ? value : fallback;
-        }
-
-        public void SaveValue(string key, string value)
-        {
-            Dictionary<string, string> updates = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            updates[key] = value;
-            Save(updates);
-        }
-
-        public void Save(IDictionary<string, string> updates)
-        {
-            if(taskValues!=null) {
-                var global=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
-                foreach(var pair in updates) {
-                    string key=(pair.Key??"").Trim().ToUpperInvariant();
-                    if(IsTaskKey(key)) taskValues[key]=Normalize(key,pair.Value??"");
-                    else global[key]=pair.Value;
-                }
-                if(global.Count==0)return;
-                updates=global;
-            }
-            Load();
-            foreach (KeyValuePair<string, string> pair in updates)
-            {
                 string key = (pair.Key ?? "").Trim().ToUpperInvariant();
                 if (!defaults.ContainsKey(key)) continue;
                 values[key] = Normalize(key, pair.Value ?? "");
