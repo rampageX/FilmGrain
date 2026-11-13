@@ -22,7 +22,7 @@ namespace FilmGrainStudioPreview
 
         private static readonly KeyValuePair<string, string[]>[] Sections = new KeyValuePair<string, string[]>[]
         {
-            new KeyValuePair<string, string[]>("Preprocessing", new[] { "RESIZE_MODE", "RESIZE_WIDTH", "RESIZE_HEIGHT", "RESIZE_KEEP_ASPECT", "PRE_BILATERAL_ENABLED", "PRE_BILATERAL_SIGMA_S", "PRE_BILATERAL_SIGMA_R", "PRE_BILATERAL_PLANES" }),
+            new KeyValuePair<string, string[]>("Preprocessing", new[] { "RESIZE_MODE", "RESIZE_WIDTH", "RESIZE_HEIGHT", "RESIZE_KEEP_ASPECT", "RESIZE_ALGORITHM", "RESIZE_FACTOR", "PRE_BILATERAL_ENABLED", "PRE_BILATERAL_SIGMA_S", "PRE_BILATERAL_SIGMA_R", "PRE_BILATERAL_PLANES" }),
             new KeyValuePair<string, string[]>("Advanced.EncoderAQ", new[] { "HEVC_SPATIAL_AQ", "HEVC_TEMPORAL_AQ", "H264_SPATIAL_AQ", "H264_TEMPORAL_AQ" }),
             new KeyValuePair<string, string[]>("AV1Bake", new[] { "BAKE_ENCODER", "BAKE_GPU_DECODE", "BAKE_AUTO_BITRATE", "BAKE_BITRATE", "BAKE_HEVC_PRESET", "BAKE_H264_PRESET", "BAKE_HEVC_SFE", "BAKE_HEVC_RATE_CONTROL", "BAKE_HEVC_CQ", "BAKE_H264_RATE_CONTROL", "BAKE_H264_CQ", "BAKE_X265_RATE_CONTROL", "BAKE_X265_CRF", "BAKE_X264_RATE_CONTROL", "BAKE_X264_CRF" }),
             new KeyValuePair<string, string[]>("Paths", new string[] { "NVENC_DIR", "FFMPEG_DIR", "FRUC_FFMPEG_SAME_AS_MAIN", "FRUC_FFMPEG_PATH", "GRAV1SYNTH", "GRAIN_ROOT", "LUT_ROOT", "TEMP_MODE", "TEMP_CUSTOM_DIR", "OUTPUT_MODE", "OUTPUT_CUSTOM_DIR" }),
@@ -72,6 +72,8 @@ namespace FilmGrainStudioPreview
             defaults["MAIN_WINDOW"] = "";
             defaults["PREPROCESS_WINDOW"] = "";
             defaults["RESIZE_MODE"] = "OFF";
+            defaults["RESIZE_ALGORITHM"] = "LANCZOS";
+            defaults["RESIZE_FACTOR"] = "";
 defaults["RESIZE_WIDTH"] = "1920";
 defaults["RESIZE_HEIGHT"] = "1080";
 defaults["RESIZE_KEEP_ASPECT"] = "true";
@@ -288,6 +290,49 @@ defaults["CPU_X265_CQ_AUTO"] = "false";
         {
             string value;
             return defaults.TryGetValue(key, out value) ? value : "";
+        }
+
+        public bool GetBool(string key)
+        {
+            bool value;
+            return bool.TryParse(Get(key), out value) && value;
+        }
+
+        public int GetInt(string key, int fallback)
+        {
+            int value;
+            return int.TryParse(Get(key), NumberStyles.Integer, CultureInfo.InvariantCulture, out value) ? value : fallback;
+        }
+
+        public double GetDouble(string key, double fallback)
+        {
+            double value;
+            return double.TryParse(Get(key), NumberStyles.Float, CultureInfo.InvariantCulture, out value) ? value : fallback;
+        }
+
+        public void SaveValue(string key, string value)
+        {
+            Dictionary<string, string> updates = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            updates[key] = value;
+            Save(updates);
+        }
+
+        public void Save(IDictionary<string, string> updates)
+        {
+            if(taskValues!=null) {
+                var global=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
+                foreach(var pair in updates) {
+                    string key=(pair.Key??"").Trim().ToUpperInvariant();
+                    if(IsTaskKey(key)) taskValues[key]=Normalize(key,pair.Value??"");
+                    else global[key]=pair.Value;
+                }
+                if(global.Count==0)return;
+                updates=global;
+            }
+            Load();
+            foreach (KeyValuePair<string, string> pair in updates)
+            {
+                string key = (pair.Key ?? "").Trim().ToUpperInvarialue) ? value : "";
         }
 
         public bool GetBool(string key)

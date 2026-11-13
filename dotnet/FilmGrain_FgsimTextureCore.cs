@@ -187,7 +187,7 @@ namespace FilmGrainStudioPreview
             if (request.DirectStages == null) return;
             foreach (BridgeExecutionStage stage in request.DirectStages)
             {
-                if (stage.DirectArguments == null || !stage.DirectArguments.Contains("custom_shader_path=")) continue;
+                if (stage.DirectArguments == null || !stage.DirectArguments.Contains("FilmGrainSimplified_")) continue;
                 BridgeExecutionStage target = stage;
                 Func<bool> cancelled = null;
                 Func<Func<bool>, string> priorCancellable = target.PrepareWithCancellation;

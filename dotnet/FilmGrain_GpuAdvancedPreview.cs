@@ -113,8 +113,10 @@ namespace FilmGrainStudioPreview
             bool newPixelMode = fgsimMode || digitalMode;
             string pixelMode = fgsimMode ? "FGSIM" : digitalMode ? "DIGITAL" : "";
             bool grainInitiallyEnabled = IsGrainEnabled();
-            bool embeddedHdr = !newPixelMode && media.IsHdr && typeof(MainForm).Assembly.GetManifestResourceInfo(HdrGpuPreviewResource)!=null;
-            if (exe.Length == 0 && !embeddedHdr) {
+            // The stored pixel mode ID for Grain Plate is 1 (also on SVT-AV1).
+            bool plateMode = IsGrainEnabled() && !ParameterGrainSelected() && CurrentGrainMode() == 1;
+            bool embeddedPreview = (plateMode || (!newPixelMode && media.IsHdr)) && typeof(MainForm).Assembly.GetManifestResourceInfo(HdrGpuPreviewResource)!=null;
+            if (exe.Length == 0 && !embeddedPreview) {
                 FgsMessageBox.Show(this,UiText("未找到独立 GPU 预览程序。请将 fgs_gpu_preview.exe 放在 FGS\\GpuAdvancedPreview 目录，或设置 FGS_GPU_PREVIEW_EXE 环境变量。",
                     "GPU preview is missing. Place fgs_gpu_preview.exe in FGS\\GpuAdvancedPreview or set FGS_GPU_PREVIEW_EXE."));return;
             }
@@ -123,8 +125,6 @@ namespace FilmGrainStudioPreview
 
             bool hasAv1Grain = IsGrainEnabled() && ParameterGrainSelected() &&
                 (SvtSelected()?CurrentGrainMode()-3:CurrentGrainMode()) != 1;
-            // The stored pixel mode ID for Grain Plate is 1 (also on SVT-AV1).
-            bool plateMode = IsGrainEnabled() && !ParameterGrainSelected() && CurrentGrainMode() == 1;
             bool hasGrain = hasAv1Grain || plateMode || newPixelMode;
             string platePath = plateMode ? selectedGrainPlatePath : "";
             if (plateMode && (string.IsNullOrEmpty(platePath) || !File.Exists(platePath))) {
@@ -150,7 +150,7 @@ namespace FilmGrainStudioPreview
             }
             int initialGrain = fgsimMode ? Math.Max(0,Math.Min(3,fgsimPresetIndex)) :
                 digitalMode ? GrainControlCore.SnapFive(proceduralStrength) :
-                plateMode ? GrainControlCore.SnapFive(scannedGrainStrengthPercent) : Av1GrainStrengthPercent;
+                plateMode ? scannedGrainStrengthPercent : Av1GrainStrengthPercent;
             int initialLut = GetLutStrength();
             bool initialLutOn = IsLutEffectEnabled();
             string[] formats = {"Classic35","Modern35","16mm","Super8","MaxMid"};
@@ -235,223 +235,4 @@ namespace FilmGrainStudioPreview
                             try {
                                 var plateLog = new StringBuilder();
                                 var plateArgs = new List<string> {"-hide_banner","-nostdin","-v","error","-y","-stream_loop","-1"};
-                                double plateSeconds = plateCycle>0 ? seconds%plateCycle : seconds;
-                                plateArgs.AddRange(new[]{"-ss",plateSeconds.ToString("0.######",CultureInfo.InvariantCulture),
-                                    "-i",platePath,"-map","0:v:0","-an","-sn","-dn","-frames:v","1",
-                                    "-vf","fps="+fps+",scale="+width.ToString(CultureInfo.InvariantCulture)+":"+
-                                        height.ToString(CultureInfo.InvariantCulture)+":flags=bilinear,format=yuv420p10le",
-                                    "-f","rawvideo",plateFrame});
-                                int plateRc = NativeLibraryTools.RunProcessEnvironment(ffmpeg,plateArgs,temporary,null,120000,
-                                    CancellationToken.None,delegate(string line) {
-                                        lock(plateLog) {if(plateLog.Length<12000) plateLog.AppendLine(line);}
-                                    });
-                                if (plateRc != 0 || !File.Exists(plateFrame) || new FileInfo(plateFrame).Length != bytes)
-                                    throw new InvalidDataException("扫描颗粒抽帧失败："+plateLog);
-                            } catch (Exception ex) {plateFailure=ex;}
-                            finally {plateWatch.Stop();plateDecodeMs=plateWatch.ElapsedMilliseconds;}
-                        });
-                        plateWorker.IsBackground = true;
-                    }
-                    var pairWatch = Stopwatch.StartNew();
-                    if (plateWorker != null) plateWorker.Start();
-                    int rc = -1;
-                    var videoWatch = Stopwatch.StartNew();
-                    try {
-                        rc = NativeLibraryTools.RunProcessEnvironment(ffmpeg,ffArgs,temporary,null,120000,CancellationToken.None,
-                            delegate(string line) {lock(ffmpegLog) {if(ffmpegLog.Length<12000)ffmpegLog.AppendLine(line);} });
-                    } finally {
-                        videoWatch.Stop();
-                        if (plateWorker != null) plateWorker.Join();
-                        pairWatch.Stop();
-                        decodeTiming = "[GPU Preview] 初次抽帧：视频 "+videoWatch.ElapsedMilliseconds+" ms，颗粒 "+
-                            (plateMode?plateDecodeMs.ToString(CultureInfo.InvariantCulture)+" ms":"无")+
-                            "，并行总耗时 "+pairWatch.ElapsedMilliseconds+" ms"+Environment.NewLine;
-                    }
-                    if (rc != 0) throw new InvalidOperationException("FFmpeg 抽帧失败："+ffmpegLog);
-                    if (plateFailure != null) throw plateFailure;
-                    if (!File.Exists(frame) || new FileInfo(frame).Length != bytes)
-                        throw new InvalidDataException("抽帧大小不匹配，未启动 GPU 原型。");
-                    if (media.Identity != null) media.Identity.RequireCurrent();
-
-                    var args = new List<string> {frame,width.ToString(CultureInfo.InvariantCulture),height.ToString(CultureInfo.InvariantCulture),
-                        hasAv1Grain?table:"-","10","0",seconds.ToString("0.######",CultureInfo.InvariantCulture)};
-                    if (hasLut) args.Add(lut);
-                    args.AddRange(new[]{"--result",result,"--grain",initialGrain.ToString(CultureInfo.InvariantCulture),
-                        "--lut",initialLut.ToString(CultureInfo.InvariantCulture),"--grain-on",hasGrain && grainInitiallyEnabled?"1":"0",
-                        "--lut-on",initialLutOn?"1":"0"});
-                    if (newPixelMode) args.AddRange(new[]{"--pixel-mode",pixelMode});
-                    if (fgsimMode) args.AddRange(new[]{"--fgsim-noise",fgsimNoise,"--fgsim-shader",fgsimShader});
-                    if (digitalMode) args.AddRange(new[]{"--digital-noise",Path.Combine(temporary,"digital.yuv"),"--noise-ffmpeg",ffmpeg});
-                    if (plateMode) args.AddRange(new[]{"--plate",platePath,"--plate-frame",plateFrame});
-                    if (plateCycle>0) args.AddRange(new[]{"--plate-cycle",plateCycle.ToString("0.#########",CultureInfo.InvariantCulture)});
-                    // grav1synth advances AV1 grain seeds per output frame. Use the
-                    // probed nominal rate to reproduce its per-event seed sequence.
-                    if (validRate || plateMode) args.AddRange(new[]{"--fps",fps});
-                    if (duration>0) args.AddRange(new[]{"--video",input,"--ffmpeg",ffmpeg,
-                        "--duration",Math.Min(86400,duration).ToString("0.######",CultureInfo.InvariantCulture)});
-                    if (media.IsHdr) args.AddRange(new[]{"--source-color",hdrSignal});
-                    if (parity.Length>0) args.AddRange(new[]{"--deinterlace",parity});
-                    string child = exe;
-                    string runtime = null;
-                    if (embeddedHdr) {
-                        child = Path.Combine(temporary,"fgs_gpu_preview.exe");
-                        runtime = exe.Length>0?Path.GetDirectoryName(exe):Path.Combine(appRoot,"GpuAdvancedPreview");
-                        using (var payload = typeof(MainForm).Assembly.GetManifestResourceStream(HdrGpuPreviewResource))
-                        using (var output = File.Create(child)) payload.CopyTo(output);
-                    }
-                    string frameTiming = RunGpuAdvancedPreviewProcess(child,args,runtime);
-                    if (plateMode) decodeTiming += "[GPU Preview] Grain Plate 定位："+
-                        (plateCycle>0 ? "ProRes 快速循环定位（周期 "+plateCycle.ToString("0.######",CultureInfo.InvariantCulture)+" s）" :
-                            "普通循环定位（未满足快速路径条件）")+Environment.NewLine;
-                    if (frameTiming.Length > 0) decodeTiming += frameTiming;
-                    if (media.Identity != null) media.Identity.RequireCurrent();
-                    if (File.Exists(result)) {
-                        string json = File.ReadAllText(result,Encoding.UTF8);
-                        applied = new JavaScriptSerializer().Deserialize<GpuAdvancedPreviewResult>(json);
-                        if (applied == null || applied.Version != (newPixelMode?3:plateMode?2:1) ||
-                            (newPixelMode && !string.Equals(applied.PixelMode,pixelMode,StringComparison.Ordinal)) ||
-                            (fgsimMode && (applied.FgsimPreset < 0 || applied.FgsimPreset > 3)) ||
-                            (digitalMode && (applied.GrainStrength < 15 || applied.GrainStrength > 100 || applied.GrainStrength%5!=0)) ||
-                            (plateMode ? !string.Equals(applied.PixelMode,"PLATE",StringComparison.Ordinal) ||
-                                (applied.PlateStrength != 0 && (applied.PlateStrength < 15 || applied.PlateStrength > 100 || applied.PlateStrength%5!=0)) :
-                                applied.GrainStrength < 0 || applied.GrainStrength > 100) ||
-                            applied.LutStrength < 0 || applied.LutStrength > 100 || (!hasGrain && applied.GrainEnabled) ||
-                            (!hasLut && applied.LutEnabled)) throw new InvalidDataException("GPU 回传参数无效。");
-                    }
-                } catch (Exception ex) {failure = ex.Message;}
-                finally {
-                    try {if(Directory.Exists(temporary))Directory.Delete(temporary,true);} catch {}
-                    try {BeginInvoke((MethodInvoker)delegate {
-                        gpuAdvancedPreviewBusy = false;
-                        btnGpuAdvancedPreview.Enabled = true;
-                        btnGpuAdvancedPreview.Text = UiText("高级预览调整…","Advanced GPU Preview...");
-                        if (decodeTiming.Length > 0) AppendLog(decodeTiming);
-                        if (failure.Length > 0) {
-                            AppendLog("[GPU Preview] "+failure+Environment.NewLine);
-                            FgsMessageBox.Show(this,failure,Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);
-                        } else if (applied != null) {
-                            if (independentFiles != originalIndependent || !string.Equals(GetPreviewVideoPath(),input,StringComparison.OrdinalIgnoreCase) ||
-                                cmbCodec.SelectedIndex != originalCodec ||
-                                (hasGrain && (originalMode != (SvtSelected()?CurrentGrainMode()-3:CurrentGrainMode()) ||
-                                    (plateMode && !string.Equals(selectedGrainPlatePath,platePath,StringComparison.OrdinalIgnoreCase)) ||
-                                    (hasAv1Grain && originalMode==2 && !string.Equals(selectedAv1GrainTable,model,StringComparison.OrdinalIgnoreCase)) ||
-                                    (hasAv1Grain && originalMode==0 && !string.Equals(formats[Math.Max(0,Math.Min(4,av1FormatIndex))]+
-                                        (av1FormatIndex<3?stocks[Math.Max(0,Math.Min(3,av1StockIndex))]:""),originalPreset,StringComparison.Ordinal)))) ||
-                                (hasLut && !string.Equals(selectedLutPath,lut,StringComparison.OrdinalIgnoreCase))) {
-                                FgsMessageBox.Show(this,UiText("预览期间视频、颗粒或 LUT 已改变，本次结果未应用。","The video, grain mode or LUT changed; result discarded."));return;
-                            }
-                            string appliedGrain = "未更改";
-                            if (newPixelMode) {
-                                int value = fgsimMode ? applied.FgsimPreset : applied.GrainStrength/5;
-                                if (trackFilmGrainStrength == null || value < trackFilmGrainStrength.Minimum ||
-                                    value > trackFilmGrainStrength.Maximum) {
-                                    FgsMessageBox.Show(this,UiText("颗粒控件已改变，本次结果未应用。",
-                                        "Grain control changed; result discarded."));return;
-                                }
-                                trackFilmGrainStrength.Value = value;
-                                chkGrainEnabled.Checked = applied.GrainEnabled;
-                                appliedGrain = applied.GrainEnabled ? pixelMode+" "+lblFilmGrainValue.Text : "关闭";
-                            } else if (plateMode) {
-                                if (applied.GrainEnabled && applied.PlateStrength >= 15) {
-                                    if (trackFilmGrainStrength == null || trackFilmGrainStrength.Minimum > applied.PlateStrength/5 ||
-                                        trackFilmGrainStrength.Maximum < applied.PlateStrength/5) {
-                                        FgsMessageBox.Show(this,UiText("扫描颗粒控件已改变，本次结果未应用。",
-                                            "Grain Plate control changed; result discarded."));return;
-                                    }
-                                    trackFilmGrainStrength.Value = applied.PlateStrength/5;
-                                    chkGrainEnabled.Checked = true;
-                                    appliedGrain = "Grain Plate "+applied.PlateStrength+"%";
-                                } else {chkGrainEnabled.Checked = false;appliedGrain = "关闭";}
-                            } else if (hasAv1Grain) {
-                                if (applied.GrainEnabled && applied.GrainStrength > 0) {
-                                    if (av1StrengthControl == null) {
-                                        FgsMessageBox.Show(this,UiText("颗粒强度控件已改变，本次结果未应用。","Grain control changed; result discarded."));return;
-                                    }
-                                    av1StrengthControl.Value = applied.GrainStrength;
-                                    chkGrainEnabled.Checked = true;
-                                    appliedGrain = applied.GrainStrength+"%";
-                                } else {chkGrainEnabled.Checked = false;appliedGrain = "关闭";}
-                            }
-                            if (hasLut) {
-                                trackLutStrength.Value = applied.LutStrength;
-                                chkLut.Checked = applied.LutEnabled && applied.LutStrength > 0;
-                                UpdateLutUi();
-                            }
-                            AppendLog("[GPU Preview] 已应用：颗粒 "+appliedGrain+
-                                "，LUT "+(hasLut?(applied.LutEnabled?applied.LutStrength+"%":"关闭"):"未更改")+Environment.NewLine);
-                        }
-                    });} catch (InvalidOperationException) {}
-                }
-            });
-            worker.IsBackground = true;
-            worker.Start();
-        }
-
-        private string ResolveGpuAdvancedPreviewExecutable()
-        {
-            string env = Environment.GetEnvironmentVariable("FGS_GPU_PREVIEW_EXE");
-            string[] candidates = {env,Path.Combine(appRoot,"GpuAdvancedPreview","fgs_gpu_preview.exe"),
-                Path.Combine(appRoot,"experiments","GpuSingleFrame","fgs_gpu_preview.exe")};
-            foreach (string path in candidates) if (!string.IsNullOrEmpty(path) && File.Exists(path)) return Path.GetFullPath(path);
-            return "";
-        }
-
-        private static void WriteFgsimPreviewShader(string root,string path)
-        {
-            string template = File.ReadAllText(Path.Combine(root,"Utils","_FilmGrainSimplified","FilmGrainSimplified.hook.template"));
-            int start = template.IndexOf("const int FG_TILE",StringComparison.Ordinal);
-            if (start < 0) throw new InvalidDataException("FGSIM shader template is invalid.");
-            string shader = template.Substring(start)
-                .Replace("@@TILE_SIZE@@","2").Replace("@@HL_START@@","0.55")
-                .Replace("@@HL_END@@","0.85").Replace("@@HL_REDUCE@@","0.50")
-                .Replace("const float FG_STRENGTH = @@STRENGTH@@;","")
-                .Replace("vec4 hook()","vec4 fgsim_apply(vec4 src, ivec2 px, int frame, float strength)")
-                .Replace("    vec4 src = HOOKED_tex(HOOKED_pos);","")
-                .Replace("    ivec2 px = ivec2(floor(HOOKED_pos * HOOKED_size));","")
-                .Replace("FG_STRENGTH","strength");
-            if (shader.Contains("@@") || shader.Contains("HOOKED") || !shader.Contains("vec4 fgsim_apply("))
-                throw new InvalidDataException("FGSIM shader template is incompatible with GPU preview.");
-            File.WriteAllText(path,shader,new UTF8Encoding(false));
-        }
-
-        private static string RunGpuAdvancedPreviewProcess(string executable,IList<string> arguments,string runtime)
-        {
-            var log = new StringBuilder();
-            var frameTimings = new StringBuilder();
-            using (var process = new Process()) {
-                process.StartInfo = new ProcessStartInfo(executable,SharedFrucCore.JoinArguments(arguments)) {
-                    UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true,
-                    WorkingDirectory=Path.GetDirectoryName(executable),StandardOutputEncoding=new UTF8Encoding(false),
-                    StandardErrorEncoding=new UTF8Encoding(false)
-                };
-                string msys = Environment.GetEnvironmentVariable("MSYS2_UCRT64_BIN");
-                if (string.IsNullOrEmpty(msys)) {
-                    foreach (string candidate in new[]{@"D:\msys64\ucrt64\bin",@"C:\msys64\ucrt64\bin"})
-                        if (Directory.Exists(candidate)) {msys=candidate;break;}
-                }
-                if (!string.IsNullOrEmpty(msys) && Directory.Exists(msys))
-                    process.StartInfo.EnvironmentVariables["PATH"] = msys+Path.PathSeparator+process.StartInfo.EnvironmentVariables["PATH"];
-                if (!string.IsNullOrEmpty(runtime) && Directory.Exists(runtime))
-                    process.StartInfo.EnvironmentVariables["PATH"] = runtime+Path.PathSeparator+process.StartInfo.EnvironmentVariables["PATH"];
-                DataReceivedEventHandler record = delegate(object sender,DataReceivedEventArgs e) {
-                    if (e.Data == null) return;
-                    lock(log) {if(log.Length<14000)log.AppendLine(e.Data);}
-                    if (e.Data.StartsWith("FRAME_DECODE,",StringComparison.Ordinal)) {
-                        lock(frameTimings) {
-                            if (frameTimings.Length < 6000)
-                                frameTimings.AppendLine("[GPU Preview] 切换帧抽取（视频/颗粒/总计 ms）："+e.Data.Substring(13));
-                        }
-                    }
-                };
-                process.OutputDataReceived += record;
-                process.ErrorDataReceived += record;
-                if (!process.Start()) throw new IOException("无法启动 GPU 预览程序。");
-                process.BeginOutputReadLine();process.BeginErrorReadLine();
-                process.WaitForExit();
-                if (process.ExitCode != 0) throw new InvalidOperationException("GPU 预览退出代码 "+process.ExitCode+"："+
-                    (log.Length>0?log.ToString():"无控制台输出，请检查 MSYS2 UCRT64 运行时 DLL 是否可加载。"));
-            }
-            return frameTimings.ToString();
-        }
-    }
-}
+           

@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Globalization;
 using System.Windows.Forms;
 
 namespace FilmGrainStudioPreview
@@ -49,7 +50,12 @@ namespace FilmGrainStudioPreview
     internal sealed partial class MainForm
     {
         private Dictionary<string,string> PreprocessEnvironment()
-        {var state=new Dictionary<string,string>();foreach(string key in PreprocessingCore.Keys)state["FG_"+key]=config.Get(key);
+        {var state=new Dictionary<string,string>();
+            if(cmbCodec!=null) {
+                int index=cmbCodec.SelectedIndex;
+                if(index==0||index==1||index==3)state["FG_MODE"]=index==0?"AV1":index==1?"HEVC":"H264";
+            }
+            foreach(string key in PreprocessingCore.Keys)state["FG_"+key]=config.Get(key);
             foreach(string key in ResizeCore.Keys)state["FG_"+key]=config.Get(key);
             state["FG_CINEMATIC_FRAME"]=chkCinematic!=null&&chkCinematic.Checked?"1":"0";
             state["FG_FRAME_MODE"]=cmbFrameMode!=null&&cmbFrameMode.SelectedIndex==1?"CROP":"LETTERBOX";
@@ -58,7 +64,18 @@ namespace FilmGrainStudioPreview
         {if(info==null||config.Get("RESIZE_MODE")=="OFF")return;var state=PreprocessEnvironment();CinematicFramePlan frame;ResizePlan plan;string error;if(CinematicFrameCore.TryBuild(info,state,out frame,out error)&&ResizeCore.TryBuild(info,state,frame,out plan,out error)){width=plan.Width;height=plan.Height;}}
         private void RefreshPreprocessButton()
         {
-            if(btnPreprocess!=null) {string tags=config.GetBool("PRE_BILATERAL_ENABLED")?" [bilateral]":"";if(config.Get("RESIZE_MODE")!="OFF")tags+=" [Resize "+(config.Get("RESIZE_MODE")=="CUSTOM"?config.Get("RESIZE_WIDTH")+"x"+config.Get("RESIZE_HEIGHT"):config.Get("RESIZE_MODE")+"p")+"]";btnPreprocess.Text=UiText("前处理","Preprocessing")+(tags.Length==0?"...":tags);}
+            if(btnPreprocess==null)return;
+            string tags=config.GetBool("PRE_BILATERAL_ENABLED")?" [bilateral]":"";
+            string mode=config.Get("RESIZE_MODE");
+            if(mode!="OFF") {
+                string target=mode;
+                if(mode=="CUSTOM") {
+                    target=config.Get("RESIZE_FACTOR");
+                    if(target.Length==0)target=config.Get("RESIZE_WIDTH")+"x"+config.Get("RESIZE_HEIGHT");
+                } else if(mode=="720"||mode=="1080"||mode=="1440"||mode=="2160")target+="p";
+                tags+=" [Resize "+target+"]";
+            }
+            btnPreprocess.Text=UiText("前处理","Preprocessing")+(tags.Length==0?"...":tags);
         }
         private void ShowPreprocessDialog()
         {
@@ -79,9 +96,9 @@ namespace FilmGrainStudioPreview
                 for(int i=0;i<3;i++)grid.RowStyles.Add(new RowStyle(SizeType.Absolute,44));
                 grid.RowStyles.Add(new RowStyle(SizeType.Percent,100));
                 filterPage.Controls.Add(grid);
-                var resizeGrid=new TableLayoutPanel {Dock=DockStyle.Fill,Padding=new Padding(14),ColumnCount=2,RowCount=5};
+                var resizeGrid=new TableLayoutPanel {Dock=DockStyle.Fill,Padding=new Padding(14),ColumnCount=2,RowCount=7};
                 resizeGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,68));resizeGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,32));
-                for(int i=0;i<4;i++)resizeGrid.RowStyles.Add(new RowStyle(SizeType.Absolute,40));
+                for(int i=0;i<6;i++)resizeGrid.RowStyles.Add(new RowStyle(SizeType.Absolute,40));
                 resizeGrid.RowStyles.Add(new RowStyle(SizeType.Percent,100));resizePage.Controls.Add(resizeGrid);
                 var enabled=new ThemeCheckBox {Name="BILATERAL_ENABLED",Text=UiText("启用 Bilateral（CPU 双边滤波）","Enable Bilateral (CPU)"),Dock=DockStyle.Fill,Checked=config.GetBool("PRE_BILATERAL_ENABLED")};
                 grid.Controls.Add(enabled,0,0);grid.SetColumnSpan(enabled,2);
@@ -95,20 +112,30 @@ namespace FilmGrainStudioPreview
                 var help=new ThemeLabel {Name="PREPROCESS_FILTER_HELP",Dock=DockStyle.Fill,ForeColor=ColorMuted,Padding=new Padding(0,8,0,0),Text=UiText("默认 3 / 0.05 / 1：仅柔化亮度通道。sigmaS 越大影响范围越广；sigmaR 越大越容易抹平纹理。\nplanes：1=Y，2=U，4=V，6=UV，7=YUV；0=不处理。CPU 滤镜可能降低处理速度；GPU 解码仍按原设置运行。","Default 3 / 0.05 / 1: luma only. Larger sigmaS widens smoothing; larger sigmaR removes more texture.\nplanes: 1=Y, 2=U, 4=V, 6=UV, 7=YUV; 0=none. CPU filtering may reduce speed; GPU decode remains available.")};
                 grid.Controls.Add(help,0,4);grid.SetColumnSpan(help,2);
                 var resizeMode=new ThemeComboBox {Name="RESIZE_MODE",Dock=DockStyle.Fill,DropDownStyle=ComboBoxStyle.DropDownList};
-                string[] modes={"OFF","720","1080","1440","2160","CUSTOM"};
-                resizeMode.Items.AddRange(new object[]{UiText("关闭","Off"),"720p · 1280 x 720","1080p · 1920 x 1080","1440p · 2560 x 1440","2160p · 3840 x 2160",UiText("自定义","Custom")});
+                string[] modes={"OFF","720","1080","1440","2160","2x","4x","1/2","1/4","CUSTOM"};
+                resizeMode.Items.AddRange(new object[]{UiText("关闭","Off"),"720p · 1280 x 720","1080p · 1920 x 1080","1440p · 2560 x 1440","2160p · 3840 x 2160","2x","4x","1/2","1/4",UiText("自定义","Custom")});
                 resizeMode.SelectedIndex=Math.Max(0,Array.IndexOf(modes,config.Get("RESIZE_MODE")));
                 var resizeWidth=new ThemeTextBox {Name="RESIZE_WIDTH",Dock=DockStyle.Fill,Text=config.Get("RESIZE_WIDTH")};
                 var resizeHeight=new ThemeTextBox {Name="RESIZE_HEIGHT",Dock=DockStyle.Fill,Text=config.Get("RESIZE_HEIGHT")};
+                var factorBox=new ThemeTextBox {Name="RESIZE_FACTOR",Dock=DockStyle.Fill,Text=config.Get("RESIZE_FACTOR")};
+                var algorithm=new ThemeComboBox {Name="RESIZE_ALGORITHM",Dock=DockStyle.Fill,DropDownStyle=ComboBoxStyle.DropDownList};
+                string[] algorithms={"LANCZOS","EWA_SHARP","EWA_SHARP_HQ"};
+                foreach(string key in algorithms)algorithm.Items.Add(ResizeCore.AlgorithmName(key));
+                algorithm.SelectedIndex=Math.Max(0,Array.IndexOf(algorithms,config.Get("RESIZE_ALGORITHM")));
                 var keepAspect=new ThemeCheckBox {Name="RESIZE_KEEP_ASPECT",Text=UiText("保持显示宽高比（取消可能拉伸）","Keep display aspect ratio (uncheck to stretch)"),Dock=DockStyle.Fill,Checked=config.GetBool("RESIZE_KEEP_ASPECT")};
-                resizeGrid.Controls.Add(new ThemeLabel {Text=UiText("画面缩放 · Vulkan / Lanczos","Resize · Vulkan / Lanczos"),Dock=DockStyle.Fill,TextAlign=ContentAlignment.MiddleLeft},0,0);resizeGrid.Controls.Add(resizeMode,1,0);
+                resizeGrid.Controls.Add(new ThemeLabel {Text=UiText("画面缩放","Resize target"),Dock=DockStyle.Fill,TextAlign=ContentAlignment.MiddleLeft},0,0);resizeGrid.Controls.Add(resizeMode,1,0);
                 resizeGrid.Controls.Add(new ThemeLabel {Text=UiText("自定义宽度（2–16384）","Custom width (2–16384)"),Dock=DockStyle.Fill,TextAlign=ContentAlignment.MiddleLeft},0,1);resizeGrid.Controls.Add(resizeWidth,1,1);
                 resizeGrid.Controls.Add(new ThemeLabel {Text=UiText("自定义高度（2–16384）","Custom height (2–16384)"),Dock=DockStyle.Fill,TextAlign=ContentAlignment.MiddleLeft},0,2);resizeGrid.Controls.Add(resizeHeight,1,2);
-                resizeGrid.Controls.Add(keepAspect,0,3);resizeGrid.SetColumnSpan(keepAspect,2);
-                var resizeSummary=new ThemeLabel {Name="RESIZE_SUMMARY",Dock=DockStyle.Fill,ForeColor=ColorMuted,Padding=new Padding(0,8,0,0)};resizeGrid.Controls.Add(resizeSummary,0,4);resizeGrid.SetColumnSpan(resizeSummary,2);
-                Func<Dictionary<string,string>> resizeValues=delegate {return new Dictionary<string,string>{{"RESIZE_MODE",modes[resizeMode.SelectedIndex]},{"RESIZE_WIDTH",resizeWidth.Text.Trim()},{"RESIZE_HEIGHT",resizeHeight.Text.Trim()},{"RESIZE_KEEP_ASPECT",keepAspect.Checked?"true":"false"}};};
+                resizeGrid.Controls.Add(new ThemeLabel {Text=UiText("自定义倍数（如 1.5x、3/2、1/3；留空使用宽高）","Custom scale (e.g. 1.5x, 3/2, 1/3; blank uses width and height)"),Dock=DockStyle.Fill,TextAlign=ContentAlignment.MiddleLeft},0,3);resizeGrid.Controls.Add(factorBox,1,3);
+                resizeGrid.Controls.Add(new ThemeLabel {Text=UiText("缩放算法 · Vulkan","Scaling algorithm · Vulkan"),Dock=DockStyle.Fill,TextAlign=ContentAlignment.MiddleLeft},0,4);resizeGrid.Controls.Add(algorithm,1,4);
+                resizeGrid.Controls.Add(keepAspect,0,5);resizeGrid.SetColumnSpan(keepAspect,2);
+                var resizeSummary=new ThemeLabel {Name="RESIZE_SUMMARY",Dock=DockStyle.Fill,ForeColor=ColorMuted,Padding=new Padding(0,8,0,0)};resizeGrid.Controls.Add(resizeSummary,0,6);resizeGrid.SetColumnSpan(resizeSummary,2);
+                Func<Dictionary<string,string>> resizeValues=delegate {return new Dictionary<string,string>{{"RESIZE_MODE",modes[resizeMode.SelectedIndex]},{"RESIZE_WIDTH",resizeWidth.Text.Trim()},{"RESIZE_HEIGHT",resizeHeight.Text.Trim()},{"RESIZE_KEEP_ASPECT",keepAspect.Checked?"true":"false"},{"RESIZE_FACTOR",factorBox.Text.Trim()},{"RESIZE_ALGORITHM",algorithms[algorithm.SelectedIndex]}};};
                 Action updateResize=delegate {
-                    resizeWidth.Enabled=resizeHeight.Enabled=resizeMode.SelectedIndex==5;keepAspect.Enabled=resizeMode.SelectedIndex!=0;
+                    bool custom=modes[resizeMode.SelectedIndex]=="CUSTOM";
+                    factorBox.Enabled=custom;
+                    resizeWidth.Enabled=resizeHeight.Enabled=custom&&factorBox.Text.Trim().Length==0;
+                    keepAspect.Enabled=algorithm.Enabled=resizeMode.SelectedIndex!=0;
                     string note=UiText("按边界框保持比例，偶数对齐；不自动补边。颗粒在缩放后添加。","Fit within bounds, even dimensions; no padding. Grain follows resize.");
                     MediaProbeInfo media=GetBitrateMediaContext();
                     if(media!=null&&resizeMode.SelectedIndex!=0) {
@@ -122,132 +149,12 @@ namespace FilmGrainStudioPreview
                     }
                     resizeSummary.Text=note;
                 };
-                resizeMode.SelectedIndexChanged+=delegate {updateResize();};resizeWidth.TextChanged+=delegate {updateResize();};resizeHeight.TextChanged+=delegate {updateResize();};keepAspect.CheckedChanged+=delegate {updateResize();};updateResize();
+                resizeMode.SelectedIndexChanged+=delegate {updateResize();};resizeWidth.TextChanged+=delegate {updateResize();};resizeHeight.TextChanged+=delegate {updateResize();};factorBox.TextChanged+=delegate {updateResize();};algorithm.SelectedIndexChanged+=delegate {updateResize();};keepAspect.CheckedChanged+=delegate {updateResize();};updateResize();
                 var buttons=new FlowLayoutPanel {Dock=DockStyle.Fill,FlowDirection=FlowDirection.RightToLeft,WrapContents=false};
                 var cancel=new ThemeButton {Name="PREPROCESS_CANCEL",Text=UiText("取消","Cancel"),DialogResult=DialogResult.Cancel,Width=88};
                 var ok=new ThemeButton {Name="PREPROCESS_OK",Text=UiText("确定","OK"),Width=88};var reset=new ThemeButton {Name="PREPROCESS_DEFAULTS",Text=UiText("恢复默认值","Defaults"),Width=118};
-                reset.Click+=delegate {if(tabs.SelectedTab==filterPage){enabled.Checked=false;spatial.Text="3";range.Text="0.05";planes.Value=1;}else{resizeMode.SelectedIndex=0;resizeWidth.Text="1920";resizeHeight.Text="1080";keepAspect.Checked=true;}};
+                reset.Click+=delegate {if(tabs.SelectedTab==filterPage){enabled.Checked=false;spatial.Text="3";range.Text="0.05";planes.Value=1;}else{resizeMode.SelectedIndex=0;resizeWidth.Text="1920";resizeHeight.Text="1080";factorBox.Text="";algorithm.SelectedIndex=0;keepAspect.Checked=true;}};
                 enabled.CheckedChanged+=delegate {spatial.Enabled=range.Enabled=planes.Enabled=enabled.Checked;};
                 spatial.Enabled=range.Enabled=planes.Enabled=enabled.Checked;
                 ok.Click+=delegate {
-                    if(!planes.ValidateInput())return;
-                    var values=new Dictionary<string,string> { {"PRE_BILATERAL_ENABLED",enabled.Checked?"true":"false"},{"PRE_BILATERAL_SIGMA_S",spatial.Text.Trim()},{"PRE_BILATERAL_SIGMA_R",range.Text.Trim()},{"PRE_BILATERAL_PLANES",planes.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)} };
-                    try {
-                        foreach(var pair in resizeValues())values[pair.Key]=pair.Value;
-                        foreach(var pair in values)PresetCore.ValidateConfig(pair.Key,pair.Value);
-                        config.Save(values);RefreshPreprocessButton();UpdateBitrateDisplays();
-                        RefreshAv1GrainTableForMedia();
-                        UpdateHdrRouteStatus(GetSelectedMediaInfo());
-                        dialog.DialogResult=DialogResult.OK;dialog.Close();
-                    }catch(Exception ex){FgsMessageBox.Show(dialog,ex.Message,dialog.Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);}
-                };
-                buttons.Controls.Add(cancel);buttons.Controls.Add(ok);buttons.Controls.Add(reset);shell.Controls.Add(buttons,0,1);
-                dialog.Controls.Add(shell);dialog.AcceptButton=ok;dialog.CancelButton=cancel;
-                AttachThemeWindow(dialog);AttachPreprocessWindowMemory(dialog);dialog.ShowDialog(this);
-            }
-        }
-        private void AttachPreprocessWindowMemory(Form dialog)
-        {
-            bool ready=false;FormWindowState remembered=FormWindowState.Normal;
-            dialog.Load+=delegate {
-                if(!SuppressWindowMemory)try {
-                    string[] parts=config.Get("PREPROCESS_WINDOW").Split(',');int x,y,w,h;
-                    if(parts.Length==5&&int.TryParse(parts[0],out x)&&int.TryParse(parts[1],out y)&&int.TryParse(parts[2],out w)&&int.TryParse(parts[3],out h)&&w>0&&h>0) {
-                        var areas=new List<Rectangle>();foreach(Screen screen in Screen.AllScreens)areas.Add(screen.WorkingArea);
-                        dialog.StartPosition=FormStartPosition.Manual;dialog.Bounds=FitWindowBounds(new Rectangle(x,y,w,h),areas.ToArray(),dialog.MinimumSize);
-                        remembered=parts[4]=="Maximized"?FormWindowState.Maximized:FormWindowState.Normal;dialog.WindowState=remembered;
-                    }
-                }catch(Exception ex){System.Diagnostics.Trace.WriteLine(ex.Message);}
-                ready=true;
-            };
-            dialog.Resize+=delegate {if(ready&&dialog.WindowState!=FormWindowState.Minimized)remembered=dialog.WindowState;};
-            dialog.FormClosed+=delegate {
-                if(!ready||SuppressWindowMemory)return;
-                try {
-                    Rectangle b=dialog.WindowState==FormWindowState.Normal?dialog.Bounds:dialog.RestoreBounds;
-                    config.SaveValue("PREPROCESS_WINDOW",string.Join(",",new[]{b.X.ToString(System.Globalization.CultureInfo.InvariantCulture),b.Y.ToString(System.Globalization.CultureInfo.InvariantCulture),b.Width.ToString(System.Globalization.CultureInfo.InvariantCulture),b.Height.ToString(System.Globalization.CultureInfo.InvariantCulture),remembered==FormWindowState.Maximized?"Maximized":"Normal"}));
-                }catch(Exception ex){System.Diagnostics.Trace.WriteLine(ex.Message);}
-            };
-        }
-    }
-}
-
-namespace FilmGrainStudioPreview
-{
-    internal sealed class ResizePlan
-    {
-        internal bool Enabled;
-        internal int Width,Height;
-        internal string Prefix="";
-    }
-    // Geometry only: never rewrites source metadata, frame rates or timestamps.
-    internal static class ResizeCore
-    {
-        internal static readonly string[] Keys={"RESIZE_MODE","RESIZE_WIDTH","RESIZE_HEIGHT","RESIZE_KEEP_ASPECT"};
-        internal static readonly string[] Defaults={"OFF","1920","1080","true"};
-        static readonly object Sync=new object();
-        static readonly HashSet<string> Verified=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        static string Get(IDictionary<string,string> state,string key,string fallback)
-        {string v;return state!=null&&state.TryGetValue("FG_"+key,out v)?v:fallback;}
-        internal static bool Enabled(IDictionary<string,string> state){return Get(state,Keys[0],"OFF")!="OFF";}
-        static int Even(double n){return Math.Max(2,(int)Math.Round(n/2,MidpointRounding.AwayFromZero)*2);}
-        internal static bool TryBuild(MediaProbeInfo info,IDictionary<string,string> state,CinematicFramePlan frame,out ResizePlan plan,out string reason)
-        {
-            plan=new ResizePlan {Width=frame.ActiveWidth,Height=frame.ActiveHeight};reason="";
-            if(!Enabled(state))return true;
-            string mode=Get(state,Keys[0],"OFF");int bw,bh;
-            if(mode=="CUSTOM") {
-                if(!int.TryParse(Get(state,Keys[1],"1920"),out bw)||!int.TryParse(Get(state,Keys[2],"1080"),out bh)||bw<2||bh<2||bw>16384||bh>16384)
-                {reason="Resize 自定义宽高必须为 2–16384。";return false;}
-            } else {
-                if(!int.TryParse(mode,out bh)||(bh!=720&&bh!=1080&&bh!=1440&&bh!=2160)){reason="无效 Resize 档位。";return false;}
-                bw=bh==720?1280:bh==1080?1920:bh==1440?2560:3840;
-            }
-            string keep=Get(state,Keys[3],"true");
-            if(keep!="true"&&keep!="false"){reason="无效 Resize 宽高比设置。";return false;}
-            int inputW=frame.ActiveWidth,inputH=frame.ActiveHeight;
-            if(inputW<2||inputH<2){reason="Resize 输入尺寸无效。";return false;}
-            double sar=1;string[] parts=(info.SampleAspectRatio??"").Split(':');double sn,sd;
-            if(parts.Length==2&&double.TryParse(parts[0],System.Globalization.NumberStyles.Float,System.Globalization.CultureInfo.InvariantCulture,out sn)&&double.TryParse(parts[1],System.Globalization.NumberStyles.Float,System.Globalization.CultureInfo.InvariantCulture,out sd)&&sn>0&&sd>0)sar=sn/sd;
-            int w=bw-bw%2,h=bh-bh%2;
-            if(keep=="true") {
-                double ratio=inputW*sar/inputH;
-                if(ratio>=bw/(double)bh){w=bw-bw%2;h=Math.Min(bh-bh%2,Even(w/ratio));}
-                else {h=bh-bh%2;w=Math.Min(bw-bw%2,Even(h*ratio));}
-            }
-            string codec=Get(state,"MODE","");int limit=codec=="AV1"||codec=="HEVC"||codec=="H264"?8192:16384;
-            if(w>limit||h>limit){reason="Resize 输出尺寸超过当前编码路线限制："+limit;return false;}
-            // Move real cropping before scaling only on the enabled route. Bars are redrawn after grain.
-            string crop=frame.Filter.StartsWith(",crop=",StringComparison.Ordinal)?frame.Filter.Substring(1)+",":"";
-            string format="yuv420p10le";
-            if((info.PixelFormat??"").IndexOf("12",StringComparison.Ordinal)>=0||(info.PixelFormat??"").IndexOf("16",StringComparison.Ordinal)>=0)format="yuv420p16le";
-            plan.Enabled=true;plan.Width=w;plan.Height=h;
-            plan.Prefix=crop+"format="+format+",hwupload,libplacebo=w="+w+":h="+h+":upscaler=lanczos:downscaler=lanczos:normalize_sar=0:peak_detect=0:format="+format+",hwdownload,format="+format+",setsar=1,";
-            bool bars=frame.Filter.StartsWith(",drawbox=",StringComparison.Ordinal);
-            if(bars) {
-                int x=Even(frame.ContentX*w/(double)inputW),y=Even(frame.ContentY*h/(double)inputH);
-                if(frame.ContentX==0)x=0;if(frame.ContentY==0)y=0;
-                frame.Filter="";
-                if(x>0)frame.Filter+=",drawbox=x=0:y=0:w="+x+":h=ih:color=black:t=fill,drawbox=x=iw-"+x+":y=0:w="+x+":h=ih:color=black:t=fill";
-                if(y>0)frame.Filter+=",drawbox=x=0:y=0:w=iw:h="+y+":color=black:t=fill,drawbox=x=0:y=ih-"+y+":w=iw:h="+y+":color=black:t=fill";
-            } else frame.Filter="";
-            frame.ActiveWidth=w;frame.ActiveHeight=h;
-            frame.ContentX=bars&&frame.ContentX>0?Even(frame.ContentX*w/(double)inputW):0;frame.ContentY=bars&&frame.ContentY>0?Even(frame.ContentY*h/(double)inputH):0;
-            frame.ContentWidth=bars?Even(frame.ContentWidth*w/(double)inputW):w;frame.ContentHeight=bars?Even(frame.ContentHeight*h/(double)inputH):h;
-            frame.FileSuffix+="_RS"+w+"x"+h;
-            return true;
-        }
-        internal static bool TryCheckTool(string ffmpeg,out string reason)
-        {
-            reason="";
-            try {
-                var file=new System.IO.FileInfo(ffmpeg);string id=file.FullName+"|"+file.Length+"|"+file.LastWriteTimeUtc.Ticks+"|"+VulkanDevicePolicy.DeviceName;
-                lock(Sync)if(Verified.Contains(id))return true;
-                string output,detail;
-                string args="-hide_banner -nostdin -v error -init_hw_device "+SharedFrucCore.Quote(VulkanDevicePolicy.Spec("vk"))+" -filter_hw_device vk -f lavfi -i color=s=64x64:d=0.04 -vf format=yuv420p10le,hwupload,libplacebo=w=32:h=32:upscaler=lanczos:downscaler=lanczos:normalize_sar=0:peak_detect=0:format=yuv420p10le,hwdownload,format=yuv420p10le -frames:v 1 -f null -";
-                if(!SharedFrucCore.Run(ffmpeg,args,15000,out output,out detail)){reason="Resize Vulkan/libplacebo Lanczos 检查失败（不自动替换算法）："+detail+" / "+output;return false;}
-                lock(Sync)Verified.Add(id);return true;
-            }catch(Exception ex){reason="Resize 检查失败："+ex.Message;return false;}
-        }
-    }
-}
+     

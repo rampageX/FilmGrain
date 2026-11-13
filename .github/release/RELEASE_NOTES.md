@@ -1,5 +1,5 @@
-# Film Grain Studio v5.0.67
+# Film Grain Studio v5.0.68
 
-- 高级 GPU 预览新增 FGSIM 四档（Light、Normal、Medium、Heavy）和 Digital Grain（0.15–1.00，步进 0.05），拖动强度时直接重绘当前帧。
-- 在保留 HDR 的兼容组合中支持 PQ／HLG。FGSIM 复用原颗粒纹理与计算规则，HDR 合成 10-bit 亮度差分。Digital Grain 在换帧时生成固定种子的噪声底图，调节强度时由 GPU 计算遮罩与混合。
-- 两种模式均可与 LUT 一起预览，按 G 切换颗粒，点击「应用到 FGS」回传设置。
+- 前处理缩放新增 Vulkan EWA Lanczos Sharp 和单段 SharpHQ，直接缩放到目标尺寸，支持保留 PQ／HLG。
+- 缩放目标新增 2×、4×、1/2 和 1/4，自定义支持像素尺寸、倍数及分数。
+- 扫描颗粒强度支持 1–100%，主界面和 GPU 高级预览均以 1% 为步进，预览可回传实际强度。
