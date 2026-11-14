@@ -239,19 +239,57 @@ namespace FilmGrainStudioPreview {
         }
     }
 
+    internal sealed class ResourceBarTransition
+    {
+        internal const int DurationMs = 360;
+        private double startValue = -1, target = -1;
+        private long startMs;
+
+        internal void SetTarget(double value, long now)
+        {
+            if (value == target) return;
+            double current = ValueAt(now);
+            startValue = current < 0 || value < 0 ? value : current;
+            target = value;
+            startMs = now;
+        }
+
+        internal bool IsMoving(long now) { return startValue != target && now - startMs < DurationMs; }
+
+        internal double ValueAt(long now)
+        {
+            if (!IsMoving(now)) return target;
+            double remaining = 1 - Math.Max(0, now - startMs) / (double)DurationMs;
+            return target + (startValue - target) * remaining * remaining * remaining;
+        }
+    }
+
     internal sealed class ResourceMonitorPanel : Control,IThemeSurface {
         readonly ToolTip tip=new ThemeToolTip();
         readonly string memoryLabel, videoLabel;
         readonly System.Windows.Forms.Timer pulse=new System.Windows.Forms.Timer();
+        readonly System.Windows.Forms.Timer animation = new System.Windows.Forms.Timer { Interval = 16 };
+        readonly Stopwatch animationClock = Stopwatch.StartNew();
+        readonly ResourceBarTransition cpuBar = new ResourceBarTransition(), gpuBar = new ResourceBarTransition();
         ResourceSampler sampler;ResourceSample sample;Form owner;
         public bool DarkTheme {get;set;}
         internal ResourceMonitorPanel(string memoryLabel,string videoLabel){
             this.memoryLabel=memoryLabel;this.videoLabel=videoLabel;
             SetStyle(ControlStyles.UserPaint|ControlStyles.AllPaintingInWmPaint|ControlStyles.OptimizedDoubleBuffer|ControlStyles.ResizeRedraw,true);
             Dock=DockStyle.Fill;Margin=new Padding(8,0,8,0);
+            animation.Tick += delegate
+            {
+                long now = animationClock.ElapsedMilliseconds;
+                if (!Visible || owner.WindowState == FormWindowState.Minimized || (!cpuBar.IsMoving(now) && !gpuBar.IsMoving(now))) animation.Stop();
+                Invalidate();
+            };
             pulse.Interval=250;pulse.Tick+=delegate{
                 if(sampler==null)return;sampler.Slow=owner!=null&&owner.WindowState==FormWindowState.Minimized;
                 var latest=Interlocked.Exchange(ref sampler.Latest,null);if(latest==null)return;
+                long now = animationClock.ElapsedMilliseconds;
+                cpuBar.SetTarget(latest.Cpu,now);
+                gpuBar.SetTarget(latest.Gpu,now);
+                if (Visible && !sampler.Slow && (cpuBar.IsMoving(now) || gpuBar.IsMoving(now))) animation.Start();
                 sample=latest;bool zh=memoryLabel=="内存";
                 string help=zh?
                     "CPU：系统总占用（优先使用任务管理器 Utility 口径）；内存：系统物理内存已用 / 总量。\n"+
@@ -270,18 +308,19 @@ namespace FilmGrainStudioPreview {
         }
         protected override void OnHandleCreated(EventArgs e){base.OnHandleCreated(e);if(owner==null){owner=FindForm();if(owner!=null)owner.Shown+=Start;}}
         void Start(object sender,EventArgs e){if(sampler==null){sampler=new ResourceSampler();pulse.Start();}}
-        protected override void Dispose(bool disposing){if(disposing){if(owner!=null)owner.Shown-=Start;pulse.Stop();pulse.Dispose();if(sampler!=null)sampler.Dispose();tip.Dispose();}base.Dispose(disposing);}
+        protected override void Dispose(bool disposing){if(disposing){if(owner!=null)owner.Shown-=Start;pulse.Stop();pulse.Dispose();animation.Stop();animation.Dispose();if(sampler!=null)sampler.Dispose();tip.Dispose();}base.Dispose(disposing);}
         protected override void OnPaint(PaintEventArgs e){
-            ResourceMonitorPainter.Draw(e.Graphics,ClientRectangle,Font,DarkTheme,BackColor,DarkTheme?UiTheme.TextColor:ForeColor,sample,memoryLabel,videoLabel);
+            long now = animationClock.ElapsedMilliseconds;
+            ResourceMonitorPainter.Draw(e.Graphics,ClientRectangle,Font,DarkTheme,BackColor,DarkTheme?UiTheme.TextColor:ForeColor,sample,memoryLabel,videoLabel,cpuBar.ValueAt(now),gpuBar.ValueAt(now));
         }
     }
     internal static class ResourceMonitorPainter {
-        internal static void Draw(Graphics graphics,Rectangle bounds,Font font,bool dark,Color background,Color foreground,ResourceSample sample,string memoryLabel,string videoLabel){
+        internal static void Draw(Graphics graphics,Rectangle bounds,Font font,bool dark,Color background,Color foreground,ResourceSample sample,string memoryLabel,string videoLabel,double cpuFill,double gpuFill){
             graphics.Clear(background);float scale=graphics.DpiX/96f;
             int row=bounds.Height/4;if(row<1)return;
             var s=sample??new ResourceSample();
             string[] labels={"CPU",s.GpuSource=="NVML fallback"?"GPU*":"GPU",memoryLabel,videoLabel};
-            double[] values={s.Cpu,s.Gpu,s.MemoryTotal>0?100*s.MemoryUsed/s.MemoryTotal:-1,s.VramTotal>0?100*s.VramUsed/s.VramTotal:-1};
+            double[] values={cpuFill,gpuFill,s.MemoryTotal>0?100*s.MemoryUsed/s.MemoryTotal:-1,s.VramTotal>0?100*s.VramUsed/s.VramTotal:-1};
             string[] texts={s.Cpu<0?"—":s.Cpu.ToString("0")+"%",s.Gpu<0?"—":s.Gpu.ToString("0")+"%",Capacity(s.MemoryUsed,s.MemoryTotal),Capacity(s.VramUsed,s.VramTotal)};
             var previousHint=graphics.TextRenderingHint;graphics.TextRenderingHint=System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
             using(var labelFormat=new StringFormat(StringFormat.GenericTypographic))

@@ -107,8 +107,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.70";
-        internal const string FileReleaseVersion = "5.0.70.0";
+        internal const string ReleaseVersion = "5.0.71";
+        internal const string FileReleaseVersion = "5.0.71.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -1879,15 +1879,18 @@ namespace FilmGrainStudioPreview
             ToolStripMenuItem largeColorItem = new ToolStripMenuItem(UiText("大界面", "Large interface"));
             colorSizeMenu.Items.Add(largeColorItem);
             colorSizeMenu.Items.Add(new ToolStripSeparator());
-            var clearColorItem = colorSizeMenu.Items.Add(UiText("清除色彩纠正","Clear color correction"),null,delegate {ClearStudioEffects(true,false);});
-            var clearFilmItem = colorSizeMenu.Items.Add(UiText("清除经典胶片","Clear classic film"),null,delegate {ClearStudioEffects(false,true);});
-            var clearAllItem = colorSizeMenu.Items.Add(UiText("全部清除","Clear all"),null,delegate {ClearStudioEffects(true,true);});
+            var clearColorItem = colorSizeMenu.Items.Add(UiText("清除色彩纠正","Clear color correction"),null,delegate {ClearStudioEffects(true,false,false);});
+            var clearFilmItem = colorSizeMenu.Items.Add(UiText("清除经典胶片","Clear classic film"),null,delegate {ClearStudioEffects(false,true,false);});
+            var clearStyleItem = colorSizeMenu.Items.Add(UiText("清除风格迁移","Clear style transfer"),null,delegate {ClearStudioEffects(false,false,true);});
+            var clearAllItem = colorSizeMenu.Items.Add(UiText("全部清除","Clear all"),null,delegate {ClearStudioEffects(true,true,true);});
             colorSizeMenu.Opening += delegate
             {
                 largeColorItem.Checked = config.GetBool("COLOR_PREVIEW_LARGE_UI");
-                clearColorItem.Enabled = StudioColorEnabled();
+                var grade = ReadStudioGrade();
+                clearColorItem.Enabled = colorCorrectionEnabled || grade.HasAdjustments;
+                clearStyleItem.Enabled = grade.Style != null;
                 clearFilmItem.Enabled = IsSelectedClassicFilm();
-                clearAllItem.Enabled = clearColorItem.Enabled || !string.IsNullOrEmpty(selectedLutPath);
+                clearAllItem.Enabled = clearColorItem.Enabled || clearStyleItem.Enabled || !string.IsNullOrEmpty(selectedLutPath);
             };
             largeColorItem.Click += delegate {
                 try { config.Save(new Dictionary<string, string> { { "COLOR_PREVIEW_LARGE_UI", config.GetBool("COLOR_PREVIEW_LARGE_UI") ? "false" : "true" } }); }
@@ -2021,6 +2024,17 @@ namespace FilmGrainStudioPreview
             btnStart = new ThemeButton(); btnStart.Text = lang.T("button.start_encode"); btnStart.ForeColor = Color.White; btnStart.BackColor = ColorAccent; btnStart.FlatStyle = FlatStyle.Flat; btnStart.FlatAppearance.BorderSize = 0; btnStart.Size = new Size(126, 36); btnStart.Anchor = AnchorStyles.Top | AnchorStyles.Right; footer.Controls.Add(btnStart);
             btnOutputPreview=new ThemeButton {Text=UiText("输出预览","Output preview"),Size=new Size(112,36),Anchor=AnchorStyles.Top|AnchorStyles.Right};
             btnOutputPreview.Click+=delegate {ShowOutputPreview();};
+            var previewMenu = new ContextMenuStrip();
+            var autoOpen = new ToolStripMenuItem(UiText("编码时自动打开","Open automatically when encoding"));
+            previewMenu.Items.Add(autoOpen);
+            previewMenu.Opening += delegate { autoOpen.Checked=config.GetBool("OUTPUT_PREVIEW_AUTO_OPEN"); };
+            autoOpen.Click += delegate
+            {
+                try { config.Save(new Dictionary<string,string> {{"OUTPUT_PREVIEW_AUTO_OPEN",autoOpen.Checked?"false":"true"}}); }
+                catch(Exception ex){FgsMessageBox.Show(this,ex.Message);}
+            };
+            btnOutputPreview.ContextMenuStrip = previewMenu;
+            btnOutputPreview.Disposed += delegate { previewMenu.Dispose(); };
             footer.Controls.Add(btnOutputPreview);
             encodePreviewPanel = new Panel(); encodePreviewPanel.Size = new Size(392, 30); footer.Controls.Add(encodePreviewPanel);
             chkEncodePreview = new ThemeCheckBox { Text = UiText("预览编码", "Preview"), AutoSize = true, Location = new Point(0, 6) };
@@ -3547,6 +3561,7 @@ namespace FilmGrainStudioPreview
                             if (!outputs.Add(Path.GetFullPath(output))) throw new InvalidOperationException("Queue output collision: " + output);
                     BridgeTaskRequest task = BridgeRequestPreparationCore.CreateTask(prepared, fileStates==null?GetRecommendedOutputFps(info):double.Parse(capturedState["FG_QUEUE_OUTPUT_FPS"],CultureInfo.InvariantCulture));
                     task.NativeBackend = true;
+                    task.ExecutionRequest.SkipPreviewSpool = !config.GetBool("OUTPUT_PREVIEW_AUTO_OPEN") && outputPreviewWindow == null;
                     tasks.Add(task);
                     prepared = null;
                     AppendTaskLog("[Queue] prepared " + tasks.Count + "/" + inputs.Count + " backend=Native" + " input=" + input + Environment.NewLine);
@@ -3599,7 +3614,7 @@ namespace FilmGrainStudioPreview
                     {
                         BridgeTaskRequest task = e.Task;
                         outputPreviewTask=task;
-                        if(task!=null && task.QueueIndex<=1 && outputPreviewWindow==null)ShowOutputPreview();
+                        if(task!=null && task.QueueIndex<=1 && outputPreviewWindow==null && config.GetBool("OUTPUT_PREVIEW_AUTO_OPEN"))ShowOutputPreview();
                         bool noReencode = task != null && task.NoReencode;
                         IDictionary<string, string> state = task != null && task.ExecutionRequest != null ? task.ExecutionRequest.Environment : null;
                         activeRunNativeBackend = task != null && task.NativeBackend;
@@ -4022,7 +4037,7 @@ namespace FilmGrainStudioPreview
                 bool fgsim = IsGrainEnabled() && ((hevc && IsNvencFgsim()) ||
                     (av1 && cmbGrainMode != null && cmbGrainMode.SelectedIndex == 4));
                 
-                bool color = colorCorrectionEnabled;
+                bool color = StudioColorEnabled();
                 bool lut = IsLutEffectEnabled() && !string.IsNullOrWhiteSpace(selectedLutPath);
                 bool interpolate = chkInterpolation != null && chkInterpolation.Checked && !noReencode;
                 bool fruc = interpolate && cmbInterpolationMode != null && cmbInterpolationMode.SelectedIndex == 2;
@@ -4080,8 +4095,8 @@ namespace FilmGrainStudioPreview
                     if(svpHdr && !SharedInterpolationBypassCore.SupportsHighDepthSvpHdr(info))
                     {
                         unsupported=true;
-                        detail=UiText("OpenSVPFlow 高位深保留支持渐进式 10-bit BT.2020/PQ HDR10，HLG 目前为实验性；其它 HDR 请选 FRUC。",
-                            "OpenSVPFlow high-depth output supports progressive 10-bit BT.2020/PQ HDR10; HLG is experimental. Use FRUC for other HDR formats.");
+                        detail=UiText("OpenSVPFlow HDR 需要逐行 10-bit BT.2020 PQ 或 HLG 4:2:0 素材。",
+                            "OpenSVPFlow HDR requires progressive 10-bit BT.2020 PQ or HLG in 4:2:0.");
                     }
                     else if (x264)
                     {
@@ -4103,12 +4118,7 @@ namespace FilmGrainStudioPreview
                             : (hevc && fgsim
                                 ? UiText("HEVC Native 将使用 10-bit FGSIM 亮度颗粒路径，保留 HDR 信号。", "HEVC Native will use the 10-bit FGSIM luma-grain path and preserve the HDR signal.")
                                 : lang.T("input.hdr_route_detail_preserve"));
-                        if (svpHdr)
-                            detail += " " + (config.Get("SVP_HDR_BACKEND")=="CPU10"
-                                ? UiText("OpenSVPFlow 使用 8-bit 运动分析、10-bit CPU 渲染，最终保持 HDR10。", "OpenSVPFlow uses P8 motion analysis and P10 CPU rendering, retaining HDR10.")
-                                : UiText("OpenSVPFlow 使用 8-bit 运动分析、16-bit GPU 渲染，最终保持 10-bit HDR10。", "OpenSVPFlow uses P8 motion analysis and P16 GPU rendering with P10 HDR10 output."));
-                        if (svpHdr && info.ColorTransfer == "arib-std-b67")
-                            detail += " " + UiText("HLG + SVP 为实验性路线，请核验输出仍为 ARIB STD-B67 且帧率正确。", "HLG + SVP is experimental: verify ARIB STD-B67 transfer and output frame rate.");
+
                     }
                 }
                 else
@@ -4123,11 +4133,16 @@ namespace FilmGrainStudioPreview
                     {
                         preserve = true;
                         detail = lang.T("input.hdr_route_detail_auto_preserve");
-                        if (svpHdr && info.ColorTransfer == "arib-std-b67" && !info.IsInterlaced)
-                            detail += " " + UiText("HLG + SVP 为实验性路线，请核验输出仍为 ARIB STD-B67 且帧率正确。", "HLG + SVP is experimental: verify ARIB STD-B67 transfer and output frame rate.");
+
                     }
                 }
 
+                if (preserve && svpHdr && SharedInterpolationBypassCore.SupportsHighDepthSvpHdr(info))
+                {
+                    string backend = config.Get("SVP_HDR_BACKEND")=="CPU10" ? "CPU10" : "GPU16";
+                    string signal = info.ColorTransfer=="arib-std-b67" ? "HLG" : "PQ";
+                    detail += " OpenSVPFlow · " + backend + " · " + signal + " · " + UiText("10-bit 输出。","10-bit output.");
+                }
                 if (preserve && (av1 || hevc) && (lut || color))
                     detail += " " + UiText("调色/LUT使用高位深HDR路线；外部LUT的输入和输出应匹配源HDR色域与传递函数。", "Color/LUT use the high-depth HDR route; external LUT input and output must match the source HDR color domain.");
                 if(preserve && fruc)
@@ -4402,7 +4417,7 @@ namespace FilmGrainStudioPreview
         }
 
         private bool StudioColorEnabled()
-        { return colorCorrectionEnabled || !string.IsNullOrEmpty(config.Get(ColorGrade.ConfigKey)); }
+        { return colorCorrectionEnabled || ReadStudioGrade().IsActive; }
 
         private string classicFilmIdentity, classicFilmPath;
         private bool IsSelectedClassicFilm()
@@ -4430,20 +4445,27 @@ namespace FilmGrainStudioPreview
             return classicFilmIdentity==selectedLutPath;
         }
 
-        private void ClearStudioEffects(bool clearColor,bool clearFilm)
+        private void ClearStudioEffects(bool clearColor,bool clearFilm,bool clearStyle)
         {
             try
             {
-                if (clearColor)
+                if (clearColor || clearStyle)
                 {
-                    config.Save(new Dictionary<string,string> {
-                        {"COLOR_CORRECTION_ENABLED","false"},{ColorGrade.ConfigKey,ColorGrade.Neutral},
-                        {"COLOR_CONTRAST","1.00"},{"COLOR_BRIGHTNESS","0.00"},{"COLOR_SATURATION","1.00"},
-                        {"COLOR_GAMMA","1.00"},{"COLOR_BLACK_WHITE","false"}
-                    });
-                    colorCorrectionEnabled=colorBlackWhite=false;
-                    colorContrast=colorSaturation=colorGamma=1;
-                    colorBrightness=0;
+                    var grade = ReadStudioGrade();
+                    if (clearStyle) grade.Style = null;
+                    if (clearColor) Array.Clear(grade.Values,0,grade.Values.Length);
+                    if (!clearColor) config.Save(new Dictionary<string,string> {{ColorGrade.ConfigKey,grade.Serialize()}});
+                    else
+                    {
+                        config.Save(new Dictionary<string,string> {
+                            {"COLOR_CORRECTION_ENABLED","false"},{ColorGrade.ConfigKey,grade.Serialize()},
+                            {"COLOR_CONTRAST","1.00"},{"COLOR_BRIGHTNESS","0.00"},{"COLOR_SATURATION","1.00"},
+                            {"COLOR_GAMMA","1.00"},{"COLOR_BLACK_WHITE","false"}
+                        });
+                        colorCorrectionEnabled=colorBlackWhite=false;
+                        colorContrast=colorSaturation=colorGamma=1;
+                        colorBrightness=0;
+                    }
                 }
                 if (clearFilm && (clearColor || IsSelectedClassicFilm()))
                 {
@@ -4512,7 +4534,9 @@ namespace FilmGrainStudioPreview
 
         private void OpenLutStrengthPreview()
         {
-            if(StudioColorEnabled()&&!IsLutEffectEnabled()){OpenColorCorrection();return;}
+            if(StudioColorEnabled() && (!IsLutEffectEnabled() ||
+                (colorOnlyThumbnailVideo==GetPreviewVideoPath() && colorOnlyThumbnailSettings==ColorThumbnailSettings())))
+            {OpenColorCorrection();return;}
             if(string.IsNullOrEmpty(selectedLutPath)||!File.Exists(selectedLutPath)){FgsMessageBox.Show(this,UiText("请先选择 LUT。","Select a LUT first."));return;}
             if(bridgeTaskCoordinator!=null&&bridgeTaskCoordinator.IsActive){FgsMessageBox.Show(this,UiText("请等待当前任务结束。","Wait for the active task to finish."));return;}
             string video=GetPreviewVideoPath();MediaProbeInfo media=null;
@@ -4536,16 +4560,16 @@ namespace FilmGrainStudioPreview
             return string.Join("|",config.Get(ColorGrade.ConfigKey),colorCorrectionEnabled.ToString(),
                 colorContrast.ToString("R",CultureInfo.InvariantCulture),colorBrightness.ToString("R",CultureInfo.InvariantCulture),
                 colorSaturation.ToString("R",CultureInfo.InvariantCulture),colorGamma.ToString("R",CultureInfo.InvariantCulture),
-                colorBlackWhite.ToString());
+                colorBlackWhite.ToString(),IsLutEffectEnabled()?selectedLutPath:"",GetLutStrength().ToString(CultureInfo.InvariantCulture));
         }
 
         private void SetLutPreview(string lutPath)
         {
             if(lutThumbnail==null||picLutPreview==null)return;
-            if(StudioColorEnabled() && (string.IsNullOrEmpty(lutPath) || !IsLutEffectEnabled()))
+            bool current=colorOnlyThumbnailVideo==GetPreviewVideoPath() &&
+                colorOnlyThumbnailSettings==ColorThumbnailSettings();
+            if(StudioColorEnabled() && (current || string.IsNullOrEmpty(lutPath) || !IsLutEffectEnabled()))
             {
-                bool current=colorOnlyThumbnailVideo==GetPreviewVideoPath() &&
-                    colorOnlyThumbnailSettings==ColorThumbnailSettings();
                 lutThumbnail.ShowColorThumbnail(current?colorOnlyThumbnail:null);
                 lutToolTip.SetToolTip(picLutPreview,UiText("点击打开色彩纠正","Click to open color correction"));
                 return;
@@ -4578,14 +4602,23 @@ namespace FilmGrainStudioPreview
             finally{btnLutGallery.Enabled=true;RefreshLutLists();UpdateLutUi();}
         }
 
+        private ColorGrade ReadStudioGrade()
+        {
+            try { return ColorGrade.Parse(config.Get(ColorGrade.ConfigKey)); }
+            catch (InvalidDataException) { return new ColorGrade(); }
+        }
+
         private void UpdateColorCorrectionUi()
         {
             if (btnColorCorrection == null) return;
-            bool color=StudioColorEnabled();
-            bool film=IsLutEffectEnabled() && IsSelectedClassicFilm();
-            string suffix=color?(film?" · C/L":" · C"):(film?" · L":"");
+            var effects = new List<string>(3);
+            var grade = ReadStudioGrade();
+            if (colorCorrectionEnabled || grade.HasAdjustments) effects.Add("C");
+            if (IsLutEffectEnabled() && IsSelectedClassicFilm()) effects.Add("L");
+            if (grade.Style != null && grade.Style.IsActive) effects.Add("S");
+            string suffix = effects.Count == 0 ? "" : " · " + string.Join("/",effects.ToArray());
             btnColorCorrection.Text=UiText("LUT 工坊","LUT Studio")+suffix;
-            SetEffectButtonState(btnColorCorrection,color||film);
+            SetEffectButtonState(btnColorCorrection,effects.Count != 0);
         }
 
         private void SetEffectButtonState(Button button,bool enabled)

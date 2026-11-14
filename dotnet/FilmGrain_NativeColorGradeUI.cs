@@ -15,6 +15,12 @@ namespace FilmGrainStudioPreview
         private Panel gradePanel;
         private Label referenceLabel;
         private Button matchButton, clearReferenceButton;
+        private Panel stylePanel;
+        private Button styleTabButton, clearStyleReferenceButton;
+        private Label styleReferenceLabel;
+        private readonly TrackBar[] styleTracks = new TrackBar[3];
+        private string styleReferenceImage;
+        private StyleTransferStyle activeStyle;
         private readonly TrackBar[] gradeTracks = new TrackBar[ColorGrade.Count];
         private readonly NumericUpDown[] gradeNumbers = new NumericUpDown[ColorGrade.Count];
         private readonly ToolTip gradeTips = new ToolTip();
@@ -24,6 +30,7 @@ namespace FilmGrainStudioPreview
         private bool updatingGrade;
         private int gradeRevision;
         private CancellationTokenSource matchCancellation;
+        private bool matchingStyle;
 
         private string FilmLutFolder { get { return Path.Combine(lutRoot,"FGS_FilmLUT"); } }
 
@@ -41,39 +48,108 @@ namespace FilmGrainStudioPreview
             referenceLabel = new ThemeLabel {Location=new Point(4,374),Size=new Size(425,21),AutoEllipsis=true};
             gradePanel.Controls.Add(referenceLabel);
             AddGradeButton(S("参考图片…","Reference…"),4,397,104,ChooseGradeReference);
-            matchButton=AddGradeButton("",116,397,200,EditMatchStrength);
-            clearReferenceButton=AddGradeButton(S("清空","Clear"),324,397,85,delegate
+            matchButton=AddGradeButton("",209,397,200,EditMatchStrength);
+            clearReferenceButton=AddGradeButton(S("清空","Clear"),116,397,85,delegate
             {
                 if(matchCancellation!=null)matchCancellation.Cancel();
                 referenceImage=null;
                 UpdateReferenceUi();
             });
-            AddGradeButton(S("全部重置","Reset all"),4,432,92,delegate
-            {
-                checkEnable.Checked=false;
-                SetGrade(new ColorGrade());
-                RequestRender(true);
-            });
-            var save=AddGradeButton(S("导出 LUT ▾","Export LUT ▾"),104,432,100,null);
-            var menu=new ContextMenuStrip();
-            foreach(int size in new[]{33,65})
-            {
-                int selected=size;
-                menu.Items.Add(size.ToString(CultureInfo.InvariantCulture)+"³ .cube",null,delegate{SaveGradeCube(selected);});
-            }
-            save.Click+=delegate { menu.Show(save,new Point(0,save.Height)); };
+            AddGradeButton(S("重置","Reset"),4,432,92,delegate { ResetColorControls(); RequestRender(true); });
+            AddGradeButton(S("导出 LUT…","Export LUT…"),104,432,100,delegate { SaveGradeCube(33); });
             AddGradeButton(S("导入 .cube…","Import .cube…"),212,432,94,ImportGradeCube);
             AddGradeButton(S("旧版色彩纠正","Legacy correction"),314,432,120,delegate {SwitchAdjustmentPage(false);});
-            FormClosed+=delegate {gradeTips.Dispose();menu.Dispose();};
+            FormClosed+=delegate {gradeTips.Dispose();};
+            BuildStylePanel(parent);
             UpdateReferenceUi();
         }
 
-        private Button AddGradeButton(string caption,int x,int y,int width,Action action)
+        private Button AddGradeButton(string caption,int x,int y,int width,Action action,Control panel=null)
         {
             var button=new ThemeButton {Text=caption,Location=new Point(x,y),Size=new Size(width,30)};
             if(action!=null)button.Click+=delegate {action();};
-            gradePanel.Controls.Add(button);
+            (panel ?? gradePanel).Controls.Add(button);
             return button;
+        }
+
+        private void BuildStylePanel(Control parent)
+        {
+            stylePanel = new Panel { Location = gradePanel.Location, Size = gradePanel.Size, Visible = false };
+            parent.Controls.Add(stylePanel);
+            styleReferenceLabel = new ThemeLabel { Location = new Point(4,8), Size = new Size(425,22), AutoEllipsis = true };
+            stylePanel.Controls.Add(styleReferenceLabel);
+            AddGradeButton(S("参考图片…","Reference…"),4,36,104,delegate { ChooseStyleReference(true); },stylePanel);
+            clearStyleReferenceButton = AddGradeButton(S("清空","Clear"),116,36,85,delegate
+            {
+                if (matchCancellation != null) matchCancellation.Cancel();
+                styleReferenceImage = null;
+                UpdateReferenceUi();
+            },stylePanel);
+            string[] labels = { S("总强度","Intensity"), S("色彩匹配","Color Grade"), S("明暗曲线","Tone Curve") };
+            for (int i = 0; i < styleTracks.Length; i++)
+            {
+                int y = 88 + 75 * i;
+                int defaultValue = i == 0 ? 35 : 100;
+                var label = new ThemeLabel { Text = labels[i], Location = new Point(4,y), Size = new Size(282,24) };
+                var value = new ThemeLabel { Location = new Point(320,y), Size = new Size(102,24), TextAlign = ContentAlignment.MiddleRight };
+                var track = new ThemeTrackBar { AutoSize = false, Minimum = 0, Maximum = 200,
+                    Value = defaultValue, TickStyle = TickStyle.None, LargeChange = 10,
+                    Location = new Point(4,y + 27), Size = new Size(396,29), AccessibleName = labels[i] };
+                styleTracks[i] = track;
+                value.Text = track.Value + "%";
+                track.ValueChanged += delegate
+                {
+                    value.Text = track.Value + "%";
+                    if (updatingGrade || activeStyle == null) return;
+                    activeStyle = activeStyle.WithControls(styleTracks[0].Value,styleTracks[1].Value,styleTracks[2].Value);
+                    RequestRender(false);
+                };
+                var reset = SliderReset(labels[i],420,y + 27,delegate { track.Value = defaultValue; });
+                stylePanel.Controls.AddRange(new Control[] { label,value,track,reset });
+            }
+            AddGradeButton(S("移除风格","Remove style"),4,331,108,delegate
+            {
+                if (matchCancellation != null) matchCancellation.Cancel();
+                activeStyle = null;
+                gradeRevision++;
+                RequestRender(true);
+            },stylePanel);
+            AddGradeButton(S("重置","Reset"),120,331,85,delegate { ResetStyleControls(false); RequestRender(true); },stylePanel);
+            AddGradeButton(S("导出 LUT…","Export LUT…"),213,331,112,
+                delegate { SaveGradeCube(33); },stylePanel);
+        }
+
+        private void ResetStyleControls(bool removeStyle)
+        {
+            updatingGrade = true;
+            try
+            {
+                styleTracks[0].Value = 35;
+                styleTracks[1].Value = 100;
+                styleTracks[2].Value = 100;
+                if (removeStyle) activeStyle = null;
+                else if (activeStyle != null) activeStyle = activeStyle.WithControls(35,100,100);
+            }
+            finally { updatingGrade = false; }
+        }
+
+        private Button SliderReset(string caption, int x, int y, Action resetValue)
+        {
+            var reset = new ThemeButton { Text="↺", Location=new Point(x,y), Size=new Size(26,26),
+                AccessibleName=S("重置 ","Reset ")+caption };
+            gradeTips.SetToolTip(reset,reset.AccessibleName);
+            reset.Click += delegate { resetValue(); };
+            return reset;
+        }
+
+        private void ShowStylePage()
+        {
+            SwitchAdjustmentPage(false);
+            foreach (Control control in colorPageControls) control.Visible = false;
+            colorTabButton.Text = S("色彩纠正","Color correction");
+            styleTabButton.Text = "● " + S("风格迁移","Style Transfer");
+            adjustmentGroup.Text = S("风格迁移","Style Transfer");
+            stylePanel.Visible = true;
         }
 
         private void AddGradeRow(int index,string caption,int y)
@@ -85,14 +161,12 @@ namespace FilmGrainStudioPreview
                 Location=new Point(100,y),Size=new Size(238,26),SmallChange=1,LargeChange=index==0?4:10};
             var number=new ThemeNumericUpDown {DecimalPlaces=index==0?2:0,Increment=step,Minimum=-limit*step,
                 Maximum=limit*step,Location=new Point(344,y),Size=new Size(60,26),TextAlign=HorizontalAlignment.Right};
-            var reset=new ThemeButton {Text="↺",Location=new Point(408,y),Size=new Size(26,26),AccessibleName=S("重置 ","Reset ")+caption};
-            gradeTips.SetToolTip(reset,reset.AccessibleName);
+            var reset=SliderReset(caption,408,y,delegate { ChangeGradeRow(index,0); });
             gradeTips.SetToolTip(track,caption);
             track.AccessibleName=number.AccessibleName=caption;
             gradeTracks[index]=track; gradeNumbers[index]=number;
             track.ValueChanged+=delegate {ChangeGradeRow(index,track.Value);};
             number.ValueChanged+=delegate {ChangeGradeRow(index,(int)Math.Round(number.Value/step,MidpointRounding.AwayFromZero));};
-            reset.Click+=delegate {ChangeGradeRow(index,0);};
             gradePanel.Controls.AddRange(new Control[]{label,track,number,reset});
         }
 
@@ -115,7 +189,7 @@ namespace FilmGrainStudioPreview
 
         private ColorGrade CaptureGrade()
         {
-            var grade=new ColorGrade();
+            var grade=new ColorGrade { Style = activeStyle };
             for(int i=0;i<ColorGrade.Count;i++)grade.Values[i]=gradeTracks[i].Value;
             return grade;
         }
@@ -123,7 +197,17 @@ namespace FilmGrainStudioPreview
         private void SetGrade(ColorGrade grade)
         {
             updatingGrade=true;
-            try {for(int i=0;i<ColorGrade.Count;i++)SetGradeRow(i,grade.Values[i]);}
+            try
+            {
+                activeStyle = grade.Style;
+                if (activeStyle != null)
+                {
+                    styleTracks[0].Value = activeStyle.Intensity;
+                    styleTracks[1].Value = activeStyle.Color;
+                    styleTracks[2].Value = activeStyle.Finish;
+                }
+                for(int i=0;i<ColorGrade.Count;i++)SetGradeRow(i,grade.Values[i]);
+            }
             finally {updatingGrade=false;}
             gradeRevision++;
         }
@@ -142,11 +226,19 @@ namespace FilmGrainStudioPreview
             referenceLabel.Text=available?Path.GetFileName(referenceImage):S("未选择参考图片","No reference image selected");
             gradeTips.SetToolTip(referenceLabel,referenceImage??"");
             matchButton.Text=S("自定义匹配强度","Match strength")+" ("+matchStrength+"%)";
-            if(matchCancellation!=null && available)referenceLabel.Text+=S(" · 匹配中…"," · Matching…");
+            if(matchCancellation!=null && available && !matchingStyle)referenceLabel.Text+=S(" · 匹配中…"," · Matching…");
             clearReferenceButton.Enabled=available;
+            bool styleAvailable = !string.IsNullOrEmpty(styleReferenceImage);
+            styleReferenceLabel.Text = styleAvailable ? Path.GetFileName(styleReferenceImage) : S("未选择参考图片","No reference image selected");
+            if (styleAvailable && matchCancellation != null && matchingStyle)
+                styleReferenceLabel.Text += S(" · 匹配中…"," · Matching…");
+            clearStyleReferenceButton.Enabled = styleAvailable;
+            gradeTips.SetToolTip(styleReferenceLabel,styleReferenceImage ?? "");
         }
 
-        private void ChooseGradeReference()
+        private void ChooseGradeReference() { ChooseStyleReference(false); }
+
+        private void ChooseStyleReference(bool styleTransfer)
         {
             using(var dialog=new OpenFileDialog {
                 Title=S("选择参考图片","Choose reference image"),
@@ -154,8 +246,9 @@ namespace FilmGrainStudioPreview
             {
                 if(dialog.ShowDialog(this)!=DialogResult.OK)return;
                 if(matchCancellation!=null)matchCancellation.Cancel();
-                referenceImage=dialog.FileName;
-                MatchGradeReference();
+                if (styleTransfer) styleReferenceImage = dialog.FileName;
+                else referenceImage = dialog.FileName;
+                MatchGradeReference(styleTransfer);
             }
         }
 
@@ -269,23 +362,24 @@ namespace FilmGrainStudioPreview
             }
         }
 
-        private async void MatchGradeReference()
+        private async void MatchGradeReference(bool styleTransfer = false)
         {
-            if(string.IsNullOrEmpty(referenceImage))return;
+            string image = styleTransfer ? styleReferenceImage : referenceImage;
+            if(string.IsNullOrEmpty(image))return;
             if(matchCancellation!=null)matchCancellation.Cancel();
             int amount=matchStrength;
-            if(amount==0)
+            if(!styleTransfer && amount==0)
             {
                 matchCancellation=null;
                 checkEnable.Checked=false;
-                SetGrade(new ColorGrade());
+                SetGrade(new ColorGrade { Style = activeStyle });
                 UpdateReferenceUi();
                 RequestRender(true);
                 return;
             }
             var cancellation=new CancellationTokenSource();
             matchCancellation=cancellation;
-            string image=referenceImage;
+            matchingStyle = styleTransfer;
             RenderState state=CaptureRenderState();
             int revision=gradeRevision;
             GradeSignal signal=ColorGradeCore.Signal(preserveHdrColor?hdrPreviewInfo:null);
@@ -302,7 +396,9 @@ namespace FilmGrainStudioPreview
                         sourceIdentity.RequireCurrent();
                         var source=ReadGradePixels(videoPath,state.Position,signal,true,working,cancellation.Token);
                         var reference=ReadGradePixels(image,0,GradeSignal.Bt709,false,working,cancellation.Token);
-                        var result=ColorGradeCore.Match(source,reference,signal,ReadGradeBase(state),state.LutStrength,cancellation.Token,amount);
+                        var result = styleTransfer
+                            ? StyleTransferStyle.Match(source,reference,signal,100,cancellation.Token)
+                            : ColorGradeCore.Match(source,reference,signal,ReadGradeBase(state),state.LutStrength,cancellation.Token,amount);
                         sourceIdentity.RequireCurrent();
                         return result;
                     }
@@ -315,6 +411,13 @@ namespace FilmGrainStudioPreview
                     return;
                 }
                 checkEnable.Checked=false;
+                if (styleTransfer)
+                {
+                    var matchedStyle = grade.Style;
+                    grade = CaptureGrade();
+                    grade.Style = matchedStyle.WithControls(styleTracks[0].Value,styleTracks[1].Value,styleTracks[2].Value);
+                }
+                else grade.Style = activeStyle;
                 SetGrade(grade);
                 RequestRender(true);
             }

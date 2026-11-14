@@ -3,6 +3,7 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace FilmGrainStudioPreview
 {
@@ -21,14 +22,18 @@ namespace FilmGrainStudioPreview
         internal const string Neutral = "";
         internal const int Count = 12;
         internal readonly int[] Values = new int[Count];
+        internal StyleTransferStyle Style;
+        internal bool IsActive { get { return HasAdjustments || (Style != null && Style.IsActive); } }
+        internal bool HasAdjustments { get { return Array.Exists(Values, value => value != 0); } }
 
         internal static int Limit(int index)
         { return index == (int)GradeParameter.Exposure ? 60 : index == (int)GradeParameter.Hue ? 180 : 100; }
 
         internal string Serialize()
         {
-            if (Array.TrueForAll(Values, value => value == 0)) return Neutral;
-            return string.Join(",", Array.ConvertAll(Values, value => value.ToString(CultureInfo.InvariantCulture)));
+            if (Style == null && !HasAdjustments) return Neutral;
+            string sliders = string.Join(",", Array.ConvertAll(Values, value => value.ToString(CultureInfo.InvariantCulture)));
+            return Style == null ? sliders : sliders + ",style2," + Style.Serialize();
         }
 
         internal static ColorGrade Parse(string text)
@@ -36,7 +41,12 @@ namespace FilmGrainStudioPreview
             var grade = new ColorGrade();
             if (string.IsNullOrEmpty(text)) return grade;
             string[] parts = text.Split(',');
-            if (parts.Length != Count) throw new InvalidDataException("Invalid color grade parameter count.");
+            if (parts.Length == Count + 9 && parts[Count] == "style2")
+                grade.Style = StyleTransferStyle.Parse(parts, Count + 1, false);
+            else if (parts.Length == Count + 6 && parts[Count] == "style1")
+                grade.Style = StyleTransferStyle.Parse(parts, Count + 1, true);
+            else if (parts.Length != Count)
+                throw new InvalidDataException("Invalid color grade parameter count.");
             for (int i = 0; i < Count; i++)
             {
                 int value;
@@ -62,6 +72,7 @@ namespace FilmGrainStudioPreview
         private readonly double temperature, tint, hueCos, hueSin, vibrance, saturation;
         private readonly bool neutral, color;
         private readonly FilmLutCube baseCube;
+        private readonly StyleTransferStyle style;
         private readonly double strength;
         private readonly double[] sample = new double[3];
 
@@ -87,14 +98,18 @@ namespace FilmGrainStudioPreview
             vibrance = v[10] * 0.01;
             saturation = 1 + v[11] * 0.01;
             color = temperature != 0 || tint != 0 || v[9] != 0 || vibrance != 0 || saturation != 1;
-            neutral = grade.Serialize() == ColorGrade.Neutral;
+            neutral = !grade.HasAdjustments;
+            style = grade.Style;
         }
 
         internal static double Clamp(double value) { return FilmLutCore.Clamp(value); }
         private static double Square(double x) { return x * x; }
 
-        internal GradeRgb Apply(GradeRgb rgb)
+        internal GradeRgb Apply(GradeRgb rgb) { return Apply(rgb, sample); }
+
+        internal GradeRgb Apply(GradeRgb rgb, double[] scratch)
         {
+            if (style != null) rgb = style.Apply(rgb, signal);
             double r = rgb.R, g = rgb.G, b = rgb.B;
             if (!neutral)
             {
@@ -130,10 +145,10 @@ namespace FilmGrainStudioPreview
             }
             if (baseCube != null && strength > 0)
             {
-                baseCube.Sample(r, g, b, sample);
-                r += strength * (sample[0] - r);
-                g += strength * (sample[1] - g);
-                b += strength * (sample[2] - b);
+                baseCube.Sample(r, g, b, scratch);
+                r += strength * (scratch[0] - r);
+                g += strength * (scratch[1] - g);
+                b += strength * (scratch[2] - b);
             }
             return new GradeRgb(Clamp(r), Clamp(g), Clamp(b));
         }
@@ -188,6 +203,37 @@ namespace FilmGrainStudioPreview
 
         private static GradeRgb FromLab(double l, double a, double b, GradeSignal signal)
         {
+            GradeRgb rgb = FromLabLinear(l, a, b, signal);
+            return new GradeRgb(Encode(rgb.R,signal), Encode(rgb.G,signal), Encode(rgb.B,signal));
+        }
+
+        internal static GradeRgb FromLabCompressed(double l, double a, double b, GradeSignal signal)
+        {
+            GradeRgb rgb = FromLabLinear(l, a, b, signal);
+            if (!InGamut(rgb))
+            {
+                double low = 0, high = 1;
+                for (int i = 0; i < 10; i++)
+                {
+                    double middle = (low + high) * 0.5;
+                    if (InGamut(FromLabLinear(l, a * middle, b * middle, signal))) low = middle;
+                    else high = middle;
+                }
+                rgb = FromLabLinear(l, a * low, b * low, signal);
+            }
+            return new GradeRgb(Encode(rgb.R,signal), Encode(rgb.G,signal), Encode(rgb.B,signal));
+        }
+
+        private static bool InGamut(GradeRgb rgb)
+        {
+            const double tolerance = 0.000001;
+            return rgb.R >= -tolerance && rgb.R <= 1 + tolerance &&
+                rgb.G >= -tolerance && rgb.G <= 1 + tolerance &&
+                rgb.B >= -tolerance && rgb.B <= 1 + tolerance;
+        }
+
+        private static GradeRgb FromLabLinear(double l, double a, double b, GradeSignal signal)
+        {
             double x = Cube(l+0.3963377774*a+0.2158037573*b);
             double y = Cube(l-0.1055613458*a-0.0638541728*b);
             double z = Cube(l-0.0894841775*a-1.2914855480*b);
@@ -202,12 +248,158 @@ namespace FilmGrainStudioPreview
                 bl = (0.016391*r+0.088013*g+0.895595*bl)*scale;
                 r = rr; g = gg;
             }
-            return new GradeRgb(Encode(r,signal),Encode(g,signal),Encode(bl,signal));
+            return new GradeRgb(r,g,bl);
         }
 
         internal static double SrgbTo709(double x)
         {
             return Encode(x <= 0.04045 ? x/12.92 : Math.Pow((x+0.055)/1.055,2.4), GradeSignal.Bt709);
+        }
+    }
+
+    internal sealed class StyleTransferStyle
+    {
+        private const double Scale = 10000;
+        private static readonly int[] Limits = { 1200, 2000, 900, 900, 2500 };
+        private readonly int[] values;
+        internal readonly int Intensity, Color, Finish;
+        internal bool IsActive { get { return Intensity > 0 && (Color > 0 || Finish > 0); } }
+
+        private StyleTransferStyle(int[] values, int intensity, int color, int finish)
+        {
+            this.values = values;
+            Intensity = intensity;
+            Color = color;
+            Finish = finish;
+        }
+
+        internal StyleTransferStyle WithControls(int intensity, int color, int finish)
+        { return new StyleTransferStyle(values, intensity, color, finish); }
+
+        internal string Serialize()
+        {
+            var recipe = new int[8];
+            Array.Copy(values, recipe, values.Length);
+            recipe[5] = Intensity;
+            recipe[6] = Color;
+            recipe[7] = Finish;
+            return string.Join(",", Array.ConvertAll(recipe, x => x.ToString(CultureInfo.InvariantCulture)));
+        }
+
+        internal static StyleTransferStyle Parse(string[] parts, int offset, bool legacy)
+        {
+            var amounts = new int[Limits.Length];
+            for (int i = 0; i < amounts.Length; i++)
+            {
+                if (!int.TryParse(parts[offset + i], NumberStyles.Integer, CultureInfo.InvariantCulture, out amounts[i]) ||
+                    amounts[i] < -Limits[i] || amounts[i] > Limits[i])
+                    throw new InvalidDataException("Invalid style transfer recipe.");
+            }
+            if (legacy) return new StyleTransferStyle(amounts, 100, 100, 100);
+            var controls = new int[3];
+            for (int i = 0; i < controls.Length; i++)
+            {
+                if (!int.TryParse(parts[offset + amounts.Length + i], NumberStyles.Integer, CultureInfo.InvariantCulture, out controls[i]) ||
+                    controls[i] < 0 || controls[i] > 200)
+                    throw new InvalidDataException("Invalid style transfer strength.");
+            }
+            return new StyleTransferStyle(amounts, controls[0], controls[1], controls[2]);
+        }
+
+        internal static ColorGrade Match(GradeRgb[] source, GradeRgb[] reference, GradeSignal signal,
+            int strength, CancellationToken cancel)
+        {
+            if (source.Length < 16 || reference.Length < 16)
+                throw new InvalidDataException("Too few image samples.");
+            if (strength < 0 || strength > 100) throw new ArgumentOutOfRangeException("strength");
+            var from = new Palette(source, signal, cancel);
+            var to = new Palette(reference, GradeSignal.Bt709, cancel);
+
+            // Compare relative brightness for HDR. The source highlight level anchors
+            // the transfer, so an SDR reference cannot set an HDR peak level.
+            double referenceScale = signal == GradeSignal.Bt709 ? 1 :
+                Math.Max(0.01, from.High) / Math.Max(0.01, to.High);
+            double lift = to.Middle * referenceScale - from.Middle;
+            double spread = Math.Max(0.07, from.High - from.Low);
+            double contrast = ((to.High - to.Low) * referenceScale / spread - 1) * 0.4;
+            double saturation = (to.Chroma / Math.Max(0.025, from.Chroma) - 1) * 0.45;
+            double[] changes = { lift, contrast, (to.A - from.A) * 0.65, (to.B - from.B) * 0.65, saturation };
+            var amounts = new int[changes.Length];
+            for (int i = 0; i < amounts.Length; i++)
+            {
+                double bounded = Math.Max(-Limits[i], Math.Min(Limits[i], changes[i] * Scale));
+                amounts[i] = (int)Math.Round(bounded);
+            }
+            return new ColorGrade {
+                Style = new StyleTransferStyle(amounts, strength, 100, 100)
+            };
+        }
+
+        internal GradeRgb Apply(GradeRgb input, GradeSignal signal)
+        {
+            if (!IsActive) return input;
+            double l, a, b;
+            ColorGradeTransform.ToLab(input, signal, out l, out a, out b);
+            double maximum = LightnessMaximum(signal);
+            double t = ColorGradeTransform.Clamp(l / maximum);
+            double envelope = 4 * t * (1 - t);
+            double overall = Intensity / 100.0;
+            double tonal = Math.Min(2, overall * Finish / 100);
+            double color = overall * Color / 100;
+            double adjusted = t + tonal * envelope * (values[0] + values[1] * (t - 0.5)) / Scale;
+            double saturation = 1 + color * values[4] / Scale;
+
+            // Transfer a restrained tint even to neutral input, while tapering
+            // it toward signal black and white.
+            double tintWeight = l * envelope * color;
+            return ColorGradeTransform.FromLabCompressed(adjusted * maximum,
+                a * saturation + tintWeight * values[2] / Scale,
+                b * saturation + tintWeight * values[3] / Scale, signal);
+        }
+
+        private static double LightnessMaximum(GradeSignal signal)
+        { return signal == GradeSignal.Pq ? 4.641588833612779 : 1; }
+
+        private sealed class Palette
+        {
+            internal readonly double Low, Middle, High, A, B, Chroma;
+
+            internal Palette(GradeRgb[] pixels, GradeSignal signal, CancellationToken cancel)
+            {
+                var lightness = new double[pixels.Length];
+                var aAxis = new double[pixels.Length];
+                var bAxis = new double[pixels.Length];
+                var chroma = new double[pixels.Length];
+                double maximum = LightnessMaximum(signal);
+                for (int i = 0; i < pixels.Length; i++)
+                {
+                    cancel.ThrowIfCancellationRequested();
+                    double l, a, b;
+                    ColorGradeTransform.ToLab(pixels[i], signal, out l, out a, out b);
+                    lightness[i] = l / maximum;
+                    double denominator = Math.Max(l, 0.04);
+                    aAxis[i] = a / denominator;
+                    bAxis[i] = b / denominator;
+                    chroma[i] = Math.Sqrt(aAxis[i] * aAxis[i] + bAxis[i] * bAxis[i]);
+                }
+                Array.Sort(lightness);
+                Array.Sort(aAxis);
+                Array.Sort(bAxis);
+                Array.Sort(chroma);
+                Low = Quantile(lightness, 0.10);
+                Middle = Quantile(lightness, 0.50);
+                High = Quantile(lightness, 0.90);
+                A = Quantile(aAxis, 0.50);
+                B = Quantile(bAxis, 0.50);
+                Chroma = Quantile(chroma, 0.70);
+            }
+
+            private static double Quantile(double[] sorted, double fraction)
+            {
+                double index = fraction * (sorted.Length - 1);
+                int lower = (int)index;
+                return sorted[lower] + (index - lower) * (sorted[lower + 1] - sorted[lower]);
+            }
         }
     }
 
@@ -239,7 +431,7 @@ namespace FilmGrainStudioPreview
                 signal == GradeSignal.Hlg ? "BT.2020 HLG" : "SDR BT.709";
         }
 
-        internal static void WriteCube(string path, int size, GradeSignal signal, ColorGradeTransform transform)
+        internal static void WriteCube(string path, int size, GradeSignal signal, ColorGradeTransform transform, bool interactive = false)
         {
             if (size != 33 && size != 65) throw new ArgumentOutOfRangeException("size");
             string temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
@@ -252,13 +444,35 @@ namespace FilmGrainStudioPreview
                     writer.WriteLine("TITLE \"FGS Color Grade - " + name + "\"");
                     writer.WriteLine("LUT_3D_SIZE " + size.ToString(CultureInfo.InvariantCulture));
                     double step = 1.0 / (size-1);
-                    for (int b = 0; b < size; b++)
-                        for (int g = 0; g < size; g++)
-                            for (int r = 0; r < size; r++)
-                            {
-                                GradeRgb result = transform.Apply(new GradeRgb(r*step,g*step,b*step));
-                                writer.WriteLine(string.Format(CultureInfo.InvariantCulture, "{0:F7} {1:F7} {2:F7}", result.R,result.G,result.B));
-                            }
+                    if (interactive)
+                    {
+                        var slices = new string[size];
+                        var options = new ParallelOptions { MaxDegreeOfParallelism = Math.Min(4, Environment.ProcessorCount) };
+                        Parallel.For(0,size,options,b =>
+                        {
+                            var lines = new StringBuilder(size * size * 30);
+                            var scratch = new double[3];
+                            for (int g = 0; g < size; g++)
+                                for (int r = 0; r < size; r++)
+                                {
+                                    var result = transform.Apply(new GradeRgb(r*step,g*step,b*step),scratch);
+                                    lines.AppendFormat(CultureInfo.InvariantCulture,"{0:F7} {1:F7} {2:F7}",result.R,result.G,result.B);
+                                    lines.AppendLine();
+                                }
+                            slices[b] = lines.ToString();
+                        });
+                        foreach (string slice in slices) writer.Write(slice);
+                    }
+                    else
+                    {
+                        for (int b = 0; b < size; b++)
+                            for (int g = 0; g < size; g++)
+                                for (int r = 0; r < size; r++)
+                                {
+                                    GradeRgb result = transform.Apply(new GradeRgb(r*step,g*step,b*step));
+                                    writer.WriteLine(string.Format(CultureInfo.InvariantCulture, "{0:F7} {1:F7} {2:F7}", result.R,result.G,result.B));
+                                }
+                    }
                 }
                 if (File.Exists(path)) File.Replace(temporary,path,null);
                 else File.Move(temporary,path);

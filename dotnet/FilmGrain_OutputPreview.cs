@@ -11,6 +11,8 @@ using System.Windows.Forms;
 
 namespace FilmGrainStudioPreview
 {
+    internal enum OutputPreviewStage { Preparing, Live, AfterMux }
+
     internal sealed class OutputPreviewSample
     {
         internal readonly string Input, Output;
@@ -58,7 +60,7 @@ namespace FilmGrainStudioPreview
             canvas=new OutputComparisonCanvas(T("原片","ORIGINAL"),T("输出","FINAL")) {Dock=DockStyle.Fill};
             var footer=new Panel {Dock=DockStyle.Bottom,Height=40,Padding=new Padding(10,5,10,5)};
             status=new ThemeLabel {Dock=DockStyle.Fill,TextAlign=ContentAlignment.MiddleLeft,AutoEllipsis=true};
-            mode=new ThemeButton {Dock=DockStyle.Right,Width=120,Text="Side by Side"};
+            mode=new ThemeButton {Dock=DockStyle.Right,Width=120,Text=T("左右并排","Side by Side")};
             mode.Click+=delegate {ToggleMode();};
             footer.Controls.Add(status);footer.Controls.Add(mode);
             Controls.Add(canvas);Controls.Add(footer);
@@ -77,7 +79,7 @@ namespace FilmGrainStudioPreview
         private void ToggleMode()
         {
             canvas.SideBySide=!canvas.SideBySide;
-            mode.Text=canvas.SideBySide?"Slider":"Side by Side";
+            mode.Text=canvas.SideBySide?T("滑动对照","Slider"):T("左右并排","Side by Side");
             canvas.Invalidate();
         }
 
@@ -103,7 +105,12 @@ namespace FilmGrainStudioPreview
             var sample=request.PreviewSample;
             if(sample==null)
             {
-                status.Text=Path.GetFileName(task.ExecutionRequest.InputFiles[0])+"  ·  "+T("等待可读取的输出帧","Waiting for a readable output frame");
+                string waiting = request.PreviewStage == OutputPreviewStage.AfterMux
+                    ? T("此 MP4 任务将在封装完成后显示","This MP4 will be shown after muxing")
+                    : request.PreviewStage == OutputPreviewStage.Live
+                        ? T("等待首帧可读","Waiting for the first readable frame")
+                        : T("等待最终输出阶段","Waiting for the final output stage");
+                status.Text=Path.GetFileName(request.InputFiles[0])+"  ·  "+waiting;
                 return;
             }
             if(active!=null || sample==lastSample)return;
@@ -165,7 +172,7 @@ namespace FilmGrainStudioPreview
         {
             var json=new StringBuilder();
             int rc=NativeLibraryTools.RunProcessEnvironment(ffprobe,new[]{"-v","quiet","-select_streams","v:0",
-                "-show_entries","stream=index,codec_type,codec_name,width,height,pix_fmt,color_range,color_space,color_transfer,color_primaries:format=format_name",
+                "-show_entries","stream=index,codec_type,codec_name,width,height,pix_fmt,field_order,color_range,color_space,color_transfer,color_primaries:format=format_name",
                 "-of","json",path},dir,null,7000,cancel,line=>{lock(json)json.AppendLine(line);});
             if(rc!=0)throw new IOException("No readable video header.");
             var media=MediaProbeInfo.Parse(path,json.ToString());
@@ -178,7 +185,10 @@ namespace FilmGrainStudioPreview
             // Apply the same SDR display transform to PQ/HLG on either side. Use
             // the stream tags of each actual file, so an SDR encode is never tone mapped again.
             string filter=media.IsHdr?HdrColorProcessingCore.DisplayToSdr(media,"hable")+",":"";
-            return filter+"scale=1280:720:force_original_aspect_ratio=decrease:force_divisible_by=2:flags=bicubic:out_range=full,setsar=1,format=rgb24";
+            string deinterlace = media.IsInterlaced
+                ? SharedHdrPreprocessCore.ResolveDeinterlaceParity("bwdif=mode=send_frame:parity=auto:deint=all,",media)
+                : "";
+            return deinterlace+filter+"scale=1280:720:force_original_aspect_ratio=decrease:force_divisible_by=2:flags=bicubic:out_range=full,setsar=1,format=rgb24";
         }
 
         private double ReadFrame(string path,MediaProbeInfo media,double seconds,string destination,string dir,CancellationToken cancel)

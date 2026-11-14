@@ -235,7 +235,9 @@ namespace FilmGrainStudioPreview
                     if(mode!="AV1BAKE")
                     {
                         string recipe;
-                        if(state.TryGetValue(ColorGrade.StateKey,out recipe)&&!string.IsNullOrEmpty(recipe))
+                        state.TryGetValue(ColorGrade.StateKey,out recipe);
+                        var grade = ColorGrade.Parse(recipe);
+                        if(grade.IsActive)
                         {
                             string originalLut, strengthText;
                             state.TryGetValue("FG_LUT_PATH",out originalLut);
@@ -245,7 +247,7 @@ namespace FilmGrainStudioPreview
                             bool toSdr = mode=="SVT" || mode=="X265" || mode=="X264"
                                 ? SharedGrainCore.CpuHdrToSdr(info,state) : HdrColorProcessingCore.NvencToSdr(info,state);
                             var signal = ColorGradeCore.Signal(toSdr ? null : info);
-                            var transform = ColorGradeCore.Compose(ColorGrade.Parse(recipe),signal,originalLut,percent);
+                            var transform = ColorGradeCore.Compose(grade,signal,originalLut,percent);
                             gradeCube = Path.Combine(Path.GetTempPath(),"FGS_grade_"+Guid.NewGuid().ToString("N")+".cube");
                             ColorGradeCore.WriteCube(gradeCube,33,signal,transform);
                             state = new Dictionary<string,string>(state,StringComparer.OrdinalIgnoreCase);

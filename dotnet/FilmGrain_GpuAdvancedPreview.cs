@@ -85,9 +85,9 @@ namespace FilmGrainStudioPreview
             bool supportedColor = media.IsHdr
                 ? media.ColorPrimaries=="bt2020" && media.ColorSpace=="bt2020nc"
                 : !fullRange && (string.IsNullOrEmpty(media.ColorSpace) || media.ColorSpace=="bt709");
-            if ((media.IsInterlaced && !media.IsHdr) || !supportedColor) {
-                FgsMessageBox.Show(this,UiText("GPU 预览支持逐行 BT.709 SDR（有限范围），以及逐行或隔行 BT.2020 PQ／HLG。",
-                    "GPU preview supports progressive limited-range BT.709 SDR and progressive or interlaced BT.2020 PQ/HLG."));return;
+            if (!supportedColor) {
+                FgsMessageBox.Show(this,UiText("GPU 预览支持有限范围 BT.709 SDR 和 BT.2020 PQ／HLG，均可预览逐行或隔行素材。",
+                    "GPU preview supports limited-range BT.709 SDR and BT.2020 PQ/HLG, progressive or interlaced."));return;
             }
             if (media.Width < 2 || media.Height < 2) {
                 FgsMessageBox.Show(this,UiText("视频分辨率无效。","Invalid video dimensions."));return;
@@ -132,7 +132,7 @@ namespace FilmGrainStudioPreview
             }
             bool hasLut = !string.IsNullOrEmpty(selectedLutPath) && File.Exists(selectedLutPath);
             string gradeRecipe=config.Get(ColorGrade.ConfigKey);
-            bool hasGrade=!string.IsNullOrEmpty(gradeRecipe);
+            bool hasGrade=ReadStudioGrade().IsActive;
             if (!hasGrain && !hasLut && !hasGrade && !media.IsHdr) {
                 FgsMessageBox.Show(this,UiText("请选择 AV1 胶片预设／颗粒表、扫描颗粒、Digital Grain、FGSIM 或 3D LUT。",
                     "Select an AV1 preset/table, Grain Plate, Digital Grain, FGSIM or a 3D LUT."));return;
@@ -289,6 +289,8 @@ namespace FilmGrainStudioPreview
                     args.AddRange(new[]{"--result",result,"--grain",initialGrain.ToString(CultureInfo.InvariantCulture),
                         "--lut",(hasGrade?100:initialLut).ToString(CultureInfo.InvariantCulture),"--grain-on",hasGrain && grainInitiallyEnabled?"1":"0",
                         "--lut-on",hasGrade||initialLutOn?"1":"0"});
+                    if (hasGrade) args.AddRange(new[]{"--combined-grade","1"});
+                    if (lang.Code!="zh-CN") args.AddRange(new[]{"--hint-en","1"});
                     if (newPixelMode) args.AddRange(new[]{"--pixel-mode",pixelMode});
                     if (fgsimMode) args.AddRange(new[]{"--fgsim-noise",fgsimNoise,"--fgsim-shader",fgsimShader});
                     if (digitalMode) args.AddRange(new[]{"--digital-noise",Path.Combine(temporary,"digital.yuv"),"--noise-ffmpeg",ffmpeg});

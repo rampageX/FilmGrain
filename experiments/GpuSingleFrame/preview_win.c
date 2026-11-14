@@ -37,6 +37,8 @@ static pl_tex s_plate_textures[3];
 static struct pl_frame s_image;
 static enum pl_color_transfer s_hdr_transfer;
 static bool s_source_full, s_hdr_display;
+static bool s_combined_grade, s_hint_en;
+#define HINT_WIDTH 275
 static const wchar_t *s_deinterlace = L"";
 static FgsGrainModel s_original;
 static int s_strength = 100, s_width, s_height;
@@ -574,7 +576,7 @@ static bool upload_pixel_noise(const unsigned char *raw, bool rgba)
 static void track_bounds(RECT *client, int *left, int *right, int *top)
 {
     *left = 144;
-    *right = client->right - 190;
+    *right = client->right - HINT_WIDTH - 165;
     if (*right < *left+24) *right = *left+24;
     *top = client->bottom-PANEL_HEIGHT;
 }
@@ -621,7 +623,7 @@ static void draw_slider(HDC dc, RECT *client, int y, const wchar_t *name,
     wchar_t value[32];
     swprintf(value, 32, L"%d%%", percent);
     SetTextColor(dc, RGB(229,240,232));
-    RECT amount = {right+17, y-15, client->right-12, y+15};
+    RECT amount = {right+17, y-15, client->right-HINT_WIDTH-12, y+15};
     DrawTextW(dc, label_value ? label_value : value, -1, &amount, DT_LEFT|DT_VCENTER|DT_SINGLELINE);
 }
 
@@ -644,7 +646,7 @@ static void paint_sliders(HWND window)
     draw_slider(dc,&client,y,s_fgsim_mode?L"FGSIM 档位":L"颗粒强度",
                 s_display_grain?grain_position:0,s_has_grain,
                 (s_fgsim_mode || s_digital_mode) && !s_display_grain?L"关闭 · G":value);
-    draw_slider(dc, &client, y+45, L"LUT 强度",
+    draw_slider(dc, &client, y+45, s_combined_grade ? L"LUT 强度 *" : L"LUT 强度",
                 s_lut_source && s_lut_enabled ? s_lut_strength : 0,
                 s_lut_source != NULL,NULL);
     if (s_video_path) {
@@ -670,7 +672,7 @@ static void paint_sliders(HWND window)
         SelectObject(dc,old_pen);SelectObject(dc,old_brush);DeleteObject(green);
         wchar_t duration[80];
         swprintf(duration,80,L"%.1f / %.1f s",s_pending_seconds,s_duration_seconds);
-        RECT amount={right+12,frame_y-15,client.right-10,frame_y+15};
+        RECT amount={right+12,frame_y-15,client.right-HINT_WIDTH-12,frame_y+15};
         SetTextColor(dc,RGB(229,240,232));
         DrawTextW(dc,duration,-1,&amount,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
     }
@@ -691,12 +693,26 @@ static void paint_sliders(HWND window)
         DrawTextW(dc,L"正在抽取所选视频帧…",-1,&loading,
                   DT_LEFT|DT_VCENTER|DT_SINGLELINE);
     }
-    RECT hint={hint_left,client.bottom-38,client.right-256,client.bottom-7};
-    if (!s_frame_loading) {
-        SetTextColor(dc,RGB(142,165,152));
-        DrawTextW(dc,s_pixel_view?L"双击画面：适应窗口  |  拖动：平移 1:1":L"双击画面：1:1 原始像素",
-                  -1,&hint,DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS);
+    RECT info = {client.right-HINT_WIDTH, panel.top+11, client.right-14, panel.top+142};
+    HBRUSH info_brush = CreateSolidBrush(RGB(33,41,37));
+    FillRect(dc,&info,info_brush);
+    DeleteObject(info_brush);
+    InflateRect(&info,-11,-9);
+    if (s_combined_grade) {
+        SetTextColor(dc,RGB(255,191,105));
+        const wchar_t *notice = s_hint_en
+            ? L"* Combined grade: LUT controls are preview-only. Apply saves grain settings."
+            : L"* 合成调色：LUT 强度与开关仅供预览。应用时回传颗粒设置。";
+        RECT notice_rect = info;
+        DrawTextW(dc,notice,-1,&notice_rect,DT_WORDBREAK|DT_CALCRECT|DT_NOPREFIX);
+        DrawTextW(dc,notice,-1,&info,DT_WORDBREAK|DT_NOPREFIX);
+        info.top = notice_rect.bottom+8;
     }
+    SetTextColor(dc,RGB(181,200,189));
+    const wchar_t *hint_text = s_hint_en
+        ? (s_pixel_view ? L"Double-click: fit  |  Drag: pan 1:1" : L"Double-click: 1:1 preview")
+        : (s_pixel_view ? L"双击：适应窗口  |  拖动：平移 1:1" : L"双击画面：切换 1:1 预览");
+    DrawTextW(dc,hint_text,-1,&info,DT_WORDBREAK|DT_NOPREFIX);
     if (s_result_path) {
         RECT apply = {client.right-244, client.bottom-38, client.right-134, client.bottom-7};
         RECT cancel = {client.right-123, client.bottom-38, client.right-13, client.bottom-7};
@@ -1399,6 +1415,8 @@ int wmain(int argc, wchar_t **argv)
         if (next + 1 >= argc) return 2;
         const wchar_t *key = argv[next], *value = argv[next+1];
         if (!wcscmp(key, L"--result")) s_result_path = value;
+        else if (!wcscmp(key, L"--combined-grade")) {if (!int_arg(value, 0, 1, &flag)) return 2;s_combined_grade = flag != 0;}
+        else if (!wcscmp(key, L"--hint-en")) {if (!int_arg(value, 0, 1, &flag)) return 2;s_hint_en = flag != 0;}
         else if (!wcscmp(key, L"--grain")) {if (!int_arg(value, 0, 100, &s_strength)) return 2;}
         else if (!wcscmp(key, L"--lut")) {if (!int_arg(value, 0, 100, &s_lut_strength)) return 2;}
         else if (!wcscmp(key, L"--grain-on")) {if (!int_arg(value, 0, 1, &flag)) return 2;grain_on = flag != 0;}

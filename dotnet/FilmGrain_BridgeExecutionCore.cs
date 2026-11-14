@@ -82,6 +82,8 @@ namespace FilmGrainStudioPreview
     internal sealed class BridgeExecutionRequest
     {
         internal volatile OutputPreviewSample PreviewSample;
+        internal volatile OutputPreviewStage PreviewStage;
+        internal bool SkipPreviewSpool;
         internal volatile BridgeExecutionResult PreviewResult;
         internal BridgeExecutionRequest PreviewOwner;
         internal string PreviewOriginal;
@@ -373,6 +375,7 @@ namespace FilmGrainStudioPreview
                     if (next == null) throw new InvalidOperationException("Preview preparation returned no request");
                     request = next;
                     request.PreviewOwner=previewOwners[0];
+                    request.SkipPreviewSpool=request.PreviewOwner.SkipPreviewSpool;
                     NativeProcessPolicy.ValidateRequest(request);
                     lock (sync) { activeRequest = request; }
                     ResetProgressState(request.ProgressDurationSeconds);
@@ -855,6 +858,8 @@ namespace FilmGrainStudioPreview
         private string PreparePreviewOutput(BridgeExecutionRequest request,string tool,string command)
         {
             lock(progressSync)previewStageOutput=null;
+            var owner = request.PreviewOwner ?? request;
+            owner.PreviewStage = OutputPreviewStage.Preparing;
             if(string.IsNullOrEmpty(command) || !Path.GetFileName(tool).Equals("ffmpeg.exe",StringComparison.OrdinalIgnoreCase))
                 return command;
             var args=HardwareDecodeCore.SplitArguments(command);
@@ -867,10 +872,14 @@ namespace FilmGrainStudioPreview
             if(string.Equals(Path.GetExtension(output),".mkv",StringComparison.OrdinalIgnoreCase))
             {
                 lock(progressSync)previewStageOutput=output;
+                owner.PreviewStage = OutputPreviewStage.Live;
                 return command;
             }
             if(!string.Equals(Path.GetExtension(output),".mp4",StringComparison.OrdinalIgnoreCase))
                 return command;
+
+            owner.PreviewStage = OutputPreviewStage.AfterMux;
+            if (request.SkipPreviewSpool) return command;
 
             // Tee requires explicit maps. Only wrap the ordinary MP4 routes
             // with the known faststart mux option and no alternate output format.
@@ -896,6 +905,7 @@ namespace FilmGrainStudioPreview
                     "[f=mp4:movflags=+faststart]"+QuoteTeePath(output)+
                     "|[f=matroska:select=v:onfail=ignore:cluster_time_limit=500:flush_packets=1]"+QuoteTeePath(spool)});
                 lock(progressSync)previewStageOutput=spool;
+                owner.PreviewStage = OutputPreviewStage.Live;
                 return SharedFrucCore.JoinArguments(args);
             }
             catch(IOException ex){RaiseLog(BridgeLogStream.System,"[Output preview] "+ex.Message);}

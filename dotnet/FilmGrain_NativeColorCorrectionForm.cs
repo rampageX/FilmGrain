@@ -176,7 +176,7 @@ namespace FilmGrainStudioPreview
         private double duration = 1.0;
         private double fps = 24.0;
         private int sourceWidth,sourceHeight;
-        private int timelineValue = 1000;
+        private int timelineValue;
         private bool timelineDragging;
         private long timelineLastClickTicks;
         private int timelineLastClickX = -1000;
@@ -203,6 +203,9 @@ namespace FilmGrainStudioPreview
         private string lutSource;
         private string activeCompatLutPath = "";
         private int lutVersion;
+        // The preview worker is serialized. Keep one LUT for the current settings
+        // across frame seeks, original comparisons and zoom changes.
+        private string previewGradeKey, previewGradeCube;
         private bool? gradeGpuSupported;
         private int lutStrength;
 
@@ -261,7 +264,8 @@ namespace FilmGrainStudioPreview
                 SetFilmEnabled(useLut);
                 if(string.IsNullOrEmpty(grade))SwitchAdjustmentPage(true);
             }
-            if(!string.IsNullOrEmpty(grade)||(!enabled&&initialFilmSettings==null)) ShowGradePage();
+            if(activeStyle != null) ShowStylePage();
+            else if(!string.IsNullOrEmpty(grade)||(!enabled&&initialFilmSettings==null)) ShowGradePage();
             if(hdrPreviewInfo!=null)Text+=S(" · SDR显示预览（非HDR亮度校准）"," · SDR display preview (not HDR luminance calibration)");
         }
 
@@ -292,8 +296,11 @@ namespace FilmGrainStudioPreview
 
         private void ProbeVideo()
         {
-            duration = ProbeDouble("-v error -show_entries format=duration -of default=nw=1:nk=1 " + QuoteArg(videoPath), 1.0);
-            if (duration <= 0) duration = 1.0;
+            double probedDuration = ProbeDouble("-v error -show_entries format=duration -of default=nw=1:nk=1 " + QuoteArg(videoPath), 0.0);
+            double initialSeconds = NativeGrainPreviewForm.ChooseInitialSeconds(probedDuration,
+                new Random(Guid.NewGuid().GetHashCode()).NextDouble());
+            duration = probedDuration > 0 && !double.IsInfinity(probedDuration) ? probedDuration : 1.0;
+            timelineValue = (int)Math.Round(10000.0 * initialSeconds / duration);
 
             string[] dimensions=ProbeText("-v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 " + QuoteArg(videoPath)).Split('x');
             if(dimensions.Length==2)
@@ -442,7 +449,9 @@ namespace FilmGrainStudioPreview
 
             colorTabButton=new ThemeButton{Text=S("色彩纠正","Color correction"),Location=new Point(rightX,14),Size=new Size(135,29)};
             filmTabButton=new ThemeButton{Text=S("经典胶片","Classic film"),Location=new Point(rightX+143,14),Size=new Size(135,29)};
-            Controls.Add(colorTabButton);Controls.Add(filmTabButton);
+            styleTabButton=new ThemeButton{Text=S("风格迁移","Style Transfer"),Location=new Point(rightX+286,14),Size=new Size(135,29)};
+            Controls.Add(colorTabButton);Controls.Add(filmTabButton);Controls.Add(styleTabButton);
+            styleTabButton.Click+=delegate {ShowStylePage();};
             colorTabButton.Click+=delegate{ShowGradePage();};
             filmTabButton.Click+=delegate {SwitchAdjustmentPage(true);};
 
@@ -493,23 +502,12 @@ namespace FilmGrainStudioPreview
             group.Controls.Add(checkBlackWhite);
 
             Button reset = new ThemeButton();
-            reset.Text = S("恢复默认", "Reset");
+            reset.Text = S("重置", "Reset");
             reset.Location = new Point(18, 401);
             reset.Size = new Size(100, 28);
             reset.Click += delegate
             {
-                syncing = true;
-                try
-                {
-                    checkEnable.Checked = false;
-                    checkBlackWhite.Checked = false;
-                    foreach (AdjustmentControl item in adjustments.Values)
-                    {
-                        item.Number.Value = item.DefaultValue;
-                        item.Track.Value = Math.Max(item.Track.Minimum, Math.Min(item.Track.Maximum, (int)Math.Round((double)item.DefaultValue * 100.0)));
-                    }
-                }
-                finally { syncing = false; }
+                ResetColorControls();
                 RequestRender(true);
             };
             group.Controls.Add(reset);
@@ -522,7 +520,7 @@ namespace FilmGrainStudioPreview
             // Shared with both adjustment pages; keyboard and mouse holds combine.
             originalButton = new ThemeButton();
             originalButton.Text = S("按住查看原图（空格）", "Hold for original (Space)");
-            originalButton.Location = new Point(rightX+(adjustmentWidth-190)/2, group.Bottom+8);
+            originalButton.Location = new Point(rightX+(adjustmentWidth-300)/2, group.Bottom+8);
             originalButton.Size = new Size(190, 32);
             originalButton.MouseDown += delegate(object sender, MouseEventArgs e)
             { if(e.Button==MouseButtons.Left){mouseOriginalHeld=true;UpdateOriginalHold();} };
@@ -533,6 +531,10 @@ namespace FilmGrainStudioPreview
             originalButton.MouseCaptureChanged += delegate
             { if(Control.MouseButtons!=MouseButtons.Left){mouseOriginalHeld=false;UpdateOriginalHold();} };
             Controls.Add(originalButton);
+            var resetAll = new ThemeButton { Text=S("全部重置","Reset all"),
+                Location=new Point(originalButton.Right+8,originalButton.Top), Size=new Size(102,32) };
+            resetAll.Click += delegate { ResetWorkshop(); };
+            Controls.Add(resetAll);
 
             openLutGallery = new ThemeButton();
             openLutGallery.Text = S("打开 LUT 图库…", "Open LUT Gallery…");
@@ -583,15 +585,17 @@ namespace FilmGrainStudioPreview
             lutStrengthTrack.AutoSize = false;
             lutStrengthTrack.TickStyle = TickStyle.None;
             lutStrengthTrack.Location = new Point(strengthLabelWidth+14, strengthY+2);
-            lutStrengthTrack.Size = new Size(previewWidth-strengthLabelWidth-86, 28);
-            lutStrengthTrack.ValueChanged += delegate { UpdateLutUi(); RequestRender(false); };
+            lutStrengthTrack.Size = new Size(previewWidth-strengthLabelWidth-116, 28);
+            lutStrengthTrack.ValueChanged += delegate { if(!syncing && !filmUiSync) { UpdateLutUi(); RequestRender(false); } };
             Controls.Add(lutStrengthTrack);
 
             lutStrengthLabel = new ThemeLabel();
-            lutStrengthLabel.Location = new Point(previewWidth - 56, strengthY+2);
-            lutStrengthLabel.Size = new Size(68, 27);
+            lutStrengthLabel.Location = new Point(previewWidth - 81, strengthY+2);
+            lutStrengthLabel.Size = new Size(62, 27);
             lutStrengthLabel.TextAlign = ContentAlignment.MiddleCenter;
             Controls.Add(lutStrengthLabel);
+            Controls.Add(SliderReset(S("LUT 强度","LUT strength"),lutStrengthLabel.Right+4,strengthY+2,
+                delegate { lutStrengthTrack.Value=100; }));
 
             status = new ThemeLabel();
             status.Location = new Point(14, dialogHeight-35);
@@ -608,8 +612,7 @@ namespace FilmGrainStudioPreview
             ok.Size = new Size(96, 32);
             ok.Click += async delegate
             {
-                if((checkEnable.Checked || CaptureGrade().Serialize()!=ColorGrade.Neutral) &&
-                    (!checkLut.Checked || lutStrength==0))
+                if(checkEnable.Checked || CaptureGrade().IsActive)
                 {
                     ok.Enabled=false;
                     try
@@ -696,6 +699,51 @@ namespace FilmGrainStudioPreview
             };
         }
 
+        private void ResetColorControls()
+        {
+            if (matchCancellation != null && !matchingStyle) matchCancellation.Cancel();
+            syncing = true;
+            try
+            {
+                checkEnable.Checked = false;
+                checkBlackWhite.Checked = false;
+                foreach (AdjustmentControl item in adjustments.Values)
+                {
+                    item.Number.Value = item.DefaultValue;
+                    item.Track.Value = Math.Max(item.Track.Minimum, Math.Min(item.Track.Maximum, (int)(item.DefaultValue * 100)));
+                }
+            }
+            finally { syncing = false; }
+            matchStrength = 35;
+            SetGrade(new ColorGrade { Style = activeStyle });
+            UpdateReferenceUi();
+        }
+
+        private void ResetWorkshop()
+        {
+            if (matchCancellation != null) matchCancellation.Cancel();
+            referenceImage = styleReferenceImage = null;
+            ResetStyleControls(true);
+            ResetColorControls();
+            filmUiSync = true;
+            syncing = true;
+            try
+            {
+                if (filmModeActive || lutSource == "FilmLut") checkLut.Checked = false;
+                if (lutSource == "FilmLut") { PrepareLut(""); lutSource = "None"; }
+                filmModeActive = false;
+                checkFilm.Checked = false;
+                filmStock.SelectedIndex = 1;
+                filmTracks[0].Value = filmTracks[1].Value = 0;
+                filmTracks[2].Value = 100;
+                lutStrengthTrack.Value = 100;
+            }
+            finally { filmUiSync = syncing = false; }
+            UpdateFilmLabels();
+            UpdateLutUi();
+            RequestRender(true);
+        }
+
         private void AddAdjustment(Control parent, string key, string caption, int min, int max, double value, double defaultValue, int y)
         {
             Label label = new ThemeLabel();
@@ -753,27 +801,7 @@ namespace FilmGrainStudioPreview
                 RequestRender(false);
             };
 
-            long lastDown = 0;
-            int lastX = -1000;
-            int lastY = -1000;
-            track.MouseDown += delegate(object sender, MouseEventArgs e)
-            {
-                if (e.Button != MouseButtons.Left) return;
-                long now = DateTime.UtcNow.Ticks;
-                int elapsed = lastDown == 0 ? int.MaxValue : (int)((now - lastDown) / TimeSpan.TicksPerMillisecond);
-                bool near = Math.Abs(e.X - lastX) <= SystemInformation.DoubleClickSize.Width && Math.Abs(e.Y - lastY) <= SystemInformation.DoubleClickSize.Height;
-                if (elapsed <= SystemInformation.DoubleClickTime && near)
-                {
-                    lastDown = 0;
-                    BeginInvoke((MethodInvoker)delegate { number.Value = item.DefaultValue; });
-                }
-                else
-                {
-                    lastDown = now;
-                    lastX = e.X;
-                    lastY = e.Y;
-                }
-            };
+            parent.Controls.Add(SliderReset(caption,416,y,delegate { number.Value=item.DefaultValue; }));
         }
 
         private void BuildFilmPanel(Control parent)
@@ -791,7 +819,7 @@ namespace FilmGrainStudioPreview
             AddFilmAdjustment(0,S("曝光","Exposure"),-10,10,0,126);
             AddFilmAdjustment(1,S("冷暖","Warmth"),-40,40,0,202);
             AddFilmAdjustment(2,S("饱和度","Saturation"),70,130,100,278);
-            var reset=new ThemeButton{Text=S("恢复默认","Reset"),Location=new Point(5,357),Size=new Size(76,31)};
+            var reset=new ThemeButton{Text=S("重置","Reset"),Location=new Point(5,357),Size=new Size(76,31)};
             var load=new ThemeButton{Text=S("载入配方","Load recipe"),Location=new Point(88,357),Size=new Size(80,31)};
             var save=new ThemeButton{Text=S("保存 LUT…","Save LUT…"),Location=new Point(175,357),Size=new Size(80,31)};
             filmPanel.Controls.Add(reset);filmPanel.Controls.Add(load);filmPanel.Controls.Add(save);
@@ -813,9 +841,10 @@ namespace FilmGrainStudioPreview
             // and covers the following label (three labels were clipped in R7Q4VX).
             var slider=new ThemeTrackBar{AutoSize=false,Minimum=min,Maximum=max,Value=value,
                 TickStyle=TickStyle.None,SmallChange=1,LargeChange=5,
-                Location=new Point(5,y+26),Size=new Size(414,29)};
+                Location=new Point(5,y+26),Size=new Size(397,29)};
             filmTracks[index]=slider;filmAmounts[index]=amount;
             filmPanel.Controls.Add(title);filmPanel.Controls.Add(amount);filmPanel.Controls.Add(slider);
+            filmPanel.Controls.Add(SliderReset(caption,407,y+26,delegate { slider.Value=value; }));
             slider.ValueChanged+=delegate{UpdateFilmLabels();if(!filmUiSync && filmModeActive)RequestRender(false);};
             UpdateFilmLabels();
         }
@@ -833,6 +862,8 @@ namespace FilmGrainStudioPreview
         private void SwitchAdjustmentPage(bool showFilm)
         {
             if(gradePanel!=null)gradePanel.Visible=false;
+            if(stylePanel!=null)stylePanel.Visible=false;
+            if(styleTabButton!=null)styleTabButton.Text=S("风格迁移","Style Transfer");
             foreach(Control control in colorPageControls)control.Visible=!showFilm;
             if(filmPanel!=null)filmPanel.Visible=showFilm;
             if(adjustmentGroup!=null)adjustmentGroup.Text=showFilm?(preserveHdrColor ? S("经典胶片 LUT · HDR","Classic Film LUT · HDR") : S("经典胶片 LUT","Classic Film LUT")):S("色彩纠正","Color Correction");
@@ -1248,7 +1279,6 @@ namespace FilmGrainStudioPreview
             Thread worker = new Thread(delegate()
             {
                 Bitmap image = null;
-                Bitmap fullOriginal = null;
                 string error = "";
                 Stopwatch watch = Stopwatch.StartNew();
                 byte[] reference = null;
@@ -1267,21 +1297,10 @@ namespace FilmGrainStudioPreview
                         }
                     }
                     reference=cachedVideoReference;
-                    // A new time position needs one native original for instant
-                    // Space bypass. Never regenerate it for panning or grading.
-                    if(state.Zoom && zoomOriginalPosition!=state.Position)
-                    {
-                        var cleanState=new RenderState { Serial=-state.Serial-2,
-                            Position=state.Position, Original=true, Zoom=true };
-                        fullOriginal=RenderPreview(cleanState);
-                    }
+                    // Decode the native original only when requested.
                     if(state.Original)
                     {
-                        if(state.Zoom)
-                        {
-                            if(fullOriginal!=null){image=fullOriginal;fullOriginal=null;}
-                            else image=RenderPreview(state);
-                        }
+                        if(state.Zoom) image=RenderPreview(state);
                         else using(var stream=new MemoryStream(reference))
                             using(var clean=Image.FromStream(stream))image=new Bitmap(clean);
                     }
@@ -1294,7 +1313,6 @@ namespace FilmGrainStudioPreview
                 if (closing || IsDisposed)
                 {
                     if (image != null) image.Dispose();
-                    if (fullOriginal != null) fullOriginal.Dispose();
                     return;
                 }
 
@@ -1308,7 +1326,6 @@ namespace FilmGrainStudioPreview
                             if (closing || IsDisposed)
                             {
                                 if (image != null) image.Dispose();
-                                if (fullOriginal != null) fullOriginal.Dispose();
                                 return;
                             }
 
@@ -1316,7 +1333,7 @@ namespace FilmGrainStudioPreview
                             if (state.Serial == renderSerial && image != null)
                             {
                                 displayedVideoReference=reference;
-                                if(!state.Original && !state.UseLut && (state.Enabled || state.Grade!=null))
+                                if(!state.Original && (state.Enabled || state.Grade!=null))
                                 {
                                     int width=Math.Min(240,image.Width);
                                     int height=Math.Max(1,image.Height*width/image.Width);
@@ -1330,14 +1347,6 @@ namespace FilmGrainStudioPreview
                                 }
                                 if(state.Zoom)
                                 {
-                                    if(fullOriginal!=null)
-                                    {
-                                        if(zoomOriginalImage!=null)zoomOriginalImage.Dispose();
-                                        zoomOriginalImage=fullOriginal;
-                                        zoomOriginalPosition=state.Position;
-                                        fullOriginal=null;
-                                        if(gpuReady)try{originalGpuSource=UploadGpuFrame(zoomOriginalImage);}catch{DisableGpuView();}
-                                    }
                                     if(state.Original)
                                     {
                                         if(zoomOriginalImage!=null)zoomOriginalImage.Dispose();
@@ -1384,7 +1393,6 @@ namespace FilmGrainStudioPreview
                             }
 
                             if (image != null) image.Dispose();
-                            if (fullOriginal != null) fullOriginal.Dispose();
 
                             // If the debounce timer already elapsed while FFmpeg was busy,
                             // render the newest state immediately. Otherwise the active timer
@@ -1395,14 +1403,12 @@ namespace FilmGrainStudioPreview
                         {
                             renderWorkerRunning = false;
                             if (image != null) image.Dispose();
-                            if (fullOriginal != null) fullOriginal.Dispose();
                         }
                     });
                 }
                 catch
                 {
                     if (image != null) image.Dispose();
-                    if (fullOriginal != null) fullOriginal.Dispose();
                 }
             });
             worker.IsBackground = true;
@@ -1419,7 +1425,7 @@ namespace FilmGrainStudioPreview
             state.Zoom=zoomPreview;
             state.PanX=panX;state.PanY=panY;
             ColorGrade grade=CaptureGrade();
-            if(grade.Serialize()!=ColorGrade.Neutral)state.Grade=grade;
+            if(grade.IsActive)state.Grade=grade;
             state.Enabled = checkEnable.Checked && state.Grade==null;
             state.Contrast = (double)adjustments["Contrast"].Number.Value;
             state.Brightness = (double)adjustments["Brightness"].Number.Value;
@@ -1451,7 +1457,6 @@ namespace FilmGrainStudioPreview
         {
             string output = Path.Combine(tempRoot, "preview_" + state.Serial.ToString(CultureInfo.InvariantCulture) + ".jpg");
             string preparedStrengthLut="";
-            string composedLut="";
             try { if (File.Exists(output)) File.Delete(output); } catch { }
 
             List<string> prefix = new List<string>();
@@ -1484,10 +1489,17 @@ namespace FilmGrainStudioPreview
                 if (state.Grade!=null)
                 {
                     var signal=ColorGradeCore.Signal(gradeInHdr?hdrPreviewInfo:null);
-                    var transform=ColorGradeCore.Compose(state.Grade,signal,lutForPreview,state.LutStrength);
-                    composedLut=Path.Combine(tempRoot,"grade_"+state.Serial.ToString(CultureInfo.InvariantCulture)+".cube");
-                    ColorGradeCore.WriteCube(composedLut,33,signal,transform);
-                    lutForPreview=composedLut;
+                    string key = string.Join("|",state.Grade.Serialize(),signal.ToString(),lutForPreview,
+                        state.LutStrength.ToString(CultureInfo.InvariantCulture));
+                    if (previewGradeKey != key || !File.Exists(previewGradeCube))
+                    {
+                        string path = Path.Combine(tempRoot,"preview_grade.cube");
+                        var transform = ColorGradeCore.Compose(state.Grade,signal,lutForPreview,state.LutStrength);
+                        ColorGradeCore.WriteCube(path,33,signal,transform,true);
+                        previewGradeCube = path;
+                        previewGradeKey = key;
+                    }
+                    lutForPreview = previewGradeCube;
                 }
                 string resolvedOpacity="1.00";
                 if(state.Grade==null && state.LutStrength<100) {
@@ -1552,7 +1564,7 @@ namespace FilmGrainStudioPreview
                 }
             }
 
-            try{if(preparedStrengthLut.Length>0)File.Delete(preparedStrengthLut);if(composedLut.Length>0)File.Delete(composedLut);}catch{}
+            try{if(preparedStrengthLut.Length>0)File.Delete(preparedStrengthLut);}catch{}
             sourceIdentity.RequireCurrent();
             if (rc != 0 || !File.Exists(output))
             {
@@ -1599,7 +1611,8 @@ namespace FilmGrainStudioPreview
                         else {PrepareLut(gallery.SelectedLut);lutSource="Gallery";}
                         syncing=true;
                         try{checkLut.Checked=!gallery.DisabledLut&&!string.IsNullOrEmpty(activeCompatLutPath);}finally{syncing=false;}
-                        if(gradePanel.Visible || CaptureGrade().Serialize()!=ColorGrade.Neutral || !checkEnable.Checked)ShowGradePage();
+                        if(stylePanel.Visible) ShowStylePage();
+                        else if(gradePanel.Visible || CaptureGrade().Serialize()!=ColorGrade.Neutral || !checkEnable.Checked)ShowGradePage();
                         else SwitchAdjustmentPage(false);
                     }
                 }
