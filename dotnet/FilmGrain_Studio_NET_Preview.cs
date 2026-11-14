@@ -107,8 +107,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.68";
-        internal const string FileReleaseVersion = "5.0.68.0";
+        internal const string ReleaseVersion = "5.0.69";
+        internal const string FileReleaseVersion = "5.0.69.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -417,6 +417,8 @@ namespace FilmGrainStudioPreview
         private ComboBox cmbFavoriteLut;
         private TrackBar trackLutStrength;
         private LutThumbnailRenderer lutThumbnail;
+        private byte[] colorOnlyThumbnail;
+        private string colorOnlyThumbnailVideo, colorOnlyThumbnailSettings;
         private readonly LutSessionReference lutSessionReference=new LutSessionReference();
         private Label lblLutStrength;
         private Label lblLutCompoundHint;
@@ -1176,7 +1178,9 @@ namespace FilmGrainStudioPreview
             t.Controls.Add(btnSubtitle,0,11);t.Controls.Add(cmbFrameMode,1,11);
             lutToolTip.SetToolTip(cmbFrameMode,lang.T("encode.framing"));
             btnPreprocess=new ThemeButton {Dock=DockStyle.Fill,Margin=new Padding(3,4,8,4)};
-            btnPreprocess.Click+=delegate {ShowPreprocessDialog();};RefreshPreprocessButton();
+            btnPreprocess.Click+=delegate {ShowPreprocessDialog();};
+            btnPreprocess.ContextMenuStrip=BuildPreprocessMenu();
+            RefreshPreprocessButton();
             t.Controls.Add(btnPreprocess,0,0);t.SetColumnSpan(btnPreprocess,2);
             var resourceMonitor = new ResourceMonitorPanel(UiText("内存", "RAM"), UiText("显存", "VRAM"));
             resourceMonitor.Font = UiFont(8f, FontStyle.Regular);
@@ -1869,20 +1873,29 @@ namespace FilmGrainStudioPreview
             chkLut = Check(lang.T("lut.enable"), false);
             btnLutGallery = new ThemeButton(); btnLutGallery.Text = UiText("LUT 图库","LUT Gallery"); btnLutGallery.Dock = DockStyle.Fill; btnLutGallery.Margin = new Padding(3);
             btnColorCorrection = new ThemeButton(); btnColorCorrection.Text = UiText("LUT 工坊","LUT Studio"); btnColorCorrection.Dock = DockStyle.Fill; btnColorCorrection.Margin = new Padding(3);
-            Button clear = new ThemeButton(); clear.Text = lang.T("button.clear_lut"); clear.Dock = DockStyle.Fill; clear.Margin = new Padding(3);
             btnLutGallery.Click += delegate { OpenLutGallery(); };
             btnColorCorrection.Click += delegate { OpenColorCorrection(); };
             ContextMenuStrip colorSizeMenu = new ContextMenuStrip();
             ToolStripMenuItem largeColorItem = new ToolStripMenuItem(UiText("大界面", "Large interface"));
             colorSizeMenu.Items.Add(largeColorItem);
-            colorSizeMenu.Opening += delegate { largeColorItem.Checked = config.GetBool("COLOR_PREVIEW_LARGE_UI"); };
+            colorSizeMenu.Items.Add(new ToolStripSeparator());
+            var clearColorItem = colorSizeMenu.Items.Add(UiText("清除色彩纠正","Clear color correction"),null,delegate {ClearStudioEffects(true,false);});
+            var clearFilmItem = colorSizeMenu.Items.Add(UiText("清除经典胶片","Clear classic film"),null,delegate {ClearStudioEffects(false,true);});
+            var clearAllItem = colorSizeMenu.Items.Add(UiText("全部清除","Clear all"),null,delegate {ClearStudioEffects(true,true);});
+            colorSizeMenu.Opening += delegate
+            {
+                largeColorItem.Checked = config.GetBool("COLOR_PREVIEW_LARGE_UI");
+                clearColorItem.Enabled = StudioColorEnabled();
+                clearFilmItem.Enabled = IsSelectedClassicFilm();
+                clearAllItem.Enabled = clearColorItem.Enabled || !string.IsNullOrEmpty(selectedLutPath);
+            };
             largeColorItem.Click += delegate {
                 try { config.Save(new Dictionary<string, string> { { "COLOR_PREVIEW_LARGE_UI", config.GetBool("COLOR_PREVIEW_LARGE_UI") ? "false" : "true" } }); }
                 catch (Exception ex) { FgsMessageBox.Show(this, ex.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Error); }
             };
             btnColorCorrection.ContextMenuStrip = colorSizeMenu;
-            clear.Click += delegate { ClearSelectedLut(); };
-            t.Controls.Add(chkLut, 0, 0); t.Controls.Add(btnLutGallery, 1, 0); t.Controls.Add(btnColorCorrection, 2, 0); t.Controls.Add(clear, 3, 0);
+            t.Controls.Add(chkLut, 0, 0); t.Controls.Add(btnLutGallery, 1, 0); t.Controls.Add(btnColorCorrection, 2, 0);
+            t.SetColumnSpan(btnColorCorrection,2);
 
             Label recentLabel = MidLabel(lang.T("lut.recent"));
             cmbRecentLut = new ThemeComboBox(); cmbRecentLut.DropDownStyle = ComboBoxStyle.DropDownList; cmbRecentLut.Dock = DockStyle.Fill; cmbRecentLut.Margin = new Padding(4, 5, 6, 5); cmbRecentLut.DropDownWidth = 440; cmbRecentLut.MaxDropDownItems = 25;
@@ -1919,6 +1932,7 @@ namespace FilmGrainStudioPreview
             { if(restoringFileEditor)return;
                 lblLutStrength.Text = GetLutStrength().ToString(CultureInfo.InvariantCulture) + "%";
                 SetLutPreview(selectedLutPath);
+                UpdateColorCorrectionUi();
                 UpdateHdrRouteStatus(GetSelectedMediaInfo());
             };
             var strengthGroup=new TableLayoutPanel {Size=new Size(290,40),Anchor=AnchorStyles.None,Margin=Padding.Empty,ColumnCount=2,RowCount=1};
@@ -4381,17 +4395,62 @@ namespace FilmGrainStudioPreview
             UpdateLutUi();
         }
 
-        private void ClearSelectedLut()
+        private bool StudioColorEnabled()
+        { return colorCorrectionEnabled || !string.IsNullOrEmpty(config.Get(ColorGrade.ConfigKey)); }
+
+        private string classicFilmIdentity, classicFilmPath;
+        private bool IsSelectedClassicFilm()
         {
-            selectedLutPath = "";
-            selectedLutSource = "None";
-            chkLut.Checked = false;
-            colorCorrectionEnabled = false;
-            try { config.SaveValue("COLOR_CORRECTION_ENABLED", "false"); }
-            catch (Exception ex) { if (log != null) AppendLog("[Color] Failed to save disabled state: " + ex.Message + Environment.NewLine); }
-            if (lutCatalog.Ready) ApplyLutRecords(lutCatalog.Value);
-            UpdateLutUi();
-            UpdateColorCorrectionUi();
+            if (string.IsNullOrEmpty(selectedLutPath)) return false;
+            if (selectedLutSource=="FilmLut") return true;
+            if (classicFilmPath!=selectedLutPath)
+            {
+                classicFilmPath=selectedLutPath;
+                classicFilmIdentity=null;
+                try
+                {
+                    using (var reader=File.OpenText(classicFilmPath))
+                        for (int i=0;i<12 && !reader.EndOfStream;i++)
+                        {
+                            string line=reader.ReadLine().TrimStart();
+                            if (line.StartsWith("TITLE \"FGS Film LUT ",StringComparison.Ordinal))
+                            {classicFilmIdentity=classicFilmPath;break;}
+                            if (line.StartsWith("LUT_3D_SIZE",StringComparison.OrdinalIgnoreCase))break;
+                        }
+                }
+                catch (IOException) {}
+                catch (UnauthorizedAccessException) {}
+            }
+            return classicFilmIdentity==selectedLutPath;
+        }
+
+        private void ClearStudioEffects(bool clearColor,bool clearFilm)
+        {
+            try
+            {
+                if (clearColor)
+                {
+                    config.Save(new Dictionary<string,string> {
+                        {"COLOR_CORRECTION_ENABLED","false"},{ColorGrade.ConfigKey,ColorGrade.Neutral},
+                        {"COLOR_CONTRAST","1.00"},{"COLOR_BRIGHTNESS","0.00"},{"COLOR_SATURATION","1.00"},
+                        {"COLOR_GAMMA","1.00"},{"COLOR_BLACK_WHITE","false"}
+                    });
+                    colorCorrectionEnabled=colorBlackWhite=false;
+                    colorContrast=colorSaturation=colorGamma=1;
+                    colorBrightness=0;
+                }
+                if (clearFilm && (clearColor || IsSelectedClassicFilm()))
+                {
+                    selectedLutPath="";
+                    selectedLutSource="None";
+                    activeFilmLutSettings=null;
+                    chkLut.Checked=false;
+                    if(lutCatalog.Ready)ApplyLutRecords(lutCatalog.Value);
+                }
+                UpdateLutUi();
+                UpdateFileSettingsLabels();
+            }
+            catch(Exception ex){FgsMessageBox.Show(this,ex.Message,Text,MessageBoxButtons.OK,MessageBoxIcon.Error);}
         }
 
         private void UpdateLutUi()
@@ -4421,6 +4480,7 @@ namespace FilmGrainStudioPreview
             }
 
             UpdateLutCompoundHint(hasLut);
+            UpdateColorCorrectionUi();
             bool enabled = chkLut.Checked;
             trackLutStrength.Enabled = enabled;
             lblLutStrength.Enabled = enabled;
@@ -4446,6 +4506,7 @@ namespace FilmGrainStudioPreview
 
         private void OpenLutStrengthPreview()
         {
+            if(StudioColorEnabled()&&!IsLutEffectEnabled()){OpenColorCorrection();return;}
             if(string.IsNullOrEmpty(selectedLutPath)||!File.Exists(selectedLutPath)){FgsMessageBox.Show(this,UiText("请先选择 LUT。","Select a LUT first."));return;}
             if(bridgeTaskCoordinator!=null&&bridgeTaskCoordinator.IsActive){FgsMessageBox.Show(this,UiText("请等待当前任务结束。","Wait for the active task to finish."));return;}
             string video=GetPreviewVideoPath();MediaProbeInfo media=null;
@@ -4464,9 +4525,25 @@ namespace FilmGrainStudioPreview
         private int GetLutStrength(){return trackLutStrength==null?75:Math.Max(0,Math.Min(100,trackLutStrength.Value));}
         private bool IsLutEffectEnabled(){return chkLut!=null&&chkLut.Checked&&GetLutStrength()>0;}
 
+        private string ColorThumbnailSettings()
+        {
+            return string.Join("|",config.Get(ColorGrade.ConfigKey),colorCorrectionEnabled.ToString(),
+                colorContrast.ToString("R",CultureInfo.InvariantCulture),colorBrightness.ToString("R",CultureInfo.InvariantCulture),
+                colorSaturation.ToString("R",CultureInfo.InvariantCulture),colorGamma.ToString("R",CultureInfo.InvariantCulture),
+                colorBlackWhite.ToString());
+        }
+
         private void SetLutPreview(string lutPath)
         {
             if(lutThumbnail==null||picLutPreview==null)return;
+            if(StudioColorEnabled() && (string.IsNullOrEmpty(lutPath) || !IsLutEffectEnabled()))
+            {
+                bool current=colorOnlyThumbnailVideo==GetPreviewVideoPath() &&
+                    colorOnlyThumbnailSettings==ColorThumbnailSettings();
+                lutThumbnail.ShowColorThumbnail(current?colorOnlyThumbnail:null);
+                lutToolTip.SetToolTip(picLutPreview,UiText("点击打开色彩纠正","Click to open color correction"));
+                return;
+            }
             if(string.IsNullOrEmpty(lutPath)){lutThumbnail.Queue("","","",100);lutToolTip.SetToolTip(picLutPreview,"");return;}
             string tools=Path.Combine(appRoot,"_LUT_Tools"),reference=Path.Combine(tools,"LUT_Reference_Current.jpg");
             if(!File.Exists(reference))reference=Path.Combine(tools,"LUT_Reference_Default.jpg");
@@ -4498,14 +4575,21 @@ namespace FilmGrainStudioPreview
         private void UpdateColorCorrectionUi()
         {
             if (btnColorCorrection == null) return;
-            btnColorCorrection.Text = UiText("LUT 工坊", "LUT Studio");
-            btnColorCorrection.UseVisualStyleBackColor = !colorCorrectionEnabled;
-            btnColorCorrection.BackColor = colorCorrectionEnabled ? Color.FromArgb(185,65,20) : SystemColors.Control;
-            btnColorCorrection.ForeColor = colorCorrectionEnabled ? Color.White : SystemColors.ControlText;
-            btnColorCorrection.FlatStyle = colorCorrectionEnabled ? FlatStyle.Flat : FlatStyle.Standard;
-            btnColorCorrection.FlatAppearance.BorderColor = colorCorrectionEnabled ? Color.FromArgb(135,40,10) : SystemColors.ControlDark;
-            if (uiTheme != null) uiTheme.CorrectionState(btnColorCorrection, colorCorrectionEnabled);
-            UpdateHdrRouteStatus(GetSelectedMediaInfo());
+            bool color=StudioColorEnabled();
+            bool film=IsLutEffectEnabled() && IsSelectedClassicFilm();
+            string suffix=color?(film?" · C/L":" · C"):(film?" · L":"");
+            btnColorCorrection.Text=UiText("LUT 工坊","LUT Studio")+suffix;
+            SetEffectButtonState(btnColorCorrection,color||film);
+        }
+
+        private void SetEffectButtonState(Button button,bool enabled)
+        {
+            button.UseVisualStyleBackColor=!enabled;
+            button.BackColor=enabled?Color.FromArgb(185,65,20):SystemColors.Control;
+            button.ForeColor=enabled?Color.White:SystemColors.ControlText;
+            button.FlatStyle=enabled?FlatStyle.Flat:FlatStyle.Standard;
+            button.FlatAppearance.BorderColor=enabled?Color.FromArgb(135,40,10):SystemColors.ControlDark;
+            if(uiTheme!=null)uiTheme.CorrectionState(button,enabled);
         }
 
         private string GetPreviewVideoPath()
@@ -4632,8 +4716,9 @@ namespace FilmGrainStudioPreview
                     chkLut.Checked && !string.IsNullOrEmpty(selectedLutPath),
                     config.GetBool("COLOR_PREVIEW_LARGE_UI"),
                     lang.Code, GetSelectedMediaInfo(), UsesHdrColorPreview(GetSelectedMediaInfo()), config.Get("TONE_MAP_ALGO"),
-                    selectedLutSource=="FilmLut"?activeFilmLutSettings:null))
+                    selectedLutSource=="FilmLut"?activeFilmLutSettings:null, config.Get(ColorGrade.ConfigKey), config.GetInt("COLOR_MATCH_STRENGTH",35)))
                 {
+                    dlg.PrepareTheme(this);
                     if (dlg.ShowDialog(this) == DialogResult.OK && dlg.Result != null)
                     {
                         ColorCorrectionResult result = dlg.Result;
@@ -4658,7 +4743,15 @@ namespace FilmGrainStudioPreview
                         updates["COLOR_SATURATION"] = colorSaturation.ToString("0.00", CultureInfo.InvariantCulture);
                         updates["COLOR_GAMMA"] = colorGamma.ToString("0.00", CultureInfo.InvariantCulture);
                         updates["COLOR_BLACK_WHITE"] = colorBlackWhite ? "true" : "false";
+                        updates[ColorGrade.ConfigKey] = result.Grade;
+                        updates["COLOR_MATCH_STRENGTH"] = dlg.MatchStrength.ToString(CultureInfo.InvariantCulture);
                         config.Save(updates);
+                        if(result.ColorThumbnail!=null)
+                        {
+                            colorOnlyThumbnail=result.ColorThumbnail;
+                            colorOnlyThumbnailVideo=videoPath;
+                            colorOnlyThumbnailSettings=ColorThumbnailSettings();
+                        }
                     }
                 }
             }

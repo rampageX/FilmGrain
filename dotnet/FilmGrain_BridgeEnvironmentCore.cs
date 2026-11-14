@@ -86,6 +86,7 @@ namespace FilmGrainStudioPreview
         
 
         public bool ColorEnabled;
+        public string ColorGrade;
         public double ColorContrast;
         public double ColorBrightness;
         public double ColorSaturation;
@@ -225,6 +226,7 @@ namespace FilmGrainStudioPreview
             snapshot.Subtitle.WriteEnvironment(state);
 
             state["FG_COLOR_ENABLED"] = snapshot.ColorEnabled ? "1" : "0";
+            if (!string.IsNullOrEmpty(snapshot.ColorGrade)) state[ColorGrade.StateKey] = snapshot.ColorGrade;
             state["FG_COLOR_CONTRAST"] = snapshot.ColorContrast.ToString("0.00", CultureInfo.InvariantCulture);
             state["FG_COLOR_BRIGHTNESS"] = snapshot.ColorBrightness.ToString("0.00", CultureInfo.InvariantCulture);
             state["FG_COLOR_SATURATION"] = snapshot.ColorSaturation.ToString("0.00", CultureInfo.InvariantCulture);
@@ -413,6 +415,7 @@ namespace FilmGrainStudioPreview
             reason=""; string policy, color, lut;
             if(info==null || !info.IsHdr)return true;
             state.TryGetValue("FG_HDR_POLICY",out policy); state.TryGetValue("FG_COLOR_ENABLED",out color); state.TryGetValue("FG_LUT_PATH",out lut);
+            string originalLut; if(state.TryGetValue(ColorGradeCore.OriginalLutKey,out originalLut))lut=originalLut;
             string mode;state.TryGetValue("FG_MODE",out mode);
             if(string.Equals(policy,"PRESERVE",StringComparison.OrdinalIgnoreCase) && (mode=="X264" || mode=="H264") && (color=="1" || !string.IsNullOrWhiteSpace(lut)))
             { reason="HDR 保留与当前 SDR 调色/LUT 不兼容；请选择 AUTO/转 SDR，或关闭调色/LUT。 / HDR Preserve conflicts with SDR color/LUT processing."; return false; }
@@ -736,15 +739,27 @@ namespace FilmGrainStudioPreview
         }
         internal static string Lut(MediaProbeInfo info,string escapedPath,string opacity)
         {
-            string matrix=info.ColorSpace;
-            if(string.IsNullOrEmpty(matrix)||matrix=="unknown"||matrix=="reserved")matrix="bt2020nc";
-            string range=info.ColorRange=="pc"||info.ColorRange=="jpeg"?"pc":"tv";
-            // zscale changes matrix/range only. PQ/HLG code values remain in the
-            // same transfer domain. The user supplies a LUT with matching I/O domain.
-            string prefix="zscale=matrixin="+matrix+":matrix=gbr:rangein="+range+":range=pc,format=gbrp16le,";
+            string prefix=RgbInput(info)+",";
             string lut="lut3d=file='"+escapedPath+"':interp=tetrahedral";
             if(opacity!="1.00"&&opacity!="1")lut="split=2[fgshdrlutorig][fgshdrlutsrc];[fgshdrlutsrc]"+lut+"[fgshdrlutgraded];[fgshdrlutgraded][fgshdrlutorig]blend=all_mode=normal:all_opacity="+opacity;
-            return prefix+lut+",zscale=matrixin=gbr:matrix="+matrix+":rangein=pc:range="+range+",format=yuv420p10le"+SvtHdr10Core.ColorFilter(info)+",";
+            return prefix+lut+","+RgbOutput(info)+",";
+        }
+        private static string Matrix(MediaProbeInfo info)
+        {
+            string matrix=info.ColorSpace;
+            return string.IsNullOrEmpty(matrix)||matrix=="unknown"||matrix=="reserved"?"bt2020nc":matrix;
+        }
+        private static string Range(MediaProbeInfo info)
+        {return info.ColorRange=="pc"||info.ColorRange=="jpeg"?"pc":"tv";}
+        internal static string RgbInput(MediaProbeInfo info)
+        {
+            // Preserve PQ/HLG code values while changing only matrix and range.
+            return "zscale=matrixin="+Matrix(info)+":matrix=gbr:rangein="+Range(info)+":range=pc,format=gbrp16le";
+        }
+        internal static string RgbOutput(MediaProbeInfo info)
+        {
+            return "zscale=matrixin=gbr:matrix="+Matrix(info)+":rangein=pc:range="+Range(info)+
+                ",format=yuv420p10le"+SvtHdr10Core.ColorFilter(info);
         }
         internal static string DisplayToSdr(MediaProbeInfo info,string tone)
         {

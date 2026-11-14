@@ -131,7 +131,9 @@ namespace FilmGrainStudioPreview
                 FgsMessageBox.Show(this,UiText("扫描颗粒文件不存在，请重新选择。","Grain Plate is missing. Select a valid plate."));return;
             }
             bool hasLut = !string.IsNullOrEmpty(selectedLutPath) && File.Exists(selectedLutPath);
-            if (!hasGrain && !hasLut && !media.IsHdr) {
+            string gradeRecipe=config.Get(ColorGrade.ConfigKey);
+            bool hasGrade=!string.IsNullOrEmpty(gradeRecipe);
+            if (!hasGrain && !hasLut && !hasGrade && !media.IsHdr) {
                 FgsMessageBox.Show(this,UiText("请选择 AV1 胶片预设／颗粒表、扫描颗粒、Digital Grain、FGSIM 或 3D LUT。",
                     "Select an AV1 preset/table, Grain Plate, Digital Grain, FGSIM or a 3D LUT."));return;
             }
@@ -275,10 +277,18 @@ namespace FilmGrainStudioPreview
 
                     var args = new List<string> {frame,width.ToString(CultureInfo.InvariantCulture),height.ToString(CultureInfo.InvariantCulture),
                         hasAv1Grain?table:"-","10","0",seconds.ToString("0.######",CultureInfo.InvariantCulture)};
-                    if (hasLut) args.Add(lut);
+                    if (hasGrade)
+                    {
+                        var signal=ColorGradeCore.Signal(media);
+                        var transform=ColorGradeCore.Compose(ColorGrade.Parse(gradeRecipe),signal,initialLutOn?lut:"",initialLut);
+                        string composed=Path.Combine(temporary,"grade.cube");
+                        ColorGradeCore.WriteCube(composed,33,signal,transform);
+                        args.Add(composed);
+                    }
+                    else if (hasLut) args.Add(lut);
                     args.AddRange(new[]{"--result",result,"--grain",initialGrain.ToString(CultureInfo.InvariantCulture),
-                        "--lut",initialLut.ToString(CultureInfo.InvariantCulture),"--grain-on",hasGrain && grainInitiallyEnabled?"1":"0",
-                        "--lut-on",initialLutOn?"1":"0"});
+                        "--lut",(hasGrade?100:initialLut).ToString(CultureInfo.InvariantCulture),"--grain-on",hasGrain && grainInitiallyEnabled?"1":"0",
+                        "--lut-on",hasGrade||initialLutOn?"1":"0"});
                     if (newPixelMode) args.AddRange(new[]{"--pixel-mode",pixelMode});
                     if (fgsimMode) args.AddRange(new[]{"--fgsim-noise",fgsimNoise,"--fgsim-shader",fgsimShader});
                     if (digitalMode) args.AddRange(new[]{"--digital-noise",Path.Combine(temporary,"digital.yuv"),"--noise-ffmpeg",ffmpeg});
@@ -316,7 +326,7 @@ namespace FilmGrainStudioPreview
                                 (applied.PlateStrength < 0 || applied.PlateStrength > 100) :
                                 applied.GrainStrength < 0 || applied.GrainStrength > 100) ||
                             applied.LutStrength < 0 || applied.LutStrength > 100 || (!hasGrain && applied.GrainEnabled) ||
-                            (!hasLut && applied.LutEnabled)) throw new InvalidDataException("GPU 回传参数无效。");
+                            (!hasLut && !hasGrade && applied.LutEnabled)) throw new InvalidDataException("GPU 回传参数无效。");
                     }
                 } catch (Exception ex) {failure = ex.Message;}
                 finally {
@@ -332,6 +342,7 @@ namespace FilmGrainStudioPreview
                         } else if (applied != null) {
                             if (independentFiles != originalIndependent || !string.Equals(GetPreviewVideoPath(),input,StringComparison.OrdinalIgnoreCase) ||
                                 cmbCodec.SelectedIndex != originalCodec ||
+                                config.Get(ColorGrade.ConfigKey)!=gradeRecipe ||
                                 (hasGrain && (originalMode != (SvtSelected()?CurrentGrainMode()-3:CurrentGrainMode()) ||
                                     (plateMode && !string.Equals(selectedGrainPlatePath,platePath,StringComparison.OrdinalIgnoreCase)) ||
                                     (hasAv1Grain && originalMode==2 && !string.Equals(selectedAv1GrainTable,model,StringComparison.OrdinalIgnoreCase)) ||
@@ -372,13 +383,13 @@ namespace FilmGrainStudioPreview
                                     appliedGrain = applied.GrainStrength+"%";
                                 } else {chkGrainEnabled.Checked = false;appliedGrain = "关闭";}
                             }
-                            if (hasLut) {
+                            if (hasLut && !hasGrade) {
                                 trackLutStrength.Value = applied.LutStrength;
                                 chkLut.Checked = applied.LutEnabled && applied.LutStrength > 0;
                                 UpdateLutUi();
                             }
                             AppendLog("[GPU Preview] 已应用：颗粒 "+appliedGrain+
-                                "，LUT "+(hasLut?(applied.LutEnabled?applied.LutStrength+"%":"关闭"):"未更改")+Environment.NewLine);
+                                "，LUT "+(hasLut&&!hasGrade?(applied.LutEnabled?applied.LutStrength+"%":"关闭"):"未更改")+Environment.NewLine);
                         }
                     });} catch (InvalidOperationException) {}
                 }

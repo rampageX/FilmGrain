@@ -601,6 +601,7 @@ namespace FilmGrainStudioPreview
 
         private static string BuildLutNamingSuffix(IDictionary<string,string> state)
         {
+            if (state.ContainsKey(ColorGradeCore.OriginalLutKey)) return ColorGradeCore.OutputSuffix(state[ColorGrade.StateKey]);
             string path = Get(state, "FG_LUT_PATH");
             if (string.IsNullOrWhiteSpace(path)) return "";
             int strength = NormalizeLutStrength(Get(state, "FG_LUT_STRENGTH"));

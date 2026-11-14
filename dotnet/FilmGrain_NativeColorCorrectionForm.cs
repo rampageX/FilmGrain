@@ -42,13 +42,37 @@ namespace FilmGrainStudioPreview
         public string LutSource = "None";
         public int LutStrength = 75;
         public byte[] VideoReference;
+        public byte[] ColorThumbnail;
         public FilmLutSettings FilmSettings;
+        public string Grade;
     }
 
-    internal sealed class NativeColorCorrectionForm : Form, IThemeSurface
+    internal sealed partial class NativeColorCorrectionForm : Form, IThemeSurface
     {
         public bool DarkTheme { get; set; }
-        protected override void OnLoad(EventArgs e) { MainForm.AttachOwnedTheme(this, Owner); base.OnLoad(e); }
+        internal void PrepareTheme(IWin32Window owner)
+        {
+            MainForm.AttachOwnedTheme(this,owner,this);
+            PerformLayout();
+        }
+
+        protected override void OnLoad(EventArgs e)
+        {
+            PrepareTheme(Owner);
+            InitializeGpuView();
+            base.OnLoad(e);
+        }
+
+        protected override void OnShown(EventArgs e)
+        {
+            base.OnShown(e);
+            Application.AddMessageFilter(originalSpaceFilter);
+            // The native child controls can paint only once the dialog has been
+            // shown. Complete that first paint before showing the window to the user.
+            Refresh();
+            Opacity=1;
+            RequestRender(true);
+        }
         private sealed class AdjustmentControl
         {
             public TrackBar Track;
@@ -74,6 +98,8 @@ namespace FilmGrainStudioPreview
             public string CompatLutPath;
             public int LutStrength;
             public FilmLutSettings FilmSettings;
+            public ColorGrade Grade;
+            public int LutVersion;
         }
 
         // Captures both key-down and key-up before focused WinForms controls
@@ -106,7 +132,6 @@ namespace FilmGrainStudioPreview
         private readonly bool isZh;
         private readonly FilmLutSettings initialFilmSettings;
         private readonly string tempRoot;
-        private readonly string compatLutPath;
         private readonly int previewWidth;
         private readonly int previewHeight;
         private readonly object processLock = new object();
@@ -166,8 +191,10 @@ namespace FilmGrainStudioPreview
         private bool renderPending;
         private bool renderDue;
         private int renderSerial;
+        private int colorThumbnailSerial=-1;
+        private byte[] colorThumbnail;
         private Process activeRenderProcess;
-        private bool closing;
+        private volatile bool closing;
         // One clean reference per selected time; parameter drags reuse it.
         // Only the rendering worker writes this cache. Publish after a current render succeeds.
         private byte[] cachedVideoReference, displayedVideoReference;
@@ -175,6 +202,8 @@ namespace FilmGrainStudioPreview
         private string lutPath;
         private string lutSource;
         private string activeCompatLutPath = "";
+        private int lutVersion;
+        private bool? gradeGpuSupported;
         private int lutStrength;
 
         public ColorCorrectionResult Result { get; private set; }
@@ -197,8 +226,9 @@ namespace FilmGrainStudioPreview
             bool blackWhite,
             bool useLut,
             bool largeUi,
-            string languageCode, MediaProbeInfo mediaInfo = null, bool preserveHdr = false, string tonemap = "hable",FilmLutSettings filmSettings=null)
+            string languageCode, MediaProbeInfo mediaInfo = null, bool preserveHdr = false, string tonemap = "hable",FilmLutSettings filmSettings=null, string grade="", int matchStrength=35)
         {
+            this.matchStrength = Math.Max(0,Math.Min(100,matchStrength));
             this.videoPath = videoPath;
             hdrPreviewInfo=mediaInfo!=null&&mediaInfo.IsHdr?mediaInfo:null;
             preserveHdrColor=preserveHdr;previewTonemap=tonemap;
@@ -213,21 +243,25 @@ namespace FilmGrainStudioPreview
             this.isZh = !string.Equals(languageCode, "en-US", StringComparison.OrdinalIgnoreCase);
             originalSpaceFilter=new OriginalSpaceFilter(this);
             initialFilmSettings=filmSettings==null?null:filmSettings.Copy();
-            this.previewWidth = largeUi ? 960 : 720;
-            this.previewHeight = largeUi ? 540 : 480;
+            Size workArea = Screen.FromPoint(Cursor.Position).WorkingArea.Size;
+            this.previewWidth = Math.Max(600,Math.Min(largeUi ? 1120 : 900,workArea.Width-502));
+            this.previewHeight = Math.Max(430,Math.Min(largeUi ? 640 : 540,workArea.Height-225));
             tempRoot = Path.Combine(Path.GetTempPath(), "FGS_NET_ColorPreview_" + Guid.NewGuid().ToString("N"));
-            compatLutPath = Path.Combine(tempRoot, "preview_lut.cube");
             Directory.CreateDirectory(tempRoot);
 
             sourceIdentity=MediaProbeIdentity.Capture(videoPath,ffprobePath);
             ProbeVideo();
             sourceIdentity.RequireCurrent();
             PrepareLut(this.lutPath);
-            BuildUi(largeUi, enabled, contrast, brightness, saturation, gamma, blackWhite, useLut);
+            BuildUi(enabled, contrast, brightness, saturation, gamma, blackWhite, useLut);
+            SetGrade(ColorGrade.Parse(grade));
             if(initialFilmSettings!=null) {
+                initialFilmSettings.Strength=this.lutStrength;
                 SetFilmSettings(initialFilmSettings);
-                SwitchAdjustmentPage(true);
+                SetFilmEnabled(useLut);
+                if(string.IsNullOrEmpty(grade))SwitchAdjustmentPage(true);
             }
+            if(!string.IsNullOrEmpty(grade)||(!enabled&&initialFilmSettings==null)) ShowGradePage();
             if(hdrPreviewInfo!=null)Text+=S(" · SDR显示预览（非HDR亮度校准）"," · SDR display preview (not HDR luminance calibration)");
         }
 
@@ -315,9 +349,10 @@ namespace FilmGrainStudioPreview
 
         private void PrepareLut(string path)
         {
+            lutVersion++;
             lutPath = path ?? "";
             activeCompatLutPath = "";
-            try { if (File.Exists(compatLutPath)) File.Delete(compatLutPath); } catch { }
+
             if (string.IsNullOrEmpty(lutPath) || !File.Exists(lutPath)) return;
 
             try
@@ -335,8 +370,9 @@ namespace FilmGrainStudioPreview
                     }
                     else output.Add(line);
                 }
-                File.WriteAllLines(compatLutPath, output.ToArray(), Encoding.ASCII);
-                activeCompatLutPath = compatLutPath;
+                string normalized = Path.Combine(tempRoot,"preview_lut_"+lutVersion.ToString(CultureInfo.InvariantCulture)+".cube");
+                File.WriteAllLines(normalized, output.ToArray(), Encoding.ASCII);
+                activeCompatLutPath = normalized;
             }
             catch
             {
@@ -344,8 +380,10 @@ namespace FilmGrainStudioPreview
             }
         }
 
-        private void BuildUi(bool largeUi, bool enabled, double contrast, double brightness, double saturation, double gamma, bool blackWhite, bool useLut)
+        private void BuildUi(bool enabled, double contrast, double brightness, double saturation, double gamma, bool blackWhite, bool useLut)
         {
+            SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer,true);
+            Opacity=0;
             Text = S("LUT 工坊与色彩纠正", "LUT Studio & Color Correction");
             StartPosition = FormStartPosition.CenterParent;
             FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -355,15 +393,18 @@ namespace FilmGrainStudioPreview
             BackColor = Color.FromArgb(245, 246, 248);
             Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
 
-            int dialogWidth = largeUi ? 1280 : 1040;
-            // The enlarged frame also needs room for its LUT slider and status.
-            int dialogHeight = largeUi ? 770 : 690;
+            const int adjustmentWidth = 452;
+            int dialogWidth = previewWidth + adjustmentWidth + 42;
+            int dialogHeight = Math.Max(710,previewHeight+186);
             int timelineY = 14 + previewHeight + 11;
             int timeLabelY = timelineY + 40;
             int lutRowY = timeLabelY + 29;
             int buttonY = dialogHeight - 60;
             int rightX = 28 + previewWidth;
-            ClientSize = new Size(dialogWidth, dialogHeight);
+            Size area = Screen.FromPoint(Cursor.Position).WorkingArea.Size;
+            AutoScroll = true;
+            AutoScrollMinSize = new Size(dialogWidth,dialogHeight);
+            ClientSize = new Size(Math.Min(dialogWidth,area.Width-26),Math.Min(dialogHeight,area.Height-48));
 
             pic = new PictureBox();
             pic.Location = new Point(14, 14);
@@ -402,17 +443,14 @@ namespace FilmGrainStudioPreview
             colorTabButton=new ThemeButton{Text=S("色彩纠正","Color correction"),Location=new Point(rightX,14),Size=new Size(135,29)};
             filmTabButton=new ThemeButton{Text=S("经典胶片","Classic film"),Location=new Point(rightX+143,14),Size=new Size(135,29)};
             Controls.Add(colorTabButton);Controls.Add(filmTabButton);
-            colorTabButton.Click+=delegate{SwitchAdjustmentPage(false);};
-            filmTabButton.Click+=delegate{
-                SwitchAdjustmentPage(true);
-                if(!filmModeActive){filmModeActive=true;checkFilm.Checked=true;checkLut.Checked=true;lutStrengthTrack.Value=100;UpdateLutUi();RequestRender(true);}
-            };
+            colorTabButton.Click+=delegate{ShowGradePage();};
+            filmTabButton.Click+=delegate {SwitchAdjustmentPage(true);};
 
             GroupBox group = new ThemeGroupBox();
             adjustmentGroup=group;
             group.Text = S("调整参数", "Adjustments");
             group.Location = new Point(rightX, 51);
-            group.Size = new Size(278, 443);
+            group.Size = new Size(adjustmentWidth, 503);
             Controls.Add(group);
 
             checkEnable = new ThemeCheckBox();
@@ -422,7 +460,12 @@ namespace FilmGrainStudioPreview
             checkEnable.Checked = enabled;
             checkEnable.CheckedChanged += delegate
             {
-                if (!syncing) RequestRender(false);
+                if (!syncing)
+                {
+                    if(checkEnable.Checked)SetGrade(new ColorGrade());
+                    else gradeRevision++;
+                    RequestRender(false);
+                }
             };
             group.Controls.Add(checkEnable);
 
@@ -473,12 +516,13 @@ namespace FilmGrainStudioPreview
 
             foreach(Control colorControl in group.Controls)colorPageControls.Add(colorControl);
             BuildFilmPanel(group);
+            BuildGradePanel(group);
             SwitchAdjustmentPage(false);
 
             // Shared with both adjustment pages; keyboard and mouse holds combine.
             originalButton = new ThemeButton();
             originalButton.Text = S("按住查看原图（空格）", "Hold for original (Space)");
-            originalButton.Location = new Point(rightX+44, group.Bottom+8);
+            originalButton.Location = new Point(rightX+(adjustmentWidth-190)/2, group.Bottom+8);
             originalButton.Size = new Size(190, 32);
             originalButton.MouseDown += delegate(object sender, MouseEventArgs e)
             { if(e.Button==MouseButtons.Left){mouseOriginalHeld=true;UpdateOriginalHold();} };
@@ -504,6 +548,11 @@ namespace FilmGrainStudioPreview
             checkLut.Checked = useLut && !string.IsNullOrEmpty(activeCompatLutPath);
             checkLut.CheckedChanged += delegate
             {
+                if(!filmUiSync && !syncing && (filmModeActive || lutSource=="FilmLut"))
+                {
+                    SetFilmEnabled(checkLut.Checked);
+                    return;
+                }
                 UpdateLutUi();
                 if (!syncing) RequestRender(false);
             };
@@ -557,8 +606,25 @@ namespace FilmGrainStudioPreview
             ok.Text = S("应用", "Apply");
             ok.Location = new Point(dialogWidth - 214, buttonY);
             ok.Size = new Size(96, 32);
-            ok.Click += delegate
+            ok.Click += async delegate
             {
+                if((checkEnable.Checked || CaptureGrade().Serialize()!=ColorGrade.Neutral) &&
+                    (!checkLut.Checked || lutStrength==0))
+                {
+                    ok.Enabled=false;
+                    try
+                    {
+                        while(!closing && (renderWorkerRunning || renderPending))
+                            await System.Threading.Tasks.Task.Delay(30);
+                        if(closing)return;
+                        if(colorThumbnailSerial!=renderSerial)
+                        {
+                            FgsMessageBox.Show(this,S("当前调色预览未生成，请重试。","The current color preview could not be rendered. Try again."));
+                            return;
+                        }
+                    }
+                    finally {if(!closing)ok.Enabled=true;}
+                }
                 string appliedLut=lutPath;
                 FilmLutSettings filmSettings=null;
                 if(filmModeActive && checkLut.Checked) {
@@ -570,7 +636,10 @@ namespace FilmGrainStudioPreview
                     catch(Exception ex){FgsMessageBox.Show(this,S("胶片 LUT 应用失败：","Film LUT apply failed: ")+ex.Message);return;}
                     finally{Cursor=Cursors.Default;}
                 }
+                if(filmSettings==null && lutSource=="FilmLut" && initialFilmSettings!=null)
+                    filmSettings=CaptureFilmSettings();
                 Result = new ColorCorrectionResult();
+                Result.Grade = CaptureGrade().Serialize();
                 Result.Enabled = checkEnable.Checked;
                 Result.Contrast = (double)adjustments["Contrast"].Number.Value;
                 Result.Brightness = (double)adjustments["Brightness"].Number.Value;
@@ -582,6 +651,7 @@ namespace FilmGrainStudioPreview
                 Result.LutSource = filmSettings!=null?"FilmLut":(string.IsNullOrEmpty(appliedLut)?"None":lutSource);
                 Result.LutStrength = lutStrength;
                 Result.VideoReference = displayedVideoReference;
+                if(colorThumbnailSerial==renderSerial)Result.ColorThumbnail=colorThumbnail;
                 Result.FilmSettings=filmSettings;
                 DialogResult = DialogResult.OK;
                 Close();
@@ -608,9 +678,8 @@ namespace FilmGrainStudioPreview
 
             UpdateLutUi();
             UpdateTimeLabel();
-            Shown += delegate {Application.AddMessageFilter(originalSpaceFilter);InitializeGpuView();RequestRender(true);};
             Deactivate += delegate {spaceOriginalHeld=false;mouseOriginalHeld=false;UpdateOriginalHold();};
-            FormClosing += delegate { closing = true; CancelActiveRender(); };
+            FormClosing += delegate { closing = true; CancelActiveRender(); if(matchCancellation!=null)matchCancellation.Cancel(); };
             FormClosed += delegate
             {
                 Application.RemoveMessageFilter(originalSpaceFilter);
@@ -643,8 +712,8 @@ namespace FilmGrainStudioPreview
             track.TickStyle = TickStyle.None;
             track.SmallChange = 1;
             track.LargeChange = 10;
-            track.Location = new Point(92, y - 5);
-            track.Size = new Size(120, 35);
+            track.Location = new Point(96, y - 5);
+            track.Size = new Size(248, 35);
             parent.Controls.Add(track);
 
             NumericUpDown number = new ThemeNumericUpDown();
@@ -653,7 +722,7 @@ namespace FilmGrainStudioPreview
             number.Minimum = (decimal)min / 100M;
             number.Maximum = (decimal)max / 100M;
             number.Value = (decimal)track.Value / 100M;
-            number.Location = new Point(212, y);
+            number.Location = new Point(352, y);
             number.Size = new Size(58, 24);
             parent.Controls.Add(number);
 
@@ -709,16 +778,16 @@ namespace FilmGrainStudioPreview
 
         private void BuildFilmPanel(Control parent)
         {
-            filmPanel=new Panel{Location=new Point(8,27),Size=new Size(262,405)};
+            filmPanel=new Panel{Location=new Point(8,27),Size=new Size(436,457)};
             parent.Controls.Add(filmPanel);
             filmPanel.Controls.Add(new ThemeLabel{Text=S("胶片组合","Film combination"),Location=new Point(7,2),Size=new Size(248,23)});
-            filmStock=new ThemeComboBox{Location=new Point(7,27),Size=new Size(248,26),DropDownStyle=ComboBoxStyle.DropDownList};
+            filmStock=new ThemeComboBox{Location=new Point(7,27),Size=new Size(420,26),DropDownStyle=ComboBoxStyle.DropDownList};
             foreach(var profile in FilmLutCore.Profiles)filmStock.Items.Add(isZh?profile.Chinese:profile.English);
             filmPanel.Controls.Add(filmStock);
             checkFilm=new ThemeCheckBox{Text=S("启用经典胶片 LUT","Enable classic film LUT"),Location=new Point(7,63),Size=new Size(246,26)};
             filmPanel.Controls.Add(checkFilm);
             filmPanel.Controls.Add(new ThemeLabel{Text=S("真实光谱基准 · 下方原有滑杆调整 LUT 强度","Spectral film base · LUT strength below preview"),
-                Location=new Point(7,94),Size=new Size(248,29)});
+                Location=new Point(7,94),Size=new Size(420,29)});
             AddFilmAdjustment(0,S("曝光","Exposure"),-10,10,0,126);
             AddFilmAdjustment(1,S("冷暖","Warmth"),-40,40,0,202);
             AddFilmAdjustment(2,S("饱和度","Saturation"),70,130,100,278);
@@ -726,8 +795,8 @@ namespace FilmGrainStudioPreview
             var load=new ThemeButton{Text=S("载入配方","Load recipe"),Location=new Point(88,357),Size=new Size(80,31)};
             var save=new ThemeButton{Text=S("保存 LUT…","Save LUT…"),Location=new Point(175,357),Size=new Size(80,31)};
             filmPanel.Controls.Add(reset);filmPanel.Controls.Add(load);filmPanel.Controls.Add(save);
-            filmStock.SelectedIndexChanged+=delegate{if(!filmUiSync&&filmStock.SelectedIndex>=0){filmModeActive=true;checkFilm.Checked=true;checkLut.Checked=true;RequestRender(false);}};
-            checkFilm.CheckedChanged+=delegate{if(!filmUiSync){filmModeActive=checkFilm.Checked;if(filmModeActive)checkLut.Checked=true;UpdateLutUi();RequestRender(false);}};
+            filmStock.SelectedIndexChanged+=delegate{if(!filmUiSync && filmModeActive)RequestRender(false);};
+            checkFilm.CheckedChanged+=delegate{if(!filmUiSync)SetFilmEnabled(checkFilm.Checked);};
             reset.Click+=delegate{SetFilmSettings(FilmLutSettings.Default(FilmLutCore.Profiles[filmStock.SelectedIndex].Id));};
             load.Click+=delegate{LoadFilmRecipe();};
             save.Click+=delegate{SaveFilmLut();};
@@ -739,15 +808,15 @@ namespace FilmGrainStudioPreview
         private void AddFilmAdjustment(int index,string caption,int min,int max,int value,int y)
         {
             var title=new ThemeLabel{Text=caption,Location=new Point(7,y),Size=new Size(161,22)};
-            var amount=new ThemeLabel{Location=new Point(177,y),Size=new Size(76,22),TextAlign=ContentAlignment.MiddleRight};
+            var amount=new ThemeLabel{Location=new Point(341,y),Size=new Size(76,22),TextAlign=ContentAlignment.MiddleRight};
             // Native TrackBar.AutoSize otherwise silently increases its height
             // and covers the following label (three labels were clipped in R7Q4VX).
             var slider=new ThemeTrackBar{AutoSize=false,Minimum=min,Maximum=max,Value=value,
                 TickStyle=TickStyle.None,SmallChange=1,LargeChange=5,
-                Location=new Point(5,y+26),Size=new Size(250,29)};
+                Location=new Point(5,y+26),Size=new Size(414,29)};
             filmTracks[index]=slider;filmAmounts[index]=amount;
             filmPanel.Controls.Add(title);filmPanel.Controls.Add(amount);filmPanel.Controls.Add(slider);
-            slider.ValueChanged+=delegate{UpdateFilmLabels();if(!filmUiSync){filmModeActive=true;checkFilm.Checked=true;RequestRender(false);}};
+            slider.ValueChanged+=delegate{UpdateFilmLabels();if(!filmUiSync && filmModeActive)RequestRender(false);};
             UpdateFilmLabels();
         }
 
@@ -763,6 +832,7 @@ namespace FilmGrainStudioPreview
 
         private void SwitchAdjustmentPage(bool showFilm)
         {
+            if(gradePanel!=null)gradePanel.Visible=false;
             foreach(Control control in colorPageControls)control.Visible=!showFilm;
             if(filmPanel!=null)filmPanel.Visible=showFilm;
             if(adjustmentGroup!=null)adjustmentGroup.Text=showFilm?(preserveHdrColor ? S("经典胶片 LUT · HDR","Classic Film LUT · HDR") : S("经典胶片 LUT","Classic Film LUT")):S("色彩纠正","Color Correction");
@@ -789,17 +859,31 @@ namespace FilmGrainStudioPreview
                 filmTracks[1].Value=settings.Warmth;
                 filmTracks[2].Value=settings.Saturation;
                 lutStrengthTrack.Value=settings.Strength;
-                checkFilm.Checked=true;filmModeActive=true;
-                checkLut.Checked=true;
+
             }finally{filmUiSync=false;}
             UpdateFilmLabels();SwitchAdjustmentPage(true);UpdateLutUi();RequestRender(true);
+        }
+
+        private void SetFilmEnabled(bool enabled)
+        {
+            filmUiSync=true;
+            try
+            {
+                filmModeActive=enabled;
+                checkFilm.Checked=enabled;
+                if(enabled && lutStrengthTrack.Value==0)lutStrengthTrack.Value=100;
+                if(enabled || lutSource=="FilmLut")checkLut.Checked=enabled;
+            }
+            finally {filmUiSync=false;}
+            UpdateLutUi();
+            RequestRender(false);
         }
 
         private void LoadFilmRecipe()
         {
             using(var dialog=new OpenFileDialog{Title=S("载入胶片配方","Load film recipe"),
                 Filter="FGS Film LUT recipe (*.film.json)|*.film.json|JSON (*.json)|*.json",
-                InitialDirectory=Path.Combine(lutRoot,"FGS_FilmLUT")}) {
+                InitialDirectory=FilmLutFolder}) {
                 if(dialog.ShowDialog(this)!=DialogResult.OK)return;
                 try {FilmLutSettings settings;FilmLutCore.ReadRecipe(dialog.FileName,out settings);SetFilmSettings(settings);}
                 catch(Exception ex){FgsMessageBox.Show(this,S("配方读取失败：","Could not read recipe: ")+ex.Message);}
@@ -810,7 +894,7 @@ namespace FilmGrainStudioPreview
         {
             FilmLutSettings settings;
             try{settings=CaptureFilmSettings();}catch(Exception ex){FgsMessageBox.Show(this,ex.Message);return;}
-            string folder=Path.Combine(lutRoot,"FGS_FilmLUT");
+            string folder=FilmLutFolder;
             try{Directory.CreateDirectory(folder);}catch(Exception ex){FgsMessageBox.Show(this,ex.Message);return;}
             using(var dialog=new SaveFileDialog{Title=S("保存胶片 LUT（不自动应用）","Save film LUT (without applying)"),
                 Filter="3D LUT (*.cube)|*.cube",DefaultExt="cube",AddExtension=true,OverwritePrompt=true,
@@ -857,7 +941,9 @@ namespace FilmGrainStudioPreview
 
         private void SetTimelineValue(int value, bool immediate)
         {
-            timelineValue = Math.Max(0, Math.Min(10000, value));
+            int next = Math.Max(0, Math.Min(10000, value));
+            if(timelineValue!=next)gradeRevision++;
+            timelineValue = next;
             timelinePanel.Invalidate();
             UpdateTimeLabel();
             RequestRender(immediate);
@@ -982,9 +1068,12 @@ namespace FilmGrainStudioPreview
                 gpuCanvas.PreviewKeyUp+=delegate(object sender,System.Windows.Input.KeyEventArgs e)
                 {if(e.Key==WpfKey.Space){spaceOriginalHeld=false;UpdateOriginalHold();e.Handled=true;}};
                 gpuCanvas.SizeChanged+=delegate{UpdateGpuDisplay();};
+                // Keep the WinForms preview as the painted placeholder while
+                // the WPF host starts. Reveal the host with its first frame.
+                gpuView.Visible=false;
                 Controls.Add(gpuView);
+                gpuView.BackColor=Color.Black;
                 gpuView.BringToFront();
-                pic.Visible=false;
                 gpuReady=true;
                 UpdateGpuDisplay();
             }
@@ -1132,6 +1221,7 @@ namespace FilmGrainStudioPreview
             zoomGradedDirty=true;
             renderSerial++;
             renderPending = true;
+            if (!immediate && (renderTimer.Enabled || renderDue)) return;
             renderDue = false;
             renderTimer.Stop();
             renderTimer.Interval = immediate ? 1 : 90;
@@ -1226,6 +1316,18 @@ namespace FilmGrainStudioPreview
                             if (state.Serial == renderSerial && image != null)
                             {
                                 displayedVideoReference=reference;
+                                if(!state.Original && !state.UseLut && (state.Enabled || state.Grade!=null))
+                                {
+                                    int width=Math.Min(240,image.Width);
+                                    int height=Math.Max(1,image.Height*width/image.Width);
+                                    using(var thumb=new Bitmap(image,width,height))
+                                    using(var stream=new MemoryStream())
+                                    {
+                                        thumb.Save(stream,System.Drawing.Imaging.ImageFormat.Png);
+                                        colorThumbnail=stream.ToArray();
+                                        colorThumbnailSerial=state.Serial;
+                                    }
+                                }
                                 if(state.Zoom)
                                 {
                                     if(fullOriginal!=null)
@@ -1266,8 +1368,15 @@ namespace FilmGrainStudioPreview
                                     if(oldImage!=null)oldImage.Dispose();
                                 }
                                 UpdateGpuDisplay();
+                                if(gpuReady && !gpuView.Visible)
+                                {
+                                    gpuView.Visible=true;
+                                    pic.Visible=false;
+                                }
                                 status.Text = S("预览已更新 · ", "Preview updated · ") + elapsedMs.ToString(CultureInfo.InvariantCulture) +
-                                    " ms · " + (gpuReady ? "GPU" : S("缓存显示", "Cached display"));
+                                    " ms · " + (state.Grade!=null&&!state.Original ?
+                                        (gradeGpuSupported==true?"Vulkan/libplacebo":S("CPU LUT / ","CPU LUT / ")+(gpuReady?"GPU "+S("显示","display"):S("缓存显示","Cached display"))) :
+                                        (gpuReady ? "GPU" : S("缓存显示", "Cached display")));
                             }
                             else if (state.Serial == renderSerial && !string.IsNullOrEmpty(error))
                             {
@@ -1309,7 +1418,9 @@ namespace FilmGrainStudioPreview
             state.Original = originalHeld;
             state.Zoom=zoomPreview;
             state.PanX=panX;state.PanY=panY;
-            state.Enabled = checkEnable.Checked;
+            ColorGrade grade=CaptureGrade();
+            if(grade.Serialize()!=ColorGrade.Neutral)state.Grade=grade;
+            state.Enabled = checkEnable.Checked && state.Grade==null;
             state.Contrast = (double)adjustments["Contrast"].Number.Value;
             state.Brightness = (double)adjustments["Brightness"].Number.Value;
             state.Saturation = (double)adjustments["Saturation"].Number.Value;
@@ -1317,6 +1428,7 @@ namespace FilmGrainStudioPreview
             state.BlackWhite = checkBlackWhite.Checked;
             state.UseLut = checkLut.Checked && lutStrength>0 && (filmModeActive || !string.IsNullOrEmpty(activeCompatLutPath));
             state.CompatLutPath = activeCompatLutPath;
+            state.LutVersion = lutVersion;
             state.LutStrength = lutStrength;
             if(filmModeActive)state.FilmSettings=CaptureFilmSettings();
             return state;
@@ -1335,10 +1447,11 @@ namespace FilmGrainStudioPreview
             return file;
         }
 
-        private Bitmap RenderPreview(RenderState state)
+        private Bitmap RenderPreview(RenderState state, bool allowGpu = true)
         {
             string output = Path.Combine(tempRoot, "preview_" + state.Serial.ToString(CultureInfo.InvariantCulture) + ".jpg");
             string preparedStrengthLut="";
+            string composedLut="";
             try { if (File.Exists(output)) File.Delete(output); } catch { }
 
             List<string> prefix = new List<string>();
@@ -1364,17 +1477,34 @@ namespace FilmGrainStudioPreview
             }
 
             string filter = string.Join(",", prefix.ToArray());
-            if (!state.Original && state.UseLut)
+            bool gradingOnGpu = false;
+            if (!state.Original && (state.UseLut || state.Grade!=null))
             {
-                string lutForPreview=state.FilmSettings!=null?FilmCubeForPreview(state.FilmSettings):state.CompatLutPath;
+                string lutForPreview=state.UseLut?BaseLut(state):"";
+                if (state.Grade!=null)
+                {
+                    var signal=ColorGradeCore.Signal(gradeInHdr?hdrPreviewInfo:null);
+                    var transform=ColorGradeCore.Compose(state.Grade,signal,lutForPreview,state.LutStrength);
+                    composedLut=Path.Combine(tempRoot,"grade_"+state.Serial.ToString(CultureInfo.InvariantCulture)+".cube");
+                    ColorGradeCore.WriteCube(composedLut,33,signal,transform);
+                    lutForPreview=composedLut;
+                }
                 string resolvedOpacity="1.00";
-                if(state.LutStrength<100) {
+                if(state.Grade==null && state.LutStrength<100) {
                     string strengthSource=lutForPreview;
                     lutForPreview=Path.Combine(tempRoot,"lut_strength_"+state.Serial.ToString(CultureInfo.InvariantCulture)+".cube");
                     resolvedOpacity=LutStrengthCore.CreateFile(strengthSource,lutForPreview,state.LutStrength);preparedStrengthLut=lutForPreview;
                 }
                 string escaped = EscapeFilterPath(lutForPreview);
-                if(gradeInHdr)
+                gradingOnGpu = state.Grade!=null && allowGpu && gradeGpuSupported!=false;
+                if(gradingOnGpu)
+                {
+                    if(gradeInHdr)filter+=","+HdrColorProcessingCore.RgbInput(hdrPreviewInfo);
+                    else filter+=",format=gbrp16le";
+                    filter+=",libplacebo=lut='"+escaped+"':lut_type=native:format=gbrp16le:apply_filmgrain=0:apply_dolbyvision=0";
+                    if(gradeInHdr)filter+=","+HdrColorProcessingCore.RgbOutput(hdrPreviewInfo);
+                }
+                else if(gradeInHdr)
                     filter+=","+HdrColorProcessingCore.Lut(hdrPreviewInfo,escaped,resolvedOpacity).TrimEnd(',');
                 else if (resolvedOpacity=="1.00")
                     filter += ",format=gbrp16le,lut3d=file='" + escaped + "':interp=tetrahedral";
@@ -1393,7 +1523,7 @@ namespace FilmGrainStudioPreview
             psi.UseShellExecute = false;
             psi.CreateNoWindow = true;
             psi.RedirectStandardError = true;
-            psi.Arguments = "-hide_banner -loglevel error -y -ss " + state.Position.ToString("0.000", CultureInfo.InvariantCulture) +
+            psi.Arguments = "-hide_banner -loglevel error -y "+(gradingOnGpu?"-init_hw_device "+QuoteArg(VulkanDevicePolicy.Spec("gradevk"))+" -filter_hw_device gradevk ":"")+"-ss " + state.Position.ToString("0.000", CultureInfo.InvariantCulture) +
                             " -i " + QuoteArg(videoPath) + " -an -sn -dn -frames:v 1 -vf " + QuoteArg(filter) + " -q:v 2 " + QuoteArg(output);
 
             string error;
@@ -1401,10 +1531,14 @@ namespace FilmGrainStudioPreview
             using (Process process = new Process())
             {
                 process.StartInfo = psi;
-                lock (processLock) activeRenderProcess = process;
                 try
                 {
-                    process.Start();
+                    lock (processLock)
+                    {
+                        if(closing)throw new OperationCanceledException();
+                        process.Start();
+                        activeRenderProcess = process;
+                    }
                     error = process.StandardError.ReadToEnd();
                     process.WaitForExit();
                     rc = process.ExitCode;
@@ -1418,15 +1552,21 @@ namespace FilmGrainStudioPreview
                 }
             }
 
-            try{if(preparedStrengthLut.Length>0)File.Delete(preparedStrengthLut);}catch{}
+            try{if(preparedStrengthLut.Length>0)File.Delete(preparedStrengthLut);if(composedLut.Length>0)File.Delete(composedLut);}catch{}
             sourceIdentity.RequireCurrent();
             if (rc != 0 || !File.Exists(output))
             {
+                if(gradingOnGpu&&!closing)
+                {
+                    if(state.Serial==renderSerial)gradeGpuSupported=false;
+                    return RenderPreview(state,false);
+                }
                 string detail = (error ?? "").Trim();
                 if (detail.Length > 1200) detail = detail.Substring(detail.Length - 1200);
                 throw new InvalidOperationException(string.IsNullOrEmpty(detail) ? "FFmpeg preview failed." : detail);
             }
 
+            if(gradingOnGpu)gradeGpuSupported=true;
             byte[] bytes = File.ReadAllBytes(output);
             try { File.Delete(output); } catch { }
             using (MemoryStream stream = new MemoryStream(bytes))
@@ -1459,7 +1599,8 @@ namespace FilmGrainStudioPreview
                         else {PrepareLut(gallery.SelectedLut);lutSource="Gallery";}
                         syncing=true;
                         try{checkLut.Checked=!gallery.DisabledLut&&!string.IsNullOrEmpty(activeCompatLutPath);}finally{syncing=false;}
-                        SwitchAdjustmentPage(false);
+                        if(gradePanel.Visible || CaptureGrade().Serialize()!=ColorGrade.Neutral || !checkEnable.Checked)ShowGradePage();
+                        else SwitchAdjustmentPage(false);
                     }
                 }
                 UpdateLutUi();RequestRender(true);

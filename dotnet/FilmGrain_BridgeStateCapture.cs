@@ -175,7 +175,8 @@ namespace FilmGrainStudioPreview
             
             
 
-            snapshot.ColorEnabled = colorCorrectionEnabled;
+            snapshot.ColorGrade = config.Get(ColorGrade.ConfigKey);
+            snapshot.ColorEnabled = colorCorrectionEnabled && string.IsNullOrEmpty(snapshot.ColorGrade);
             snapshot.ColorContrast = colorContrast;
             snapshot.ColorBrightness = colorBrightness;
             snapshot.ColorSaturation = colorSaturation;

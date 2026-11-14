@@ -76,7 +76,43 @@ namespace FilmGrainStudioPreview
                 tags+=" [Resize "+target+"]";
             }
             btnPreprocess.Text=UiText("前处理","Preprocessing")+(tags.Length==0?"...":tags);
+            SetEffectButtonState(btnPreprocess,tags.Length>0);
         }
+        private ContextMenuStrip BuildPreprocessMenu()
+        {
+            var menu=new ContextMenuStrip();
+            var bilateral=menu.Items.Add(UiText("关闭 Bilateral","Turn off Bilateral"),null,delegate {ClearPreprocessing(true,false);});
+            var resize=menu.Items.Add(UiText("关闭缩放","Turn off resize"),null,delegate {ClearPreprocessing(false,true);});
+            menu.Items.Add(new ToolStripSeparator());
+            var all=menu.Items.Add(UiText("全部清除","Clear all"),null,delegate {ClearPreprocessing(true,true);});
+            menu.Opening+=delegate
+            {
+                bilateral.Enabled=config.GetBool("PRE_BILATERAL_ENABLED");
+                resize.Enabled=config.Get("RESIZE_MODE")!="OFF";
+                all.Enabled=bilateral.Enabled||resize.Enabled;
+            };
+            return menu;
+        }
+
+        private void ClearPreprocessing(bool bilateral,bool resize)
+        {
+            var values=new Dictionary<string,string>();
+            if(bilateral)values[PreprocessingCore.Keys[0]]=PreprocessingCore.Defaults[0];
+            if(resize)values[ResizeCore.Keys[0]]=ResizeCore.Defaults[0];
+            try {ApplyPreprocessValues(values);}
+            catch(Exception ex){FgsMessageBox.Show(this,ex.Message,Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);}
+        }
+
+        private void ApplyPreprocessValues(Dictionary<string,string> values)
+        {
+            config.Save(values);
+            RefreshPreprocessButton();
+            UpdateBitrateDisplays();
+            RefreshAv1GrainTableForMedia();
+            UpdateHdrRouteStatus(GetSelectedMediaInfo());
+            UpdateFileSettingsLabels();
+        }
+
         private void ShowPreprocessDialog()
         {
             using(var dialog=new SettingsDialogForm()) {
@@ -170,9 +206,7 @@ namespace FilmGrainStudioPreview
                             if(!CinematicFrameCore.TryBuild(media,state,out frame,out error)||!ResizeCore.TryBuild(media,state,frame,out plan,out error))
                                 throw new InvalidOperationException(error);
                         }
-                        config.Save(values);RefreshPreprocessButton();UpdateBitrateDisplays();
-                        RefreshAv1GrainTableForMedia();
-                        UpdateHdrRouteStatus(GetSelectedMediaInfo());
+                        ApplyPreprocessValues(values);
                         dialog.DialogResult=DialogResult.OK;dialog.Close();
                     }catch(Exception ex){FgsMessageBox.Show(dialog,ex.Message,dialog.Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);}
                 };

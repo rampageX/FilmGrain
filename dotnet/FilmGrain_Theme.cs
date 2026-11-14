@@ -201,7 +201,7 @@ namespace FilmGrainStudioPreview
         }
         private void Register(Control c)
         {
-            if (c is PictureBox || c is ThemeColorButton || controls.ContainsKey(c)) return;
+            if (c is PictureBox || c is System.Windows.Forms.Integration.ElementHost || c is ThemeColorButton || controls.ContainsKey(c)) return;
             Form window = c as Form;
             if (window != null) UiWindowIcon.Apply(window, null);
             Snapshot s = new Snapshot(); s.Back = LocalColor(c, "BackColor"); s.Fore = LocalColor(c, "ForeColor");
@@ -411,6 +411,8 @@ namespace FilmGrainStudioPreview
         {
             Snapshot s;
             if (!controls.TryGetValue(button, out s)) return;
+            s.Back = button.BackColor;
+            s.Fore = button.ForeColor;
             s.Flat = enabled ? FlatStyle.Flat : FlatStyle.Standard;
             s.Visual = !enabled;
             s.Edge = enabled ? Color.FromArgb(135,40,10) : SystemColors.ControlDark;

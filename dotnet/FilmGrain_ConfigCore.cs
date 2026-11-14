@@ -33,14 +33,14 @@ namespace FilmGrainStudioPreview
             new KeyValuePair<string, string[]>("Advanced.Interpolation", new string[] { "SVP_ALGO", "SVP_ANALYSE", "SVP_MASK_AREA", "SVP_SPEED", "SVP_TUNING", "SVP_BLOCK_SIZE", "SVP_HDR_BACKEND", "SVP_EXACT", "SVP_LEAN", "SVP_DEDUP", "SVP_STILL", "SVP_STILL_LIMIT", "SVP_STILL_EDGE", "SVP_STILL_TOLERANCE", "SVP_PEEL", "SVP_PEEL_LIMIT", "NVENC_AI_MODE", "FRUC_PERF", "FRUC_GRID", "INTERPOLATION_TARGET_FPS" }),
             new KeyValuePair<string, string[]>("Advanced.HDR", new string[] { "HDR_POLICY", "TONE_MAP_ALGO" }),
             new KeyValuePair<string, string[]>("Advanced.Other", new string[] { "QUEUE_SKIP_FAILED", "CINEMATIC_CROP_PER_SIDE", "CINEMATIC_CROP_HORIZONTAL", "CINEMATIC_NO_CROP", "COLOR_PREVIEW_LARGE_UI" }),
-            new KeyValuePair<string, string[]>("ColorCorrection", new string[] { "COLOR_CORRECTION_ENABLED", "COLOR_CONTRAST", "COLOR_BRIGHTNESS", "COLOR_SATURATION", "COLOR_GAMMA", "COLOR_BLACK_WHITE" })
+            new KeyValuePair<string, string[]>("ColorCorrection", new string[] { "COLOR_CORRECTION_ENABLED", "COLOR_CONTRAST", "COLOR_BRIGHTNESS", "COLOR_SATURATION", "COLOR_GAMMA", "COLOR_BLACK_WHITE", ColorGrade.ConfigKey, "COLOR_MATCH_STRENGTH" })
         };
 
         // Task editor overlay: Load/Save keep application settings on disk and task settings in memory.
         private Dictionary<string,string> taskValues;
         internal static bool IsTaskKey(string key)
         {
-            if(key=="COLOR_PREVIEW_LARGE_UI"||key=="QUEUE_SKIP_FAILED")return false;
+            if(key=="COLOR_PREVIEW_LARGE_UI"||key=="COLOR_MATCH_STRENGTH"||key=="QUEUE_SKIP_FAILED")return false;
             foreach (var section in Sections)
                 if (section.Key.StartsWith("Advanced.") || section.Key == "ColorCorrection" || section.Key == "Preprocessing")
                     foreach (string name in section.Value) if (name.Equals(key,StringComparison.OrdinalIgnoreCase)) return true;
@@ -205,6 +205,8 @@ defaults["CPU_X265_CQ_AUTO"] = "false";
             defaults["COLOR_SATURATION"] = "1.00";
             defaults["COLOR_GAMMA"] = "1.00";
             defaults["COLOR_BLACK_WHITE"] = "false";
+            defaults["COLOR_MATCH_STRENGTH"] = "35";
+            defaults[ColorGrade.ConfigKey] = ColorGrade.Neutral;
         }
 
         public void Load()

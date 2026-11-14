@@ -47,19 +47,42 @@ namespace FilmGrainStudioPreview
         internal readonly int Size;
         private readonly float[] values;
 
-        private FilmLutCube(int size, float[] entries)
-        { Size=size; values=entries; }
+        private readonly double[] domainMin, domainMax;
 
-        internal static FilmLutCube Read(string path)
+        private FilmLutCube(int size, float[] entries, double[] min, double[] max)
+        { Size=size; values=entries; domainMin=min; domainMax=max; }
+
+        internal static FilmLutCube Read(string path, bool composition = false)
         {
             int size=0, count=0;
+            double[] min={0,0,0}, max={1,1,1};
             float[] values=null;
             foreach(string line in File.ReadLines(path)) {
                 string trimmed=line.Split('#')[0].Trim();
                 if(trimmed.Length==0)continue;
                 string[] parts=trimmed.Split((char[])null,StringSplitOptions.RemoveEmptyEntries);
+                if(composition)
+                {
+                    string key=parts[0].ToUpperInvariant();
+                    if(key=="LUT_1D_SIZE")
+                        throw new InvalidDataException("Combined 1D + 3D CUBE can be used through the original LUT route. Composition requires a 3D-only CUBE.");
+                    if(key=="DOMAIN_MIN"||key=="DOMAIN_MAX")
+                    {
+                        if(parts.Length!=4)throw new InvalidDataException("Invalid CUBE domain.");
+                        var edge=key=="DOMAIN_MIN"?min:max;
+                        for(int c=0;c<3;c++)edge[c]=ParseDomain(parts[c+1]);
+                        continue;
+                    }
+                    if(key=="LUT_3D_INPUT_RANGE")
+                    {
+                        if(parts.Length!=3)throw new InvalidDataException("Invalid CUBE range.");
+                        double lower=ParseDomain(parts[1]), upper=ParseDomain(parts[2]);
+                        for(int c=0;c<3;c++){min[c]=lower;max[c]=upper;}
+                        continue;
+                    }
+                }
                 if(parts[0].Equals("LUT_3D_SIZE",StringComparison.OrdinalIgnoreCase)) {
-                    if(size!=0 || parts.Length!=2 || !int.TryParse(parts[1],out size) || size<2 || size>65)
+                    if(size!=0 || parts.Length!=2 || !int.TryParse(parts[1],out size) || size<2 || size>(composition?256:65))
                         throw new InvalidDataException("Invalid film LUT size.");
                     values=new float[size*size*size*3];
                     continue;
@@ -74,7 +97,16 @@ namespace FilmGrainStudioPreview
                 values[3*count]=r;values[3*count+1]=g;values[3*count+2]=b;count++;
             }
             if(size==0 || count!=size*size*size)throw new InvalidDataException("Incomplete film LUT.");
-            return new FilmLutCube(size,values);
+            for(int c=0;c<3;c++)if(max[c]<=min[c])throw new InvalidDataException("Invalid CUBE domain.");
+            return new FilmLutCube(size,values,min,max);
+        }
+
+        private static double ParseDomain(string text)
+        {
+            double value;
+            if(!double.TryParse(text,NumberStyles.Float,CultureInfo.InvariantCulture,out value)||
+                double.IsNaN(value)||double.IsInfinity(value))throw new InvalidDataException("Invalid CUBE domain.");
+            return value;
         }
 
         private static bool Finite(float v) {return !float.IsNaN(v) && !float.IsInfinity(v);}
@@ -82,10 +114,13 @@ namespace FilmGrainStudioPreview
         private double Component(int r,int g,int b,int channel)
         {return values[Index(r,g,b)+channel];}
 
+        private double Coordinate(double value,int channel)
+        {return FilmLutCore.Clamp((value-domainMin[channel])/(domainMax[channel]-domainMin[channel]))*(Size-1);}
+
         // Matches FFmpeg lut3d's tetrahedral interpolation and CUBE's R-fastest order.
         internal void Sample(double r,double g,double b,double[] output)
         {
-            double x=FilmLutCore.Clamp(r)*(Size-1), y=FilmLutCore.Clamp(g)*(Size-1), z=FilmLutCore.Clamp(b)*(Size-1);
+            double x=Coordinate(r,0), y=Coordinate(g,1), z=Coordinate(b,2);
             int r0=Math.Min(Size-2,(int)x), g0=Math.Min(Size-2,(int)y), b0=Math.Min(Size-2,(int)z);
             int r1=r0+1,g1=g0+1,b1=b0+1;
             double dr=x-r0,dg=y-g0,db=z-b0;

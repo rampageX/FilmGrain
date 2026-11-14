@@ -58,6 +58,8 @@ $RequiredPackageFiles = @(
     'dotnet\FilmGrain_LanguagePack.cs',
     'dotnet\FilmGrain_LutCatalogCore.cs',
     'dotnet\FilmGrain_FilmLutCore.cs',
+    'dotnet\FilmGrain_ColorGradeCore.cs',
+    'dotnet\FilmGrain_NativeColorGradeUI.cs',
     'dotnet\FilmGrain_MediaProbeCore.cs',
     'dotnet\FilmGrain_MediaSummaryCore.cs',
     'dotnet\FilmGrain_NativeArchiveCore.cs',

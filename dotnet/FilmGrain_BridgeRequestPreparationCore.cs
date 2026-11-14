@@ -219,6 +219,7 @@ namespace FilmGrainStudioPreview
                 if (!state.TryGetValue("FG_SVP_ANALYSE", out analyse)) analyse = "ENCODEGUI";
                 if (!SharedSvpCore.TryValidateOptions(speed, tuning, block, analyse, out reason)) return false;
             }
+            string gradeCube = null;
             try
             {
                 bool success;
@@ -231,15 +232,46 @@ namespace FilmGrainStudioPreview
                 else
                 {
                     string mode;state.TryGetValue("FG_MODE",out mode);
+                    if(mode!="AV1BAKE")
+                    {
+                        string recipe;
+                        if(state.TryGetValue(ColorGrade.StateKey,out recipe)&&!string.IsNullOrEmpty(recipe))
+                        {
+                            string originalLut, strengthText;
+                            state.TryGetValue("FG_LUT_PATH",out originalLut);
+                            state.TryGetValue("FG_LUT_STRENGTH",out strengthText);
+                            int percent;
+                            if(!int.TryParse(strengthText,out percent))percent=75;
+                            bool toSdr = mode=="SVT" || mode=="X265" || mode=="X264"
+                                ? SharedGrainCore.CpuHdrToSdr(info,state) : HdrColorProcessingCore.NvencToSdr(info,state);
+                            var signal = ColorGradeCore.Signal(toSdr ? null : info);
+                            var transform = ColorGradeCore.Compose(ColorGrade.Parse(recipe),signal,originalLut,percent);
+                            gradeCube = Path.Combine(Path.GetTempPath(),"FGS_grade_"+Guid.NewGuid().ToString("N")+".cube");
+                            ColorGradeCore.WriteCube(gradeCube,33,signal,transform);
+                            state = new Dictionary<string,string>(state,StringComparer.OrdinalIgnoreCase);
+                            state[ColorGradeCore.OriginalLutKey] = originalLut ?? "";
+                            state["FG_LUT_PATH"] = gradeCube;
+                            state["FG_LUT_STRENGTH"] = "100";
+                            state["FG_COLOR_ENABLED"] = "0";
+                        }
+                    }
                     if(string.Equals(mode,"AV1BAKE",StringComparison.OrdinalIgnoreCase)&&(PreprocessingCore.Enabled(state)||ResizeCore.Enabled(state))){reason="独立 AV1 颗粒烘焙不提供前处理，请使用主编码流程。";return false;}
                     if(string.Equals(mode,"AV1BAKE",StringComparison.OrdinalIgnoreCase))success=NativeAv1BakeCore.TryPrepare(appRoot,input,info,state,caps,out prepared,out reason);
                     else if(string.Equals(mode,"AV1",StringComparison.OrdinalIgnoreCase))success=NativeAv1Core.TryPrepare(appRoot,input,info,state,caps,out prepared,out reason);
                     else if((string.Equals(mode,"HEVC",StringComparison.OrdinalIgnoreCase)||string.Equals(mode,"H264",StringComparison.OrdinalIgnoreCase)))success=NativeHevcCore.TryPrepare(appRoot,input,info,state,caps,out prepared,out reason);
                     else if(string.Equals(mode,"X264",StringComparison.OrdinalIgnoreCase)||string.Equals(mode,"SVT",StringComparison.OrdinalIgnoreCase)||string.Equals(mode,"X265",StringComparison.OrdinalIgnoreCase))success=NativeX264DigitalGrainCore.TryPrepare(appRoot,input,info,state,out prepared,out reason,caps==null?"":caps.GpuName);
-                    else {reason="unsupported codec: "+mode;return false;}
+                    else throw new InvalidDataException("unsupported codec: "+mode);
                 }
                 if(success && prepared!=null && prepared.ExecutionRequest!=null)
                 {
+                    if(gradeCube!=null)
+                    {
+                        var files=new List<string>(prepared.ExecutionRequest.TemporaryFiles ?? new string[0]);
+                        files.Add(gradeCube);
+                        prepared.ExecutionRequest.TemporaryFiles=files;
+                        prepared.ExecutionRequest.ExecutionNotice=(prepared.ExecutionRequest.ExecutionNotice??"")+Environment.NewLine+
+                            "[Color grade] 33³ composed LUT; "+state[ColorGrade.StateKey];
+                    }
                     SharedInterpolationBypassCore.Attach(prepared,routeNotice);
                     if(NvencInterpolationCore.Enabled(state))prepared.ExecutionRequest.ExecutionNotice=(prepared.ExecutionRequest.ExecutionNotice??"")+Environment.NewLine+
                         "[NVEncC SDR] "+NvencInterpolationCore.Label(NvencInterpolationCore.Get(state,"FG_INTERPOLATION_ENGINE"))+"; raw NUT binary pipe; no extra lossy encode; software decode explicitly selected; no engine fallback; existing AV1/multipass/HDR workfiles retained.";
@@ -249,6 +281,7 @@ namespace FilmGrainStudioPreview
                 if(success)reason="Native preparation returned no execution request";
             }
             catch(Exception ex){reason="Native preparation failed: "+ex.Message;}
+            if(gradeCube!=null)try{File.Delete(gradeCube);}catch(IOException){}
             if(prepared!=null && prepared.ExecutionRequest!=null)BridgeExecutionCore.CleanupTemporaryFiles(prepared.ExecutionRequest);
             prepared=null;reason=NativeRuntimeBoundaryCore.FailureReason(reason);return false;
         }

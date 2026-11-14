@@ -295,7 +295,7 @@ namespace FilmGrainStudioPreview
                 if(pixelKind=="FGSIM")state["FG_FGSIM_PRESET"]=GrainControlCore.FgsimPresets[level];
                 else if(pixelKind=="NATIVE")state["FG_GRAIN_PLATE_STRENGTH"]=strengths[level].ToString(CultureInfo.InvariantCulture);
                 else state["FG_PROC_STRENGTH"]=strengths[level].ToString(CultureInfo.InvariantCulture);
-                state["FG_COLOR_ENABLED"]="0";state["FG_LUT_PATH"]="";
+                state["FG_COLOR_ENABLED"]="0";state["FG_LUT_PATH"]="";state.Remove(ColorGrade.StateKey);
                 state["FG_SUBTITLE"]="0";if(!ResizeCore.Enabled(state))state["FG_CINEMATIC_FRAME"]="0";state["FG_SVP_INTERPOLATE"]="0";
                 state["FG_FPS_MODE"]="SOURCE";state["FG_X264_PASS_MODE"]="VBR1";
                 state["FG_ENCODE_PREVIEW"]="0";state["FG_SFE_ENGINES"]="0";
@@ -634,6 +634,11 @@ namespace FilmGrainStudioPreview
             if(next==key)return;
             serial++;key=next;tool=executable;lut=cube;reference=image;strength=percent;delay.Stop();Cancel();
             byte[] bytes;if(cache.TryGetValue(key,out bytes)){Load(bytes);return;}delay.Start();
+        }
+        internal void ShowColorThumbnail(byte[] bytes)
+        {
+            Queue("","","",100);
+            if(bytes!=null)Load(bytes);
         }
         private void Replace(Image image){var old=picture.Image;picture.Image=image;if(old!=null)old.Dispose();}
         private void Load(byte[] bytes){using(var stream=new MemoryStream(bytes))using(var image=Image.FromStream(stream))Replace(new Bitmap(image));}
