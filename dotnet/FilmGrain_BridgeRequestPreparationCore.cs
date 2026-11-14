@@ -438,6 +438,8 @@ namespace FilmGrainStudioPreview
                 BridgePreparedExecution next; string error;
                 if (!NativeExecutionPreparationCore.TryPrepare(appRoot, clip, clipped, captured, caps, noReencode, out next, out error))
                     throw new InvalidOperationException("Preview encoding preparation failed: " + error);
+                next.ExecutionRequest.PreviewOriginal=input;
+                next.ExecutionRequest.PreviewOriginalOffset=alignedStart;
                 next.ExecutionRequest.ExecutionNotice = "[Preview] actual_clip_seconds=" + clipped.Duration + Environment.NewLine + (next.ExecutionRequest.ExecutionNotice ?? "");
                 return next.ExecutionRequest;
             };

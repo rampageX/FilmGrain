@@ -319,6 +319,7 @@ namespace FilmGrainStudioPreview
                     b.FlatAppearance.BorderColor = dark ? Border : s.Edge;
                     b.FlatAppearance.MouseOverBackColor = dark ? Color.FromArgb(53, 56, 60) : s.Hover;
                     b.FlatAppearance.MouseDownBackColor = dark ? Color.FromArgb(35, 78, 66) : s.Down;
+                    if (dark && b.UseVisualStyleBackColor==false && s.Back.G>s.Back.R*1.5 && s.Back.G>s.Back.B*1.25) {b.BackColor=s.Back;b.ForeColor=Color.White;}
                     if (dark && (s.Back.R > s.Back.G * 1.5 || s.Back.B > s.Back.R * 1.5 || s.Back.ToArgb() == Color.LightSteelBlue.ToArgb())) { b.BackColor = s.Back.R > s.Back.G * 1.5 ? s.Back : Accent; b.ForeColor = Color.White; if (s.Back.B > s.Back.R * 1.5 || s.Back.ToArgb() == Color.LightSteelBlue.ToArgb()) { b.FlatAppearance.MouseOverBackColor = Color.FromArgb(0,170,126); b.FlatAppearance.MouseDownBackColor = Color.FromArgb(0,123,90); } }
                 }
                 ComboBox combo = c as ComboBox;

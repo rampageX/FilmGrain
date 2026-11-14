@@ -107,8 +107,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.69";
-        internal const string FileReleaseVersion = "5.0.69.0";
+        internal const string ReleaseVersion = "5.0.70";
+        internal const string FileReleaseVersion = "5.0.70.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -1050,7 +1050,7 @@ namespace FilmGrainStudioPreview
             box.Controls.Add(t);
 
             cmbCodec = Combo(new string[] { lang.T("codec.av1_default"), lang.T("codec.hevc_scan"), lang.T("codec.x264_default"), UiText("H.264 · NVENC", "H.264 · NVENC") }, 0);
-            cmbContainer = Combo(new string[] { lang.T("container.mp4"), lang.T("container.mkv") }, 0);
+            cmbContainer = Combo(new string[] { lang.T("container.mp4"), lang.T("container.mkv") }, 1);
             cmbSpeed = Combo(new string[] { lang.T("speed.fast"), lang.T("speed.standard") }, 0);
             chkSfe = Check(lang.T("encode.sfe"), false); chkSfe.Enabled = false;
             sfeToolTip.SetToolTip(chkSfe, "NVENC: Split Frame Encoding (SFE)");
@@ -2019,6 +2019,9 @@ namespace FilmGrainStudioPreview
             progressRun = new ThemeProgressBar(); progressRun.Style = ProgressBarStyle.Blocks; progressRun.Minimum = 0; progressRun.Maximum = 1000; progressRun.Value = 0; progressRun.Size = new Size(220, 20); progressRun.Anchor = AnchorStyles.Top | AnchorStyles.Right; footer.Controls.Add(progressRun);
             btnCancelTask = new ThemeButton(); btnCancelTask.Text = lang.T("button.cancel_task"); btnCancelTask.Enabled = false; btnCancelTask.Size = new Size(94, 34); btnCancelTask.Anchor = AnchorStyles.Top | AnchorStyles.Right; footer.Controls.Add(btnCancelTask);
             btnStart = new ThemeButton(); btnStart.Text = lang.T("button.start_encode"); btnStart.ForeColor = Color.White; btnStart.BackColor = ColorAccent; btnStart.FlatStyle = FlatStyle.Flat; btnStart.FlatAppearance.BorderSize = 0; btnStart.Size = new Size(126, 36); btnStart.Anchor = AnchorStyles.Top | AnchorStyles.Right; footer.Controls.Add(btnStart);
+            btnOutputPreview=new ThemeButton {Text=UiText("输出预览","Output preview"),Size=new Size(112,36),Anchor=AnchorStyles.Top|AnchorStyles.Right};
+            btnOutputPreview.Click+=delegate {ShowOutputPreview();};
+            footer.Controls.Add(btnOutputPreview);
             encodePreviewPanel = new Panel(); encodePreviewPanel.Size = new Size(392, 30); footer.Controls.Add(encodePreviewPanel);
             chkEncodePreview = new ThemeCheckBox { Text = UiText("预览编码", "Preview"), AutoSize = true, Location = new Point(0, 6) };
             txtPreviewStart = new MaskedTextBox("00:00:00") { Text = "000000", Size = new Size(76, 24), Location = new Point(94, 3), Enabled = false, TextMaskFormat = MaskFormat.IncludeLiterals };
@@ -2037,7 +2040,8 @@ namespace FilmGrainStudioPreview
             btnCancelTask.Click += delegate { CancelBridgeExecution(); };
             footer.Resize += delegate
             {
-                btnStart.Left = footer.ClientSize.Width - btnStart.Width - 14; btnStart.Top = 10;
+                btnOutputPreview.Left=footer.ClientSize.Width-btnOutputPreview.Width-14; btnOutputPreview.Top=10;
+                btnStart.Left = btnOutputPreview.Left - btnStart.Width - 9; btnStart.Top = 10;
                 btnCancelTask.Left = btnStart.Left - btnCancelTask.Width - 9; btnCancelTask.Top = 11;
                 progressRun.Left = btnCancelTask.Left - progressRun.Width - 12; progressRun.Top = 19;
                 encodePreviewPanel.Left = progressRun.Left - encodePreviewPanel.Width - 10; encodePreviewPanel.Top = 14;
@@ -3594,6 +3598,8 @@ namespace FilmGrainStudioPreview
                     if (e.State == BridgeTaskState.Running)
                     {
                         BridgeTaskRequest task = e.Task;
+                        outputPreviewTask=task;
+                        if(task!=null && task.QueueIndex<=1 && outputPreviewWindow==null)ShowOutputPreview();
                         bool noReencode = task != null && task.NoReencode;
                         IDictionary<string, string> state = task != null && task.ExecutionRequest != null ? task.ExecutionRequest.Environment : null;
                         activeRunNativeBackend = task != null && task.NativeBackend;

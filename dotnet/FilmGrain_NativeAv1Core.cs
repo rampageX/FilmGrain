@@ -1152,6 +1152,7 @@ namespace FilmGrainStudioPreview
                 double duration;double.TryParse(info.Duration,NumberStyles.Float,CultureInfo.InvariantCulture,out duration);
                 var req=new BridgeExecutionRequest{ToolPath=ffmpeg,WorkingDirectory=dir,DirectProcess=true,
                     InputFiles=new List<string>{input},OutputFiles=new List<string>(),TemporaryFiles=new List<string>{staging},
+                    PreviewFinalStagingPath=staging,
                     Environment=new Dictionary<string,string>(state,StringComparer.OrdinalIgnoreCase),ProgressDurationSeconds=duration,LogStageTimings=true,
                     ExecutionNotice="[AV1 Bake] "+(info.IsHdr?"HDR preserve":"SDR")+" / "+(gpu?"NVDEC apply_grain (experimental)"+(encoder=="HEVC_NVENC"&&info.PixelFormat=="yuv420p"?" / CUDA NV12 -> P010":""):"libdav1d filmgrain=1")+" -> "+encoder+" / "+(IsCq(state)?"CQ/CRF "+Quality(state,encoder):"VBR "+bitrate+"k")+". "+hevcNotice+"\n只合成源内已有颗粒；不额外加颗粒、插帧、调色或字幕。 / Existing grain only; no transformations.\n[AV1 Bake] output="+output};
                 var original=new FileInfo(input);long length=original.Length;DateTime modified=original.LastWriteTimeUtc;

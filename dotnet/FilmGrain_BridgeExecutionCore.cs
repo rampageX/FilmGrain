@@ -4,6 +4,7 @@ using System.Collections.Specialized;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
 
@@ -80,6 +81,12 @@ namespace FilmGrainStudioPreview
 
     internal sealed class BridgeExecutionRequest
     {
+        internal volatile OutputPreviewSample PreviewSample;
+        internal volatile BridgeExecutionResult PreviewResult;
+        internal BridgeExecutionRequest PreviewOwner;
+        internal string PreviewOriginal;
+        internal string PreviewFinalStagingPath;
+        internal double PreviewOriginalOffset;
         internal MediaProbeIdentity SourceIdentity;
         internal string SourceConfigRoot;
         internal TimeSpan PreparationElapsed;
@@ -183,6 +190,8 @@ namespace FilmGrainStudioPreview
         private string progressSpeedText = "";
         private int currentStage;
         private int currentStageTotal;
+        private string previewStageOutput;
+        private string previewSpoolDirectory;
 
         public event EventHandler<BridgeLogLineEventArgs> LogLine;
         public event EventHandler<BridgeProgressEventArgs> ProgressChanged;
@@ -363,6 +372,7 @@ namespace FilmGrainStudioPreview
                     BridgeExecutionRequest next = request.ContinueAfterStages(delegate { return cancelRequested; });
                     if (next == null) throw new InvalidOperationException("Preview preparation returned no request");
                     request = next;
+                    request.PreviewOwner=previewOwners[0];
                     NativeProcessPolicy.ValidateRequest(request);
                     lock (sync) { activeRequest = request; }
                     ResetProgressState(request.ProgressDurationSeconds);
@@ -420,6 +430,15 @@ namespace FilmGrainStudioPreview
                         if (File.Exists(outputFile)) RaiseLog(BridgeLogStream.System, "output cleanup warning: could not remove " + outputFile);
                     }
                 }
+                var previewOwner=previewOwners.Count==0?request:previewOwners[0];
+                string previewOutput=request.OutputFiles==null?null:request.OutputFiles.FirstOrDefault();
+                if(!failedRun && !string.IsNullOrEmpty(previewOutput))
+                {
+                    double seconds=request.PreviewSample==null?0:request.PreviewSample.Seconds;
+                    if(seconds<=0 && request.ProgressDurationSeconds>0)seconds=Math.Min(10,request.ProgressDurationSeconds/2);
+                    previewOwner.PreviewSample=new OutputPreviewSample(request,previewOutput,seconds,true);
+                }
+                DeletePreviewSpool();
                 CleanupTemporaryFiles(request);
                 foreach (BridgeExecutionRequest owner in previewOwners) CleanupTemporaryFiles(owner);
 
@@ -430,7 +449,9 @@ namespace FilmGrainStudioPreview
                     workerThread = null;
                 }
                 totalTimer.Stop();
-                RaiseCompleted(new BridgeExecutionResult(exitCode, cancelRequested, failure) { TotalElapsed=preparationElapsed+totalTimer.Elapsed });
+                var result=new BridgeExecutionResult(exitCode, cancelRequested, failure) { TotalElapsed=preparationElapsed+totalTimer.Elapsed };
+                previewOwner.PreviewResult=result;
+                RaiseCompleted(result);
             }
         }
 
@@ -619,6 +640,7 @@ namespace FilmGrainStudioPreview
                 progressSpeedText = "";
                 currentStage = 0;
                 currentStageTotal = 0;
+                previewStageOutput=null;
             }
         }
 
@@ -737,6 +759,18 @@ namespace FilmGrainStudioPreview
                     etaText = FormatElapsed(etaSeconds);
                 }
             }
+            var previewRequest=activeRequest;
+            if(previewRequest!=null && previewStageOutput!=null && elapsedSeconds>0 && !cancelRequested && !double.IsInfinity(elapsedSeconds))
+            {
+                double seconds=Math.Max(0,elapsedSeconds-1.5);
+                var last=previewRequest.PreviewSample;
+                if(last==null || Math.Abs(last.Seconds-seconds)>=1)
+                {
+                    var sample=new OutputPreviewSample(previewRequest,previewStageOutput,seconds,false);
+                    previewRequest.PreviewSample=sample;
+                    if(previewRequest.PreviewOwner!=null)previewRequest.PreviewOwner.PreviewSample=sample;
+                }
+            }
             return new BridgeProgressEventArgs(hasProgress, permille, true, fpsText, speedText, etaText, false, 0, 0, "");
         }
 
@@ -794,7 +828,7 @@ namespace FilmGrainStudioPreview
                 try { if (Directory.Exists(directory)) Directory.Delete(directory, false); } catch { }
         }
 
-        private static ProcessStartInfo BuildStartInfo(BridgeExecutionRequest request, BridgeExecutionStage stage)
+        private ProcessStartInfo BuildStartInfo(BridgeExecutionRequest request, BridgeExecutionStage stage)
         {
             // Recheck late-prepared stages immediately before Process.Start.
             NativeProcessPolicy.ValidateRequest(request);
@@ -804,6 +838,7 @@ namespace FilmGrainStudioPreview
             NativeProcessPolicy.ValidateTool(toolPath);
             ProcessStartInfo direct = new ProcessStartInfo();
             direct.FileName = toolPath;
+            arguments=PreparePreviewOutput(request,toolPath,arguments);
             direct.Arguments = HardwareDecodeCore.ApplyArguments(toolPath,arguments ?? "",request.Environment);
             direct.UseShellExecute = false;
             direct.CreateNoWindow = true;
@@ -815,6 +850,78 @@ namespace FilmGrainStudioPreview
                 foreach (KeyValuePair<string, string> pair in request.Environment)
                     SetEnvironmentVariable(direct.EnvironmentVariables, pair.Key, pair.Value ?? "");
             return direct;
+        }
+
+        private string PreparePreviewOutput(BridgeExecutionRequest request,string tool,string command)
+        {
+            lock(progressSync)previewStageOutput=null;
+            if(string.IsNullOrEmpty(command) || !Path.GetFileName(tool).Equals("ffmpeg.exe",StringComparison.OrdinalIgnoreCase))
+                return command;
+            var args=HardwareDecodeCore.SplitArguments(command);
+            if(args.Count==0)return command;
+            string output=args[args.Count-1];
+            if(!string.Equals(output,request.PreviewFinalStagingPath,StringComparison.OrdinalIgnoreCase) &&
+                (request.OutputFiles==null || !request.OutputFiles.Contains(output,StringComparer.OrdinalIgnoreCase)))
+                return command;
+
+            if(string.Equals(Path.GetExtension(output),".mkv",StringComparison.OrdinalIgnoreCase))
+            {
+                lock(progressSync)previewStageOutput=output;
+                return command;
+            }
+            if(!string.Equals(Path.GetExtension(output),".mp4",StringComparison.OrdinalIgnoreCase))
+                return command;
+
+            // Tee requires explicit maps. Only wrap the ordinary MP4 routes
+            // with the known faststart mux option and no alternate output format.
+            int mov=args.LastIndexOf("-movflags");
+            if(mov<0 || mov+1>=args.Count-1 || args[mov+1]!="+faststart" ||
+                !args.Contains("-map"))return command;
+            bool outputFormat=false;
+            int lastInput=args.LastIndexOf("-i");
+            for(int i=lastInput+2;i<args.Count-1;i++)
+                if(args[i]=="-f")outputFormat=true;
+            if(outputFormat)return command;
+
+            try
+            {
+                string directory=Path.Combine(Path.GetDirectoryName(output),".fgs-preview-"+Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(directory);
+                previewSpoolDirectory=directory;
+                string spool=Path.Combine(directory,"video.mkv");
+                args.RemoveAt(args.Count-1);
+                args.RemoveRange(mov,2);
+                if(!args.Contains("-progress"))args.InsertRange(0,new[]{"-progress","pipe:2","-stats_period","0.5"});
+                args.AddRange(new[]{"-flags:v","+global_header","-flags:a","+global_header","-f","tee",
+                    "[f=mp4:movflags=+faststart]"+QuoteTeePath(output)+
+                    "|[f=matroska:select=v:onfail=ignore:cluster_time_limit=500:flush_packets=1]"+QuoteTeePath(spool)});
+                lock(progressSync)previewStageOutput=spool;
+                return SharedFrucCore.JoinArguments(args);
+            }
+            catch(IOException ex){RaiseLog(BridgeLogStream.System,"[Output preview] "+ex.Message);}
+            catch(UnauthorizedAccessException ex){RaiseLog(BridgeLogStream.System,"[Output preview] "+ex.Message);}
+            return command;
+        }
+
+        private static string QuoteTeePath(string path)
+        {
+            // First-level quoting for av_get_token's slave separator.
+            return "'"+path.Replace("'","'\\''")+"'";
+        }
+
+        private void DeletePreviewSpool()
+        {
+            string directory=previewSpoolDirectory;
+            previewSpoolDirectory=null;
+            if(directory==null)return;
+            for(int attempt=0;attempt<20;attempt++)
+            {
+                try {Directory.Delete(directory,true);return;}
+                catch(DirectoryNotFoundException){return;}
+                catch(IOException){if(attempt<19)Thread.Sleep(100);}
+                catch(UnauthorizedAccessException){break;}
+            }
+            RaiseLog(BridgeLogStream.System,"[Output preview] Could not remove "+directory);
         }
 
         private static void SetEnvironmentVariable(StringDictionary environment, string key, string value)

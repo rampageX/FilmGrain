@@ -67,6 +67,7 @@ $RequiredPackageFiles = @(
     'dotnet\FilmGrain_NativeAv1GrainReplaceCore.cs',
     'dotnet\FilmGrain_NativeGrainPreviewForm.cs',
     'dotnet\FilmGrain_NativeColorCorrectionForm.cs',
+    'dotnet\FilmGrain_OutputPreview.cs',
     'dotnet\FilmGrain_NativeHevcCore.cs',
     'dotnet\FilmGrain_NativeLibraryTools.cs',
     'dotnet\FilmGrain_NativeLutGalleryForm.cs',
