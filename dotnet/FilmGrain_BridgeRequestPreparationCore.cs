@@ -48,6 +48,7 @@ namespace FilmGrainStudioPreview
                 return "CPU FGSIM 当前使用 SDR 路线";
             if(Get(state,"FG_SVP_INTERPOLATE")!="1") return "";
             string engine=Get(state,"FG_INTERPOLATION_ENGINE").ToUpperInvariant();
+            if(engine=="NVENC_AI" && NvencInterpolationCore.Hdr10Eligible(info,state)) return "";
             if(engine=="NVENC_FRUC" || engine=="NVENC_AI") return "NVEncC 插帧使用 SDR 路线";
             if((engine=="SVP" || engine=="") && !SupportsHighDepthSvpHdr(info))
                 return "此 HDR 采样/传递格式未接入 OpenSVPFlow 高位深路线";
@@ -206,6 +207,8 @@ namespace FilmGrainStudioPreview
                 var nvReport=NvencInterpolationCore.Cached(appRoot,NvencInterpolationCore.Get(state,"FG_NVENC_DIR"));
                 nvState["FG_NVENC_GPU_NAME"]=gpu;nvState["FG_NVENC_DEVICES"]=nvReport.Devices;
                 nvState["FG_NVENC_SOURCE_FPS"]=info.AvgFrameRate;
+                nvState["FG_NVENC_VFG_HDR10"]=NvencInterpolationCore.UseHdr10(info,state)?"1":"0";
+                nvState["FG_NVENC_VFG_TRANSFER"]=nvState["FG_NVENC_VFG_HDR10"]=="1"?info.ColorTransfer:"";
                 state=nvState;
             }
             string svpEnabled, svpEngine;
@@ -276,7 +279,7 @@ namespace FilmGrainStudioPreview
                     }
                     SharedInterpolationBypassCore.Attach(prepared,routeNotice);
                     if(NvencInterpolationCore.Enabled(state))prepared.ExecutionRequest.ExecutionNotice=(prepared.ExecutionRequest.ExecutionNotice??"")+Environment.NewLine+
-                        "[NVEncC SDR] "+NvencInterpolationCore.Label(NvencInterpolationCore.Get(state,"FG_INTERPOLATION_ENGINE"))+"; raw NUT binary pipe; no extra lossy encode; software decode explicitly selected; no engine fallback; existing AV1/multipass/HDR workfiles retained.";
+                        (NvencInterpolationCore.Get(state,"FG_NVENC_VFG_HDR10")=="1"?"[NVEncC HDR PQ/HLG 10-bit TEST] ":"[NVEncC SDR] ")+NvencInterpolationCore.Label(NvencInterpolationCore.Get(state,"FG_INTERPOLATION_ENGINE"))+"; raw NUT binary pipe; no extra lossy encode; software decode explicitly selected; no engine fallback; existing AV1/multipass/HDR workfiles retained.";
                     if(info.ColorSignalSource!="ffprobe-stream")prepared.ExecutionRequest.ExecutionNotice=(prepared.ExecutionRequest.ExecutionNotice??"")+Environment.NewLine+"[Color probe] "+info.ColorSignalSource+"; raw primaries="+info.OriginalColorPrimaries+"; raw transfer="+info.OriginalColorTransfer;
                     if(ResizeCore.Enabled(state))prepared.ExecutionRequest.ExecutionNotice=(prepared.ExecutionRequest.ExecutionNotice??"")+Environment.NewLine+"[Resize] Vulkan/libplacebo; crop and resize before added grain; output dimensions in _RS filename; original cadence retained.";
                     if(!noReencode && PreprocessingCore.Enabled(state))prepared.ExecutionRequest.ExecutionNotice=(prepared.ExecutionRequest.ExecutionNotice??"")+Environment.NewLine+"[Preprocessing] CPU bilateral / 10-bit software frames / before color, LUT and grain"; info.Identity.RequireCurrent(); string rateNotice=NvencRateControlCore.Notice(state);if(rateNotice.Length>0)prepared.ExecutionRequest.ExecutionNotice=(prepared.ExecutionRequest.ExecutionNotice??"")+Environment.NewLine+rateNotice; string audioNotice=AudioOutputCore.Notice(info,state);if(audioNotice.Length>0)prepared.ExecutionRequest.ExecutionNotice=(prepared.ExecutionRequest.ExecutionNotice??"")+Environment.NewLine+audioNotice; prepared.ExecutionRequest.SourceIdentity=info.Identity; prepared.ExecutionRequest.SourceConfigRoot=appRoot; NativeProcessPolicy.ValidateRequest(prepared.ExecutionRequest);return true; }

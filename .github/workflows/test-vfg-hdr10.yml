@@ -1,0 +1,44 @@
+name: FGS VFG HDR10 Windows experimental build
+on:
+  push:
+    branches:
+      - test/vfg-hdr10
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile and verify FGS on Windows
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & cmd.exe /d /s /c 'call dotnet\build_NET_Preview.bat'
+          if ($LASTEXITCODE -ne 0) { throw "Windows FGS compilation failed" }
+          if (-not (Test-Path -LiteralPath 'FilmGrain_Studio.exe')) { throw 'Compiled FGS EXE not found' }
+      - name: Package matching EXE and complete committed source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = Join-Path $env:RUNNER_TEMP 'FGS_VFG_HDR10_T4M8'
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          Copy-Item -LiteralPath 'FilmGrain_Studio.exe' -Destination (Join-Path $dir 'FilmGrain_Studio_VFG_HDR10_T4M8.exe')
+          Copy-Item -LiteralPath 'FGS_VFG_HDR10_6d387a31.enable' -Destination $dir
+          Copy-Item -LiteralPath 'VFG_HDR10_测试说明.txt' -Destination $dir
+          $src = Join-Path $dir 'FGS_VFG_HDR10_T4M8_Source.zip'
+          & git archive --format=zip --output=$src HEAD
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $src)) { throw 'Source archive failed' }
+          $exe = Join-Path $dir 'FilmGrain_Studio_VFG_HDR10_T4M8.exe'
+          $hash = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash
+          $info = "FGS VFG HDR10 T4M8 experimental Windows build" + [Environment]::NewLine + "Commit: " + $env:GITHUB_SHA + [Environment]::NewLine + "Base: cd3351761604e5d065b9999ad878220be9fdf95c" + [Environment]::NewLine + "EXE SHA256: " + $hash
+          [IO.File]::WriteAllText((Join-Path $dir 'BUILD_INFO.txt'),$info,(New-Object System.Text.UTF8Encoding($false)))
+          New-Item -ItemType Directory -Force -Path 'artifacts' | Out-Null
+          Compress-Archive -Path (Join-Path $dir '*') -DestinationPath 'artifacts\FGS_VFG_HDR10_Windows_T4M8.zip' -CompressionLevel Optimal -Force
+          if (-not (Test-Path -LiteralPath 'artifacts\FGS_VFG_HDR10_Windows_T4M8.zip')) { throw 'Missing package' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FGS_VFG_HDR10_Windows_T4M8
+          path: artifacts/FGS_VFG_HDR10_Windows_T4M8.zip
+          if-no-files-found: error

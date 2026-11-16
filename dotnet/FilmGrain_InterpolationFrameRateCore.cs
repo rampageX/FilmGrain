@@ -688,7 +688,13 @@ namespace FilmGrainStudioPreview
         {
             var originalArgs = new List<string>{"-hide_banner", "-stats", "-progress", "pipe:2", "-stats_period", "0.5", "-y",
                 "-f", "yuv4mpegpipe", "-i", "pipe:0", "-map", "0:v:0", "-an", "-sn", "-dn",
-                "-c:v", "ffv1", "-level", "3", "-pix_fmt", Get(state,"FG_SVP_HDR10")=="1"?"yuv420p10le":"yuv420p", "-enc_time_base:v",fps.Contains("/")?fps.Split('/')[1]+"/"+fps.Split('/')[0]:"1/"+fps,"-fps_mode", "passthrough", output};
+                "-c:v", "ffv1", "-level", "3", "-pix_fmt", (Get(state,"FG_SVP_HDR10")=="1" || Get(state,"FG_NVENC_VFG_HDR10")=="1")?"yuv420p10le":"yuv420p", "-enc_time_base:v",fps.Contains("/")?fps.Split('/')[1]+"/"+fps.Split('/')[0]:"1/"+fps,"-fps_mode", "passthrough", output};
+            // NUT -> FFV1 has no named filter graph; stamp BT.2020/PQ-or-HLG here.
+            if(Get(state,"FG_NVENC_VFG_HDR10")=="1") {
+                string transfer=Get(state,"FG_NVENC_VFG_TRANSFER");
+                if(transfer!="smpte2084" && transfer!="arib-std-b67")throw new InvalidOperationException("VFG HDR intermediate transfer missing");
+                originalArgs.InsertRange(originalArgs.IndexOf("-c:v"),new[]{"-vf","setparams=range=limited:color_primaries=bt2020:color_trc="+transfer+":colorspace=bt2020nc","-color_range","tv","-color_primaries","bt2020","-color_trc",transfer,"-colorspace","bt2020nc"});
+            }
             var stage = new BridgeExecutionStage{ToolPath=ffmpeg, WorkingDirectory=cwd,
                 DirectArguments=JoinArgs(originalArgs), ProgressDurationSeconds=duration,
                 StageCurrent=index, StageTotal=total, StageText="OpenSVPFlow shared video preprocessing"};
@@ -724,6 +730,21 @@ namespace FilmGrainStudioPreview
         internal static string Engine(int index) { return index==2?"FRUC":index==3?"NVENC_FRUC":index==4?"NVENC_AI":"SVP"; }
         internal static bool IsEngine(string engine) { return engine=="NVENC_FRUC" || engine=="NVENC_AI"; }
         internal static bool Enabled(IDictionary<string,string> s) { return Get(s,"FG_SVP_INTERPOLATE")=="1" && IsEngine(Get(s,"FG_INTERPOLATION_ENGINE")); }
+        // Experimental 10-bit VFG: only progressive 4:2:0 BT.2020 PQ/HLG TV sources.
+        // CUDA kernel uses limited-range P010; PC/444/>10bit must use the legacy fallback.
+        internal static bool Hdr10Eligible(MediaProbeInfo info,IDictionary<string,string> state) {
+            if(info==null || state==null || !info.IsHdr || info.IsInterlaced || !Enabled(state))return false;
+            string mode=Get(state,"FG_MODE");
+            if(mode!="AV1" && mode!="HEVC")return false;
+            return Get(state,"FG_INTERPOLATION_ENGINE")=="NVENC_AI" &&
+                info.PixelFormat=="yuv420p10le" && info.ColorPrimaries=="bt2020" &&
+                (info.ColorTransfer=="smpte2084" || info.ColorTransfer=="arib-std-b67") &&
+                info.ColorSpace=="bt2020nc" && info.ColorRange=="tv" &&
+                SharedGrainCore.Engine(state)!="FGSIM";
+        }
+        internal static bool UseHdr10(MediaProbeInfo info,IDictionary<string,string> state) {
+            return Hdr10Eligible(info,state) && !HdrColorProcessingCore.NvencToSdr(info,state);
+        }
         internal static string Label(string engine) { return engine=="NVENC_AI"?"NVEncC AI":engine=="NVENC_FRUC"?"NVEncC FRUC":engine=="FRUC"?"FRUC Vulkan · HDR":"OpenSVPFlow"; }
         internal static string Get(IDictionary<string,string> s,string key) { string v;return s!=null&&s.TryGetValue(key,out v)?v??"":""; }
         internal static string Exe(string directory) { return string.IsNullOrWhiteSpace(directory)?"":Path.Combine(directory,"NVEncC64.exe"); }
@@ -845,9 +866,11 @@ namespace FilmGrainStudioPreview
                 if(info.IsInterlaced)throw new InvalidOperationException("NVEncC 插帧仅支持逐行输入 / Progressive input required");
                 int sourceBits;int.TryParse(info.BitsPerRawSample,out sourceBits);
                 if(!info.IsHdr && (sourceBits>8 || System.Text.RegularExpressions.Regex.IsMatch(info.PixelFormat??"",@"(p(10|12|14|16)|p0(10|12|16)|48|64|f32|f16)")))throw new InvalidOperationException("NVEncC 插帧当前为 8-bit SDR；高位深 SDR 暂不接入，不自动降位深 / High-bit-depth SDR is not enabled");
-                if(info.IsHdr&&Get(state,"FG_HDR_POLICY").Equals("PRESERVE",StringComparison.OrdinalIgnoreCase))throw new InvalidOperationException("NVEncC 插帧当前仅支持 SDR；HDR 保留请使用 FRUC Vulkan / SDR only; no HDR precision fallback");
+                if(info.IsHdr&&Get(state,"FG_HDR_POLICY").Equals("PRESERVE",StringComparison.OrdinalIgnoreCase)&&!Hdr10Eligible(info,state))throw new InvalidOperationException("HDR VFG experimental path requires 10-bit YUV420 BT.2020 PQ/HLG TV range. PC HDR uses legacy SDR fallback.");
                 if(Get(state,"FG_MODE")=="SVT" && SharedGrainCore.IsEnabled(state) && SharedGrainCore.Engine(state)=="NATIVE" && string.Equals(info.VideoCodec,"av1",StringComparison.OrdinalIgnoreCase))throw new InvalidOperationException("源 AV1 参数颗粒替换暂不与 NVEncC 插帧组合：尚未验证其软件解码关闭源颗粒合成 / Source AV1 grain suppression is not verified for this producer");
                 string engine=Get(state,"FG_INTERPOLATION_ENGINE");string dir=Get(state,"FG_NVENC_DIR");
+                if(UseHdr10(info,state) && !File.Exists(Path.Combine(dir,"FGS_VFG_HDR10_6d387a31.enable")))
+                    throw new InvalidOperationException("HDR VFG requires tested experimental NVEncC and FGS_VFG_HDR10_6d387a31.enable beside NVEncC64.exe.");
                 var r=Inspect(root,dir,false);
                 string unavailable=Availability(root,dir,engine,gpu);if(unavailable.Length>0)throw new InvalidOperationException(unavailable);
                 try{Device(r.Devices,gpu);}catch{r=Inspect(root,dir,true);if(!string.IsNullOrEmpty(r.Error))throw new InvalidOperationException(r.Error);Device(r.Devices,gpu);}
@@ -867,14 +890,20 @@ namespace FilmGrainStudioPreview
             string option=engine=="NVENC_AI"?"--vpp-nvvfx-framegen":"--vpp-fruc";
             string value=engine=="NVENC_AI"?"mode="+mode+",multiplier="+Multiplier(Get(state,"FG_NVENC_SOURCE_FPS"),target)+",autoshotchange=true":"fps="+target;
             // Software decode is explicit until NVEncC hardware decode can join FGS's verified device-specific plan.
-            var args=new List<string>{"--avsw","-i",input,"--device",device.ToString(CultureInfo.InvariantCulture),"--avsync","vfr",option,value,"-c","raw","--output-depth","8","--output-csp","yuv420","--colormatrix","auto","--colorprim","auto","--transfer","auto","--output-format","nut","-o","-"};
+            bool hdr=engine=="NVENC_AI" && Get(state,"FG_NVENC_VFG_HDR10")=="1";
+            string trc=Get(state,"FG_NVENC_VFG_TRANSFER");
+            if(hdr && trc!="smpte2084" && trc!="arib-std-b67")throw new InvalidOperationException("VFG HDR transfer metadata missing");
+            var args=new List<string>{"--avsw","-i",input,"--device",device.ToString(CultureInfo.InvariantCulture),"--avsync","vfr",option,value,"-c","raw","--output-depth",hdr?"10":"8","--output-csp","yuv420","--colormatrix",hdr?"bt2020nc":"auto","--colorprim",hdr?"bt2020":"auto","--transfer",hdr?trc:"auto","--output-format","nut","-o","-"};
+            if(hdr)args.InsertRange(args.Count-4,new[]{"--colorrange","limited"});
             stage.PipeProducerPath=Exe(directory);stage.PipeProducerArguments=SharedFrucCore.JoinArguments(args);
             var previous=stage.PreparedObserver;
             stage.PreparedObserver=delegate {
                 if(previous!=null)previous();
                 stage.DirectArguments=stage.DirectArguments.Replace("yuv4mpegpipe","nut");
                 // NUT carries timestamps; map producer's local video origin once before the established clock adapter.
-                stage.DirectArguments=stage.DirectArguments.Replace("[0:v:0]","[0:v:0]setpts=PTS-STARTPTS,");
+                string prefix="setpts=PTS-STARTPTS,";
+                if(hdr)prefix+="setparams=range=limited:color_primaries=bt2020:color_trc="+trc+":colorspace=bt2020nc,";
+                stage.DirectArguments=stage.DirectArguments.Replace("[0:v:0]","[0:v:0]"+prefix);
             };
             stage.StageText=(stage.StageText??"").Replace("OpenSVPFlow",Label(engine));
             if(stage.BeforeRunPreparation!=null)throw new InvalidOperationException("NVEncC producer must bind before timeline preparation");

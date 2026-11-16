@@ -1,0 +1,10 @@
+FGS VFG HDR10/HLG 实验版 T4M8
+基准：FGS v5.0.72 / cd335176；仅测试分支，不影响正式版。
+1. 复制完整 FGS 正式版文件夹作为测试目录。
+2. 将本包 FilmGrain_Studio_VFG_HDR10_T4M8.exe 放到测试目录运行（不要覆盖正式 EXE）。
+3. NVEncC 路径指向你此前验证通过的 VFG HDR 实验版 NVEncC64.exe；把本包 .enable 文件放到那个 NVEncC64.exe 的同目录。
+4. 选 NVEncC AI 插帧，HDR 保留或 AUTO，HEVC/AV1 输出。PQ/HLG、TV 范围、10-bit 4:2:0 逐行素材才能使用 VFG HDR 路线。
+5. 首次选 Medium / 2 倍；核验输出 10-bit、BT.2020、PQ 或 HLG、实际帧率、音画同步和画质。
+6. PC HDR、4:4:4、超过 10-bit 等暂不进入 VFG HDR，走既有 SDR 路线；SDR、SVP、FRUC 不改。
+7. HEVC/AV1 静态 HDR SEI、精确色度、跨流程时序尚未实机验证，遇问题提交运行日志。
+测试包包含对应完整 GitHub 源码，不创建 PR、不发布正式版本。

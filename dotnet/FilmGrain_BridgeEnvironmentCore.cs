@@ -711,7 +711,8 @@ namespace FilmGrainStudioPreview
                 (string.Equals(policy,"AUTO",StringComparison.OrdinalIgnoreCase) &&
                  Get(state,"FG_SVP_INTERPOLATE")=="1" &&
                  !string.Equals(Get(state,"FG_INTERPOLATION_ENGINE"),"FRUC",StringComparison.OrdinalIgnoreCase) &&
-                 !SharedInterpolationBypassCore.AutoHdrSvpReady(info,state));
+                 !SharedInterpolationBypassCore.AutoHdrSvpReady(info,state) &&
+                 !NvencInterpolationCore.Hdr10Eligible(info,state));
         }
 
         private static string F(double n){return n.ToString("0.################",System.Globalization.CultureInfo.InvariantCulture);}
