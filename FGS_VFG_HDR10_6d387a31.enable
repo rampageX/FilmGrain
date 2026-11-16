@@ -1,3 +1,0 @@
-FGS VFG HDR10/HLG 10-bit route opt-in for Film Grain Studio v5.0.73.
-Requires tested experimental NVEncC64.exe from rampageX/NVEnc commit 6d387a312e15c7ed68b3dc1354ba41bccff43821.
-Copy this marker next to that specific NVEncC64.exe. Do not use with generic NVEncC builds.

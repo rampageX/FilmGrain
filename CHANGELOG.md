@@ -1,3 +1,11 @@
+## v5.0.74 — NVEncC AI HDR 能力自动识别
+
+- 取消 NVEncC HDR VFG 的 .enable 标记文件，改为直接识别 NVEncC64.exe 内 10-bit CUDA 路线的专有代码特征。
+- 配置窗口显示 HDR VFG 10-bit 的支持／不支持／未检测结果；右下角 NVEncC 悬停提示新增 AI HDR ✓／✗。
+- 两处显示共用已有检测结果及路径/文件信息缓存；切换路径和强制刷新时同步更新，不额外跑 GPU 基准。
+- RTX 4080 实验版 NVEncC 可无需标记直接运行 HDR 插帧，普通版会正确拒绝 HDR VFG；原 SDR 与 HDR 插帧处理路线保持不变。
+- 更新说明与发布清单，正式运行包不再带无效的 .enable 文件。
+
 ## v5.0.73 — NVEncC AI 10-bit HDR 插帧
 
 - PQ/HLG、BT.2020 NCL、TV 范围、10-bit 4:2:0 逐行素材正式接入 AI VFG HDR 保留，用于 HEVC/AV1。

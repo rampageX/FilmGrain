@@ -3,7 +3,6 @@
 $RequiredPackageFiles = @(
     '.gitattributes',
     'CHANGELOG.md',
-    'FGS_VFG_HDR10_6d387a31.enable',
     'FilmGrain_Config.default.ini',
     'Presets/Initial/01.fgspreset.json',
     'Presets/Initial/02.fgspreset.json',
@@ -151,7 +150,6 @@ $ReleaseSourceItems = @(
     '.gitattributes',
     '.gitignore',
     'CHANGELOG.md',
-    'FGS_VFG_HDR10_6d387a31.enable',
     'FilmGrain_Config.default.ini',
     'Presets/Initial/01.fgspreset.json',
     'Presets/Initial/02.fgspreset.json',

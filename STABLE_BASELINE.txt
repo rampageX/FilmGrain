@@ -1,18 +1,18 @@
 Film Grain Studio formal stable baseline
 
 Baseline:
-v5.0.73
+v5.0.74
 Supersedes:
-v5.0.72
+v5.0.73
 
 GitHub Release asset:
-FilmGrain_Studio_v5.0.73_Stable.zip
+FilmGrain_Studio_v5.0.74_Stable.zip
 
 Local source archive and workflow artifact:
-FilmGrain_Studio_v5.0.73_Source.zip
+FilmGrain_Studio_v5.0.74_Source.zip
 
 External VFG HDR dependency: validated 6d387a31 experimental NVEncC64.exe is user-selected; it is not bundled.
-VFG opt-in marker is included in Stable.zip and must be copied to that NVEncC64.exe directory.
+FGS detects the 10-bit HDR VFG build signature in the selected NVEncC64.exe. No marker file is required or bundled.
 Application runtime: .NET Native-only. Stable contains runtime files only; Legacy is retained in Source.
 Acceptance applies only to explicitly tested combinations, not every container/timestamp/clip/hardware combination.
 Root and compatible executables are rebuilt from the same committed C# source with Stable label; only the root EXE enters Stable.

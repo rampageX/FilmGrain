@@ -1,8 +1,7 @@
-# Film Grain Studio v5.0.73
+# Film Grain Studio v5.0.74
 
-- NVEncC AI 视频插帧正式接入 10-bit HDR 保留：逐行 4:2:0、BT.2020 NCL、TV 范围的 HDR10(PQ) 与 HLG 素材，适用于 HEVC / AV1 NVENC 输出。
-- 打通 VFG 10-bit NUT 传输与 AV1 的 10-bit FFV1 中间文件；保持 PQ/HLG 色彩标记，避免插帧中间环节被降成 8-bit。
-- 保留 AI 插帧 Low / Medium / High 和整数 2～8 倍设置；未开放非整数倍目标帧率。
-- PC(Full Range) HDR、真正的 12-bit / 4:4:4 HDR 暂不走 VFG HDR 路线，沿用现有 SDR 回退；现有 SDR、FRUC、SVP 不变。
-- HDR10/HLG VFG 需用户配置已验证的实验版 NVEncC64.exe（对应 rampageX/NVEnc 6d387a31），并将随包的 FGS_VFG_HDR10_6d387a31.enable 放在该 EXE 同目录；普通 NVEncC 不自动启用此路线。
-- RTX 4080 实测由用户确认通过；不同素材的 HDR10 静态 SEI、特殊音画时间轴及 HLG 绝对色度精度未作通用保证。
+- NVEncC AI HDR 插帧改为自动识别 NVEncC64.exe 是否包含专用的 10-bit VFG CUDA 路线，不再需要 .enable 标记文件。
+- 「配置 → NVEncC」新增 HDR VFG 10-bit 支持状态（支持／不支持／未检测），右下角 NVEncC 悬停提示新增 AI HDR ✓／✗。
+- 两处显示复用同一份能力检测与缓存，切换 NVEncC 路径后会重新识别，不反复做 GPU 测试。
+- 已验证的 PQ/HLG TV 范围 10-bit VFG 路线及 SDR 插帧、FRUC、SVP 保持原有参数与行为；普通 NVEncC 不会误用 HDR VFG。
+- 仍需要安装此前通过 RTX 4080 实测的 HDR 专用 NVEncC 构建；自动识别是程序特征检测，实际 GPU 运行与素材兼容性以编码结果为准。

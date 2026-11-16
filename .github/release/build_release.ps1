@@ -496,7 +496,7 @@ function Test-PackageContent {
 # Runtime packaging is independent of repository source staging.
 $RuntimeFiles = @(
     'FilmGrain_Studio.exe', 'FilmGrain_Config.default.ini',
-    'CHANGELOG.md', 'LICENSE', 'README_FilmGrain_Studio.txt', 'FGS_VFG_HDR10_6d387a31.enable',
+    'CHANGELOG.md', 'LICENSE', 'README_FilmGrain_Studio.txt',
     'Utils/FGS.ico',
     'Presets/Initial/01.fgspreset.json',
     'Presets/Initial/02.fgspreset.json',
