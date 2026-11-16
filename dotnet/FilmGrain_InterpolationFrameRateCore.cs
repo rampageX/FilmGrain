@@ -748,6 +748,40 @@ namespace FilmGrainStudioPreview
         internal static string Label(string engine) { return engine=="NVENC_AI"?"NVEncC AI":engine=="NVENC_FRUC"?"NVEncC FRUC":engine=="FRUC"?"FRUC Vulkan · HDR":"OpenSVPFlow"; }
         internal static string Get(IDictionary<string,string> s,string key) { string v;return s!=null&&s.TryGetValue(key,out v)?v??"":""; }
         internal static string Exe(string directory) { return string.IsNullOrWhiteSpace(directory)?"":Path.Combine(directory,"NVEncC64.exe"); }
+        // Existing NVEncC --version/--help report AI VFG but do not distinguish
+        // the experimental 10-bit CUDA path from stock 8-bit-only builds.
+        // Match two independent diagnostics compiled into that exact 10-bit path.
+        // This is a fast build fingerprint, NOT a claim that the GPU has executed VFG.
+        private static readonly object hdrScanGate = new object();
+        private static readonly Dictionary<string,bool> hdrBuildCache = new Dictionary<string,bool>(StringComparer.OrdinalIgnoreCase);
+        private static bool ContainsBytes(byte[] buffer, byte[] pattern) {
+            if(buffer==null || pattern==null || pattern.Length==0 || pattern.Length>buffer.Length)return false;
+            for(int i=0;i<=buffer.Length-pattern.Length;i++) {
+                if(buffer[i]!=pattern[0])continue;
+                int n=1;
+                while(n<pattern.Length && buffer[i+n]==pattern[n])n++;
+                if(n==pattern.Length)return true;
+            }
+            return false;
+        }
+        private static bool ContainsNativeLiteral(byte[] data,string literal) {
+            return ContainsBytes(data,Encoding.Unicode.GetBytes(literal)) ||
+                   ContainsBytes(data,Encoding.UTF8.GetBytes(literal));
+        }
+        internal static bool HasHdrVfgBuild(string directory) {
+            string path=Exe(directory);
+            if(!File.Exists(path))return false;
+            string stamp=Stamp(directory);
+            lock(hdrScanGate) {
+                bool hit;
+                if(hdrBuildCache.TryGetValue(stamp,out hit))return hit;
+                byte[] data=File.ReadAllBytes(path);
+                hit=ContainsNativeLiteral(data,"nvvfx-framegen 10-bit path requires BT.2020 NCL.") &&
+                    ContainsNativeLiteral(data,"10-bit VFG input is not P010 after GPU conversion.");
+                hdrBuildCache[stamp]=hit;
+                return hit;
+            }
+        }
         static string Stamp(string directory) {
             string path=Exe(directory);if(!File.Exists(path))return "";
             var f=new FileInfo(path);return "v2-full-help|"+f.FullName+"|"+f.Length+"|"+f.LastWriteTimeUtc.Ticks;
@@ -869,8 +903,8 @@ namespace FilmGrainStudioPreview
                 if(info.IsHdr&&Get(state,"FG_HDR_POLICY").Equals("PRESERVE",StringComparison.OrdinalIgnoreCase)&&!Hdr10Eligible(info,state))throw new InvalidOperationException("HDR VFG experimental path requires 10-bit YUV420 BT.2020 PQ/HLG TV range. PC HDR uses legacy SDR fallback.");
                 if(Get(state,"FG_MODE")=="SVT" && SharedGrainCore.IsEnabled(state) && SharedGrainCore.Engine(state)=="NATIVE" && string.Equals(info.VideoCodec,"av1",StringComparison.OrdinalIgnoreCase))throw new InvalidOperationException("源 AV1 参数颗粒替换暂不与 NVEncC 插帧组合：尚未验证其软件解码关闭源颗粒合成 / Source AV1 grain suppression is not verified for this producer");
                 string engine=Get(state,"FG_INTERPOLATION_ENGINE");string dir=Get(state,"FG_NVENC_DIR");
-                if(UseHdr10(info,state) && !File.Exists(Path.Combine(dir,"FGS_VFG_HDR10_6d387a31.enable")))
-                    throw new InvalidOperationException("HDR VFG requires tested experimental NVEncC and FGS_VFG_HDR10_6d387a31.enable beside NVEncC64.exe.");
+                if(UseHdr10(info,state) && !HasHdrVfgBuild(dir))
+                    throw new InvalidOperationException("当前 NVEncC64.exe 未检测到 10-bit HDR VFG CUDA 路线，请选择已验证的 HDR 实验版 NVEncC；普通版只支持原有 SDR AI 插帧。");
                 var r=Inspect(root,dir,false);
                 string unavailable=Availability(root,dir,engine,gpu);if(unavailable.Length>0)throw new InvalidOperationException(unavailable);
                 try{Device(r.Devices,gpu);}catch{r=Inspect(root,dir,true);if(!string.IsNullOrEmpty(r.Error))throw new InvalidOperationException(r.Error);Device(r.Devices,gpu);}

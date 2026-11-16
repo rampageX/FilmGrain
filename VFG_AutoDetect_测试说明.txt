@@ -1,0 +1,10 @@
+FGS v5.0.73 VFG HDR 自动检测实验修复 M6Q9
+
+1. 把本包的 FilmGrain_Studio_VFG_AutoDetect_M6Q9.exe 复制到 FGS v5.0.73 正式版目录，直接运行此实验 EXE，不替换正式 EXE。
+2. NVEncC 路径仍指向此前测试通过的 HDR 实验版 NVEncC64.exe。
+3. 删除（或改名移走）原 NVEncC 目录里的 FGS_VFG_HDR10_6d387a31.enable；新的测试 EXE 不再读取它。
+4. 用之前已通过的 PQ/TV 或 HLG/TV 素材测试 AI 插帧 2 倍，确认能保留 HDR、输出无误；速度照旧。
+5. 如选择普通 NVEncC 进行 HDR VFG，应提示找不到专用 10-bit CUDA 路线；原 SDR AI 插帧不受影响。
+6. 只交付程序、对应源码和构建日志；不修改正式版 v5.0.73，也不发布正式 Release。
+
+自动检测采用实验版 NVEncC 内编译的两条 10-bit CUDA 路线专有诊断文本，支持 UTF-16LE/UTF-8；不重复运行耗时的 GPU 基准，读取结果按 EXE 的完整路径/大小/修改时间缓存在进程内。它识别构建代码特征，但不代替真实编码与画质验证。
