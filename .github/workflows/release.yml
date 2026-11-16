@@ -76,7 +76,7 @@ jobs:
           foreach ($file in @($sourceZip, $sourceSha)) {
             if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "Shared release core did not create: $file" }
           }
-          Compress-Archive -LiteralPath @($zip, $shaFile, $sourceZip, $sourceSha) -DestinationPath $combinedZip -CompressionLevel Optimal -Force
+          Compress-Archive -LiteralPath @($zip, $sourceZip) -DestinationPath $combinedZip -CompressionLevel Optimal -Force
           $combinedHash = (Get-FileHash -LiteralPath $combinedZip -Algorithm SHA256).Hash.ToLowerInvariant()
           [IO.File]::WriteAllText($combinedSha, ($combinedHash + '  ' + [IO.Path]::GetFileName($combinedZip) + "`r`n"), (New-Object System.Text.UTF8Encoding($false)))
           "FGS_SOURCE_ZIP=$sourceZip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
@@ -101,6 +101,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$env:FGS_RELEASE_TAG" "$env:FGS_RELEASE_ZIP" --target "$env:GITHUB_SHA" --title "Film Grain Studio $env:FGS_RELEASE_TAG" --notes-file ".github/release/RELEASE_NOTES.md"
+          if ($LASTEXITCODE -ne 0) { throw 'GitHub Stable Release creation failed.' }
+          # Temporary combined download: user must confirm before it may be deleted.
+          gh release upload "$env:FGS_RELEASE_TAG" "$env:FGS_COMBINED_ZIP"
+          if ($LASTEXITCODE -ne 0) { throw 'Combined Release_and_Source upload failed.' }
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
@@ -108,11 +112,7 @@ jobs:
           name: ${{ steps.build.outputs.artifact_name }}
           path: |
             ${{ steps.build.outputs.zip_name }}
-            ${{ steps.build.outputs.sha_name }}
-            ${{ steps.build.outputs.source_zip_name }}
-            ${{ steps.build.outputs.source_sha_name }}
             ${{ steps.build.outputs.combined_zip_name }}
-            ${{ steps.build.outputs.combined_sha_name }}
           if-no-files-found: error
 
       - name: Delete merged release branch
@@ -122,9 +122,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $version = (Get-Content -LiteralPath '.github\release\version.txt' -Raw).Trim()
-          $ref = 'heads/release/v' + $version
-          gh api --method DELETE "repos/$env:GITHUB_REPOSITORY/git/refs/$ref"
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host "Release branch already absent or could not be deleted: $ref"
-            exit 0
+          foreach ($ref in @('heads/release/v' + $version, 'heads/test/vfg-hdr10')) {
+            gh api --method DELETE "repos/$env:GITHUB_REPOSITORY/git/refs/$ref"
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host "Release cleanup ref already absent or could not be deleted: $ref"
+            } else {
+              Write-Host "Release cleanup deleted: $ref"
+            }
           }

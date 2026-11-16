@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.0.72 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.73 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 <table>
   <tr>
@@ -14,6 +14,8 @@
 基于 **FFmpeg、NVIDIA NVENC、libx264 与 grav1synth** 的 Windows 视频处理工具。当前入口为 .NET 图形界面，支持向 EXE 传入或拖入视频文件。
 
 Film Grain Studio 的目标不是只提供一种“加颗粒”方法，而是把几种不同思路的 Film Grain 处理方式统一到同一套工作流中：可以使用 AV1 Film Grain metadata，也可以把真实扫描 Grain Plate、数字颗粒或 GPU Film Grain 直接烘焙进像素；同时保留 HDR、LUT、反交错、插帧、字幕、Cinematic Style、自动码率和多文件处理。
+
+NVEncC AI 插帧支持通过 RTX 4080 测试的 10-bit HDR10(PQ)/HLG 路线：逐行 4:2:0、BT.2020 NCL、TV(Limited) 范围，HEVC/AV1 输出，Low/Medium/High 与整数 2–8 倍。需要使用含 HDR 补丁的 NVEncC 实验构建（rampageX/NVEnc 6d387a31），并将稳定包附带的 `FGS_VFG_HDR10_6d387a31.enable` 放到该 NVEncC64.exe 旁边。普通 NVEncC 没有此 HDR 功能；PC(Full) HDR 或真正 12-bit/4:4:4 不启用 VFG HDR，仍按原有 SDR 回退。已验证素材通过，不代表所有 HDR 静态 SEI 与音画时序组合均已验证。
 
 HDR 高位深 OpenSVPFlow 插帧按后端区分输出文件名：`_SVP50C` 为 CPU10，`_SVP50G` 为 GPU16；SDR 原有 `_SVP50` 命名不变。右下角 `SVP-GPU` 使用与在线更新相同的 `vspipe` GPU 自检命令，悬停查看失败原因、点击主动刷新；其余硬件能力仍按缓存策略检测。
 

@@ -1,3 +1,12 @@
+## v5.0.73 — NVEncC AI 10-bit HDR 插帧
+
+- PQ/HLG、BT.2020 NCL、TV 范围、10-bit 4:2:0 逐行素材正式接入 AI VFG HDR 保留，用于 HEVC/AV1。
+- VFG NUT 视频管道和 AV1 FFV1 中间文件保持 10-bit，并传递实际 HDR 色彩标记。
+- 原有 Low/Medium/High 及整数 2～8 倍帧率选项不变。
+- PC HDR、12-bit/4:4:4 HDR 不启用 HDR VFG；保留既有自动 SDR 回退。
+- HDR VFG 需配置经过 RTX 4080 实测的实验版 NVEncC，并将随包的 .enable 文件放在该 NVEncC64.exe 同目录；未替换普通 NVEncC 安装。
+- HDR 静态 SEI、不同音画时间轴与 HLG 色度精度仍需按素材继续验证。
+
 ## v5.0.72 — 可视化剪裁与缩放顺序
 
 - 剪裁预设增加用途说明，并新增 1.43:1 和 1.90:1 两档 IMAX 画幅。
