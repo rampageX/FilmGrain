@@ -157,8 +157,14 @@ namespace FilmGrainStudioPreview
                 if (PreprocessingCore.Enabled(state)) parts.Add("Bilateral（sigmaS=" + Get(state,"FG_PRE_BILATERAL_SIGMA_S") + "，sigmaR=" + Get(state,"FG_PRE_BILATERAL_SIGMA_R") + "，planes=" + Get(state,"FG_PRE_BILATERAL_PLANES") + "）");
                 CinematicFramePlan frame; ResizePlan resize; string reason;
                 if (media != null && CinematicFrameCore.TryBuild(media, state, out frame, out reason)) {
-                    if (Get(state,"FG_CINEMATIC_FRAME") == "1") parts.Add("画幅 " + Get(state,"FG_FRAME_MODE") + "（" + frame.ActiveWidth + "×" + frame.ActiveHeight + "）");
-                    if (ResizeCore.Enabled(state) && ResizeCore.TryBuild(media, state, frame, out resize, out reason)) parts.Add("缩放 " + resize.Width + "×" + resize.Height + "（Vulkan / " + ResizeCore.AlgorithmName(resize.Algorithm) + "）");
+                    bool afterResize = ResizeCore.CropAfter(state);
+                    bool framed = Get(state,"FG_CINEMATIC_FRAME") == "1";
+                    if (framed && !afterResize) parts.Add("画幅 " + Get(state,"FG_FRAME_MODE") + "（" + frame.ActiveWidth + "×" + frame.ActiveHeight + "）");
+                    if (ResizeCore.Enabled(state) && ResizeCore.TryBuild(media, state, frame, out resize, out reason))
+                    {
+                        parts.Add("缩放 " + resize.CanvasWidth + "×" + resize.CanvasHeight + "（Vulkan / " + ResizeCore.AlgorithmName(resize.Algorithm) + "）");
+                        if (framed && afterResize) parts.Add("缩放后画幅 " + Get(state,"FG_FRAME_MODE") + "（" + frame.ActiveWidth + "×" + frame.ActiveHeight + "）");
+                    }
                 }
                 if (Get(state,"FG_SVP_INTERPOLATE") == "1") parts.Add("插帧 " + Get(state,"FG_INTERPOLATION_ENGINE","SVP") + " / " + Get(state,"FG_INTERPOLATION_TARGET_FPS") + " fps");
                 // These are effective prepared settings; exact stage order is recorded separately.

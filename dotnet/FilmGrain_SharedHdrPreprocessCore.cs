@@ -404,11 +404,70 @@ namespace FilmGrainStudioPreview
         internal string FileSuffix = "";
         internal int ActiveWidth, ActiveHeight;
         internal int ContentX, ContentY, ContentWidth, ContentHeight;
+        internal bool HasExplicitMargins;
     }
     internal static class CinematicFrameCore
     {
         private static string Get(IDictionary<string,string> state,string key)
         { string value;return state!=null && state.TryGetValue(key,out value)?value??"":""; }
+        internal const string CropEnabledKey = "PRE_CROP_ENABLED";
+        internal const string CropModeKey = "PRE_CROP_MODE";
+
+        internal static bool HasLegacyCrop(string mode, string margins, string vertical, string horizontal, string noCrop)
+        {
+            return mode == "CROP" || !string.IsNullOrEmpty(margins) ||
+                (!string.IsNullOrEmpty(vertical) && vertical != "0") ||
+                (!string.IsNullOrEmpty(horizontal) && horizontal != "0") || noCrop == "1";
+        }
+
+        internal static void WriteState(IDictionary<string,string> state, bool cinema, bool cropEnabled,
+            int mode, string margins, string vertical, string horizontal, string noCrop)
+        {
+            state["FG_CINEMATIC_FRAME"] = cinema || cropEnabled ? "1" : "0";
+            state["FG_FRAME_MODE"] = !cinema && mode == 1 ? "CROP" : "LETTERBOX";
+            state[MarginsEnvironment] = cinema ? "" : margins;
+            state["FG_CROP_PER_SIDE"] = cinema ? "0" : vertical;
+            state["FG_CROP_HORIZONTAL"] = cinema ? "0" : horizontal;
+            state["FG_NO_CROP"] = cinema ? "0" : noCrop;
+        }
+
+        internal const string MarginsKey = "CINEMATIC_CROP_MARGINS";
+        internal const string MarginsEnvironment = "FG_CROP_MARGINS";
+        internal const string InvalidMargins = "Custom crop margins must leave at least 2×2 pixels in the input.";
+
+        internal static bool TryParseMargins(string text, out int[] margins)
+        {
+            margins = new int[4]; // Left, top, right, bottom.
+            string[] parts = (text ?? "").Split(',');
+            if (parts.Length != margins.Length) return false;
+            for (int i = 0; i < margins.Length; i++)
+                if (!int.TryParse(parts[i], NumberStyles.None, CultureInfo.InvariantCulture, out margins[i])) return false;
+            return true;
+        }
+
+        internal static string FormatMargins(int left, int top, int right, int bottom)
+        {
+            return string.Format(CultureInfo.InvariantCulture, "{0},{1},{2},{3}", left, top, right, bottom);
+        }
+
+        internal static void SetBars(CinematicFramePlan plan, int width, int height, int left, int top, int right, int bottom)
+        {
+            plan.ContentX = left;
+            plan.ContentY = top;
+            plan.ContentWidth = width - left - right;
+            plan.ContentHeight = height - top - bottom;
+            plan.Filter = "";
+            if (left > 0) plan.Filter += BlackBox(0, 0, left.ToString(CultureInfo.InvariantCulture), "ih");
+            if (right > 0) plan.Filter += BlackBox(width - right, 0, right.ToString(CultureInfo.InvariantCulture), "ih");
+            if (top > 0) plan.Filter += BlackBox(0, 0, "iw", top.ToString(CultureInfo.InvariantCulture));
+            if (bottom > 0) plan.Filter += BlackBox(0, height - bottom, "iw", bottom.ToString(CultureInfo.InvariantCulture));
+        }
+
+        private static string BlackBox(int x, int y, string width, string height)
+        {
+            return string.Format(CultureInfo.InvariantCulture, ",drawbox=x={0}:y={1}:w={2}:h={3}:color=black:t=fill", x, y, width, height);
+        }
+
         internal static bool TryBuild(MediaProbeInfo info, IDictionary<string,string> state, out CinematicFramePlan plan, out string reason)
         {
             plan = new CinematicFramePlan();
@@ -416,7 +475,40 @@ namespace FilmGrainStudioPreview
             plan.ActiveHeight = info.Height;
             plan.ContentWidth = info.Width; plan.ContentHeight = info.Height;
             reason = "";
-            if (Get(state, "FG_CINEMATIC_FRAME") != "1" || Get(state,"FG_NO_CROP")=="1") return true;
+            if (Get(state, "FG_CINEMATIC_FRAME") != "1" || ResizeCore.CropAfter(state)) return true;
+            string margins = Get(state, MarginsEnvironment);
+            if (margins.Length != 0)
+            {
+                int[] edge;
+                if (!TryParseMargins(margins, out edge) ||
+                    (long)edge[0] + edge[2] > info.Width - 2 ||
+                    (long)edge[1] + edge[3] > info.Height - 2)
+                {
+                    reason = InvalidMargins;
+                    return false;
+                }
+                int left = edge[0], top = edge[1], right = edge[2], bottom = edge[3];
+                if (left == 0 && top == 0 && right == 0 && bottom == 0) return true;
+                plan.HasExplicitMargins = true;
+                bool crop = string.Equals(Get(state, "FG_FRAME_MODE"), "CROP", StringComparison.OrdinalIgnoreCase);
+                if (crop)
+                {
+                    // Keep the top-left anchor and trim at most one extra pixel per axis.
+                    right += (info.Width - left - right) & 1;
+                    bottom += (info.Height - top - bottom) & 1;
+                    plan.ContentX = left;
+                    plan.ContentY = top;
+                    plan.ActiveWidth = plan.ContentWidth = info.Width - left - right;
+                    plan.ActiveHeight = plan.ContentHeight = info.Height - top - bottom;
+                    plan.Filter = string.Format(CultureInfo.InvariantCulture, ",crop=w={0}:h={1}:x={2}:y={3}:exact=1",
+                        plan.ActiveWidth, plan.ActiveHeight, left, top);
+                }
+                else SetBars(plan, info.Width, info.Height, left, top, right, bottom);
+                plan.FileSuffix = (crop ? "_CROP" : "_BARS") +
+                    string.Format(CultureInfo.InvariantCulture, "L{0}T{1}R{2}B{3}", left, top, right, bottom);
+                return true;
+            }
+            if (Get(state, "FG_NO_CROP") == "1") return true;
             int horizontal;
             int.TryParse(Get(state,"FG_CROP_HORIZONTAL"),NumberStyles.Integer,CultureInfo.InvariantCulture,out horizontal);
             if(horizontal>0)

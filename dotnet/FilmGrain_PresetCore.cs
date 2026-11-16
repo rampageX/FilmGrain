@@ -29,7 +29,7 @@ namespace FilmGrainStudioPreview
         internal const string Fields="ordinaryGrainEnabled av1GrainModeIndex pixelGrainModeIndex av1FormatIndex av1StockIndex av1IsoValue av1ChromaEnabled selectedAv1GrainTable proceduralStrength fgsimPresetIndex selectedGrainPlatePath scannedGrainStrengthPercent selectedLutPath colorCorrectionEnabled colorContrast colorBrightness colorSaturation colorGamma colorBlackWhite";
         internal const string Controls="cmbCodec cmbContainer cmbSpeed chkSfe chkCq cmbBitrate chkBitrateAuto chkHighMotion cmbFps chkInterpolation cmbInterpolationMode cmbInterpolationFps cmbDeint cmbDeintMethod chkCinematic cmbFrameMode chkGrainEnabled chkLut trackLutStrength";
         internal const string Styles="FontName FontSize PrimaryHex BorderHex Outline Shadow MarginV";
-        internal const string BasicKeys="NVENC_AI_MODE RESIZE_MODE RESIZE_WIDTH RESIZE_HEIGHT RESIZE_KEEP_ASPECT RESIZE_ALGORITHM RESIZE_FACTOR PRE_BILATERAL_ENABLED PRE_BILATERAL_SIGMA_S PRE_BILATERAL_SIGMA_R PRE_BILATERAL_PLANES GRAIN_ENABLED AV1_GRAIN_STRENGTH HDR_POLICY AUDIO_MODE AUDIO_BITRATE INTERPOLATION_TARGET_FPS CINEMATIC_CROP_PER_SIDE CINEMATIC_CROP_HORIZONTAL CINEMATIC_NO_CROP COLOR_CORRECTION_ENABLED COLOR_CONTRAST COLOR_BRIGHTNESS COLOR_SATURATION COLOR_GAMMA COLOR_BLACK_WHITE NVENC_AV1_RATE_CONTROL NVENC_AV1_CQ NVENC_AV1_CQ_AUTO NVENC_HEVC_RATE_CONTROL NVENC_HEVC_CQ NVENC_HEVC_CQ_AUTO NVENC_H264_RATE_CONTROL NVENC_H264_CQ NVENC_H264_CQ_AUTO";
+        internal const string BasicKeys="NVENC_AI_MODE RESIZE_MODE RESIZE_WIDTH RESIZE_HEIGHT RESIZE_KEEP_ASPECT RESIZE_ALGORITHM RESIZE_FACTOR RESIZE_CROP_AFTER RESIZE_CROP_MARGINS PRE_BILATERAL_ENABLED PRE_BILATERAL_SIGMA_S PRE_BILATERAL_SIGMA_R PRE_BILATERAL_PLANES GRAIN_ENABLED AV1_GRAIN_STRENGTH HDR_POLICY AUDIO_MODE AUDIO_BITRATE INTERPOLATION_TARGET_FPS CINEMATIC_CROP_PER_SIDE CINEMATIC_CROP_HORIZONTAL PRE_CROP_ENABLED PRE_CROP_MODE CINEMATIC_CROP_MARGINS CINEMATIC_NO_CROP COLOR_CORRECTION_ENABLED COLOR_CONTRAST COLOR_BRIGHTNESS COLOR_SATURATION COLOR_GAMMA COLOR_BLACK_WHITE NVENC_AV1_RATE_CONTROL NVENC_AV1_CQ NVENC_AV1_CQ_AUTO NVENC_HEVC_RATE_CONTROL NVENC_HEVC_CQ NVENC_HEVC_CQ_AUTO NVENC_H264_RATE_CONTROL NVENC_H264_CQ NVENC_H264_CQ_AUTO";
         internal static bool Contains(string list,string key) {return Array.IndexOf(list.Split(' '),key)>=0;}
         internal static bool Includes(string kind,string key) {return FgsConfig.IsTaskKey(key)&&(kind=="Full"||key==ColorGrade.ConfigKey||key=="GPU_DECODE"||key=="CPU_CODEC"||Contains("CPU_SVT_CQ CPU_SVT_CQ_AUTO",key)||key=="CPU_SVT_RATE_CONTROL"||Contains("CPU_X265_CQ CPU_X265_CQ_AUTO",key)||key=="CPU_X265_RATE_CONTROL"||Contains(BasicKeys,key));}
         internal static JavaScriptSerializer Serializer() {return new JavaScriptSerializer {MaxJsonLength=262144,RecursionLimit=16};}
@@ -62,6 +62,9 @@ namespace FilmGrainStudioPreview
             case "RESIZE_FACTOR":
                 double factor;
                 Require(v.Length==0||ResizeCore.TryParseFactor(v,out factor),"无效缩放倍数。示例：1.5x、3/2、1/3。");return;
+            case ResizeCore.CropAfterKey:Choice(v,"true false",k);return;
+            case ResizeCore.CropMarginsKey:
+                int[] resizedMargins;Require(CinematicFrameCore.TryParseMargins(v,out resizedMargins),"无效的缩放后剪裁参数");return;
             case "RESIZE_KEEP_ASPECT":Choice(v,"true false",k);return;
             case "PRE_BILATERAL_ENABLED":Choice(v,"true false",k);return;
             case "PRE_BILATERAL_SIGMA_S":Number(v,0,512,k);return;
@@ -96,6 +99,10 @@ namespace FilmGrainStudioPreview
             case "SVP_PEEL_LIMIT":Number(v,0,100,k);return;
             case "AV1_GRAIN_STRENGTH":Integer(v,1,100,k);return;
             case "CINEMATIC_CROP_PER_SIDE":case "CINEMATIC_CROP_HORIZONTAL":Integer(v,0,10000,k);return;
+            case CinematicFrameCore.CropModeKey:Choice(v,"CROP LETTERBOX",k);return;
+            case CinematicFrameCore.CropEnabledKey: if(v!="")Choice(v,"true false",k);return;
+            case CinematicFrameCore.MarginsKey:
+                int[] margins;Require(v==""||CinematicFrameCore.TryParseMargins(v,out margins),"无效的四边剪裁参数");return;
             case "CINEMATIC_NO_CROP":Choice(v,"0 1",k);return;
             case ColorGrade.ConfigKey:ColorGrade.Parse(v);return;
             case "COLOR_CONTRAST":Number(v,-2,2,k);return;
@@ -113,7 +120,7 @@ namespace FilmGrainStudioPreview
             SafeText(p.Name,"名称",48);Require(!string.IsNullOrWhiteSpace(p.Name),"名称不能为空");
             Require(p.Description!=null&&p.Description.Length<=4000,"说明过长");Choice(p.Kind,"Simple Full","类型");Choice(p.SubtitlePolicy,"OFF AUTO TARGET","字幕策略");
             Require(p.Config!=null&&p.Fields!=null&&p.Controls!=null&&p.SubtitleStyle!=null,"缺少配置对象");
-            foreach(string key in BasicKeys.Split(' '))if(key!="NVENC_AI_MODE"&&!key.StartsWith("PRE_BILATERAL_")&&!key.StartsWith("RESIZE_"))Require(p.Config.ContainsKey(key),"缺少基础参数: "+key);
+            foreach(string key in BasicKeys.Split(' '))if(key!="NVENC_AI_MODE"&&key!=CinematicFrameCore.MarginsKey&&key!=CinematicFrameCore.CropEnabledKey&&key!=CinematicFrameCore.CropModeKey&&!key.StartsWith("PRE_BILATERAL_")&&!key.StartsWith("RESIZE_"))Require(p.Config.ContainsKey(key),"缺少基础参数: "+key);
             foreach(var pair in p.Config){Require(Includes(p.Kind,pair.Key),"不允许的配置字段: "+pair.Key);ValidateConfig(pair.Key,pair.Value);}
             if(p.Config.ContainsKey("SVP_EXACT")&&p.Config.ContainsKey("SVP_LEAN"))
                 Require(p.Config["SVP_EXACT"]!="true"||p.Config["SVP_LEAN"]!="true","精简 Super 必须启用实验性高速分析 (exact=false)");
@@ -208,7 +215,8 @@ namespace FilmGrainStudioPreview
             effects.Clear();
             if(p.Controls["chkLut"]=="1"&&p.Controls["trackLutStrength"]!="0")effects.Add("LUT "+int.Parse(p.Controls["trackLutStrength"],CultureInfo.InvariantCulture)+"%");
             if(p.Fields["colorCorrectionEnabled"]=="True")effects.Add("调色");
-            if(p.Controls["chkCinematic"]=="1")effects.Add(p.Controls["cmbFrameMode"]=="1"?"电影裁剪":"电影黑边");
+            if(p.Controls["chkCinematic"]=="1")effects.Add("影院样式 · 2.39:1 加黑边");
+            else if(CropEnabled(p))effects.Add(p.Controls["cmbFrameMode"]=="1"?"剪裁":"加黑边");
             if(p.Controls["cmbDeint"]=="0")effects.Add("自动反交错");
             if(p.SubtitlePolicy=="AUTO")effects.Add("字幕自动匹配");
             if(effects.Count>0)lines.Add(string.Join(" · ",effects.ToArray()));
@@ -219,9 +227,15 @@ namespace FilmGrainStudioPreview
         // on a copy so reading/applying never rewrites a user's existing preset file.
         // NVEncC quality was added to v1 after existing presets had shipped.
         // Missing means the original medium default; explicit invalid values still fail Validate.
+        private static bool CropEnabled(FgsPreset preset)
+        {
+            string value;
+            return preset.Controls["chkCinematic"]!="1" && preset.Config.TryGetValue(CinematicFrameCore.CropEnabledKey,out value) && value=="true";
+        }
         internal static void CompleteOptionalConfig(IDictionary<string,string> values)
         {
             if(!values.ContainsKey("NVENC_AI_MODE"))values["NVENC_AI_MODE"]="medium";
+            if(!values.ContainsKey(CinematicFrameCore.MarginsKey))values[CinematicFrameCore.MarginsKey]="";
         }
         internal static FgsPreset CoherentCopy(FgsPreset source)
         {
@@ -232,6 +246,16 @@ namespace FilmGrainStudioPreview
                 p.FormatVersion=2;
             }
             CompleteOptionalConfig(p.Config);
+            string cropEnabled;
+            if(!p.Config.TryGetValue(CinematicFrameCore.CropEnabledKey,out cropEnabled)||cropEnabled=="")
+            {
+                bool custom=p.Controls["chkCinematic"]=="1" && CinematicFrameCore.HasLegacyCrop(
+                    p.Controls["cmbFrameMode"]=="1"?"CROP":"LETTERBOX",p.Config[CinematicFrameCore.MarginsKey],
+                    p.Config["CINEMATIC_CROP_PER_SIDE"],p.Config["CINEMATIC_CROP_HORIZONTAL"],p.Config["CINEMATIC_NO_CROP"]);
+                p.Config[CinematicFrameCore.CropEnabledKey]=custom?"true":"false";
+                if(custom)p.Controls["chkCinematic"]="0";
+            }
+            p.Config[CinematicFrameCore.CropModeKey]=p.Controls["cmbFrameMode"]=="1"?"CROP":"LETTERBOX";
             if(!p.Config.ContainsKey(ColorGrade.ConfigKey))p.Config[ColorGrade.ConfigKey]=ColorGrade.Neutral;
             for(int i=0;i<PreprocessingCore.Keys.Length;i++)if(!p.Config.ContainsKey(PreprocessingCore.Keys[i]))p.Config[PreprocessingCore.Keys[i]]=PreprocessingCore.Defaults[i];
             bool grain=p.Fields["ordinaryGrainEnabled"]=="True";
@@ -247,7 +271,7 @@ namespace FilmGrainStudioPreview
             if(key.StartsWith("PRE_BILATERAL_") && key!="PRE_BILATERAL_ENABLED" && p.Config["PRE_BILATERAL_ENABLED"]!="true")return false;
             if(key=="GRAIN_ENABLED"||key.StartsWith("COLOR_")||key=="HDR_POLICY"||key=="AUDIO_MODE"||key=="AUDIO_BITRATE"||key=="INTERPOLATION_TARGET_FPS")return false;
             if(key=="AV1_GRAIN_STRENGTH")return p.Controls["chkGrainEnabled"]=="1"&&((codec==0||codec==4)&&int.Parse(p.Fields["av1GrainModeIndex"])<=2||codec==2&&p.Config.ContainsKey("CPU_CODEC")&&p.Config["CPU_CODEC"]=="SVT"&&int.Parse(p.Fields["pixelGrainModeIndex"])>=3);
-            if(key.StartsWith("CINEMATIC_"))return p.Controls["chkCinematic"]=="1"&&(key=="CINEMATIC_NO_CROP"||p.Config["CINEMATIC_NO_CROP"]!="1");
+            if(key.StartsWith("CINEMATIC_"))return CropEnabled(p)&&(key=="CINEMATIC_NO_CROP"||p.Config["CINEMATIC_NO_CROP"]!="1");
             if(key.StartsWith("FRUC_"))return p.Controls["chkInterpolation"]=="1"&&p.Controls["cmbInterpolationMode"]=="2";
             if(key=="NVENC_AI_MODE")return p.Controls["chkInterpolation"]=="1"&&p.Controls["cmbInterpolationMode"]=="4";
             if(key.StartsWith("SVP_")){
@@ -304,7 +328,7 @@ namespace FilmGrainStudioPreview
             s.AppendLine("LUT："+(lut?p.Fields["selectedLutPath"]+"；强度 "+int.Parse(p.Controls["trackLutStrength"])+"%":"关闭"));
             bool color=p.Fields["colorCorrectionEnabled"]=="True";s.AppendLine("调色："+(color?"开启":"关闭"));
             if(color)foreach(string k in new[]{"colorContrast","colorBrightness","colorSaturation","colorGamma","colorBlackWhite"})s.AppendLine(Label(k)+" = "+p.Fields[k]);
-            s.AppendLine("画幅："+(p.Controls["chkCinematic"]=="1"?(p.Controls["cmbFrameMode"]=="1"?"裁剪":"加黑边"):"关闭"));
+            s.AppendLine("画幅："+(p.Controls["chkCinematic"]=="1"?"影院样式 · 2.39:1 加黑边":CropEnabled(p)?(p.Controls["cmbFrameMode"]=="1"?"剪裁":"加黑边"):"关闭"));
             s.AppendLine("反交错："+(p.Controls["cmbDeint"]=="0"?"自动；算法 "+new[]{"Vulkan","CUDA","W3FDIF"}[int.Parse(p.Controls["cmbDeintMethod"])]:"关闭"));
             s.AppendLine("字幕："+(p.SubtitlePolicy=="OFF"?"关闭":p.SubtitlePolicy=="AUTO"?"自动匹配目标视频字幕":"保留目标视频绑定（不覆盖具体字幕文件或轨道）"));
             if(p.SubtitlePolicy!="OFF")foreach(var x in p.SubtitleStyle)s.AppendLine("字幕 "+x.Key+" = "+x.Value);
@@ -341,7 +365,7 @@ namespace FilmGrainStudioPreview
                     {"proceduralStrength","Digital Grain 强度"},{"fgsimPresetIndex","FGSIM [0 light / 1 normal / 2 medium / 3 heavy]"},{"scannedGrainStrengthPercent","扫描颗粒强度 (%)"},
                     {"colorCorrectionEnabled","调色开关"},{"colorContrast","对比度"},{"colorBrightness","亮度"},{"colorSaturation","饱和度"},{"colorGamma","Gamma"},{"colorBlackWhite","黑白"},
                     {"CPU_SVT_TUNING","SVT 调校方案"},{"CPU_SVT_GRAIN_TUNE","SVT Grain 调优（AUTO/ON/OFF）"},{"CPU_X265_GRAIN_TUNE","x265 Grain 调优（AUTO/ON/OFF）"},{"X264_GRAIN_TUNE","x264 Grain 调优（AUTO/ON/OFF）"},{"H264_HIGH10","x264 High10"},{"X264_RATE_MODE","x264 遍数"},{"X264_PRESET","x264 速度"},{"TONE_MAP_ALGO","HDR 色调映射"},{"GRAIN_ENABLED","颗粒总开关"},{"AV1_GRAIN_STRENGTH","AV1 相对强度 (%)"},
-                    {"AV1_COPY_FAST","不重编码快速路径"},{"AV1_COPY_FULL_VERIFY","不重编码完整验证"},{"CINEMATIC_CROP_PER_SIDE","纵向单侧裁剪"},{"CINEMATIC_CROP_HORIZONTAL","横向单侧裁剪"},{"CINEMATIC_NO_CROP","恢复完整画幅"},
+                    {"AV1_COPY_FAST","不重编码快速路径"},{"AV1_COPY_FULL_VERIFY","不重编码完整验证"},{"CINEMATIC_CROP_PER_SIDE","纵向单侧裁剪"},{"CINEMATIC_CROP_HORIZONTAL","横向单侧裁剪"},{CinematicFrameCore.MarginsKey,"四边剪裁（左、上、右、下）"},{"CINEMATIC_NO_CROP","恢复完整画幅"},
                     {"INTERPOLATION_TARGET_FPS","插帧目标帧率"},{"FRUC_PERF","FRUC 性能档位"},{"FRUC_GRID","FRUC 网格（auto=最大可用）"},
                     {"SVP_ALGO","SVP 算法"},{"SVP_ANALYSE","SVP 分析配置"},{"SVP_MASK_AREA","SVP 遮罩区域"},{"SVP_SPEED","SVP 速度"},{"SVP_TUNING","SVP 调校"},{"SVP_BLOCK_SIZE","SVP 分块大小"},{"SVP_HDR_BACKEND","SVP HDR10 渲染"},{"SVP_DEDUP","SVP 重复帧阈值"},{"SVP_EXACT","SVP 精确分析"},{"SVP_LEAN","SVP 精简 Super"},
                     {"SVP_STILL","SVP 静止保护"},{"SVP_STILL_LIMIT","静止保护阈值"},{"SVP_STILL_EDGE","静止边缘"},{"SVP_STILL_TOLERANCE","静止容差"},{"SVP_PEEL","SVP HUD 剥离"},{"SVP_PEEL_LIMIT","HUD 剥离阈值"}

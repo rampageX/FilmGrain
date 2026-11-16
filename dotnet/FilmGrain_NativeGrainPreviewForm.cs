@@ -470,129 +470,595 @@ namespace FilmGrainStudioPreview
         protected override void OnMouseUp(MouseEventArgs e){base.OnMouseUp(e);if(e.Button==MouseButtons.Left && Capture){Seek(e.X);Capture=false;if(SeekCommitted!=null)SeekCommitted(this,EventArgs.Empty);}}
     }
 
-    internal static class CinematicPreviewGeometryCore
+    internal static class CinematicCropGeometry
     {
-        internal static Rectangle Region(int width,int height,int perSide,int mode,int horizontal,bool noCrop=false)
+        private static readonly Tuple<double,string,string>[] Presets = {
+            Tuple.Create(2.39, "2.39:1 宽银幕", "2.39:1 Widescreen"),
+            Tuple.Create(1.43, "1.43:1 IMAX 全尺寸", "1.43:1 Full-size IMAX"),
+            Tuple.Create(1.90, "1.90:1 IMAX", "1.90:1 IMAX"),
+            Tuple.Create(16.0 / 9, "16:9 现代高清", "16:9 Modern HD"),
+            Tuple.Create(16.0 / 10, "16:10 设计工作站", "16:10 Design Workstation"),
+            Tuple.Create(20.0 / 9, "20:9 智能手机", "20:9 Smartphone"),
+            Tuple.Create(4.0 / 3, "4:3 经典屏幕", "4:3 Classic Display"),
+            Tuple.Create(1.0, "1:1 拍立得", "1:1 Instant Photo")
+        };
+
+        internal static object[] PresetLabels(Func<string,string,string> text)
         {
-            if(width<2||height<2)throw new ArgumentException("Invalid video dimensions.");
-            if(perSide<0||perSide>(height-2)/2||horizontal>(width-2)/2)throw new ArgumentOutOfRangeException("crop");
-            var state=new Dictionary<string,string> {
-                {"FG_CINEMATIC_FRAME","1"},{"FG_FRAME_MODE",mode==1?"CROP":"BARS"},
-                {"FG_CROP_PER_SIDE",perSide.ToString(CultureInfo.InvariantCulture)},
-                {"FG_CROP_HORIZONTAL",horizontal.ToString(CultureInfo.InvariantCulture)},{"FG_NO_CROP",noCrop?"1":"0"}};
-            CinematicFramePlan plan;string reason;
-            if(!CinematicFrameCore.TryBuild(new MediaProbeInfo {Width=width,Height=height},state,out plan,out reason))
-                throw new ArgumentException(reason);
-            return new Rectangle(plan.ContentX,plan.ContentY,plan.ContentWidth,plan.ContentHeight);
+            var labels=new object[Presets.Length+2];
+            labels[0]=text("自定义","Custom");
+            labels[1]=text("原始画幅","Full frame");
+            for(int i=0;i<Presets.Length;i++)labels[i+2]=text(Presets[i].Item2,Presets[i].Item3);
+            return labels;
         }
-        internal static Rectangle Region(int width,int height,int perSide,int mode)
-        {return Region(width,height,perSide,mode,0);}
+
+        internal static double PresetRatio(int selectedIndex) { return Presets[selectedIndex-2].Item1; }
+        internal static double SampleAspect(MediaProbeInfo media)
+        {
+            string[] parts = (media.SampleAspectRatio ?? "").Split(':');
+            int numerator, denominator;
+            return parts.Length == 2 && int.TryParse(parts[0], out numerator) && int.TryParse(parts[1], out denominator)
+                && numerator > 0 && denominator > 0 ? numerator / (double)denominator : 1;
+        }
+
+        internal static int MatchPreset(Size source, Size current, double aspect, bool even)
+        {
+            if (source == current) return 1;
+            for (int i = 0; i < Presets.Length; i++)
+                if (Fit(source, Presets[i].Item1 / aspect, even).Size == current) return i + 2;
+            return 0;
+        }
+        private static int Span(double value, int limit, bool even)
+        {
+            int step = even ? 2 : 1;
+            return Math.Max(2, Math.Min(limit / step, (int)Math.Round(value / step)) * step);
+        }
+
+        internal static Rectangle Fit(Size source, double ratio, bool even)
+        {
+            int w = Span(Math.Min(source.Width, source.Height * ratio), source.Width, even);
+            int h = Span(Math.Min(source.Height, source.Width / ratio), source.Height, even);
+            return new Rectangle((source.Width - w) / 2, (source.Height - h) / 2, w, h);
+        }
+
+        internal static Rectangle Move(Rectangle start, Size source, double dx, double dy)
+        {
+            int x = Math.Max(0, Math.Min(source.Width - start.Width, start.X + (int)Math.Round(dx)));
+            int y = Math.Max(0, Math.Min(source.Height - start.Height, start.Y + (int)Math.Round(dy)));
+            return new Rectangle(x, y, start.Width, start.Height);
+        }
+
+        internal static Rectangle Drag(Rectangle start, Size source, Point handle, double dx, double dy,
+            bool syncX, bool syncY, double ratio, bool even)
+        {
+            bool changeX = handle.X != 0 || ratio > 0;
+            bool changeY = handle.Y != 0 || ratio > 0;
+            double anchorX = syncX ? source.Width / 2.0 : Anchor(start.Left, start.Right, handle.X);
+            double anchorY = syncY ? source.Height / 2.0 : Anchor(start.Top, start.Bottom, handle.Y);
+            int directionX = syncX ? 0 : handle.X, directionY = syncY ? 0 : handle.Y;
+            int limitW = Limit(anchorX, directionX, source.Width);
+            int limitH = Limit(anchorY, directionY, source.Height);
+            double w = start.Width + dx * handle.X * (syncX ? 2 : 1);
+            double h = start.Height + dy * handle.Y * (syncY ? 2 : 1);
+            if (ratio > 0)
+            {
+                double targetW = handle.X == 0 ? h * ratio : handle.Y == 0 ? w : (w + h / ratio) / (1 + 1 / (ratio * ratio));
+                double maxW = Math.Min(limitW - (even ? limitW % 2 : 0), (limitH - (even ? limitH % 2 : 0)) * ratio);
+                w = Math.Min(maxW, Math.Max(Math.Min(maxW, Math.Max(2, 2 * ratio)), targetW));
+                h = w / ratio;
+            }
+
+            int width = changeX ? Span(w, limitW, even || syncX && source.Width % 2 == 0) : start.Width;
+            int height = changeY ? Span(h, limitH, even || syncY && source.Height % 2 == 0) : start.Height;
+            int x = changeX ? Position(anchorX, width, directionX, source.Width) : start.X;
+            int y = changeY ? Position(anchorY, height, directionY, source.Height) : start.Y;
+            return new Rectangle(x, y, width, height);
+        }
+
+        private static double Anchor(int start, int end, int direction)
+        {
+            return direction < 0 ? end : direction > 0 ? start : (start + end) / 2.0;
+        }
+
+        private static int Limit(double anchor, int direction, int extent)
+        {
+            if (direction < 0) return (int)anchor;
+            if (direction > 0) return extent - (int)anchor;
+            return Math.Min(extent, Math.Max(2, (int)(2 * Math.Min(anchor, extent - anchor))));
+        }
+
+        private static int Position(double anchor, int span, int direction, int extent)
+        {
+            double start = direction < 0 ? anchor - span : direction > 0 ? anchor : anchor - span / 2.0;
+            return Math.Max(0, Math.Min(extent - span, (int)Math.Floor(start)));
+        }
     }
 
     internal sealed class NativeCinematicCropForm : Form
     {
-        protected override void OnLoad(EventArgs e) { MainForm.AttachOwnedTheme(this, Owner); base.OnLoad(e); }
+        private const int MoveHandle = 8;
+        private static readonly Point[] Handles = {
+            new Point(-1, -1), new Point(0, -1), new Point(1, -1),
+            new Point(-1, 0),                     new Point(1, 0),
+            new Point(-1, 1),  new Point(0, 1),  new Point(1, 1)
+        };
+        private static readonly Cursor[] HandleCursors = {
+            Cursors.SizeNWSE, Cursors.SizeNS, Cursors.SizeNESW, Cursors.SizeWE,
+            Cursors.SizeWE, Cursors.SizeNESW, Cursors.SizeNS, Cursors.SizeNWSE, Cursors.SizeAll
+        };
         private readonly string ffmpeg,input;
-        private readonly MediaProbeInfo media;
-        private readonly PictureBox picture=new PictureBox();
-        private readonly NativeSeekStrip timeline=new NativeSeekStrip();
-        private readonly TextBox time=new ThemeTextBox();
-        private readonly NumericUpDown crop=new ThemeNumericUpDown(),horizontal=new ThemeNumericUpDown();
-        private readonly ComboBox mode=new ThemeComboBox();
-        private readonly Label status=new ThemeLabel(),geometry=new ThemeLabel();
-        private readonly System.Windows.Forms.Timer debounce=new System.Windows.Forms.Timer();
-        private readonly object processSync=new object();
-        private readonly string temporary=Path.Combine(Path.GetTempPath(),"FGS_Crop_"+Guid.NewGuid().ToString("N"));
+        private readonly MediaProbeInfo media, canvas;
+        private readonly IDictionary<string,string> initialState;
+        private readonly bool chinese, cinemaPreset;
+        private readonly PictureBox picture = new PictureBox();
+        private readonly NativeSeekStrip timeline = new NativeSeekStrip();
+        private readonly TextBox time = new ThemeTextBox();
+        private readonly NumericUpDown[] margins = new NumericUpDown[4];
+        private readonly ComboBox mode = new ThemeComboBox(), ratioPreset = new ThemeComboBox();
+        private readonly CheckBox lockRatio = new ThemeCheckBox(), syncX = new ThemeCheckBox(), syncY = new ThemeCheckBox();
+        private readonly Button apply = new ThemeButton { AutoSize = true };
+        private readonly Label status = new ThemeLabel(), geometry = new ThemeLabel();
+        private readonly System.Windows.Forms.Timer debounce = new System.Windows.Forms.Timer();
+        private readonly object processSync = new object();
+        private readonly string temporary = Path.Combine(Path.GetTempPath(),"FGS_Crop_"+Guid.NewGuid().ToString("N"));
+        private readonly double sampleAspect;
         private Process active;
         private volatile bool closing,busy;
-        private bool pending,dragging,dragHorizontal;
-        private double requested;
+        private bool pending, updating, edited;
+        private int draggedHandle = -1;
+        private Point dragOrigin;
+        private Rectangle region, dragRegion;
+        private double requested, lockedAspect;
         private Image image;
-        private bool noCrop;
-        internal bool NoCrop {get{return noCrop;}}
-        internal int CropPerSide {get{return (int)crop.Value;}}
-        internal int CropHorizontal {get{return (int)horizontal.Value;}}
-        internal int FrameMode {get{return mode.SelectedIndex;}}
-        internal NativeCinematicCropForm(string ffmpegPath,string source,MediaProbeInfo info,int perSide,int framing,int horizontalSide=0,bool originalFrame=false)
+
+        internal string CropMargins { get { return edited ? FormatRegion(region) : initialState[CinematicFrameCore.MarginsEnvironment]; } }
+        internal int FrameMode { get { return mode.SelectedIndex; } }
+        internal bool Changed { get { return edited || IsCrop != (initialState["FG_FRAME_MODE"] == "CROP"); } }
+        private Size SourceSize { get { return new Size(canvas.Width, canvas.Height); } }
+        private bool IsCrop { get { return FrameMode == 1; } }
+        private string Instructions { get { return S("拖动边线或控制点调整大小，拖动框内移动位置。", "Drag an edge or handle to resize. Drag inside the frame to move it."); } }
+        private string S(string zh, string en) { return chinese ? zh : en; }
+
+        protected override void OnLoad(EventArgs e)
         {
-            ffmpeg=ffmpegPath;input=source;media=info;this.noCrop=originalFrame;
-            Text="Cinematic Style · 可视化裁剪 / Visual crop";Size=new Size(1050,760);MinimumSize=new Size(840,620);StartPosition=FormStartPosition.CenterParent;
-            var layout=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=1,RowCount=6,Padding=new Padding(10)};
-            layout.RowStyles.Add(new RowStyle(SizeType.Percent,100));layout.RowStyles.Add(new RowStyle(SizeType.Absolute,32));layout.RowStyles.Add(new RowStyle(SizeType.Absolute,46));layout.RowStyles.Add(new RowStyle(SizeType.Absolute,46));layout.RowStyles.Add(new RowStyle(SizeType.Absolute,48));layout.RowStyles.Add(new RowStyle(SizeType.Absolute,40));
-            picture.Dock=DockStyle.Fill;picture.BackColor=Color.FromArgb(22,22,22);picture.Paint+=PaintPreview;
-            picture.MouseDown+=delegate(object sender,MouseEventArgs e){if(e.Button!=MouseButtons.Left||image==null)return;RectangleF box=ImageBounds();if(!box.Contains(e.Location))return;
-                Rectangle r=CinematicPreviewGeometryCore.Region(media.Width,media.Height,CropPerSide,FrameMode,CropHorizontal,noCrop);
-                float dx=Math.Min(Math.Abs(e.X-(box.Left+r.Left*box.Width/media.Width)),Math.Abs(e.X-(box.Left+r.Right*box.Width/media.Width)));
-                float dy=Math.Min(Math.Abs(e.Y-(box.Top+r.Top*box.Height/media.Height)),Math.Abs(e.Y-(box.Top+r.Bottom*box.Height/media.Height)));
-                if(Math.Min(dx,dy)>12)return;dragHorizontal=dx<dy;dragging=true;picture.Capture=true;DragCrop(e.X,e.Y);};
-            picture.MouseMove+=delegate(object sender,MouseEventArgs e){if(dragging)DragCrop(e.X,e.Y);};
-            picture.MouseUp+=delegate{dragging=false;picture.Capture=false;};picture.Cursor=Cursors.Cross;
-            layout.Controls.Add(picture,0,0);
-            double duration;double.TryParse(info.Duration,NumberStyles.Float,CultureInfo.InvariantCulture,out duration);timeline.Duration=Math.Min(359999,Math.Max(0,duration-0.05));timeline.Dock=DockStyle.Fill;
-            timeline.PositionChanged+=delegate {time.Text=NativeSeekStrip.FormatTime(timeline.Position);};timeline.SeekCommitted+=delegate{RequestFrame();};layout.Controls.Add(timeline,0,1);
-            var controls=new SettingsFlowPanel {Dock=DockStyle.Fill,WrapContents=false};time.Text="00:00:00";time.Width=90;
-            var show=new ThemeButton {Text="预览 / Preview",AutoSize=true};show.Click+=delegate {double sec;if(!SharedEncodePreviewCore.TryParseStart(time.Text.Trim(),out sec)||sec>=timeline.Duration+0.05){status.Text="时间无效或超出视频时长 / Invalid time";return;}timeline.Position=sec;RequestFrame();};
-            time.KeyDown+=delegate(object sender,KeyEventArgs e){if(e.KeyCode==Keys.Enter){show.PerformClick();e.SuppressKeyPress=true;}};
-            controls.Controls.Add(new ThemeLabel {Text="时间 / Time",AutoSize=true,Padding=new Padding(0,7,0,0)});controls.Controls.Add(time);controls.Controls.Add(show);
-            mode.DropDownStyle=ComboBoxStyle.DropDownList;mode.Width=225;mode.Items.AddRange(new object[]{"加黑边 / Letterbox","裁剪画面 / Crop"});mode.SelectedIndex=framing==1?1:0;mode.SelectedIndexChanged+=delegate{UpdateGeometry();};controls.Controls.Add(mode);layout.Controls.Add(controls,0,2);
-            var values=new SettingsFlowPanel {Dock=DockStyle.Fill,WrapContents=false};values.Controls.Add(new ThemeLabel {Text="上下每边像素 / Per side",AutoSize=true,Padding=new Padding(0,7,0,0)});
-            crop.Minimum=0;crop.Maximum=Math.Max(0,(info.Height-2)/2);crop.Width=90;crop.Value=Math.Min(crop.Maximum,Math.Max(0,perSide));crop.ValueChanged+=delegate {noCrop=false;UpdateGeometry();};values.Controls.Add(crop);
-            values.Controls.Add(new ThemeLabel {Text="左右每边 / Left-right",AutoSize=true,Padding=new Padding(4,7,0,0)});
-            horizontal.Maximum=Math.Max(0,(info.Width-2)/2);horizontal.Width=80;horizontal.Value=Math.Min(horizontal.Maximum,Math.Max(0,horizontalSide));horizontal.ValueChanged+=delegate{noCrop=false;UpdateGeometry();};values.Controls.Add(horizontal);
-            var automatic=new ThemeButton {Text="自动 2.39:1 / Auto",AutoSize=true};automatic.Click+=delegate{horizontal.Value=0;crop.Value=0;noCrop=false;UpdateGeometry();};automatic.MouseUp+=delegate(object sender,MouseEventArgs e){if(e.Button==MouseButtons.Right){horizontal.Value=0;crop.Value=0;noCrop=true;UpdateGeometry();}};automatic.AccessibleDescription="右键恢复原始画幅，不裁剪 / Right-click restores the full frame";values.Controls.Add(automatic);geometry.AutoSize=true;geometry.Padding=new Padding(6,7,0,0);layout.Controls.Add(values,0,3);
-            status.AutoSize=true;status.Text="拖动四边对称调整；左右 > 0 时，上下 0 = 不裁剪。右键自动按钮恢复原始画幅。HDR 仅转换预览显示。";var details=new FlowLayoutPanel {Dock=DockStyle.Fill,FlowDirection=FlowDirection.TopDown,WrapContents=false};details.Controls.Add(geometry);details.Controls.Add(status);layout.Controls.Add(details,0,4);
-            var actions=new SettingsFlowPanel {Dock=DockStyle.Fill,FlowDirection=FlowDirection.RightToLeft};var cancel=new ThemeButton {Text="取消 / Cancel",AutoSize=true,DialogResult=DialogResult.Cancel};var apply=new ThemeButton {Text="应用 / Apply",AutoSize=true};
-            apply.Click+=delegate {DialogResult=DialogResult.OK;Close();};actions.Controls.Add(cancel);actions.Controls.Add(apply);layout.Controls.Add(actions,0,5);Controls.Add(layout);CancelButton=cancel;
-            debounce.Interval=180;debounce.Tick+=delegate {debounce.Stop();StartFrame();};Shown+=delegate{UpdateGeometry();RequestFrame();};
-            FormClosing+=delegate {closing=true;debounce.Stop();lock(processSync){try{if(active!=null&&!active.HasExited)active.Kill();}catch{}}};
-            FormClosed+=delegate{debounce.Dispose();if(image!=null){image.Dispose();image=null;}if(!busy)Cleanup();};
+            MainForm.AttachOwnedTheme(this, Owner);
+            base.OnLoad(e);
         }
-        private RectangleF ImageBounds()
+
+        internal NativeCinematicCropForm(string ffmpegPath, string source, MediaProbeInfo info,
+            IDictionary<string,string> state, bool chinese, bool cinemaPreset, MediaProbeInfo scaledCanvas = null)
         {
-            if(image==null)return RectangleF.Empty;
-            float scale=Math.Min(picture.ClientSize.Width/(float)media.Width,picture.ClientSize.Height/(float)media.Height);
-            float w=media.Width*scale,h=media.Height*scale;return new RectangleF((picture.ClientSize.Width-w)/2,(picture.ClientSize.Height-h)/2,w,h);
+            ffmpeg = ffmpegPath;
+            input = source;
+            media = info;
+            canvas = scaledCanvas ?? info;
+            this.chinese = chinese;
+            initialState = new Dictionary<string,string>(state);
+            initialState["FG_CINEMATIC_FRAME"] = "1";
+            this.cinemaPreset = cinemaPreset;
+            sampleAspect = CinematicCropGeometry.SampleAspect(canvas);
+            Text = scaledCanvas == null ? S("可视化裁剪", "Visual Crop") : S("可视化裁剪 · 缩放后画面", "Visual Crop · After Resize");
+            Size = new Size(1050, 760);
+            MinimumSize = new Size(840, 620);
+            StartPosition = FormStartPosition.CenterParent;
+            Opacity = 0;
+
+            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, Padding = new Padding(10) };
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            picture.Dock = DockStyle.Fill;
+            picture.BackColor = Color.Black;
+            picture.Paint += PaintPreview;
+            picture.MouseDown += BeginDrag;
+            picture.MouseMove += MovePointer;
+            picture.MouseUp += delegate(object sender, MouseEventArgs e) {
+                if (e.Button != MouseButtons.Left) return;
+                draggedHandle = -1;
+                picture.Capture = false;
+                UpdatePointer(e.Location);
+            };
+            picture.MouseCaptureChanged += delegate { if (!picture.Capture) draggedHandle = -1; };
+            picture.MouseLeave += delegate { if (draggedHandle < 0) picture.Cursor = Cursors.Default; };
+            layout.Controls.Add(picture, 0, 0);
+
+            double duration;
+            double.TryParse(info.Duration, NumberStyles.Float, CultureInfo.InvariantCulture, out duration);
+            timeline.Duration = Math.Min(359999, Math.Max(0, duration - 0.05));
+            timeline.Dock = DockStyle.Fill;
+            timeline.PositionChanged += delegate { time.Text = NativeSeekStrip.FormatTime(timeline.Position); };
+            timeline.SeekCommitted += delegate { RequestFrame(); };
+            layout.Controls.Add(timeline, 0, 1);
+
+            var controls = new SettingsFlowPanel { Dock = DockStyle.Fill, WrapContents = false };
+            time.Text = "00:00:00";
+            time.Width = 90;
+            time.KeyDown += delegate(object sender, KeyEventArgs e) {
+                if (e.KeyCode != Keys.Enter) return;
+                e.SuppressKeyPress = true;
+                double sec;
+                if (!SharedEncodePreviewCore.TryParseStart(time.Text.Trim(), out sec) || sec >= timeline.Duration + 0.05)
+                { status.Text = S("时间无效或超出视频时长", "Invalid time or outside the video duration"); return; }
+                timeline.Position = sec;
+                RequestFrame();
+            };
+            controls.Controls.Add(new ThemeLabel { Text = S("时间", "Time"), AutoSize = true, Padding = new Padding(0, 7, 0, 0) });
+            controls.Controls.Add(time);
+            mode.DropDownStyle = ComboBoxStyle.DropDownList;
+            mode.Width = 150;
+            mode.Items.AddRange(new object[] { S("加黑边", "Letterbox"), S("裁剪画面", "Crop") });
+            mode.SelectedIndex = initialState["FG_FRAME_MODE"] == "CROP" ? 1 : 0;
+            controls.Controls.Add(mode);
+            ratioPreset.DropDownStyle = ComboBoxStyle.DropDownList;
+            ratioPreset.Width = 196;
+            ratioPreset.Items.AddRange(CinematicCropGeometry.PresetLabels(S));
+            controls.Controls.Add(ratioPreset);
+            layout.Controls.Add(controls, 0, 2);
+
+            var footer = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 3, RowCount = 1 };
+            footer.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            footer.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            footer.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            var cross = BuildMarginControls(margins, S, delegate(int edge) { if (!updating) EditMargin(edge); });
+            cross.Anchor = AnchorStyles.Left | AnchorStyles.Bottom;
+            footer.Controls.Add(cross, 0, 0);
+
+            var right = new TableLayoutPanel {
+                AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom,
+                ColumnCount = 1, RowCount = 2, Margin = new Padding(12, 3, 0, 3)
+            };
+            right.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            right.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            right.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            var options = new SettingsFlowPanel { AutoSize = true, WrapContents = false, Margin = Padding.Empty };
+            lockRatio.Text = S("拖动保持比例", "Lock drag ratio");
+            syncX.Text = S("左右同步", "Link left/right");
+            syncY.Text = S("上下同步", "Link top/bottom");
+            foreach (CheckBox option in new[] { lockRatio, syncX, syncY })
+            {
+                option.AutoSize = true;
+                options.Controls.Add(option);
+            }
+            lockRatio.Checked = syncX.Checked = syncY.Checked = true;
+            lockRatio.CheckedChanged += delegate { CaptureAspect(); };
+            syncX.CheckedChanged += delegate { if (!updating) CenterLinkedAxis(true); };
+            syncY.CheckedChanged += delegate { if (!updating) CenterLinkedAxis(false); };
+
+            status.AutoSize = true;
+            status.Text = Instructions;
+            geometry.AutoSize = true;
+            var details = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Margin = Padding.Empty };
+            details.Controls.Add(geometry);
+            details.Controls.Add(status);
+            right.Controls.Add(options, 0, 0);
+            right.Controls.Add(details, 0, 1);
+            footer.Controls.Add(right, 1, 0);
+
+            var actions = new SettingsFlowPanel { AutoSize = true, Anchor = AnchorStyles.Bottom | AnchorStyles.Right, WrapContents = false };
+            var cancel = new ThemeButton { Text = S("取消", "Cancel"), AutoSize = true, DialogResult = DialogResult.Cancel };
+            apply.Text = S("应用", "Apply");
+            apply.Click += delegate { DialogResult = DialogResult.OK; Close(); };
+            actions.Controls.Add(apply);
+            actions.Controls.Add(cancel);
+            footer.Controls.Add(actions, 2, 0);
+            layout.Controls.Add(footer, 0, 3);
+            Controls.Add(layout);
+            CancelButton = cancel;
+
+            mode.SelectedIndexChanged += delegate {
+                if (!edited) LoadRegion();
+                else CommitRegion(region);
+            };
+            ratioPreset.SelectionChangeCommitted += delegate { SelectRatio(); };
+            LoadRegion();
+            debounce.Interval = 180;
+            debounce.Tick += delegate { debounce.Stop(); StartFrame(); };
+            Shown += delegate {
+                PerformLayout();
+                Update();
+                Opacity = 1;
+                RequestFrame();
+            };
+            FormClosing += delegate {
+                closing = true;
+                debounce.Stop();
+                lock(processSync) { try { if (active != null && !active.HasExited) active.Kill(); } catch { } }
+            };
+            FormClosed += delegate {
+                debounce.Dispose();
+                if (image != null) { image.Dispose(); image = null; }
+                if (!busy) Cleanup();
+            };
         }
-        private void PaintPreview(object sender,PaintEventArgs e)
+
+        internal static TableLayoutPanel BuildMarginControls(NumericUpDown[] margins, Func<string,string,string> S, Action<int> changed)
         {
-            if(image==null)return;RectangleF box=ImageBounds();e.Graphics.DrawImage(image,box);
-            Rectangle region=CinematicPreviewGeometryCore.Region(media.Width,media.Height,CropPerSide,FrameMode,CropHorizontal,noCrop);
-            float top=box.Top+region.Top*box.Height/media.Height,bottom=box.Top+region.Bottom*box.Height/media.Height;
-            using(var mask=new SolidBrush(FrameMode==0?Color.Black:Color.FromArgb(165,0,0,0)))using(var line=new Pen(Color.FromArgb(60,210,240),2))
-            {e.Graphics.FillRectangle(mask,box.Left,box.Top,box.Width,Math.Max(0,top-box.Top));e.Graphics.FillRectangle(mask,box.Left,bottom,box.Width,Math.Max(0,box.Bottom-bottom));e.Graphics.DrawLine(line,box.Left,top,box.Right,top);e.Graphics.DrawLine(line,box.Left,bottom,box.Right,bottom);
-                float left=box.Left+region.Left*box.Width/media.Width,right=box.Left+region.Right*box.Width/media.Width;
-                e.Graphics.FillRectangle(mask,box.Left,top,Math.Max(0,left-box.Left),bottom-top);e.Graphics.FillRectangle(mask,right,top,Math.Max(0,box.Right-right),bottom-top);
-                e.Graphics.DrawLine(line,left,top,left,bottom);e.Graphics.DrawLine(line,right,top,right,bottom);}
+            var cross = new TableLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, ColumnCount = 5, RowCount = 5 };
+            for (int i = 0; i < 5; i++)
+            {
+                cross.ColumnStyles.Add(new ColumnStyle(i == 2 ? SizeType.Absolute : SizeType.AutoSize, i == 2 ? 68 : 0));
+                cross.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            }
+            string[] labels = { S("左侧", "Left"), S("顶部", "Top"), S("右侧", "Right"), S("底部", "Bottom") };
+            Point[] fields = { new Point(1, 2), new Point(2, 1), new Point(3, 2), new Point(2, 3) };
+            Point[] captions = { new Point(0, 2), new Point(2, 0), new Point(4, 2), new Point(2, 4) };
+            for (int i = 0; i < margins.Length; i++)
+            {
+                int edge = i;
+                var inputMargin = new ThemeNumericUpDown { Width = 62, Anchor = AnchorStyles.None, AccessibleName = labels[i] };
+                margins[i] = inputMargin;
+                cross.Controls.Add(inputMargin, fields[i].X, fields[i].Y);
+                cross.Controls.Add(new ThemeLabel { Text = labels[i], AutoSize = true, Anchor = AnchorStyles.None }, captions[i].X, captions[i].Y);
+                inputMargin.ValueChanged += delegate { changed(edge); };
+            }
+            return cross;
         }
-        private void DragCrop(int x,int y)
+
+        private string FormatRegion(Rectangle area)
         {
-            RectangleF box=ImageBounds();if(box.Height<1)return;
-            if(dragHorizontal){double localX=(x-box.Left)/box.Width*media.Width;int px=(int)Math.Round(Math.Min(localX,media.Width-localX));horizontal.Value=Math.Max(horizontal.Minimum,Math.Min(horizontal.Maximum,px));return;}
-            double local=(y-box.Top)/box.Height*media.Height;
-            int pixels=(int)Math.Round(Math.Min(local,media.Height-local));
-            crop.Value=Math.Max(crop.Minimum,Math.Min(crop.Maximum,pixels));
+            return CinematicFrameCore.FormatMargins(area.Left, area.Top, canvas.Width - area.Right, canvas.Height - area.Bottom);
         }
+
+        private bool TryPlan(out CinematicFramePlan plan, out string reason)
+        {
+            var state = new Dictionary<string,string>(initialState);
+            state["FG_FRAME_MODE"] = IsCrop ? "CROP" : "BARS";
+            state[CinematicFrameCore.MarginsEnvironment] = CropMargins;
+            return CinematicFrameCore.TryBuild(canvas, state, out plan, out reason);
+        }
+
+        private static Rectangle PlanRegion(CinematicFramePlan plan)
+        {
+            return new Rectangle(plan.ContentX, plan.ContentY, plan.ContentWidth, plan.ContentHeight);
+        }
+
+        private void LoadRegion()
+        {
+            CinematicFramePlan plan;
+            string reason;
+            bool valid = TryPlan(out plan, out reason);
+            region = valid ? PlanRegion(plan) : new Rectangle(Point.Empty, SourceSize);
+            if (valid && CropMargins.Length != 0 && CropMargins != FormatRegion(region)) edited = true;
+            ratioPreset.SelectedIndex = cinemaPreset && !Changed ? 2
+                : CinematicCropGeometry.MatchPreset(SourceSize, region.Size, sampleAspect, IsCrop);
+            CaptureAspect();
+            UpdateGeometry();
+        }
+
+        private void SelectRatio()
+        {
+            int preset = ratioPreset.SelectedIndex;
+            if (preset == 0) return;
+            CommitRegion(preset == 1 ? new Rectangle(Point.Empty, SourceSize)
+                : CinematicCropGeometry.Fit(SourceSize, CinematicCropGeometry.PresetRatio(preset) / sampleAspect, IsCrop));
+            CaptureAspect();
+        }
+
+        private void CaptureAspect()
+        {
+            int preset = ratioPreset.SelectedIndex;
+            lockedAspect = preset >= 2 ? CinematicCropGeometry.PresetRatio(preset) / sampleAspect : region.Width / (double)Math.Max(1, region.Height);
+        }
+
+        private void CenterLinkedAxis(bool horizontal)
+        {
+            Rectangle centered = region;
+            if (horizontal && syncX.Checked) centered.X = (canvas.Width - region.Width) / 2;
+            if (!horizontal && syncY.Checked) centered.Y = (canvas.Height - region.Height) / 2;
+            if (centered != region) CommitRegion(centered);
+            else UpdateGeometry();
+        }
+
+        private void EditMargin(int edge)
+        {
+            bool horizontal = edge % 2 == 0;
+            int extent = horizontal ? canvas.Width : canvas.Height;
+            int[] values = { region.Left, region.Top, canvas.Width - region.Right, canvas.Height - region.Bottom };
+            int opposite = (edge + 2) % 4;
+            int value = (int)margins[edge].Value;
+            if (horizontal ? syncX.Checked : syncY.Checked)
+            {
+                value = Math.Min(value, (extent - 2) / 2);
+                values[opposite] = value;
+            }
+            else if (IsCrop && ((extent - value - values[opposite]) & 1) != 0)
+            {
+                // Align the edited edge without moving its opposite edge.
+                value = value < extent - 2 - values[opposite] ? value + 1 : value - 1;
+            }
+            values[edge] = value;
+            ratioPreset.SelectedIndex = 0;
+            CommitRegion(Rectangle.FromLTRB(values[0], values[1], canvas.Width - values[2], canvas.Height - values[3]));
+            CaptureAspect();
+        }
+
+        private void CommitRegion(Rectangle next)
+        {
+            region = next;
+            edited = true;
+            CinematicFramePlan plan;
+            string reason;
+            if (TryPlan(out plan, out reason)) region = PlanRegion(plan);
+            UpdateGeometry();
+        }
+
         private void UpdateGeometry()
         {
-            Rectangle region=CinematicPreviewGeometryCore.Region(media.Width,media.Height,CropPerSide,FrameMode,CropHorizontal,noCrop);
-            geometry.Text="有效 / Active: "+region.Width+"×"+region.Height+"   输出 / Output: "+(FrameMode==1?region.Width:media.Width)+"×"+(FrameMode==1?region.Height:media.Height);
+            updating = true;
+            try
+            {
+                int[] values = { region.Left, region.Top, canvas.Width - region.Right, canvas.Height - region.Bottom };
+                for (int i = 0; i < margins.Length; i++)
+                {
+                    int extent = i % 2 == 0 ? canvas.Width : canvas.Height;
+                    bool linked = i % 2 == 0 ? syncX.Checked : syncY.Checked;
+                    margins[i].Increment = IsCrop && !linked ? 2 : 1;
+                    margins[i].Maximum = linked ? Math.Max(values[i], (extent - 2) / 2)
+                        : extent - 2 - values[(i + 2) % 4];
+                    margins[i].Value = values[i];
+                }
+            }
+            finally { updating = false; }
+
+            CinematicFramePlan plan;
+            string reason;
+            apply.Enabled = TryPlan(out plan, out reason);
+            geometry.Text = apply.Enabled
+                ? string.Format(CultureInfo.InvariantCulture, S("有效区域 {0}×{1}   输出 {2}×{3}", "Active area {0}×{1}   Output {2}×{3}"),
+                    region.Width, region.Height, plan.ActiveWidth, plan.ActiveHeight)
+                : S("四边裁剪至少需要保留 2×2 像素。", reason);
             picture.Invalidate();
+        }
+
+        private RectangleF ImageBounds()
+        {
+            Rectangle area = picture.ClientRectangle;
+            area.Inflate(-10, -10);
+            double displayWidth = canvas.Width * sampleAspect;
+            double scale = Math.Min(area.Width / displayWidth, area.Height / (double)canvas.Height);
+            float width = (float)(displayWidth * scale), height = (float)(canvas.Height * scale);
+            return new RectangleF(area.Left + (area.Width - width) / 2, area.Top + (area.Height - height) / 2, width, height);
+        }
+
+        private RectangleF SelectionBounds(RectangleF box)
+        {
+            float sx = box.Width / canvas.Width, sy = box.Height / canvas.Height;
+            return new RectangleF(box.Left + region.X * sx, box.Top + region.Y * sy, region.Width * sx, region.Height * sy);
+        }
+
+        private static PointF HandlePosition(RectangleF rect, int index)
+        {
+            Point direction = Handles[index];
+            return new PointF(rect.Left + rect.Width * (direction.X + 1) / 2, rect.Top + rect.Height * (direction.Y + 1) / 2);
+        }
+
+        private int HitHandle(Point location)
+        {
+            if (image == null) return -1;
+            RectangleF rect = SelectionBounds(ImageBounds());
+            int nearest = -1;
+            float distance = 11 * 11;
+            for (int i = 0; i < Handles.Length; i++)
+            {
+                PointF point = HandlePosition(rect, i);
+                float dx = point.X - location.X, dy = point.Y - location.Y;
+                float squared = dx * dx + dy * dy;
+                if (squared > distance) continue;
+                distance = squared;
+                nearest = i;
+            }
+            if (nearest >= 0) return nearest;
+            const float edgeTolerance = 6;
+            if (location.X >= rect.Left && location.X <= rect.Right)
+            {
+                if (Math.Abs(location.Y - rect.Top) <= edgeTolerance) return 1;
+                if (Math.Abs(location.Y - rect.Bottom) <= edgeTolerance) return 6;
+            }
+            if (location.Y >= rect.Top && location.Y <= rect.Bottom)
+            {
+                if (Math.Abs(location.X - rect.Left) <= edgeTolerance) return 3;
+                if (Math.Abs(location.X - rect.Right) <= edgeTolerance) return 4;
+            }
+            return region.Size != SourceSize && rect.Contains(location) ? MoveHandle : -1;
+        }
+
+        private void UpdatePointer(Point location)
+        {
+            int handle = draggedHandle >= 0 ? draggedHandle : HitHandle(location);
+            picture.Cursor = handle >= 0 ? HandleCursors[handle] : Cursors.Default;
+        }
+
+        private void BeginDrag(object sender, MouseEventArgs e)
+        {
+            if (e.Button != MouseButtons.Left) return;
+            draggedHandle = HitHandle(e.Location);
+            if (draggedHandle < 0) return;
+            dragOrigin = e.Location;
+            dragRegion = region;
+            picture.Capture = true;
+            UpdatePointer(e.Location);
+        }
+
+        private void MovePointer(object sender, MouseEventArgs e)
+        {
+            if (draggedHandle >= 0)
+            {
+                RectangleF box = ImageBounds();
+                if (box.Width <= 0 || box.Height <= 0) return;
+                double dx = (e.X - dragOrigin.X) * canvas.Width / (double)box.Width;
+                double dy = (e.Y - dragOrigin.Y) * canvas.Height / (double)box.Height;
+                bool moving = draggedHandle == MoveHandle;
+                Rectangle next = moving
+                    ? CinematicCropGeometry.Move(dragRegion, SourceSize, dx, dy)
+                    : CinematicCropGeometry.Drag(dragRegion, SourceSize, Handles[draggedHandle], dx, dy,
+                        syncX.Checked, syncY.Checked, lockRatio.Checked ? lockedAspect : 0, IsCrop);
+                if (region != next)
+                {
+                    if (moving)
+                    {
+                        updating = true;
+                        try
+                        {
+                            if (next.X != dragRegion.X) syncX.Checked = false;
+                            if (next.Y != dragRegion.Y) syncY.Checked = false;
+                        }
+                        finally { updating = false; }
+                    }
+                    else if (!lockRatio.Checked) ratioPreset.SelectedIndex = 0;
+                    CommitRegion(next);
+                }
+            }
+            UpdatePointer(e.Location);
+        }
+
+        private void PaintPreview(object sender, PaintEventArgs e)
+        {
+            if (image == null) return;
+            RectangleF box = ImageBounds();
+            RectangleF rect = SelectionBounds(box);
+            e.Graphics.DrawImage(image, box);
+            using (var mask = new SolidBrush(IsCrop ? Color.FromArgb(163, 0, 0, 0) : Color.Black))
+            using (var outline = new Pen(Color.White))
+            using (var grid = new Pen(Color.FromArgb(116, Color.White)))
+            using (var handleBorder = new Pen(Color.FromArgb(62, 62, 62)))
+            {
+                e.Graphics.FillRectangle(mask, box.Left, box.Top, box.Width, Math.Max(0, rect.Top - box.Top));
+                e.Graphics.FillRectangle(mask, box.Left, rect.Bottom, box.Width, Math.Max(0, box.Bottom - rect.Bottom));
+                e.Graphics.FillRectangle(mask, box.Left, rect.Top, Math.Max(0, rect.Left - box.Left), rect.Height);
+                e.Graphics.FillRectangle(mask, rect.Right, rect.Top, Math.Max(0, box.Right - rect.Right), rect.Height);
+                e.Graphics.DrawRectangle(outline, rect.X, rect.Y, rect.Width, rect.Height);
+                for (int i = 1; i <= 2; i++)
+                {
+                    float x = rect.Left + i * rect.Width / 3, y = rect.Top + i * rect.Height / 3;
+                    e.Graphics.DrawLine(grid, x, rect.Top, x, rect.Bottom);
+                    e.Graphics.DrawLine(grid, rect.Left, y, rect.Right, y);
+                }
+                for (int i = 0; i < Handles.Length; i++)
+                {
+                    PointF p = HandlePosition(rect, i);
+                    e.Graphics.FillRectangle(Brushes.White, p.X - 4, p.Y - 4, 8, 8);
+                    e.Graphics.DrawRectangle(handleBorder, p.X - 4, p.Y - 4, 8, 8);
+                }
+            }
         }
         private void RequestFrame(){requested=timeline.Position;pending=true;debounce.Stop();debounce.Start();}
         private void StartFrame()
         {
             if(closing)return;if(busy){pending=true;return;}pending=false;busy=true;double seconds=requested;
-            status.Text="正在读取画面 / Loading frame…";
+            status.Text=S("正在读取画面…", "Loading frame…");
             var worker=new Thread(new ThreadStart(delegate {
                 byte[] bytes=null;string failure="";
                 try {
-                    if(media.Identity==null)throw new InvalidOperationException("Probe is not ready");media.Identity.RequireCurrent();
+                    if(media.Identity==null)throw new InvalidOperationException(S("媒体探测尚未完成", "Probe is not ready"));media.Identity.RequireCurrent();
                     Directory.CreateDirectory(temporary);string output=Path.Combine(temporary,"frame.png");
                     var args=new List<string>{"-v","error","-y","-ss",seconds.ToString("0.###",CultureInfo.InvariantCulture),"-i",input,"-map","0:v:0","-vf",NativeGrainPreviewForm.PreviewFilter(media)+",scale=w='min(1280,iw)':h=-2","-frames:v","1","-threads","1",output};
                     using(var process=new Process()) {
                         process.StartInfo=new ProcessStartInfo(ffmpeg,SharedFrucCore.JoinArguments(args)){UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true};
                         lock(processSync){if(closing)throw new OperationCanceledException();process.Start();active=process;}
-                        try {var stdout=process.StandardOutput.ReadToEndAsync();var stderr=process.StandardError.ReadToEndAsync();if(!process.WaitForExit(30000)){try{process.Kill();}catch{}throw new TimeoutException("Frame preview timed out.");}stdout.Wait();stderr.Wait();if(process.ExitCode!=0)throw new IOException(stderr.Result);}
+                        try {var stdout=process.StandardOutput.ReadToEndAsync();var stderr=process.StandardError.ReadToEndAsync();if(!process.WaitForExit(30000)){try{process.Kill();}catch{}throw new TimeoutException(S("读取预览帧超时。", "Frame preview timed out."));}stdout.Wait();stderr.Wait();if(process.ExitCode!=0)throw new IOException(stderr.Result);}
                         finally {lock(processSync){active=null;}}
                     }
                     media.Identity.RequireCurrent();
@@ -603,9 +1069,9 @@ namespace FilmGrainStudioPreview
                     if(closing)Cleanup();
                     else try {BeginInvoke(new Action(delegate {
                         if(closing)return;
-                        if(media.Identity==null || !media.Identity.IsCurrent(input,media.Identity.Probe)){bytes=null;failure="Input or FFprobe changed; close and re-probe.";}
+                        if(media.Identity==null || !media.Identity.IsCurrent(input,media.Identity.Probe)){bytes=null;failure=S("输入文件或 FFprobe 已更改，请关闭窗口后重新探测。", "Input or FFprobe changed. Close the window and probe again.");}
                         if(bytes!=null && Math.Abs(seconds-requested)<0.001){using(var stream=new MemoryStream(bytes))using(var next=Image.FromStream(stream)){var old=image;image=new Bitmap(next);if(old!=null)old.Dispose();}picture.Invalidate();}
-                        status.Text=failure.Length==0?"拖动四边对称调整；左右 > 0 时，上下 0 = 不裁剪。HDR 仅用于显示转换。":"预览失败 / Preview failed: "+failure;
+                        status.Text=failure.Length==0?Instructions:S("预览失败：", "Preview failed: ")+failure;
                         if(pending)StartFrame();
                     }));}catch{Cleanup();}
                 }

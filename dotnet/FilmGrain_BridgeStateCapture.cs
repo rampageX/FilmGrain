@@ -159,11 +159,14 @@ namespace FilmGrainStudioPreview
             }
             snapshot.Deinterlace = cmbDeint != null && cmbDeint.SelectedIndex == 1 ? "OFF" : "AUTO";
             snapshot.DeintMethod = deintMethods[deintIndex];
-            snapshot.CinematicFrame = chkCinematic != null && chkCinematic.Checked;
-            snapshot.FrameMode = cmbFrameMode != null && cmbFrameMode.SelectedIndex == 1 ? "CROP" : "LETTERBOX";
-            snapshot.CropPerSide = config.Get("CINEMATIC_CROP_PER_SIDE");
-            snapshot.CropHorizontal = config.Get("CINEMATIC_CROP_HORIZONTAL");
-            snapshot.NoCrop = config.Get("CINEMATIC_NO_CROP");
+            var framing = new Dictionary<string,string>();
+            WriteCurrentFraming(framing);
+            snapshot.CinematicFrame = framing["FG_CINEMATIC_FRAME"] == "1";
+            snapshot.FrameMode = framing["FG_FRAME_MODE"];
+            snapshot.CropPerSide = framing["FG_CROP_PER_SIDE"];
+            snapshot.CropHorizontal = framing["FG_CROP_HORIZONTAL"];
+            snapshot.CropMargins = framing[CinematicFrameCore.MarginsEnvironment];
+            snapshot.NoCrop = framing["FG_NO_CROP"];
             snapshot.H264High10 = config.GetBool("H264_HIGH10");
             snapshot.X264Preset = config.Get("X264_PRESET");
             snapshot.X264PassMode = config.Get("X264_RATE_MODE");
@@ -257,6 +260,7 @@ namespace FilmGrainStudioPreview
         {
             snapshot.GpuDecode=config.Get("GPU_DECODE");
             foreach(string key in ResizeCore.Keys)snapshot.ResizeSettings[key]=config.Get(key);
+            if(chkCinematic!=null&&chkCinematic.Checked)snapshot.ResizeSettings[ResizeCore.CropAfterKey]="false";
             snapshot.BilateralEnabled=config.Get("PRE_BILATERAL_ENABLED");
             snapshot.BilateralSigmaS=config.Get("PRE_BILATERAL_SIGMA_S");snapshot.BilateralSigmaR=config.Get("PRE_BILATERAL_SIGMA_R");snapshot.BilateralPlanes=config.Get("PRE_BILATERAL_PLANES");
             snapshot.CpuSvtTuning=config.Get("CPU_SVT_TUNING");

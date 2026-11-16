@@ -107,8 +107,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.71";
-        internal const string FileReleaseVersion = "5.0.71.0";
+        internal const string ReleaseVersion = "5.0.72";
+        internal const string FileReleaseVersion = "5.0.72.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -537,6 +537,7 @@ namespace FilmGrainStudioPreview
             colorBlackWhite = config.GetBool("COLOR_BLACK_WHITE");
             StartupTiming.Mark("config.language.proxy.end");
             BuildUi();
+            MigrateStartupFraming();
             StartupTiming.Mark("controls.end");
             if (setupTest) Text = "[设置测试模式] " + Text;
             UpdateSpeedChoices();
@@ -1129,8 +1130,8 @@ namespace FilmGrainStudioPreview
             cmbDeint = Combo(new string[] { lang.T("deint.auto"), lang.T("deint.off") }, 0);
             cmbDeintMethod = Combo(new string[] { lang.T("deint.vulkan"), lang.T("deint.cuda"), lang.T("deint.w3fdif") }, 1);
             cmbDeint.SelectedIndexChanged += delegate { if(restoringFileEditor)return; UpdateMediaDrivenUi(GetSelectedMediaInfo()); UpdateBitrateDisplays(); };
-            chkCinematic = Check(lang.T("cinematic.enable"), true);
-            cmbFrameMode = Combo(new string[] { lang.T("cinematic.letterbox"), lang.T("cinematic.crop") }, 0);
+            chkCinematic = Check(UiText("影院样式","Cinema Style"), !config.GetBool(CinematicFrameCore.CropEnabledKey));
+            cmbFrameMode = Combo(new string[] { lang.T("cinematic.letterbox"), lang.T("cinematic.crop") }, config.Get(CinematicFrameCore.CropModeKey)=="CROP"?1:0);
 
             btnSubtitle = new ThemeButton(); btnSubtitle.Text = lang.T("button.subtitle"); btnSubtitle.Dock = DockStyle.Fill; btnSubtitle.Margin = new Padding(3, 4, 8, 4);
             btnSubtitle.Click += delegate { ShowSubtitleDialog(); };
@@ -1172,10 +1173,28 @@ namespace FilmGrainStudioPreview
             Button cinematicShortcut;
             Control cinematicRow = WithAdvancedShortcut(chkCinematic, -1, UiText("可视化裁剪", "Visual crop"), out cinematicShortcut);
             cinematicShortcut.Enabled = chkCinematic.Checked;
-            chkCinematic.CheckedChanged += delegate { cinematicShortcut.Enabled = chkCinematic.Checked; };
+            chkCinematic.CheckedChanged += delegate {
+                cinematicShortcut.Enabled = chkCinematic.Checked;
+                if(!restoringFileEditor)RefreshPreprocessUi();
+            };
+            cmbFrameMode.SelectionChangeCommitted += delegate {
+                if(restoringFileEditor)return;
+                try {config.SaveValue(CinematicFrameCore.CropModeKey,cmbFrameMode.SelectedIndex==1?"CROP":"LETTERBOX");}
+                catch(Exception ex) {
+                    cmbFrameMode.SelectedIndex=config.Get(CinematicFrameCore.CropModeKey)=="CROP"?1:0;
+                    FgsMessageBox.Show(this,ex.Message);
+                }
+                RefreshPreprocessUi();
+            };
             t.Controls.Add(cinematicRow,0,10);t.SetColumnSpan(cinematicRow,2);
             btnSubtitle.Margin=new Padding(3,4,3,4);
-            t.Controls.Add(btnSubtitle,0,11);t.Controls.Add(cmbFrameMode,1,11);
+            var framingAndSubtitle = new TableLayoutPanel {Dock=DockStyle.Fill,Margin=Padding.Empty,ColumnCount=2,RowCount=1};
+            framingAndSubtitle.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));
+            framingAndSubtitle.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,112));
+            framingAndSubtitle.Controls.Add(cmbFrameMode,0,0);
+            framingAndSubtitle.Controls.Add(btnSubtitle,1,0);
+            t.Controls.Add(framingAndSubtitle,0,11);
+            t.SetColumnSpan(framingAndSubtitle,2);
             lutToolTip.SetToolTip(cmbFrameMode,lang.T("encode.framing"));
             btnPreprocess=new ThemeButton {Dock=DockStyle.Fill,Margin=new Padding(3,4,8,4)};
             btnPreprocess.Click+=delegate {ShowPreprocessDialog();};
@@ -2631,7 +2650,7 @@ namespace FilmGrainStudioPreview
             if (chkInterpolation != null) chkInterpolation.Enabled = true;
             if (cmbDeint != null) cmbDeint.Enabled = true;
             if (chkCinematic != null) chkCinematic.Enabled = true;
-            if (cmbFrameMode != null) cmbFrameMode.Enabled = chkCinematic == null || chkCinematic.Checked;
+            if (cmbFrameMode != null) UpdateCinematicCropLabels();
             
             
             
@@ -4685,12 +4704,55 @@ namespace FilmGrainStudioPreview
             }
         }
 
+        private void MigrateStartupFraming()
+        {
+            if (config.Get(CinematicFrameCore.CropEnabledKey) != "" ||
+                !CinematicFrameCore.HasLegacyCrop("LETTERBOX", config.Get(CinematicFrameCore.MarginsKey),
+                    config.Get("CINEMATIC_CROP_PER_SIDE"), config.Get("CINEMATIC_CROP_HORIZONTAL"), config.Get("CINEMATIC_NO_CROP"))) return;
+            try { config.SaveValue(CinematicFrameCore.CropEnabledKey,"true"); }
+            catch (Exception ex) { System.Diagnostics.Trace.WriteLine(ex.Message); return; }
+            restoringFileEditor=true;
+            try { chkCinematic.Checked=false; }
+            finally { restoringFileEditor=false; }
+            RefreshPreprocessButton();
+        }
+
         private void UpdateCinematicCropLabels()
         {
-            if(cmbFrameMode==null)return;int side=config.GetInt("CINEMATIC_CROP_PER_SIDE",0);
+            if(cmbFrameMode==null)return;
+            bool cinema = chkCinematic != null && chkCinematic.Checked;
+            bool custom = config.GetBool(CinematicFrameCore.CropEnabledKey);
+            cmbFrameMode.Enabled = !cinema && custom && (cmbCodec == null || cmbCodec.SelectedIndex != 4)
+                && (bridgeTaskCoordinator == null || !bridgeTaskCoordinator.IsActive);
+            if (cinema || !custom)
+            {
+                string description = cinema ? UiText("加黑边 · 2.39:1", "Letterbox · 2.39:1") : UiText("剪裁关闭", "Crop off");
+                cmbFrameMode.Items[0] = cmbFrameMode.Items[1] = description;
+                return;
+            }
+            int side=config.GetInt("CINEMATIC_CROP_PER_SIDE",0);
             int horizontal=config.GetInt("CINEMATIC_CROP_HORIZONTAL",0);
-            if(config.Get("CINEMATIC_NO_CROP")=="1"){cmbFrameMode.Items[0]="加黑边 · 原始画幅 / Bars · Original";cmbFrameMode.Items[1]="裁剪 · 原始画幅 / Crop · Original";return;}
-            if(horizontal>0){cmbFrameMode.Items[0]="加黑边 / Bars · V"+side+" H"+horizontal;cmbFrameMode.Items[1]="裁剪 / Crop · V"+side+" H"+horizontal;return;}
+            int[] margins;
+            bool afterResize=config.Get("RESIZE_MODE")!="OFF" && config.GetBool(ResizeCore.CropAfterKey);
+            bool explicitMargins = CinematicFrameCore.TryParseMargins(config.Get(afterResize?ResizeCore.CropMarginsKey:CinematicFrameCore.MarginsKey), out margins);
+            bool full = explicitMargins
+                ? margins[0] == 0 && margins[1] == 0 && margins[2] == 0 && margins[3] == 0
+                : config.Get("CINEMATIC_NO_CROP") == "1";
+            if (full)
+            {
+                cmbFrameMode.Items[0] = UiText("加黑边 · 原始画幅", "Bars · Full frame");
+                cmbFrameMode.Items[1] = UiText("裁剪 · 原始画幅", "Crop · Full frame");
+                return;
+            }
+            if (explicitMargins)
+            {
+                string tag = UiText(" · 左", " · L") + margins[0] + UiText(" 上", " T") + margins[1]
+                    + UiText(" 右", " R") + margins[2] + UiText(" 下", " B") + margins[3];
+                cmbFrameMode.Items[0] = UiText("加黑边", "Bars") + tag;
+                cmbFrameMode.Items[1] = UiText("裁剪", "Crop") + tag;
+                return;
+            }
+            if(horizontal>0){cmbFrameMode.Items[0]=UiText("加黑边", "Bars")+" · V"+side+" H"+horizontal;cmbFrameMode.Items[1]=UiText("裁剪", "Crop")+" · V"+side+" H"+horizontal;return;}
             cmbFrameMode.Items[0]=side>0?UiText("加黑边 · 上下各 "+side+" px","Letterbox · "+side+" px per side"):lang.T("cinematic.letterbox");
             cmbFrameMode.Items[1]=side>0?UiText("裁剪 · 上下各 "+side+" px","Crop · "+side+" px per side"):lang.T("cinematic.crop");
         }
@@ -4701,13 +4763,22 @@ namespace FilmGrainStudioPreview
             if(string.IsNullOrEmpty(input)||!mediaProbeCache.TryGetValue(input,out media)) {FgsMessageBox.Show(this,UiText("请先选择并探测视频。","Select and probe a video first."));return;}
             if(media.Width<2||media.Height<2){FgsMessageBox.Show(this,UiText("视频尺寸无效。","Invalid video dimensions."));return;}
             if(bridgeTaskCoordinator!=null && bridgeTaskCoordinator.IsActive)return;
+            var cinemaState=new Dictionary<string,string>();
+            CinematicFrameCore.WriteState(cinemaState,true,false,0,"","0","0","0");
             using(var window=new NativeCinematicCropForm(Path.Combine(config.Get("FFMPEG_DIR"),"ffmpeg.exe"),input,media,
-                config.GetInt("CINEMATIC_CROP_PER_SIDE",0),cmbFrameMode.SelectedIndex,config.GetInt("CINEMATIC_CROP_HORIZONTAL",0),config.Get("CINEMATIC_NO_CROP")=="1"))
+                cinemaState, string.Equals(lang.Code,"zh-CN",StringComparison.OrdinalIgnoreCase),true))
             {
-                if(window.ShowDialog(this)!=DialogResult.OK)return;
-                try {config.SaveValue("CINEMATIC_CROP_PER_SIDE",window.CropPerSide.ToString(CultureInfo.InvariantCulture));config.SaveValue("CINEMATIC_CROP_HORIZONTAL",window.CropHorizontal.ToString(CultureInfo.InvariantCulture));config.SaveValue("CINEMATIC_NO_CROP",window.NoCrop?"1":"0");}
+                if(window.ShowDialog(this)!=DialogResult.OK || !window.Changed)return;
+                try {config.Save(new Dictionary<string,string> {
+                    {CinematicFrameCore.CropEnabledKey,"true"},
+                    {CinematicFrameCore.CropModeKey,window.FrameMode==1?"CROP":"LETTERBOX"},
+                    {CinematicFrameCore.MarginsKey,window.CropMargins},
+                    {ResizeCore.CropAfterKey,"false"},
+                    {"CINEMATIC_CROP_PER_SIDE","0"},{"CINEMATIC_CROP_HORIZONTAL","0"},{"CINEMATIC_NO_CROP","0"}
+                });}
                 catch(Exception ex){FgsMessageBox.Show(this,ex.Message);return;}
-                cmbFrameMode.SelectedIndex=window.FrameMode;UpdateCinematicCropLabels();UpdateBitrateDisplays();
+                cmbFrameMode.SelectedIndex=window.FrameMode;
+                chkCinematic.Checked=false;
             }
         }
 

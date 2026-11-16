@@ -70,6 +70,7 @@ namespace FilmGrainStudioPreview
         public string FrameMode = "";
         public string CropPerSide = "";
         public string CropHorizontal = "";
+        public string CropMargins = "";
         public string NoCrop = "";
         public bool H264High10;
         public string X264Preset = "";
@@ -207,6 +208,7 @@ namespace FilmGrainStudioPreview
             state["FG_FRAME_MODE"] = snapshot.FrameMode;
             state["FG_CROP_PER_SIDE"] = snapshot.CropPerSide;
             state["FG_CROP_HORIZONTAL"] = snapshot.CropHorizontal;
+            state[CinematicFrameCore.MarginsEnvironment] = snapshot.CropMargins;
             state["FG_NO_CROP"] = snapshot.NoCrop;
             state["FG_H264_HIGH10"] = snapshot.H264High10 ? "1" : "0";
             state["FG_X264_PRESET"] = snapshot.X264Preset;

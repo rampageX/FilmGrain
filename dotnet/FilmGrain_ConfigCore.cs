@@ -22,7 +22,7 @@ namespace FilmGrainStudioPreview
 
         private static readonly KeyValuePair<string, string[]>[] Sections = new KeyValuePair<string, string[]>[]
         {
-            new KeyValuePair<string, string[]>("Preprocessing", new[] { "RESIZE_MODE", "RESIZE_WIDTH", "RESIZE_HEIGHT", "RESIZE_KEEP_ASPECT", "RESIZE_ALGORITHM", "RESIZE_FACTOR", "PRE_BILATERAL_ENABLED", "PRE_BILATERAL_SIGMA_S", "PRE_BILATERAL_SIGMA_R", "PRE_BILATERAL_PLANES" }),
+            new KeyValuePair<string, string[]>("Preprocessing", new[] { "RESIZE_MODE", "RESIZE_WIDTH", "RESIZE_HEIGHT", "RESIZE_KEEP_ASPECT", "RESIZE_ALGORITHM", "RESIZE_FACTOR", ResizeCore.CropAfterKey, ResizeCore.CropMarginsKey, "PRE_BILATERAL_ENABLED", "PRE_BILATERAL_SIGMA_S", "PRE_BILATERAL_SIGMA_R", "PRE_BILATERAL_PLANES" }),
             new KeyValuePair<string, string[]>("Advanced.EncoderAQ", new[] { "HEVC_SPATIAL_AQ", "HEVC_TEMPORAL_AQ", "H264_SPATIAL_AQ", "H264_TEMPORAL_AQ" }),
             new KeyValuePair<string, string[]>("AV1Bake", new[] { "BAKE_ENCODER", "BAKE_GPU_DECODE", "BAKE_AUTO_BITRATE", "BAKE_BITRATE", "BAKE_HEVC_PRESET", "BAKE_H264_PRESET", "BAKE_HEVC_SFE", "BAKE_HEVC_RATE_CONTROL", "BAKE_HEVC_CQ", "BAKE_H264_RATE_CONTROL", "BAKE_H264_CQ", "BAKE_X265_RATE_CONTROL", "BAKE_X265_CRF", "BAKE_X264_RATE_CONTROL", "BAKE_X264_CRF" }),
             new KeyValuePair<string, string[]>("Paths", new string[] { "NVENC_DIR", "FFMPEG_DIR", "FRUC_FFMPEG_SAME_AS_MAIN", "FRUC_FFMPEG_PATH", "GRAV1SYNTH", "GRAIN_ROOT", "LUT_ROOT", "TEMP_MODE", "TEMP_CUSTOM_DIR", "OUTPUT_MODE", "OUTPUT_CUSTOM_DIR" }),
@@ -32,7 +32,7 @@ namespace FilmGrainStudioPreview
             new KeyValuePair<string, string[]>("Advanced.Encoding", new string[] { "GPU_DECODE", "CPU_CODEC", "CPU_SVT_TUNING", "CPU_SVT_GRAIN_TUNE", "CPU_X265_GRAIN_TUNE", "X264_GRAIN_TUNE", "CPU_SVT_PRESET", "CPU_X265_PRESET", "CPU_X265_THREADED_ME", "CPU_SVT_RATE_CONTROL", "CPU_SVT_CQ", "CPU_SVT_CQ_AUTO", "CPU_X265_RATE_CONTROL", "CPU_X265_CQ", "CPU_X265_CQ_AUTO", "H264_HIGH10", "X264_RATE_MODE", "X264_PRESET", "NVENC_SPATIAL_AQ", "NVENC_TEMPORAL_AQ", "AUDIO_MODE", "AUDIO_BITRATE", "AV1_MULTIPASS", "HEVC_MULTIPASS", "H264_MULTIPASS", "HEVC_BFRAMES", "H264_BFRAMES", "HEVC_BREF_MODE", "H264_BREF_MODE", "HEVC_LOOKAHEAD", "H264_LOOKAHEAD" }),
             new KeyValuePair<string, string[]>("Advanced.Interpolation", new string[] { "SVP_ALGO", "SVP_ANALYSE", "SVP_MASK_AREA", "SVP_SPEED", "SVP_TUNING", "SVP_BLOCK_SIZE", "SVP_HDR_BACKEND", "SVP_EXACT", "SVP_LEAN", "SVP_DEDUP", "SVP_STILL", "SVP_STILL_LIMIT", "SVP_STILL_EDGE", "SVP_STILL_TOLERANCE", "SVP_PEEL", "SVP_PEEL_LIMIT", "NVENC_AI_MODE", "FRUC_PERF", "FRUC_GRID", "INTERPOLATION_TARGET_FPS" }),
             new KeyValuePair<string, string[]>("Advanced.HDR", new string[] { "HDR_POLICY", "TONE_MAP_ALGO" }),
-            new KeyValuePair<string, string[]>("Advanced.Other", new string[] { "QUEUE_SKIP_FAILED", "CINEMATIC_CROP_PER_SIDE", "CINEMATIC_CROP_HORIZONTAL", "CINEMATIC_NO_CROP", "COLOR_PREVIEW_LARGE_UI" }),
+            new KeyValuePair<string, string[]>("Advanced.Other", new string[] { "QUEUE_SKIP_FAILED", "CINEMATIC_CROP_PER_SIDE", "CINEMATIC_CROP_HORIZONTAL", CinematicFrameCore.MarginsKey, CinematicFrameCore.CropEnabledKey, CinematicFrameCore.CropModeKey, "CINEMATIC_NO_CROP", "COLOR_PREVIEW_LARGE_UI" }),
             new KeyValuePair<string, string[]>("ColorCorrection", new string[] { "COLOR_CORRECTION_ENABLED", "COLOR_CONTRAST", "COLOR_BRIGHTNESS", "COLOR_SATURATION", "COLOR_GAMMA", "COLOR_BLACK_WHITE", ColorGrade.ConfigKey, "COLOR_MATCH_STRENGTH" })
         };
 
@@ -74,6 +74,8 @@ namespace FilmGrainStudioPreview
             defaults["RESIZE_MODE"] = "OFF";
             defaults["RESIZE_ALGORITHM"] = "LANCZOS";
             defaults["RESIZE_FACTOR"] = "";
+            defaults[ResizeCore.CropAfterKey] = "false";
+            defaults[ResizeCore.CropMarginsKey] = "0,0,0,0";
 defaults["RESIZE_WIDTH"] = "1920";
 defaults["RESIZE_HEIGHT"] = "1080";
 defaults["RESIZE_KEEP_ASPECT"] = "true";
@@ -197,6 +199,9 @@ defaults["CPU_X265_CQ_AUTO"] = "false";
             defaults["HDR_POLICY"] = "AUTO";
             defaults["TONE_MAP_ALGO"] = "hable";
             defaults["CINEMATIC_CROP_PER_SIDE"] = "0";
+            defaults[CinematicFrameCore.MarginsKey] = "";
+            defaults[CinematicFrameCore.CropEnabledKey] = "";
+            defaults[CinematicFrameCore.CropModeKey] = "LETTERBOX";
             defaults["CINEMATIC_CROP_HORIZONTAL"] = "0";
             defaults["CINEMATIC_NO_CROP"] = "0";
             defaults["COLOR_PREVIEW_LARGE_UI"] = "false";
