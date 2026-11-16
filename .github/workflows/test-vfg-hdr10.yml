@@ -16,8 +16,16 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           & cmd.exe /d /s /c 'call dotnet\build_NET_Preview.bat'
-          if ($LASTEXITCODE -ne 0) { throw "Windows FGS compilation failed" }
-          if (-not (Test-Path -LiteralPath 'FilmGrain_Studio.exe')) { throw 'Compiled FGS EXE not found' }
+          if ($LASTEXITCODE -ne 0) {
+            # On windows-2022, legacy Windows PowerShell may lack Get-FileHash.
+            # Never skip the binary audit: rerun that same auditor in PowerShell 7.
+            $compiled = 'dotnet\build\FilmGrain_Studio_NET_Preview.exe'
+            if (-not (Test-Path -LiteralPath $compiled -PathType Leaf)) { throw "C# compilation failed; executable missing" }
+            & pwsh.exe -NoProfile -NonInteractive -File 'dotnet\BuildTools\Test_Framework_Api.ps1' -Executable $compiled
+            if ($LASTEXITCODE -ne 0) { throw "Framework API audit failed under PowerShell 7" }
+            Copy-Item -LiteralPath $compiled -Destination 'FilmGrain_Studio.exe' -Force
+          }
+          if (-not (Test-Path -LiteralPath 'FilmGrain_Studio.exe' -PathType Leaf)) { throw 'Compiled FGS EXE not found' }
       - name: Package matching EXE and complete committed source
         shell: pwsh
         run: |
