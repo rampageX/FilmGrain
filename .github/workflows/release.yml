@@ -122,11 +122,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $version = (Get-Content -LiteralPath '.github\release\version.txt' -Raw).Trim()
-          foreach ($ref in @('heads/release/v' + $version, 'heads/test/vfg-hdr10')) {
-            gh api --method DELETE "repos/$env:GITHUB_REPOSITORY/git/refs/$ref"
-            if ($LASTEXITCODE -ne 0) {
-              Write-Host "Release cleanup ref already absent or could not be deleted: $ref"
-            } else {
-              Write-Host "Release cleanup deleted: $ref"
-            }
+          $ref = 'heads/release/v' + $version
+          gh api --method DELETE "repos/$env:GITHUB_REPOSITORY/git/refs/$ref"
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "Release branch already absent or could not be deleted: $ref"
+            exit 0
           }
