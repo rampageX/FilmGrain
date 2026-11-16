@@ -564,19 +564,26 @@ namespace FilmGrainStudioPreview
                 foreach(Control c in moveRows) {int row=table.GetRow(c);if(row>=4)table.SetRow(c,row+2);}
                 TextBox txtNvenc=ConfigTextBox(config.Get("NVENC_DIR"));
                 Button browseNvenc=ConfigButton(lang.T("config.browse")),refreshNvenc=RefreshButton();
-                Label statusNvenc=ConfigStatusLabel(UiText("可选；只检查版本/功能，实际运行时验证 DLL。","Optional; metadata check only, DLLs validated by actual execution."));
+                Func<NvencInterpolationReport,string> nvencStatusText=delegate(NvencInterpolationReport r) {
+                    if(r==null)return UiText("HDR VFG 10-bit：未检测（点击刷新）","HDR VFG 10-bit: not checked (click refresh)");
+                    if(!string.IsNullOrEmpty(r.Error))return r.Error;
+                    return r.Version+" | FRUC="+r.Fruc+" | AI="+r.Ai+" | HDR VFG 10-bit: "+
+                        (r.HdrVfg?UiText("支持","supported"):UiText("不支持","not supported"))+
+                        UiText("；实际运行待验证","; runtime not verified");
+                };
+                Label statusNvenc=ConfigStatusLabel(nvencStatusText(NvencInterpolationCore.Cached(appRoot,txtNvenc.Text.Trim())));
                 table.Controls.Add(ConfigLabelWithWebLink("NVEncC", "https://github.com/rigaya/NVEnc/releases", "NVEncC",dlg),0,4);
                 table.Controls.Add(txtNvenc,1,4);table.Controls.Add(browseNvenc,2,4);table.Controls.Add(refreshNvenc,3,4);table.Controls.Add(statusNvenc,1,5);table.SetColumnSpan(statusNvenc,3);
                 Action inspectNvenc=delegate {
                     string dir=txtNvenc.Text.Trim();statusNvenc.Text=UiText("正在检查 NVEncC...","Checking NVEncC...");refreshNvenc.Enabled=false;
                     System.Threading.ThreadPool.QueueUserWorkItem(delegate {
                         var report=NvencInterpolationCore.Inspect(appRoot,dir,true);
-                        try {if(!dlg.IsDisposed&&dlg.IsHandleCreated)dlg.BeginInvoke((Action)delegate {refreshNvenc.Enabled=true;if(txtNvenc.Text.Trim()==dir)statusNvenc.Text=report.Error.Length>0?report.Error:report.Version+" | FRUC="+report.Fruc+" | AI="+report.Ai+UiText("；实际运行待验证","; runtime not verified");});}catch{}
+                        try {if(!dlg.IsDisposed&&dlg.IsHandleCreated)dlg.BeginInvoke((Action)delegate {refreshNvenc.Enabled=true;if(txtNvenc.Text.Trim()==dir)statusNvenc.Text=nvencStatusText(report);});}catch{}
                     });
                 };
                 refreshNvenc.Click+=delegate {inspectNvenc();};
                 browseNvenc.Click+=delegate {using(var picker=new FolderBrowserDialog()){picker.Description=UiText("选择包含 NVEncC64.exe 的目录","Select the directory containing NVEncC64.exe");if(picker.ShowDialog(dlg)==DialogResult.OK){txtNvenc.Text=picker.SelectedPath;inspectNvenc();}}};
-                txtNvenc.TextChanged+=delegate {statusNvenc.Text=UiText("路径已改变；保存后按需检查。","Path changed; checked on demand after saving.");};
+                txtNvenc.TextChanged+=delegate {statusNvenc.Text=UiText("路径已改变；HDR VFG 10-bit：未检测。","Path changed; HDR VFG 10-bit: not checked.");};
 
                 EventHandler updateStorage = delegate
                 {

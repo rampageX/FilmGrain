@@ -721,7 +721,7 @@ namespace FilmGrainStudioPreview
     internal sealed class NvencInterpolationReport
     {
         public string Stamp {get;set;} public string Version {get;set;} public string Error {get;set;}
-        public bool Fruc {get;set;} public bool Ai {get;set;} public string Devices {get;set;}
+        public bool Fruc {get;set;} public bool Ai {get;set;} public bool HdrVfg {get;set;} public string Devices {get;set;}
     }
     internal static class NvencInterpolationCore
     {
@@ -784,7 +784,7 @@ namespace FilmGrainStudioPreview
         }
         static string Stamp(string directory) {
             string path=Exe(directory);if(!File.Exists(path))return "";
-            var f=new FileInfo(path);return "v2-full-help|"+f.FullName+"|"+f.Length+"|"+f.LastWriteTimeUtc.Ticks;
+            var f=new FileInfo(path);return "v3-hdr-vfg|"+f.FullName+"|"+f.Length+"|"+f.LastWriteTimeUtc.Ticks;
         }
         private const string CacheFileName = "NVEncC_Interpolation.cache.json";
         private static string CachePath(string root) { return Path.Combine(root,"Utils",CacheFileName); }
@@ -846,7 +846,8 @@ namespace FilmGrainStudioPreview
                     r.Ai=raw&&help.Contains("--vpp-nvvfx-framegen")&&(major>9||major==9&&minor>=36);
                     if(!SharedFrucCore.Run(Exe(directory),"--check-device",8000,out devices,out error))throw new InvalidOperationException("NVEncC device enumeration failed: "+error);
                     r.Devices=devices;
-                } catch(Exception ex){r.Error=ex.Message;r.Fruc=false;r.Ai=false;}
+                    r.HdrVfg=r.Ai && HasHdrVfgBuild(directory);
+                } catch(Exception ex){r.Error=ex.Message;r.Fruc=false;r.Ai=false;r.HdrVfg=false;}
                 if(!string.IsNullOrEmpty(r.Stamp)) {
                     lock(gate)
                     {

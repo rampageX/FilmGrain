@@ -5172,16 +5172,16 @@ namespace FilmGrainStudioPreview {
             ToolStripStatusLabel item;if(!statusCapabilities.TryGetValue("NVEncC",out item))return;
             string dir=config.Get("NVENC_DIR");
             item.ForeColor=ColorMuted;
-            if(!File.Exists(NvencInterpolationCore.Exe(dir))) {item.Text=UiText("NVEncC 未配置","NVEncC not configured");item.ToolTipText=NvencInterpolationCore.Exe(dir)+"\r\n"+UiText("未找到 NVEncC64.exe；可在配置中设置目录。","NVEncC64.exe not found; choose its directory in Configuration.");return;}
-            if(nvencInspectRunning){item.Text=UiText("NVEncC 检测中","NVEncC checking");return;}
+            if(!File.Exists(NvencInterpolationCore.Exe(dir))) {item.Text=UiText("NVEncC 未配置","NVEncC not configured");item.ToolTipText=NvencInterpolationCore.Exe(dir)+"\r\n"+UiText("未找到 NVEncC64.exe；可在配置中设置目录。","NVEncC64.exe not found; choose its directory in Configuration.")+"\r\nAI HDR: ✗";return;}
+            if(nvencInspectRunning){item.Text=UiText("NVEncC 检测中","NVEncC checking");item.ToolTipText=UiText("NVEncC 检测中","NVEncC checking")+"\r\nAI HDR: ?";return;}
             var report=NvencInterpolationCore.Cached(appRoot,dir);
-            if(report==null){item.Text="NVEncC ?";item.ToolTipText=UiText("尚未检查；点击仅检测可选 NVEncC。","Not checked; click to inspect NVEncC only.");return;}
+            if(report==null){item.Text="NVEncC ?";item.ToolTipText=UiText("尚未检查；点击仅检测可选 NVEncC。","Not checked; click to inspect NVEncC only.")+"\r\nAI HDR: ?";return;}
             string fruc=NvencOptionReason(3),ai=NvencOptionReason(4);
             bool available=fruc.Length==0||ai.Length==0;
             var version=System.Text.RegularExpressions.Regex.Match(report.Version??"",@"\d+\.\d+");
             item.Text="NVEncC "+(version.Success?version.Value:"")+(available?" ✓":" ✗");
             item.ForeColor=available?Color.FromArgb(25,135,65):Color.FromArgb(190,50,45);
-            item.ToolTipText=NvencInterpolationCore.Exe(dir)+"\r\n"+report.Version+"\r\nFRUC: "+(fruc.Length==0?"✓":fruc)+"\r\nAI: "+(ai.Length==0?"✓":ai)+"\r\n"+UiText("版本/功能检测；DLL 与实际输入由运行确认。点击仅刷新 NVEncC。","Metadata check; DLLs and inputs verified on execution. Click refreshes NVEncC only.");
+            item.ToolTipText=NvencInterpolationCore.Exe(dir)+"\r\n"+report.Version+"\r\nFRUC: "+(fruc.Length==0?"✓":fruc)+"\r\nAI: "+(ai.Length==0?"✓":ai)+"\r\nAI HDR: "+(ai.Length==0&&report.HdrVfg?"✓":"✗")+"\r\n"+UiText("HDR 标识代表 NVEncC 构建能力，实际输入和 DLL 仍由运行验证。点击仅刷新 NVEncC。","HDR check reflects NVEncC build capability; input and DLLs are verified at runtime. Click to refresh NVEncC only.");
         }
         private bool nvencInspectRunning;
         private string NvencOptionReason(int index) {

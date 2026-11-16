@@ -1,4 +1,4 @@
-name: FGS VFG HDR automatic NVEncC detection test
+name: FGS NVEncC HDR configuration status test
 on:
   push:
     branches:
@@ -30,22 +30,22 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $dir = Join-Path $env:RUNNER_TEMP 'FGS_VFG_AutoDetect_M6Q9'
+          $dir = Join-Path $env:RUNNER_TEMP 'FGS_VFG_AutoDetect_R7K4'
           New-Item -ItemType Directory -Force -Path $dir | Out-Null
-          Copy-Item -LiteralPath 'FilmGrain_Studio.exe' -Destination (Join-Path $dir 'FilmGrain_Studio_VFG_AutoDetect_M6Q9.exe')
+          Copy-Item -LiteralPath 'FilmGrain_Studio.exe' -Destination (Join-Path $dir 'FilmGrain_Studio_VFG_AutoDetect_R7K4.exe')
           Copy-Item -LiteralPath 'VFG_AutoDetect_测试说明.txt' -Destination $dir
-          $src = Join-Path $dir 'FGS_VFG_AutoDetect_M6Q9_Source.zip'
+          $src = Join-Path $dir 'FGS_VFG_AutoDetect_R7K4_Source.zip'
           & git archive --format=zip --output=$src HEAD
           if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $src)) { throw 'Source archive failed' }
-          $exe = Join-Path $dir 'FilmGrain_Studio_VFG_AutoDetect_M6Q9.exe'
+          $exe = Join-Path $dir 'FilmGrain_Studio_VFG_AutoDetect_R7K4.exe'
           $hash = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash
-          $info = "FGS VFG AutoDetect M6Q9 experimental Windows build" + [Environment]::NewLine + "Commit: " + $env:GITHUB_SHA + [Environment]::NewLine + "Base: a38a82350defd970daf6f2d9a73d4da56e9024f9" + [Environment]::NewLine + "EXE SHA256: " + $hash
+          $info = "FGS VFG AutoDetect R7K4 experimental Windows build" + [Environment]::NewLine + "Commit: " + $env:GITHUB_SHA + [Environment]::NewLine + "Base: a38a82350defd970daf6f2d9a73d4da56e9024f9" + [Environment]::NewLine + "EXE SHA256: " + $hash
           [IO.File]::WriteAllText((Join-Path $dir 'BUILD_INFO.txt'),$info,(New-Object System.Text.UTF8Encoding($false)))
           New-Item -ItemType Directory -Force -Path 'artifacts' | Out-Null
-          Compress-Archive -Path (Join-Path $dir '*') -DestinationPath 'artifacts\FGS_VFG_AutoDetect_Windows_M6Q9.zip' -CompressionLevel Optimal -Force
-          if (-not (Test-Path -LiteralPath 'artifacts\FGS_VFG_AutoDetect_Windows_M6Q9.zip')) { throw 'Missing package' }
+          Compress-Archive -Path (Join-Path $dir '*') -DestinationPath 'artifacts\FGS_VFG_AutoDetect_Windows_R7K4.zip' -CompressionLevel Optimal -Force
+          if (-not (Test-Path -LiteralPath 'artifacts\FGS_VFG_AutoDetect_Windows_R7K4.zip')) { throw 'Missing package' }
       - uses: actions/upload-artifact@v4
         with:
-          name: FGS_VFG_AutoDetect_Windows_M6Q9
-          path: artifacts/FGS_VFG_AutoDetect_Windows_M6Q9.zip
+          name: FGS_VFG_AutoDetect_Windows_R7K4
+          path: artifacts/FGS_VFG_AutoDetect_Windows_R7K4.zip
           if-no-files-found: error
