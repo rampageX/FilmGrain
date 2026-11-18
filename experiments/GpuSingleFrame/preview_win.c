@@ -38,7 +38,6 @@ static struct pl_frame s_image;
 static enum pl_color_transfer s_hdr_transfer;
 static bool s_source_full, s_hdr_display;
 static bool s_combined_grade, s_hint_en;
-#define HINT_WIDTH 275
 static const wchar_t *s_deinterlace = L"";
 static FgsGrainModel s_original;
 static int s_strength = 100, s_width, s_height;
@@ -78,7 +77,7 @@ static int s_frame_depth;
 static double s_frame_seconds, s_pending_seconds, s_duration_seconds;
 static uint64_t s_grain_event_start;
 static uint32_t s_fps_num = 30, s_fps_den = 1;
-enum { PANEL_HEIGHT = 195, MSG_SEEK_FRAME = WM_APP+7 };
+enum { PANEL_HEIGHT = 210, MSG_SEEK_FRAME = WM_APP+7 };
 static double s_setup_ms;
 static LARGE_INTEGER s_frequency;
 
@@ -576,7 +575,7 @@ static bool upload_pixel_noise(const unsigned char *raw, bool rgba)
 static void track_bounds(RECT *client, int *left, int *right, int *top)
 {
     *left = 144;
-    *right = client->right - HINT_WIDTH - 165;
+    *right = client->right - 150;
     if (*right < *left+24) *right = *left+24;
     *top = client->bottom-PANEL_HEIGHT;
 }
@@ -586,146 +585,132 @@ static void track_bounds(RECT *client, int *left, int *right, int *top)
 static void bottom_frame_controls(const RECT *client, RECT *edit,
                                   RECT *random_btn, RECT *seek_btn, int *hint_left)
 {
-    int bottom = client->bottom-7;
-    *edit = (RECT){14,bottom-s_time_edit_height,14+s_time_edit_width,bottom};
-    *random_btn = (RECT){edit->right+12,bottom-31,edit->right+118,bottom};
-    *seek_btn = (RECT){random_btn->right+12,bottom-31,random_btn->right+118,bottom};
+    int bottom = client->bottom-12;
+    int height = s_time_edit_height > 32 ? s_time_edit_height : 32;
+    *edit = (RECT){14,bottom-height,14+s_time_edit_width,bottom};
+    *random_btn = (RECT){edit->right+12,bottom-height,edit->right+118,bottom};
+    *seek_btn = (RECT){random_btn->right+12,bottom-height,random_btn->right+118,bottom};
     *hint_left = seek_btn->right+12;
 }
 
+static void action_buttons(const RECT *client, RECT *apply, RECT *cancel)
+{
+    int bottom = client->bottom-12;
+    int height = s_time_edit_height > 32 ? s_time_edit_height : 32;
+    *apply = (RECT){client->right-244,bottom-height,client->right-134,bottom};
+    *cancel = (RECT){client->right-123,bottom-height,client->right-13,bottom};
+}
+
+/* Match the FGS dark ThemeTrackBar: green rail and a light rectangular thumb. */
 static void draw_slider(HDC dc, RECT *client, int y, const wchar_t *name,
-                        int percent, bool enabled, const wchar_t *label_value)
+                        double fraction, bool enabled, const wchar_t *value)
 {
     int left, right, top;
     track_bounds(client, &left, &right, &top);
     (void)top;
+    if (fraction < 0) fraction = 0;
+    if (fraction > 1) fraction = 1;
     SetBkMode(dc, TRANSPARENT);
-    SetTextColor(dc, enabled ? RGB(222,235,225) : RGB(125,133,129));
-    RECT label = {12, y-15, left-13, y+15};
-    DrawTextW(dc, name, -1, &label, DT_RIGHT|DT_VCENTER|DT_SINGLELINE);
-
-    RECT rail = {left, y-3, right, y+3};
-    HBRUSH background = CreateSolidBrush(RGB(63,73,67));
-    FillRect(dc, &rail, background);
-    DeleteObject(background);
-
-    int handle_x = left+(right-left)*percent/100;
-    RECT filled = {left, y-3, handle_x, y+3};
-    HBRUSH green = CreateSolidBrush(enabled ? RGB(73,199,127) : RGB(87,101,92));
-    FillRect(dc, &filled, green);
-    HGDIOBJ old_brush = SelectObject(dc, green);
-    HGDIOBJ old_pen = SelectObject(dc, GetStockObject(NULL_PEN));
-    Ellipse(dc, handle_x-9, y-9, handle_x+9, y+9);
-    SelectObject(dc, old_pen);
-    SelectObject(dc, old_brush);
-    DeleteObject(green);
-
-    wchar_t value[32];
-    swprintf(value, 32, L"%d%%", percent);
-    SetTextColor(dc, RGB(229,240,232));
-    RECT amount = {right+17, y-15, client->right-HINT_WIDTH-12, y+15};
-    DrawTextW(dc, label_value ? label_value : value, -1, &amount, DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+    SetTextColor(dc, enabled ? RGB(235,237,240) : RGB(162,167,174));
+    RECT label = {14, y-15, left-14, y+15};
+    DrawTextW(dc, name, -1, &label, DT_RIGHT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS);
+    RECT rail = {left,y-2,right,y+2};
+    HBRUSH border=CreateSolidBrush(RGB(64,66,71));
+    FillRect(dc,&rail,border);DeleteObject(border);
+    int handle_x=left+(int)((right-left)*fraction+0.5);
+    if (enabled) {
+        RECT filled={left,y-2,handle_x,y+2};
+        HBRUSH accent=CreateSolidBrush(RGB(0,151,111));
+        FillRect(dc,&filled,accent);DeleteObject(accent);
+    }
+    RECT thumb={handle_x-6,y-10,handle_x+6,y+10};
+    HBRUSH handle=CreateSolidBrush(enabled?RGB(235,237,240):RGB(162,167,174));
+    FillRect(dc,&thumb,handle);DeleteObject(handle);
+    RECT amount={right+16,y-15,client->right-12,y+15};
+    DrawTextW(dc,value,-1,&amount,DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS);
 }
 
 static void paint_sliders(HWND window)
 {
     PAINTSTRUCT ps;
-    HDC dc = BeginPaint(window, &ps);
+    HDC target = BeginPaint(window, &ps);
     RECT client;
     GetClientRect(window, &client);
     RECT panel = {0, client.bottom-PANEL_HEIGHT, client.right, client.bottom};
+    /* Buffer only the panel, leaving the D3D child and video untouched. */
+    HDC memory=CreateCompatibleDC(target);
+    HBITMAP bitmap=memory?CreateCompatibleBitmap(target,client.right,PANEL_HEIGHT):NULL;
+    HGDIOBJ old_bitmap=bitmap?SelectObject(memory,bitmap):NULL;
+    HDC dc=bitmap?memory:target;
+    if (bitmap) SetWindowOrgEx(dc,0,panel.top,NULL);
     FillRect(dc, &panel, s_panel_brush);
     HGDIOBJ old_font = s_panel_font ? SelectObject(dc, s_panel_font) : NULL;
-    int y = panel.top+32;
-    wchar_t digital_value[16];
-    swprintf(digital_value,16,L"%.2f",s_strength/100.0);
+    int y = panel.top+28;
+    wchar_t grain_value[32];
+    if (s_fgsim_mode) swprintf(grain_value,32,L"%ls",s_display_grain?s_fgsim_names[s_strength]:L"关闭 · G");
+    else if (s_digital_mode) {
+        if (s_display_grain) swprintf(grain_value,32,L"%.2f",s_strength/100.0);
+        else swprintf(grain_value,32,L"关闭 · G");
+    } else swprintf(grain_value,32,L"%d%%",s_display_grain?s_strength:0);
     int grain_position = s_fgsim_mode ? s_strength*100/3 :
         s_digital_mode ? (s_strength-15)*100/85 : s_strength;
-    const wchar_t *value = s_fgsim_mode ? s_fgsim_names[s_strength] :
-        s_digital_mode ? digital_value : NULL;
     draw_slider(dc,&client,y,s_fgsim_mode?L"FGSIM 档位":L"颗粒强度",
-                s_display_grain?grain_position:0,s_has_grain,
-                (s_fgsim_mode || s_digital_mode) && !s_display_grain?L"关闭 · G":value);
-    draw_slider(dc, &client, y+45, s_combined_grade ? L"LUT 强度 *" : L"LUT 强度",
-                s_lut_source && s_lut_enabled ? s_lut_strength : 0,
-                s_lut_source != NULL,NULL);
+                (s_display_grain?grain_position:0)/100.0,s_has_grain,grain_value);
+    wchar_t lut_value[32];
+    swprintf(lut_value,32,L"%d%%",s_lut_source && s_lut_enabled?s_lut_strength:0);
+    draw_slider(dc,&client,y+40,s_combined_grade?L"LUT 强度 *":L"LUT 强度",
+                (s_lut_source && s_lut_enabled?s_lut_strength:0)/100.0,
+                s_lut_source!=NULL,lut_value);
     if (s_video_path) {
-        int left, right, unused;
-        track_bounds(&client, &left, &right, &unused);
-        int frame_y = y+90;
-        RECT label = {12, frame_y-15, left-13, frame_y+15};
-        SetTextColor(dc, RGB(222,235,225));
-        SetBkMode(dc, TRANSPARENT);
-        DrawTextW(dc, L"选择视频帧", -1, &label, DT_RIGHT|DT_VCENTER|DT_SINGLELINE);
-        RECT rail = {left, frame_y-3, right, frame_y+3};
-        HBRUSH background = CreateSolidBrush(RGB(63,73,67));
-        FillRect(dc, &rail, background);DeleteObject(background);
-        double proportion = s_duration_seconds > 0 ? s_pending_seconds/s_duration_seconds : 0.0;
-        if (proportion < 0) proportion = 0;
-        if (proportion > 1) proportion = 1;
-        int handle_x = left+(int)((right-left)*proportion+0.5);
-        RECT filled = {left, frame_y-3, handle_x, frame_y+3};
-        HBRUSH green = CreateSolidBrush(RGB(73,199,127));
-        FillRect(dc, &filled, green);
-        HGDIOBJ old_brush=SelectObject(dc,green),old_pen=SelectObject(dc,GetStockObject(NULL_PEN));
-        Ellipse(dc,handle_x-8,frame_y-8,handle_x+8,frame_y+8);
-        SelectObject(dc,old_pen);SelectObject(dc,old_brush);DeleteObject(green);
         wchar_t duration[80];
         swprintf(duration,80,L"%.1f / %.1f s",s_pending_seconds,s_duration_seconds);
-        RECT amount={right+12,frame_y-15,client.right-HINT_WIDTH-12,frame_y+15};
-        SetTextColor(dc,RGB(229,240,232));
-        DrawTextW(dc,duration,-1,&amount,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+        draw_slider(dc,&client,y+80,L"选择视频帧",
+                    s_duration_seconds>0?s_pending_seconds/s_duration_seconds:0.0,true,duration);
     }
     RECT edit, random_btn, seek_btn;
     int hint_left = 14;
     if (s_video_path) {
         bottom_frame_controls(&client,&edit,&random_btn,&seek_btn,&hint_left);
-        HBRUSH gray=CreateSolidBrush(RGB(57,67,61));
+        HBRUSH gray=CreateSolidBrush(RGB(27,28,30));
         FillRect(dc,&random_btn,gray);FillRect(dc,&seek_btn,gray);
-        SetTextColor(dc,RGB(244,249,246));
+        SetTextColor(dc,RGB(235,237,240));
         DrawTextW(dc,L"随机一帧",-1,&random_btn,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
         DrawTextW(dc,L"跳转",-1,&seek_btn,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
         DeleteObject(gray);
     }
-    if (s_frame_loading) {
-        RECT loading={hint_left,client.bottom-38,client.right-256,client.bottom-7};
-        SetTextColor(dc,RGB(255,191,105));
-        DrawTextW(dc,L"正在抽取所选视频帧…",-1,&loading,
-                  DT_LEFT|DT_VCENTER|DT_SINGLELINE);
-    }
-    RECT info = {client.right-HINT_WIDTH, panel.top+11, client.right-14, panel.top+142};
-    HBRUSH info_brush = CreateSolidBrush(RGB(33,41,37));
-    FillRect(dc,&info,info_brush);
-    DeleteObject(info_brush);
-    InflateRect(&info,-11,-9);
+    RECT info={14,panel.top+126,client.right-14,client.bottom-50};
+    SetBkMode(dc,TRANSPARENT);
     if (s_combined_grade) {
-        SetTextColor(dc,RGB(255,191,105));
-        const wchar_t *notice = s_hint_en
+        RECT notice=info;notice.bottom=notice.top+17;
+        SetTextColor(dc,RGB(255,181,83));
+        DrawTextW(dc,s_hint_en
             ? L"* Combined grade: LUT controls are preview-only. Apply saves grain settings."
-            : L"* 合成调色：LUT 强度与开关仅供预览。应用时回传颗粒设置。";
-        RECT notice_rect = info;
-        DrawTextW(dc,notice,-1,&notice_rect,DT_WORDBREAK|DT_CALCRECT|DT_NOPREFIX);
-        DrawTextW(dc,notice,-1,&info,DT_WORDBREAK|DT_NOPREFIX);
-        info.top = notice_rect.bottom+8;
+            : L"* 合成调色：LUT 强度与开关仅供预览，应用时回传颗粒设置。",
+            -1,&notice,DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+        info.top=notice.bottom;
     }
-    SetTextColor(dc,RGB(181,200,189));
-    const wchar_t *hint_text = s_hint_en
-        ? (s_pixel_view ? L"Double-click: fit  |  Drag: pan 1:1" : L"Double-click: 1:1 preview")
-        : (s_pixel_view ? L"双击：适应窗口  |  拖动：平移 1:1" : L"双击画面：切换 1:1 预览");
-    DrawTextW(dc,hint_text,-1,&info,DT_WORDBREAK|DT_NOPREFIX);
+    SetTextColor(dc,s_frame_loading?RGB(255,181,83):RGB(162,167,174));
+    const wchar_t *hint_text = s_frame_loading ? L"正在抽取所选视频帧…" :
+        s_hint_en ? (s_pixel_view ? L"Double-click: fit  |  Drag: pan 1:1" : L"Double-click: 1:1 preview") :
+        (s_pixel_view ? L"双击：适应窗口  |  拖动：平移 1:1" : L"双击画面：切换 1:1 预览");
+    DrawTextW(dc,hint_text,-1,&info,DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
     if (s_result_path) {
-        RECT apply = {client.right-244, client.bottom-38, client.right-134, client.bottom-7};
-        RECT cancel = {client.right-123, client.bottom-38, client.right-13, client.bottom-7};
-        HBRUSH green = CreateSolidBrush(RGB(38,129,78));
-        HBRUSH gray = CreateSolidBrush(RGB(57,67,61));
-        FillRect(dc, &apply, green); FillRect(dc, &cancel, gray);
-        SetTextColor(dc, RGB(244,249,246));
-        SetBkMode(dc, TRANSPARENT);
-        DrawTextW(dc, L"应用到 FGS", -1, &apply, DT_CENTER|DT_VCENTER|DT_SINGLELINE);
-        DrawTextW(dc, L"取消", -1, &cancel, DT_CENTER|DT_VCENTER|DT_SINGLELINE);
-        DeleteObject(green); DeleteObject(gray);
+        RECT apply,cancel;action_buttons(&client,&apply,&cancel);
+        HBRUSH green=CreateSolidBrush(RGB(0,151,111));
+        HBRUSH gray=CreateSolidBrush(RGB(27,28,30));
+        HBRUSH border=CreateSolidBrush(RGB(64,66,71));
+        FillRect(dc,&apply,green);FillRect(dc,&cancel,gray);FrameRect(dc,&cancel,border);
+        SetTextColor(dc,RGB(235,237,240));
+        DrawTextW(dc,L"应用到 FGS",-1,&apply,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+        DrawTextW(dc,L"取消",-1,&cancel,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+        DeleteObject(green);DeleteObject(gray);DeleteObject(border);
     }
     if (old_font) SelectObject(dc, old_font);
+    if (bitmap) {
+        BitBlt(target,0,panel.top,client.right,PANEL_HEIGHT,dc,0,panel.top,SRCCOPY);
+        SelectObject(memory,old_bitmap);DeleteObject(bitmap);
+    }
+    if (memory) DeleteDC(memory);
     EndPaint(window, &ps);
 }
 
@@ -1170,21 +1155,20 @@ static LRESULT CALLBACK window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM
         int top = client.bottom-PANEL_HEIGHT;
         int y = (short)HIWORD(lparam);
         int x = (short)LOWORD(lparam);
-        if (s_result_path && y >= client.bottom-38 && y <= client.bottom-7) {
-            if (x >= client.right-244 && x <= client.right-134) {
+        POINT point={x,y};
+        if (s_result_path) {
+            RECT apply,cancel;action_buttons(&client,&apply,&cancel);
+            if (PtInRect(&apply,point)) {
                 if (write_result()) DestroyWindow(window);
                 else MessageBoxW(window, L"无法写入调整结果，请检查临时目录权限。",
                                  L"FGS GPU 预览", MB_ICONERROR|MB_OK);
                 return 0;
             }
-            if (x >= client.right-123 && x <= client.right-13) {
-                DestroyWindow(window); return 0;
-            }
+            if (PtInRect(&cancel,point)) {DestroyWindow(window);return 0;}
         }
-        if (s_video_path && y >= client.bottom-38 && y <= client.bottom-7) {
+        if (s_video_path) {
             RECT edit,random_btn,seek_btn;
             int hint_left;
-            POINT point={x,y};
             bottom_frame_controls(&client,&edit,&random_btn,&seek_btn,&hint_left);
             if (PtInRect(&random_btn,point)) {
                 double limit=fmax(0.0,s_duration_seconds-0.05);
@@ -1193,17 +1177,14 @@ static LRESULT CALLBACK window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM
                 decode_selected_frame(s_pending_seconds);
                 return 0;
             }
-            if (PtInRect(&seek_btn,point)) {
-                seek_frame_from_edit();
-                return 0;
-            }
+            if (PtInRect(&seek_btn,point)) {seek_frame_from_edit();return 0;}
         }
         int left, right, unused_top;
         track_bounds(&client, &left, &right, &unused_top);
         if (x < left-14 || x > right+14) return 0;
-        int kind = y >= top+11 && y <= top+53 ? 1 :
-                   y >= top+58 && y <= top+97 ? 2 :
-                   s_video_path && y >= top+104 && y <= top+144 ? 3 : 0;
+        int kind = y >= top+8 && y < top+48 ? 1 :
+                   y >= top+48 && y < top+88 ? 2 :
+                   s_video_path && y >= top+88 && y < top+128 ? 3 : 0;
         if (kind == 2 && !s_lut_source) kind = 0;
         if (!kind) return 0;
         SetFocus(window);
@@ -1238,7 +1219,7 @@ static LRESULT CALLBACK window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM
         if ((HWND)lparam==s_time_edit && s_edit_brush) {
             HDC dc=(HDC)wparam;
             SetTextColor(dc,RGB(229,240,232));
-            SetBkColor(dc,RGB(31,39,35));
+            SetBkColor(dc,RGB(27,28,30));
             return (LRESULT)s_edit_brush;
         }
         return DefWindowProcW(window,msg,wparam,lparam);
@@ -1530,9 +1511,9 @@ int wmain(int argc, wchar_t **argv)
     view_class.lpfnWndProc = view_proc;
     view_class.lpszClassName = L"FgsGpuViewLab";
     if (!RegisterClassW(&view_class)) {free(raw);free(plate_raw);return 5;}
-    s_panel_brush = CreateSolidBrush(RGB(22,27,25));
+    s_panel_brush = CreateSolidBrush(RGB(37,38,40));
     if (!s_panel_brush) {free(raw);free(plate_raw);return 5;}
-    s_edit_brush = CreateSolidBrush(RGB(31,39,35));
+    s_edit_brush = CreateSolidBrush(RGB(27,28,30));
     HDC font_dc=GetDC(NULL);
     int label_height=-MulDiv(9,GetDeviceCaps(font_dc,LOGPIXELSY),72);
     s_panel_font = CreateFontW(label_height, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
