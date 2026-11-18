@@ -727,6 +727,9 @@ namespace FilmGrainStudioPreview
     {
         static readonly object gate=new object(),inspectGate=new object();
         static readonly Dictionary<string,NvencInterpolationReport> reports=new Dictionary<string,NvencInterpolationReport>();
+        // Stored preset/editor indices remain stable; only the visible order swaps AI and FRUC.
+        internal static int DisplayIndex(int storedIndex) { return storedIndex==3?4:storedIndex==4?3:storedIndex; }
+        internal static int StoredIndex(int displayIndex) { return DisplayIndex(displayIndex); }
         internal static string Engine(int index) { return index==2?"FRUC":index==3?"NVENC_FRUC":index==4?"NVENC_AI":"SVP"; }
         internal static bool IsEngine(string engine) { return engine=="NVENC_FRUC" || engine=="NVENC_AI"; }
         internal static bool Enabled(IDictionary<string,string> s) { return Get(s,"FG_SVP_INTERPOLATE")=="1" && IsEngine(Get(s,"FG_INTERPOLATION_ENGINE")); }

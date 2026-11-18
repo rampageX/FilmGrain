@@ -68,6 +68,29 @@ internal static class UIStartupSmoke {
    type.GetMethod("ApplyFileEditor",flags).Invoke(form,new object[]{saved,false});
    if(grain.SelectedIndex!=2)throw new Exception("Explicit saved SVT plate selection was reset to default");
    lines.Add("PASS T600/RTX4080 AV1 backend defaults, common recommended Film Preset/title, shared selection, isolated HEVC choice, saved SVT plate restoration");
+   // Old presets store 3 as NVEncC FRUC and 4 as NVEncC AI.
+   var interpolationMode=(ComboBox)type.GetField("cmbInterpolationMode",flags).GetValue(form);
+   if(!interpolationMode.Items[3].ToString().Contains("AI") || !interpolationMode.Items[4].ToString().Contains("FRUC"))throw new Exception("NVEncC display order is incorrect");
+   var interpolationCore=type.Assembly.GetType("FilmGrainStudioPreview.NvencInterpolationCore",true);
+   var map=interpolationCore.GetMethod("StoredIndex",BindingFlags.Static|BindingFlags.NonPublic);
+   var engine=interpolationCore.GetMethod("Engine",BindingFlags.Static|BindingFlags.NonPublic);
+   for(int display=3;display<=4;display++) {
+    int stored=(int)map.Invoke(null,new object[]{display});
+    string expected=display==3?"NVENC_AI":"NVENC_FRUC";
+    if((string)engine.Invoke(null,new object[]{stored})!=expected)throw new Exception("Display engine mapping is incorrect");
+    type.GetField("restoringFileEditor",flags).SetValue(form,true);
+    try{interpolationMode.SelectedIndex=display;}finally{type.GetField("restoringFileEditor",flags).SetValue(form,false);}
+    object editor=type.GetMethod("CaptureFileEditor",flags).Invoke(form,null);
+    var controls=(Dictionary<string,string>)editor.GetType().GetField("Controls",flags).GetValue(editor);
+    if(controls["cmbInterpolationMode"]!=(display==3?"4":"3"))throw new Exception("Stored preset index changed meaning");
+    type.GetField("restoringFileEditor",flags).SetValue(form,true);
+    try{interpolationMode.SelectedIndex=0;}finally{type.GetField("restoringFileEditor",flags).SetValue(form,false);}
+    type.GetMethod("ApplyFileEditor",flags).Invoke(form,new object[]{editor,false});
+    if(interpolationMode.SelectedIndex!=display)throw new Exception("Stored preset index restored to the wrong engine");
+   }
+   type.GetField("restoringFileEditor",flags).SetValue(form,true);
+   try{interpolationMode.SelectedIndex=0;}finally{type.GetField("restoringFileEditor",flags).SetValue(form,false);}
+   lines.Add("PASS NVEncC AI HDR / FRUC order, engine mapping and legacy preset indices 3/4 round trip");
    // Restore the original audit's capability-neutral setup.
    type.GetField("hardwareCapsReady",flags).SetValue(form,false);
    type.GetField("hardwareCaps",flags).SetValue(form,null);

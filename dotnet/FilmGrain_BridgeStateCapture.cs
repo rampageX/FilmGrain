@@ -102,7 +102,7 @@ namespace FilmGrainStudioPreview
             snapshot.HighMotion = chkHighMotion != null && chkHighMotion.Checked;
             snapshot.FpsMode = cmbFps != null && cmbFps.SelectedIndex == 1 ? "SOURCE" : "AUTO";
             snapshot.SvpInterpolate = chkInterpolation != null && chkInterpolation.Checked;
-            snapshot.InterpolationEngine = NvencInterpolationCore.Engine(cmbInterpolationMode==null?0:cmbInterpolationMode.SelectedIndex);
+            snapshot.InterpolationEngine = NvencInterpolationCore.Engine(NvencInterpolationCore.StoredIndex(cmbInterpolationMode==null?0:cmbInterpolationMode.SelectedIndex));
             snapshot.NvencDirectory=config.Get("NVENC_DIR"); snapshot.NvencAiMode=config.Get("NVENC_AI_MODE");
             snapshot.FrucUseMainFfmpeg = config.FrucUsesMainFfmpeg();
             snapshot.FrucFfmpegPath = snapshot.FrucUseMainFfmpeg ? "" : config.Get("FRUC_FFMPEG_PATH");
@@ -333,7 +333,7 @@ namespace FilmGrainStudioPreview
             foreach(string name in FileEditorControls.Split(' ')) {
                 object control=EditorField(name).GetValue(this);
                 var combo=control as ComboBox;var check=control as CheckBox;var track=control as TrackBar;var text=control as MaskedTextBox;
-                if(combo!=null) result.Controls[name]=combo.DropDownStyle==ComboBoxStyle.DropDownList?combo.SelectedIndex.ToString(CultureInfo.InvariantCulture):combo.Text;
+                if(combo!=null) result.Controls[name]=combo.DropDownStyle==ComboBoxStyle.DropDownList?(name=="cmbInterpolationMode"?NvencInterpolationCore.StoredIndex(combo.SelectedIndex):combo.SelectedIndex).ToString(CultureInfo.InvariantCulture):combo.Text;
                 else if(check!=null)result.Controls[name]=check.Checked?"1":"0";
                 else if(track!=null)result.Controls[name]=track.Value.ToString(CultureInfo.InvariantCulture);
                 else if(text!=null)result.Controls[name]=text.Text;
@@ -372,7 +372,7 @@ namespace FilmGrainStudioPreview
                     object control=EditorField(pair.Key).GetValue(this);
                     var combo=control as ComboBox;var check=control as CheckBox;var track=control as TrackBar;var text=control as MaskedTextBox;
                     if(combo!=null) {
-                        if(combo.DropDownStyle==ComboBoxStyle.DropDownList) {int index=int.Parse(pair.Value,CultureInfo.InvariantCulture);if(index>=-1&&index<combo.Items.Count)combo.SelectedIndex=index;}
+                        if(combo.DropDownStyle==ComboBoxStyle.DropDownList) {int index=int.Parse(pair.Value,CultureInfo.InvariantCulture);if(pair.Key=="cmbInterpolationMode")index=NvencInterpolationCore.DisplayIndex(index);if(index>=-1&&index<combo.Items.Count)combo.SelectedIndex=index;}
                         else combo.Text=pair.Value;
                     }
                     else if(check!=null)check.Checked=pair.Value=="1";

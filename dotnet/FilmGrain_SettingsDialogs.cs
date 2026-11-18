@@ -841,7 +841,7 @@ namespace FilmGrainStudioPreview
 
         private void ShowProcessingQuickSettings(bool hdrOnly)
         {
-            string scope=hdrOnly?"HDR":ProcessingQuickSettingsPolicy.Scope(cmbInterpolationMode.SelectedIndex);
+            string scope=hdrOnly?"HDR":ProcessingQuickSettingsPolicy.Scope(NvencInterpolationCore.StoredIndex(cmbInterpolationMode.SelectedIndex));
             ShowAdvancedSettingsDialog(hdrOnly?4:3,scope);
         }
 

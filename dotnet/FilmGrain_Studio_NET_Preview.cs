@@ -1060,7 +1060,7 @@ namespace FilmGrainStudioPreview
             interp.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 92));
             interp.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             chkInterpolation = Check(lang.T("encode.enable"), false); chkInterpolation.Dock = DockStyle.Fill;
-            cmbInterpolationMode = Combo(new string[] { "OpenSVP · " + lang.T("interp.smooth") + " · HDR", "OpenSVP · " + UiText("平衡", lang.T("interp.adaptive")) + " · HDR", "FRUC Vulkan · HDR", "NVEncC FRUC", "NVEncC AI · HDR" }, 0);
+            cmbInterpolationMode = Combo(new string[] { "OpenSVP · " + lang.T("interp.smooth") + " · HDR", "OpenSVP · " + UiText("平衡", lang.T("interp.adaptive")) + " · HDR", "FRUC Vulkan · HDR", "NVEncC AI · HDR", "NVEncC FRUC" }, 0);
             cmbInterpolationMode.Dock = DockStyle.Fill;
             cmbInterpolationMode.DrawMode = DrawMode.OwnerDrawFixed;
             cmbInterpolationMode.DrawItem += delegate(object sender, DrawItemEventArgs e)
@@ -1069,7 +1069,7 @@ namespace FilmGrainStudioPreview
                 e.DrawBackground();
                 bool disabled = e.Index == 2 && ((hardwareDetectionInProgress && !hardwareCapsReady) || hardwareCaps == null || !hardwareCaps.FrucReady || !hardwareCaps.FrucAvailable);
                 TextRenderer.DrawText(e.Graphics, Convert.ToString(cmbInterpolationMode.Items[e.Index]), e.Font,
-                    e.Bounds, (disabled || (e.Index>=3 && NvencOptionReason(e.Index).Length>0)) ? SystemColors.GrayText : e.ForeColor, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);
+                    e.Bounds, (disabled || (e.Index>=3 && NvencOptionReason(NvencInterpolationCore.StoredIndex(e.Index)).Length>0)) ? SystemColors.GrayText : e.ForeColor, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);
                 e.DrawFocusRectangle();
             };
             cmbInterpolationMode.DropDown += delegate { BeginNvencInspection(); };
@@ -1081,7 +1081,7 @@ namespace FilmGrainStudioPreview
             cmbInterpolationMode.SelectedIndexChanged += delegate { if(restoringFileEditor)return;
                 if (updatingFrucUi) return;
                 if(cmbInterpolationMode.SelectedIndex>=3) {
-                    string unavailable=NvencOptionReason(cmbInterpolationMode.SelectedIndex);
+                    string unavailable=NvencOptionReason(NvencInterpolationCore.StoredIndex(cmbInterpolationMode.SelectedIndex));
                     if(unavailable.Length>0) {BeginNvencInspection();FgsMessageBox.Show(this,unavailable,Text,MessageBoxButtons.OK,MessageBoxIcon.Information);cmbInterpolationMode.SelectedIndex=previousSvpSelection;return;}
                 }
                 if (cmbInterpolationMode.SelectedIndex == 2 &&
@@ -3943,7 +3943,7 @@ namespace FilmGrainStudioPreview
                 LutEnabled=IsLutEffectEnabled(), LutPath=selectedLutPath, LutStrength=GetLutStrength(),
                 SvpInterpolate=chkInterpolation!=null&&chkInterpolation.Checked,
                 NvencDirectory=config.Get("NVENC_DIR"),NvencAiMode=config.Get("NVENC_AI_MODE"),
-                InterpolationEngine=NvencInterpolationCore.Engine(cmbInterpolationMode==null?0:cmbInterpolationMode.SelectedIndex)
+                InterpolationEngine=NvencInterpolationCore.Engine(NvencInterpolationCore.StoredIndex(cmbInterpolationMode==null?0:cmbInterpolationMode.SelectedIndex))
             };
             return BridgeEnvironmentCore.Build(snapshot);
         }
@@ -3964,7 +3964,7 @@ namespace FilmGrainStudioPreview
             }
 
             int codec = cmbCodec==null?0:cmbCodec.SelectedIndex;
-            int interpolation = cmbInterpolationMode==null?0:cmbInterpolationMode.SelectedIndex;
+            int interpolation = NvencInterpolationCore.StoredIndex(cmbInterpolationMode==null?0:cmbInterpolationMode.SelectedIndex);
             bool fgsim = IsGrainEnabled() && ((codec==1 && IsNvencFgsim()) ||
                 (codec==0 && cmbGrainMode!=null && cmbGrainMode.SelectedIndex==4));
             return new Dictionary<string,string> {
@@ -4207,7 +4207,7 @@ namespace FilmGrainStudioPreview
                     }
                     else if (InterpolationFrameRateCore.TryParse(requestedRate, info == null ? "" : info.AvgFrameRate, out targetRate, out rateError))
                     {
-                        string engineLabel = NvencInterpolationCore.Label(NvencInterpolationCore.Engine(cmbInterpolationMode==null?0:cmbInterpolationMode.SelectedIndex));
+                        string engineLabel = NvencInterpolationCore.Label(NvencInterpolationCore.Engine(NvencInterpolationCore.StoredIndex(cmbInterpolationMode==null?0:cmbInterpolationMode.SelectedIndex)));
                         cmbFps.Items[0] = engineLabel + " · " + targetRate.Fps.ToString("0.###", CultureInfo.InvariantCulture) + " fps";
                     }
                     else cmbFps.Items[0] = UiText("插帧目标帧率无效", "Invalid interpolation target FPS");
