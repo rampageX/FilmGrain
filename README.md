@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.0.74 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.75 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 <table>
   <tr>
@@ -795,6 +795,10 @@ Field-rate 输出优先于普通电影帧率选择。progressive / unknown 素�
 特殊 VFR 素材仍建议检查音画同步。
 
 ---
+
+GPU 预览窗口按视频帧、颗粒强度、LUT 强度排列滑杆；可输入时间、随机选帧或跳转。关闭 FGS 主窗口时，GPU 预览窗口也会关闭。
+
+主界面支持 HDR 的插帧选项排在 NVEncC FRUC 前面。设置快捷入口标有省略号；支持右键操作的按钮悬停时显示相应提示。
 
 ## 插帧：OpenSVPFlow 与 FRUC Vulkan
 
