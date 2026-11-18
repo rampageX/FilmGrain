@@ -391,6 +391,8 @@ namespace FilmGrainStudioPreview
                 fav.Click+=delegate{try {ToggleGalleryFavorite(slot.Entry);}catch(Exception ex){FgsMessageBox.Show(this,"收藏保存失败，原记录保留："+ex.Message);}};
                 var menu=new ContextMenuStrip();menu.Items.Add("打开 LUT 所在文件夹",null,delegate{Open(Path.GetDirectoryName(slot.Entry.LutPath));});menu.Items.Add("打开完整尺寸预览图",null,delegate{Open(slot.Entry.PreviewPath);});
                 card.ContextMenuStrip=menu;pic.ContextMenuStrip=menu;name.ContextMenuStrip=menu;card.Disposed+=delegate{menu.Dispose();};
+                tip.SetToolTip(card,"右键：打开 LUT 所在文件夹或完整尺寸预览图。");
+                tip.SetToolTip(pic,"右键：打开 LUT 所在文件夹或完整尺寸预览图。");
                 card.SuspendLayout();
                 card.Controls.AddRange(new Control[]{pic,name,fav});
                 card.ResumeLayout(false);
@@ -400,7 +402,7 @@ namespace FilmGrainStudioPreview
                 CardSlot bound=cardSlots[index++];
                 bound.Entry=e;
                 bound.Card.BackColor=selected==e?Color.LightSteelBlue:SystemColors.Control;
-                bound.Name.Text=e.Name;bound.Tip.SetToolTip(bound.Name,e.Relative);
+                bound.Name.Text=e.Name;bound.Tip.SetToolTip(bound.Name,e.Relative+"\n右键：打开 LUT 所在文件夹或完整尺寸预览图。");
                 SetFavoriteAppearance(bound.Favorite,favorites.Contains(NativeLutRecords.Key(e.LutPath)));
                 // Same entry may be selected again after filtering; keep its owned bitmap.
                 DateTime imageStamp=File.GetLastWriteTimeUtc(e.PreviewPath);

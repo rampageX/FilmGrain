@@ -999,27 +999,12 @@ namespace FilmGrainStudioPreview
             row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 28));
             content.Dock = DockStyle.Fill;
             shortcut = new ThemeButton();
-            shortcut.Text = ""; shortcut.Dock = DockStyle.Fill;
+            shortcut.Text = "..."; shortcut.TextAlign = ContentAlignment.MiddleCenter; shortcut.Dock = DockStyle.Fill;
             shortcut.Margin = Padding.Empty;
             shortcut.Padding = Padding.Empty;
             shortcut.FlatStyle = FlatStyle.Flat; shortcut.FlatAppearance.BorderSize = 0;
             shortcut.FlatAppearance.MouseOverBackColor = Color.FromArgb(220, 235, 250);
             shortcut.ForeColor = Color.FromArgb(45, 110, 170);
-            // Draw the arrow in the available client area, including short HDR rows.
-            shortcut.Paint += delegate(object sender, PaintEventArgs e) {
-                Button button = (Button)sender;
-                float scale = e.Graphics.DpiX / 96f;
-                float size = Math.Min(8f * scale, Math.Min(button.ClientSize.Width, button.ClientSize.Height) - 4f);
-                if (size < 3f) return;
-                float x = (button.ClientSize.Width - size) / 2f;
-                float y = (button.ClientSize.Height - size) / 2f;
-                using (System.Drawing.Pen pen = new System.Drawing.Pen(button.Enabled ? button.ForeColor : SystemColors.GrayText, 1.3f * scale)) {
-                    e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-                    e.Graphics.DrawLine(pen, x, y + size, x + size, y);
-                    e.Graphics.DrawLine(pen, x + size * 0.3f, y, x + size, y);
-                    e.Graphics.DrawLine(pen, x + size, y, x + size, y + size * 0.7f);
-                }
-            };
             shortcut.Cursor = Cursors.Hand;
             if(tabIndex==0)shortcut.Name="ENCODER_SPEED_SHORTCUT";
             else if(tabIndex>0)shortcut.Name=tabIndex==2?"HDR_SETTINGS_SHORTCUT":"INTERPOLATION_SETTINGS_SHORTCUT";
@@ -1075,7 +1060,7 @@ namespace FilmGrainStudioPreview
             interp.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 92));
             interp.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             chkInterpolation = Check(lang.T("encode.enable"), false); chkInterpolation.Dock = DockStyle.Fill;
-            cmbInterpolationMode = Combo(new string[] { "OpenSVP · " + lang.T("interp.smooth") + " · HDR", "OpenSVP · " + UiText("平衡", lang.T("interp.adaptive")) + " · HDR", "FRUC Vulkan · HDR", "NVEncC FRUC", "NVEncC AI" }, 0);
+            cmbInterpolationMode = Combo(new string[] { "OpenSVP · " + lang.T("interp.smooth") + " · HDR", "OpenSVP · " + UiText("平衡", lang.T("interp.adaptive")) + " · HDR", "FRUC Vulkan · HDR", "NVEncC FRUC", "NVEncC AI · HDR" }, 0);
             cmbInterpolationMode.Dock = DockStyle.Fill;
             cmbInterpolationMode.DrawMode = DrawMode.OwnerDrawFixed;
             cmbInterpolationMode.DrawItem += delegate(object sender, DrawItemEventArgs e)
@@ -1199,6 +1184,7 @@ namespace FilmGrainStudioPreview
             btnPreprocess=new ThemeButton {Dock=DockStyle.Fill,Margin=new Padding(3,4,8,4)};
             btnPreprocess.Click+=delegate {ShowPreprocessDialog();};
             btnPreprocess.ContextMenuStrip=BuildPreprocessMenu();
+            lutToolTip.SetToolTip(btnPreprocess, UiText("右键：关闭滤镜、缩放或剪裁。", "Right-click: turn off filters, resize or crop."));
             RefreshPreprocessButton();
             t.Controls.Add(btnPreprocess,0,0);t.SetColumnSpan(btnPreprocess,2);
             var resourceMonitor = new ResourceMonitorPanel(UiText("内存", "RAM"), UiText("显存", "VRAM"));
@@ -1312,6 +1298,7 @@ namespace FilmGrainStudioPreview
             fastCopy.CheckedChanged += delegate { if(restoringFileEditor)return;try { config.SaveValue("AV1_COPY_FAST", fastCopy.Checked ? "true" : "false"); } catch (Exception ex) { FgsMessageBox.Show(this, ex.Message, UiText("保存设置失败", "Could not save settings")); } };
             fullVerify.CheckedChanged += delegate { if(restoringFileEditor)return;try { config.SaveValue("AV1_COPY_FULL_VERIFY", fullVerify.Checked ? "true" : "false"); } catch (Exception ex) { FgsMessageBox.Show(this, ex.Message, UiText("保存设置失败", "Could not save settings")); } };
             grainMenu.Items.Add(fastCopy); grainMenu.Items.Add(fullVerify); previewButton.ContextMenuStrip = grainMenu;
+            lutToolTip.SetToolTip(previewButton, UiText("右键：设置不重编码的快速路径和完整颗粒检查。", "Right-click: configure the no-reencode fast path and grain verification."));
             grainHeader.Controls.Add(chkGrainEnabled, 0, 0); grainHeader.Controls.Add(previewButton, 1, 0);
             shell.Controls.Add(grainHeader, 0, 0); shell.Controls.Add(cmbGrainMode, 0, 1); shell.Controls.Add(grainContent, 0, 2);
             grpGrain.Controls.Add(shell);
@@ -1916,6 +1903,7 @@ namespace FilmGrainStudioPreview
                 catch (Exception ex) { FgsMessageBox.Show(this, ex.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Error); }
             };
             btnColorCorrection.ContextMenuStrip = colorSizeMenu;
+            lutToolTip.SetToolTip(btnColorCorrection, UiText("右键：切换大界面，或清除调色、经典胶片和风格迁移。", "Right-click: switch to the large interface or clear color, film and style effects."));
             t.Controls.Add(chkLut, 0, 0); t.Controls.Add(btnLutGallery, 1, 0); t.Controls.Add(btnColorCorrection, 2, 0);
             t.SetColumnSpan(btnColorCorrection,2);
 
@@ -1935,6 +1923,8 @@ namespace FilmGrainStudioPreview
             refreshRecords.Click += delegate { EnsureLutRecords(true); };
             recordsMenu.Items.Add(refreshRecords);
             cmbRecentLut.ContextMenuStrip = recordsMenu; cmbFavoriteLut.ContextMenuStrip = recordsMenu;
+            lutToolTip.SetToolTip(cmbRecentLut, UiText("右键：刷新最近和收藏列表。", "Right-click: refresh recent and favorite lists."));
+            lutToolTip.SetToolTip(cmbFavoriteLut, UiText("右键：刷新最近和收藏列表。", "Right-click: refresh recent and favorite lists."));
 
             TableLayoutPanel preview = new TableLayoutPanel(); preview.Dock = DockStyle.Fill; preview.Margin = new Padding(4, 3, 4, 2); preview.ColumnCount = 1; preview.RowCount = 2;
             preview.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); preview.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
@@ -2011,6 +2001,7 @@ namespace FilmGrainStudioPreview
             clearLogFolder.Click += delegate { ClearLogFolder(); };
             logFolderMenu.Items.Add(clearLogFolder);
             openFolder.ContextMenuStrip = logFolderMenu;
+            lutToolTip.SetToolTip(openFolder, UiText("右键：清空日志目录。", "Right-click: clear the log folder."));
             toolbar.Controls.Add(openLog, 4, 0); toolbar.Controls.Add(openFolder, 5, 0);
             layout.Controls.Add(toolbar, 0, 0);
 
@@ -2053,6 +2044,7 @@ namespace FilmGrainStudioPreview
                 catch(Exception ex){FgsMessageBox.Show(this,ex.Message);}
             };
             btnOutputPreview.ContextMenuStrip = previewMenu;
+            lutToolTip.SetToolTip(btnOutputPreview, UiText("右键：设置编码时自动打开输出预览。", "Right-click: set output preview to open automatically during encoding."));
             btnOutputPreview.Disposed += delegate { previewMenu.Dispose(); };
             footer.Controls.Add(btnOutputPreview);
             encodePreviewPanel = new Panel(); encodePreviewPanel.Size = new Size(392, 30); footer.Controls.Add(encodePreviewPanel);

@@ -1,0 +1,38 @@
+name: FGS UI test K8R6
+on:
+  push:
+    branches:
+      - test/ui-polish-k8r6
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build and check Framework APIs
+        shell: cmd
+        run: dotnet\build_NET_Preview.bat
+      - name: Run UI startup audit
+        shell: powershell
+        run: |
+          & .\dotnet\BuildTools\Test_UI_Startup.ps1
+          if ($LASTEXITCODE -ne 0) { throw "UI startup audit failed" }
+      - name: Package test files
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Path out | Out-Null
+          Copy-Item -LiteralPath FilmGrain_Studio.exe -Destination out\FilmGrain_Studio_K8R6.exe
+          git archive --format=zip --output=out/FGS_Source_K8R6.zip HEAD
+          if ($LASTEXITCODE -ne 0) { throw "Source archive failed" }
+          $hash = (Get-FileHash -Algorithm SHA256 out\FilmGrain_Studio_K8R6.exe).Hash
+          $commit = (git rev-parse HEAD).Trim()
+          [IO.File]::WriteAllText((Join-Path (Resolve-Path out) 'BUILD_INFO.txt'), "Commit: $commit`r`nEXE SHA256: $hash`r`n")
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FGS_UI_K8R6
+          path: out/
+          if-no-files-found: error
