@@ -1,4 +1,4 @@
-name: FGS GPU UI test Q4N8
+name: FGS GPU UI test R6T9
 on:
   push:
     branches:
@@ -41,16 +41,16 @@ jobs:
           & .\dotnet\BuildTools\Test_UI_Startup.ps1 -Exe (Join-Path $stage 'FilmGrain_Studio.exe')
           if ($LASTEXITCODE -ne 0) { throw "UI audit failed" }
           New-Item -ItemType Directory -Path out | Out-Null
-          Copy-Item -LiteralPath (Join-Path $stage 'FilmGrain_Studio.exe') -Destination out\FilmGrain_Studio_Q4N8.exe
+          Copy-Item -LiteralPath (Join-Path $stage 'FilmGrain_Studio.exe') -Destination out\FilmGrain_Studio_R6T9.exe
           Copy-Item -LiteralPath (Join-Path $stage 'GpuAdvancedPreview') -Destination out\GpuAdvancedPreview -Recurse
-          git archive --format=zip --output=out/FGS_Source_Q4N8.zip HEAD
+          git archive --format=zip --output=out/FGS_Source_R6T9.zip HEAD
           if ($LASTEXITCODE -ne 0) { throw "Source archive failed" }
-          $mainHash = (Get-FileHash -Algorithm SHA256 out\FilmGrain_Studio_Q4N8.exe).Hash
+          $mainHash = (Get-FileHash -Algorithm SHA256 out\FilmGrain_Studio_R6T9.exe).Hash
           $gpuHash = (Get-FileHash -Algorithm SHA256 out\GpuAdvancedPreview\fgs_gpu_preview.exe).Hash
           $commit = (git rev-parse HEAD).Trim()
           [IO.File]::WriteAllText((Join-Path (Resolve-Path out) 'BUILD_INFO.txt'), "Commit: $commit`r`nMain EXE SHA256: $mainHash`r`nGPU EXE SHA256: $gpuHash`r`n")
       - uses: actions/upload-artifact@v4
         with:
-          name: FGS_GPU_UI_Q4N8
+          name: FGS_GPU_UI_R6T9
           path: out/
           if-no-files-found: error

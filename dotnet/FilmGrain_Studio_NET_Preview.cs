@@ -595,7 +595,7 @@ namespace FilmGrainStudioPreview
                 SetCapabilityStatusPending();
                 statusHardware.Text = UiText("正在初始化资源…", "Initializing resources...");
             }
-            FormClosed += delegate { startupClosing = true; Application.Idle -= OnStartupIdle; };
+            FormClosed += delegate { startupClosing = true; CloseOwnedGpuPreview(); Application.Idle -= OnStartupIdle; };
             StartupTiming.Attach(this);
             Application.Idle += OnStartupIdle;
             StartupTiming.Mark("constructor.end");

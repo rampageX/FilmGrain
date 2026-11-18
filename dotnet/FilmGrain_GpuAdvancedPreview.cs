@@ -25,6 +25,19 @@ namespace FilmGrainStudioPreview
     internal sealed partial class MainForm
     {
         private bool gpuAdvancedPreviewBusy;
+        private readonly object gpuPreviewProcessLock = new object();
+        private Process gpuPreviewProcess;
+        private bool gpuPreviewOwnerClosed;
+
+        private void CloseOwnedGpuPreview()
+        {
+            lock (gpuPreviewProcessLock) {
+                gpuPreviewOwnerClosed = true;
+                try { if (gpuPreviewProcess != null && !gpuPreviewProcess.HasExited) gpuPreviewProcess.Kill(); }
+                catch (InvalidOperationException) { }
+                catch (System.ComponentModel.Win32Exception ex) { System.Diagnostics.Trace.WriteLine(ex.Message); }
+            }
+        }
         private const string HdrGpuPreviewResource = "FGS.HdrGpuPreview.exe";
 
         // ProRes is intra-frame. A bounded seek into a short, regular plate
@@ -427,7 +440,7 @@ namespace FilmGrainStudioPreview
             File.WriteAllText(path,shader,new UTF8Encoding(false));
         }
 
-        private static string RunGpuAdvancedPreviewProcess(string executable,IList<string> arguments,string runtime)
+        private string RunGpuAdvancedPreviewProcess(string executable,IList<string> arguments,string runtime)
         {
             var log = new StringBuilder();
             var frameTimings = new StringBuilder();
@@ -458,11 +471,19 @@ namespace FilmGrainStudioPreview
                 };
                 process.OutputDataReceived += record;
                 process.ErrorDataReceived += record;
-                if (!process.Start()) throw new IOException("无法启动 GPU 预览程序。");
-                process.BeginOutputReadLine();process.BeginErrorReadLine();
-                process.WaitForExit();
-                if (process.ExitCode != 0) throw new InvalidOperationException("GPU 预览退出代码 "+process.ExitCode+"："+
-                    (log.Length>0?log.ToString():"无控制台输出，请检查 MSYS2 UCRT64 运行时 DLL 是否可加载。"));
+                lock (gpuPreviewProcessLock) {
+                    if (gpuPreviewOwnerClosed) throw new OperationCanceledException("FGS 已关闭。");
+                    if (!process.Start()) throw new IOException("无法启动 GPU 预览程序。");
+                    gpuPreviewProcess = process;
+                }
+                try {
+                    process.BeginOutputReadLine();process.BeginErrorReadLine();
+                    process.WaitForExit();
+                    if (process.ExitCode != 0) throw new InvalidOperationException("GPU 预览退出代码 "+process.ExitCode+"："+
+                        (log.Length>0?log.ToString():"无控制台输出，请检查 MSYS2 UCRT64 运行时 DLL 是否可加载。"));
+                } finally {
+                    lock (gpuPreviewProcessLock) { if (gpuPreviewProcess == process) gpuPreviewProcess = null; }
+                }
             }
             return frameTimings.ToString();
         }

@@ -118,8 +118,29 @@ internal static class UIStartupSmoke {
    CheckAqCapabilities(form,type,flags,lines);
    CheckCapturedAq(form,type,flags,lines);
    File.WriteAllLines(Path.Combine(visualDirectory,"ControlBounds.csv"),metrics,new UTF8Encoding(true));
-   form.Close();form.Dispose();form=null;
-   lines.Add("PASS main window close");
+   // Exercise the real owner-close lifecycle with a long-running child, without a GPU.
+   var launch=type.GetMethod("RunGpuAdvancedPreviewProcess",flags);
+   var active=type.GetField("gpuPreviewProcess",flags);
+   string shell=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),@"WindowsPowerShell\v1.0\powershell.exe");
+   Exception workerError=null;
+   var worker=new System.Threading.Thread(delegate() {
+    try{launch.Invoke(form,new object[]{shell,new List<string>{"-NoProfile","-NonInteractive","-Command","Start-Sleep -Seconds 30"},null});}
+    catch(Exception ex){workerError=ex;}
+   });worker.IsBackground=true;worker.Start();
+   System.Diagnostics.Process child=null;
+   for(int i=0;i<100&&child==null;i++){System.Threading.Thread.Sleep(50);var started=(System.Diagnostics.Process)active.GetValue(form);if(started!=null)try{child=System.Diagnostics.Process.GetProcessById(started.Id);}catch(InvalidOperationException){}}
+   if(child==null)throw new Exception("GPU preview lifecycle test child did not start",workerError);
+   using(child) {
+    form.Close();
+    if(!child.WaitForExit(5000))throw new Exception("GPU preview child survived closing the main form");
+   }
+   if(!worker.Join(5000))throw new Exception("GPU preview worker did not exit");
+   bool rejected=false;
+   try {launch.Invoke(form,new object[]{shell,new List<string>{"-NoProfile","-Command","exit"},null});}
+   catch(TargetInvocationException ex){rejected=ex.InnerException is OperationCanceledException;}
+   if(!rejected)throw new Exception("Preview could start after the main form closed");
+   form.Dispose();form=null;
+   lines.Add("PASS main window closes active GPU preview and rejects late starts");
    File.WriteAllLines(args[1],lines,new UTF8Encoding(true));
    foreach(string line in lines)Console.WriteLine(line);
    return 0;
