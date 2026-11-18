@@ -1604,6 +1604,7 @@ namespace FilmGrainStudioPreview
             CancelActiveRender();
             try {
                 using(var gallery=new NativeLutGalleryForm(galleryAppRoot,ffmpegPath,lutRoot,lutPreviewRoot)) {
+                    gallery.PrepareTheme(this);
                     if(gallery.ShowDialog(this)==DialogResult.OK) {
                         filmUiSync=true;
                         try {filmModeActive=false;checkFilm.Checked=false;}finally{filmUiSync=false;}
