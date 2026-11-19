@@ -10,11 +10,51 @@ jobs:
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
-      - name: Build and audit FGS
+      - uses: msys2/setup-msys2@v2
+        id: msys2
+        with:
+          msystem: UCRT64
+          release: false
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-binutils
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-libplacebo
+      - name: Build and stage the portable GPU preview
+        shell: powershell
+        env:
+          FGS_MSYS2_ROOT: ${{ steps.msys2.outputs.msys2-location }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $CrLf = "`r`n"
+          $Utf8NoBom = [Text.UTF8Encoding]::new($false)
+          $parseErrors = $null
+          $builder = [System.Management.Automation.Language.Parser]::ParseFile(
+              (Join-Path $env:GITHUB_WORKSPACE '.github/release/build_release.ps1'),
+              [ref]$null, [ref]$parseErrors)
+          if ($parseErrors) { throw ($parseErrors -join "`n") }
+          foreach ($name in @('Get-Ucrt64ImportNames','Build-GpuAdvancedPreview','Assert-File')) {
+              $functionAst = $builder.Find({
+                  param($node)
+                  $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
+              }, $true)
+              if (-not $functionAst) { throw "Missing build helper: $name" }
+              . ([scriptblock]::Create($functionAst.Extent.Text))
+          }
+          Build-GpuAdvancedPreview -StageRoot $env:GITHUB_WORKSPACE
+      - name: Verify film border pixels using D3D11 WARP
+        shell: powershell
+        run: |
+          & .\GpuAdvancedPreview\fgs_gpu_preview.exe --audit-film-border
+          if ($LASTEXITCODE -ne 0) { throw "D3D11 border audit failed: $LASTEXITCODE" }
+      - name: Build and audit main application
         shell: cmd
         run: dotnet\build_NET_Preview.bat
       - uses: actions/upload-artifact@v4
         with:
           name: FGS-FilmBorder-S4-Windows
           if-no-files-found: error
-          path: FilmGrain_Studio.exe
+          path: |
+            FilmGrain_Studio.exe
+            GpuAdvancedPreview/

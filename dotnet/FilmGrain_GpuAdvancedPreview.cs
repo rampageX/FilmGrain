@@ -119,7 +119,9 @@ namespace FilmGrainStudioPreview
             string hdrSignal = !media.IsHdr ? "" : media.ColorTransfer=="smpte2084" ? "pq" : "hlg";
             if (media.IsHdr && fullRange) hdrSignal += "-full";
             string borderMode = config.Get("FILM_BORDER_MODE");
-            bool filmBorder = !media.IsHdr && (cmbCodec.SelectedIndex == 1 || cmbCodec.SelectedIndex == 3) &&
+            bool borderRoute = media.IsHdr ? cmbCodec.SelectedIndex == 1 && !fullRange :
+                cmbCodec.SelectedIndex == 1 || cmbCodec.SelectedIndex == 3;
+            bool filmBorder = borderRoute &&
                 !chkInterpolation.Checked && (borderMode == "DARK_STATIC" || borderMode == "DARK_WEAVE");
             string borderAsset = Path.Combine(appRoot,"Utils","_FilmBorders","cinema35_dark_1920x1080.png");
             if (filmBorder && !File.Exists(borderAsset)) {
@@ -318,9 +320,13 @@ namespace FilmGrainStudioPreview
                     if (filmBorder) {
                         string borderRaw = Path.Combine(temporary,"film-border.rgba");
                         var borderArgs = new List<string> {"-hide_banner","-nostdin","-v","error","-y",
-                            "-i",borderAsset,"-frames:v","1","-pix_fmt","rgba","-f","rawvideo",borderRaw};
+                            "-i",borderAsset,"-frames:v","1"};
+                        if (media.IsHdr) borderArgs.AddRange(new[]{"-vf",
+                            "format=gbrap16le,zscale=matrixin=gbr:primariesin=709:transferin=iec61966-2-1:rangein=full"+
+                            ":matrix=gbr:primaries=2020:transfer="+media.ColorTransfer+":range=full:npl=100:threads=1"});
+                        borderArgs.AddRange(new[]{"-pix_fmt",media.IsHdr?"rgba64le":"rgba","-f","rawvideo",borderRaw});
                         int borderRc = NativeLibraryTools.RunProcessEnvironment(ffmpeg,borderArgs,temporary,null,30000,CancellationToken.None,null);
-                        if (borderRc != 0 || !File.Exists(borderRaw) || new FileInfo(borderRaw).Length != 1920L*1080*4)
+                        if (borderRc != 0 || !File.Exists(borderRaw) || new FileInfo(borderRaw).Length != 1920L*1080*(media.IsHdr?8:4))
                             throw new InvalidDataException("Film border texture decode failed.");
                         args.AddRange(new[]{"--film-border",borderRaw,"--film-weave",borderMode=="DARK_WEAVE"?"1":"0"});
                     }

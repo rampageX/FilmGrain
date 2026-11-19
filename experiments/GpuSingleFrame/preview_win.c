@@ -1035,14 +1035,17 @@ static void update_hdr_display(void)
 static bool upload_border_texture(void)
 {
     unsigned char *rgba = NULL;
-    const size_t bytes = 1920u * 1080u * 4u;
+    const int component_bits = s_hdr_transfer ? 16 : 8;
+    const int stride = component_bits / 2;
+    const size_t bytes = 1920u * 1080u * stride;
     if (!read_file(s_border_path, bytes, bytes, &rgba, NULL)) return false;
     struct pl_plane plane;
     struct pl_plane_data data = {
         .type=PL_FMT_UNORM, .width=1920, .height=1080,
-        .pixel_stride=4, .row_stride=1920*4, .pixels=rgba,
+        .pixel_stride=stride, .row_stride=1920*stride, .pixels=rgba,
     };
-    const int sizes[4] = {8,8,8,8}, shifts[4] = {0,8,16,24};
+    const int sizes[4] = {component_bits,component_bits,component_bits,component_bits};
+    const int shifts[4] = {0,component_bits,2*component_bits,3*component_bits};
     pl_plane_data_from_comps(&data, sizes, shifts);
     bool okay = pl_upload_plane(s_device->gpu, &plane, &s_border_texture, &data);
     free(rgba);
@@ -1617,7 +1620,6 @@ int wmain(int argc, wchar_t **argv)
         next += 2;
     }
     if (s_result_path && !*s_result_path) return 2;
-    if (s_border_path && s_hdr_transfer) return 2;
     if (!!s_video_path != !!s_ffmpeg_path || (s_video_path && s_duration_seconds<=0)) {
         fprintf(stderr,"Frame selection requires --video, --ffmpeg and positive --duration\n");
         return 2;
