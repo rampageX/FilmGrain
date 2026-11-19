@@ -53,7 +53,7 @@ jobs:
         run: dotnet\build_NET_Preview.bat
       - uses: actions/upload-artifact@v4
         with:
-          name: FGS-S4-Threads-R7Q2M1-Windows
+          name: FGS-S4-ZScale-L9D7B2-Windows
           if-no-files-found: error
           path: |
             FilmGrain_Studio.exe
