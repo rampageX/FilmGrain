@@ -70,6 +70,8 @@ namespace FilmGrainStudioPreview
             bool fruc = interpolate && Eq(state, "FG_INTERPOLATION_ENGINE", "FRUC");
 
             bool svp = interpolate && !fruc;
+            FilmBorderEncodingCore.Plan filmBorder;
+            if (!FilmBorderEncodingCore.TryCreate(appRoot,info,state,interpolate,out filmBorder,out reason)) return false;
 
             if (interpolate && !fruc && !NvencInterpolationCore.Enabled(state) && !Eq(state, "FG_INTERPOLATION_ENGINE", "SVP") && !string.IsNullOrEmpty(Get(state, "FG_INTERPOLATION_ENGINE")))
 
@@ -322,7 +324,8 @@ namespace FilmGrainStudioPreview
             string grainFileName = !grainEnabled ? "" : plateMode ? "_FG_" + grainTag + "_STR" + plateStrengthPercent.ToString(CultureInfo.InvariantCulture) : fgsimMode ? "_FG_FGSIM_" + fgsimTag : "_FG_DG" + procStrength.ToString(CultureInfo.InvariantCulture);
 
             if (grainEnabled && pixelPercent != 100) grainFileName += "_GS" + pixelPercent.ToString(CultureInfo.InvariantCulture);
-            string output = Path.Combine(outDir, Path.GetFileNameWithoutExtension(input) + (h264?"_H264_NVENC_":"_HEVC_") + speedSuffix + "_" + NvencRateControlCore.FileToken(state,bitrate) + fpsSuffix + deinterlaceSuffix + frame.FileSuffix + grainFileName + colorSuffix + lutNamingSuffix + (hdrToSdr ? "_SDR_" + tonemapLabel : "") + subSuffix + HardwareDecodeCore.FileSuffix(state) + (mkv ? ".mkv" : ".mp4"));
+            string borderSuffix = filmBorder == null ? "" : filmBorder.Dynamic ? "_FILM35D" : "_FILM35S";
+            string output = Path.Combine(outDir, Path.GetFileNameWithoutExtension(input) + (h264?"_H264_NVENC_":"_HEVC_") + speedSuffix + "_" + NvencRateControlCore.FileToken(state,bitrate) + fpsSuffix + deinterlaceSuffix + frame.FileSuffix + grainFileName + colorSuffix + lutNamingSuffix + (hdrToSdr ? "_SDR_" + tonemapLabel : "") + subSuffix + borderSuffix + HardwareDecodeCore.FileSuffix(state) + (mkv ? ".mkv" : ".mp4"));
 
             if (File.Exists(output)) { reason = "native output already exists: " + output; return false; }
 
@@ -582,7 +585,9 @@ namespace FilmGrainStudioPreview
 
                 }
 
-                    List<string> hevcArgs = BuildHevcArgs(encodeInput, grainInput, filter, output, preset, highMotion, bitrate, max, buf, fps, duration, plateMode, mkv, caps, state, hdrPreserve ? info : null, fruc, info);
+                    if (filmBorder != null)
+                        filter = FilmBorderEncodingCore.AppendFilter(filter,filmBorder,frame.ActiveWidth,frame.ActiveHeight,plateMode ? 2 : 1,fps,info);
+                    List<string> hevcArgs = BuildHevcArgs(encodeInput, grainInput, filter, output, preset, highMotion, bitrate, max, buf, fps, duration, plateMode, mkv, caps, state, hdrPreserve ? info : null, fruc, info, filmBorder);
 
                     if (svp) {
                         ConvertToPipeInput(hevcArgs, encodeInput, mpegTsSvp && !preserveSvpTransportTimeline ? mpegTsVideoOffset : null);
@@ -839,7 +844,7 @@ namespace FilmGrainStudioPreview
 
         }
 
-        private static List<string> BuildHevcArgs(string input, string grainInput, string filter, string output, string preset, bool highMotion, long bitrate, long max, long buf, string fps, string duration, bool plateMode, bool mkv, HardwareCapabilitySnapshot caps, IDictionary<string,string> state, MediaProbeInfo hdrInfo, bool fruc, MediaProbeInfo audioInfo)
+        private static List<string> BuildHevcArgs(string input, string grainInput, string filter, string output, string preset, bool highMotion, long bitrate, long max, long buf, string fps, string duration, bool plateMode, bool mkv, HardwareCapabilitySnapshot caps, IDictionary<string,string> state, MediaProbeInfo hdrInfo, bool fruc, MediaProbeInfo audioInfo, FilmBorderEncodingCore.Plan filmBorder)
 
         {
 
@@ -854,6 +859,11 @@ namespace FilmGrainStudioPreview
             a.Add("-i"); a.Add(input);
 
             if (plateMode) { a.Add("-stream_loop"); a.Add("-1"); a.Add("-t"); a.Add(duration); a.Add("-i"); a.Add(grainInput); }
+
+            if (filmBorder != null)
+            {
+                a.Add("-loop");a.Add("1");a.Add("-framerate");a.Add(fps);a.Add("-i");a.Add(filmBorder.Path);
+            }
 
             a.Add("-filter_complex"); a.Add(filter);
 
@@ -1462,3 +1472,106 @@ namespace FilmGrainStudioPreview
 
 }
 
+
+
+namespace FilmGrainStudioPreview
+{
+    // S2: common FFmpeg filter-graph integration for all native HEVC/H264 invocations.
+    // No UI rendering or separate video baking. OFF leaves the existing graph unchanged.
+    internal static class FilmBorderEncodingCore
+    {
+        internal sealed class Plan
+        {
+            internal string Path;
+            internal bool Dynamic;
+        }
+
+        private static string Read(IDictionary<string,string> state,string key)
+        {
+            string value;
+            return state != null && state.TryGetValue(key,out value) ? (value ?? "") : "";
+        }
+
+        internal static bool TryCreate(string appRoot,MediaProbeInfo media,IDictionary<string,string> state,
+            bool interpolating,out Plan plan,out string reason)
+        {
+            plan=null;reason="";
+            string value=Read(state,"FG_FILM_BORDER_MODE").Trim().ToUpperInvariant();
+            if(value.Length==0 || value=="OFF") return true;
+            if(value!="DARK_STATIC" && value!="DARK_WEAVE")
+            {reason="Unknown film border mode: "+value;return false;}
+            if(media.IsHdr)
+            {reason="S2 film border currently supports SDR sources only. HDR10/HLG blending is reserved for S4.";return false;}
+            if(interpolating)
+            {reason="S2 film border with interpolation is not yet validated (S3/S4).";return false;}
+            string path=System.IO.Path.Combine(appRoot,"Utils","_FilmBorders","cinema35_dark_1920x1080.png");
+            if(!System.IO.File.Exists(path))
+            {reason="Film border asset not found: "+path;return false;}
+            plan=new Plan{Path=path,Dynamic=value=="DARK_WEAVE"};
+            return true;
+        }
+
+        // The generated black canvas is the main overlay input and has no source color tags.
+        private static string RestoreColorTags(MediaProbeInfo media)
+        {
+            var tags = new List<string>();
+            AddColorTag(tags, "color_primaries", media.ColorPrimaries);
+            AddColorTag(tags, "color_trc", media.ColorTransfer);
+            AddColorTag(tags, "colorspace", media.ColorSpace);
+            return tags.Count == 0 ? "" : ",setparams=" + string.Join(":", tags);
+        }
+
+        private static void AddColorTag(List<string> tags, string key, string value)
+        {
+            if (string.IsNullOrEmpty(value) || value == "unknown" || value == "unspecified") return;
+            if (System.Text.RegularExpressions.Regex.IsMatch(value, @"\A[a-z0-9-]+\z"))
+                tags.Add(key + "=" + value);
+        }
+
+        private static int EvenDimension(long value)
+        {
+            if(value<2)value=2;
+            if(value>32766)value=32766;
+            return (int)(value/2*2);
+        }
+        private static string N(int n) {return n.ToString(CultureInfo.InvariantCulture);}
+
+        // R3 accepted discrete gate registration: hash changes at integer time slots,
+        // not smooth sinusoids. The sin() calls are deterministic hash functions only.
+        private const string MoveX = "if(lt(mod(abs(sin(floor(t*13)*12.9898+23)*43758.5453),1),0.12),if(lt(mod(abs(sin(floor(t*13)*12.9898+23)*43758.5453),1),0.06),-2,2),0)+if(lt(mod(abs(sin(floor(t*29.97)*40.317+31)*17231.213),1),0.13),1,0)";
+        private const string MoveY = "if(lt(mod(abs(sin(floor(t*13)*78.233+97)*23577.731),1),0.19),if(lt(mod(abs(sin(floor(t*13)*78.233+97)*23577.731),1),0.07),-3,2),0)+if(lt(mod(abs(sin(floor(t*29.97)*91.789+17)*23577.731),1),0.17),1,0)";
+
+        // Final filter stage: existing color, frame, LUT, subtitles and grain complete first.
+        // Dimensions are normalized from the R3 1920x1080 aperture; SAR remains square.
+        internal static string AppendFilter(string original,Plan plan,int width,int height,int filmInputIndex,string fps,MediaProbeInfo media)
+        {
+            if(plan==null) return original;
+            if(width<32 || height<32 || width%2!=0 || height%2!=0 || width>16384 || height>16384)
+                throw new InvalidOperationException("Film border requires even output dimensions in the range 32..16384.");
+            int at=original.LastIndexOf("[vout]",StringComparison.Ordinal);
+            if(at<0) throw new InvalidOperationException("Existing filter graph has no final [vout] label.");
+            int apertureWidth=EvenDimension(((long)width*1680+960)/1920);
+            int apertureHeight=EvenDimension(((long)height*990+540)/1080);
+            if(apertureWidth>width)apertureWidth=width;
+            if(apertureHeight>height)apertureHeight=height;
+            int x=(width-apertureWidth)/2,y=(height-apertureHeight)/2;
+            string graph=original.Substring(0,at)+"[fgsfilm_src]"+original.Substring(at+6);
+            graph+=";[fgsfilm_src]scale="+N(apertureWidth)+":"+N(apertureHeight)+
+                   ":force_original_aspect_ratio=increase:flags=lanczos,crop="+N(apertureWidth)+":"+N(apertureHeight)+
+                   ",setsar=1,pad="+N(width)+":"+N(height)+":"+N(x)+":"+N(y)+":color=black[fgsfilm_canvas]";
+            graph+=";["+N(filmInputIndex)+":v:0]format=rgba,scale="+N(width)+":"+N(height)+
+                   ":flags=lanczos[fgsfilm_png]";
+            graph+=";[fgsfilm_canvas][fgsfilm_png]overlay=x=0:y=0:shortest=1:format=auto[fgsfilm_joined]";
+            if(plan.Dynamic)
+            {
+                // R3 moved the entire composed frame over a black projection gate.
+                // The overlay on generated black must end when the actual clip ends.
+                graph+=";color=c=black:s="+N(width)+"x"+N(height)+":r="+fps+"[fgsfilm_black]";
+                graph+=";[fgsfilm_black][fgsfilm_joined]overlay=x='"+MoveX+"':y='"+MoveY+
+                       "':shortest=1:eval=frame:format=auto,setsar=1,format=p010le" + RestoreColorTags(media) + "[vout]";
+            }
+            else graph+=";[fgsfilm_joined]setsar=1,format=p010le[vout]";
+            return graph;
+        }
+    }
+}

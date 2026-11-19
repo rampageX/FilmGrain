@@ -174,6 +174,7 @@ namespace FilmGrainStudioPreview
             snapshot.HevcTemporalAq = string.Equals(config.EncoderAq(mode, true), "true", StringComparison.OrdinalIgnoreCase);
             snapshot.HdrPolicy = config.Get("HDR_POLICY");
             snapshot.TonemapAlgo = config.Get("TONE_MAP_ALGO");
+            snapshot.FilmBorderMode = config.Get("FILM_BORDER_MODE");
             
             
             

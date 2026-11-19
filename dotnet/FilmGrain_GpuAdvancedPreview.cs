@@ -118,6 +118,13 @@ namespace FilmGrainStudioPreview
                 : "";
             string hdrSignal = !media.IsHdr ? "" : media.ColorTransfer=="smpte2084" ? "pq" : "hlg";
             if (media.IsHdr && fullRange) hdrSignal += "-full";
+            string borderMode = config.Get("FILM_BORDER_MODE");
+            bool filmBorder = !media.IsHdr && (cmbCodec.SelectedIndex == 1 || cmbCodec.SelectedIndex == 3) &&
+                !chkInterpolation.Checked && (borderMode == "DARK_STATIC" || borderMode == "DARK_WEAVE");
+            string borderAsset = Path.Combine(appRoot,"Utils","_FilmBorders","cinema35_dark_1920x1080.png");
+            if (filmBorder && !File.Exists(borderAsset)) {
+                FgsMessageBox.Show(this,UiText("找不到胶片边框素材。","Film border asset is missing."));return;
+            }
             string exe = ResolveGpuAdvancedPreviewExecutable();
             bool pixelSelection = !ParameterGrainSelected();
             int selectedMode = CurrentGrainMode();
@@ -128,7 +135,7 @@ namespace FilmGrainStudioPreview
             bool grainInitiallyEnabled = IsGrainEnabled();
             // The stored pixel mode ID for Grain Plate is 1 (also on SVT-AV1).
             bool plateMode = IsGrainEnabled() && !ParameterGrainSelected() && CurrentGrainMode() == 1;
-            bool embeddedPreview = (plateMode || (!newPixelMode && media.IsHdr)) && typeof(MainForm).Assembly.GetManifestResourceInfo(HdrGpuPreviewResource)!=null;
+            bool embeddedPreview = !filmBorder && (plateMode || (!newPixelMode && media.IsHdr)) && typeof(MainForm).Assembly.GetManifestResourceInfo(HdrGpuPreviewResource)!=null;
             if (exe.Length == 0 && !embeddedPreview) {
                 FgsMessageBox.Show(this,UiText("未找到独立 GPU 预览程序。请将 fgs_gpu_preview.exe 放在 FGS\\GpuAdvancedPreview 目录，或设置 FGS_GPU_PREVIEW_EXE 环境变量。",
                     "GPU preview is missing. Place fgs_gpu_preview.exe in FGS\\GpuAdvancedPreview or set FGS_GPU_PREVIEW_EXE."));return;
@@ -146,7 +153,7 @@ namespace FilmGrainStudioPreview
             bool hasLut = !string.IsNullOrEmpty(selectedLutPath) && File.Exists(selectedLutPath);
             string gradeRecipe=config.Get(ColorGrade.ConfigKey);
             bool hasGrade=ReadStudioGrade().IsActive;
-            if (!hasGrain && !hasLut && !hasGrade && !media.IsHdr) {
+            if (!hasGrain && !hasLut && !hasGrade && !media.IsHdr && !filmBorder) {
                 FgsMessageBox.Show(this,UiText("请选择 AV1 胶片预设／颗粒表、扫描颗粒、Digital Grain、FGSIM 或 3D LUT。",
                     "Select an AV1 preset/table, Grain Plate, Digital Grain, FGSIM or a 3D LUT."));return;
             }
@@ -308,6 +315,15 @@ namespace FilmGrainStudioPreview
                     if (fgsimMode) args.AddRange(new[]{"--fgsim-noise",fgsimNoise,"--fgsim-shader",fgsimShader});
                     if (digitalMode) args.AddRange(new[]{"--digital-noise",Path.Combine(temporary,"digital.yuv"),"--noise-ffmpeg",ffmpeg});
                     if (plateMode) args.AddRange(new[]{"--plate",platePath,"--plate-frame",plateFrame});
+                    if (filmBorder) {
+                        string borderRaw = Path.Combine(temporary,"film-border.rgba");
+                        var borderArgs = new List<string> {"-hide_banner","-nostdin","-v","error","-y",
+                            "-i",borderAsset,"-frames:v","1","-pix_fmt","rgba","-f","rawvideo",borderRaw};
+                        int borderRc = NativeLibraryTools.RunProcessEnvironment(ffmpeg,borderArgs,temporary,null,30000,CancellationToken.None,null);
+                        if (borderRc != 0 || !File.Exists(borderRaw) || new FileInfo(borderRaw).Length != 1920L*1080*4)
+                            throw new InvalidDataException("Film border texture decode failed.");
+                        args.AddRange(new[]{"--film-border",borderRaw,"--film-weave",borderMode=="DARK_WEAVE"?"1":"0"});
+                    }
                     if (plateCycle>0) args.AddRange(new[]{"--plate-cycle",plateCycle.ToString("0.#########",CultureInfo.InvariantCulture)});
                     // grav1synth advances AV1 grain seeds per output frame. Use the
                     // probed nominal rate to reproduce its per-event seed sequence.

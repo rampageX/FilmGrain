@@ -81,6 +81,7 @@ namespace FilmGrainStudioPreview
         public bool HevcTemporalAq;
         public string HdrPolicy = "";
         public string TonemapAlgo = "";
+        public string FilmBorderMode = "OFF";
 
         
         
@@ -120,6 +121,11 @@ namespace FilmGrainStudioPreview
         internal static SortedDictionary<string, string> Build(BridgeEnvironmentSnapshot snapshot)
         {
             if (snapshot == null) throw new ArgumentNullException("snapshot");
+            // S2 does not silently ignore this enabled effect on unsupported routes.
+            if (!string.IsNullOrEmpty(snapshot.FilmBorderMode) &&
+                !string.Equals(snapshot.FilmBorderMode,"OFF",StringComparison.OrdinalIgnoreCase) &&
+                (snapshot.NoReencode || (snapshot.Mode!="HEVC" && snapshot.Mode!="H264")))
+                throw new NotSupportedException("S2 Film Border supports only HEVC/H264 NVENC re-encode, SDR.");
             return snapshot.NoReencode ? BuildNoReencode(snapshot) : BuildEncode(snapshot);
         }
 
@@ -217,6 +223,7 @@ namespace FilmGrainStudioPreview
             state["FG_HEVC_TEMPORAL_AQ"] = snapshot.HevcTemporalAq ? "1" : "0";
             state["FG_HDR_POLICY"] = snapshot.HdrPolicy;
             state["FG_TONEMAP_ALGO"] = snapshot.TonemapAlgo;
+            state["FG_FILM_BORDER_MODE"] = snapshot.FilmBorderMode;
             
             
             
