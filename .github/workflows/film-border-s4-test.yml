@@ -1,4 +1,4 @@
-name: FGS Film Border S4 test
+name: FGS Film Border S4 GPU B4C8D9
 on:
   push:
     branches:
@@ -53,7 +53,7 @@ jobs:
         run: dotnet\build_NET_Preview.bat
       - uses: actions/upload-artifact@v4
         with:
-          name: FGS-S4-ZScale-L9D7B2-Windows
+          name: FGS-S4-GPU-B4C8D9-Windows
           if-no-files-found: error
           path: |
             FilmGrain_Studio.exe
@@ -61,10 +61,10 @@ jobs:
       - name: Archive exact test source
         shell: powershell
         run: |
-          git archive --format=zip --output=FGS_S4_ZScale_L9D7B2_Source.zip HEAD
+          git archive --format=zip --output=FGS_S4_GPU_B4C8D9_Source.zip HEAD
           if ($LASTEXITCODE -ne 0) { throw 'git archive failed' }
       - uses: actions/upload-artifact@v4
         with:
-          name: FGS-S4-ZScale-L9D7B2-Source
+          name: FGS-S4-GPU-B4C8D9-Source
           if-no-files-found: error
-          path: FGS_S4_ZScale_L9D7B2_Source.zip
+          path: FGS_S4_GPU_B4C8D9_Source.zip
