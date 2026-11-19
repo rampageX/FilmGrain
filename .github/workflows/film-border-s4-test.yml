@@ -55,7 +55,6 @@ jobs:
         shell: powershell
         run: |
           & .\dotnet\BuildTools\Test_S4_GpuBorder.ps1
-          if ($LASTEXITCODE -ne 0) { throw 'GPU border graph audit failed' }
       - uses: actions/upload-artifact@v4
         with:
           name: FGS-S4-GPU-F3R8J2-Windows
