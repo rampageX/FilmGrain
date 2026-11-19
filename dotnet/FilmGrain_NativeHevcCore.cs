@@ -429,7 +429,7 @@ namespace FilmGrainStudioPreview
 
                     else
 
-                        baseFilter = "[0:v:0]" + deinterlaceFilter + fpsFilter + colorFilter + "format=p010le,setpts=PTS-STARTPTS,hwupload[basevk]";
+                        baseFilter = "[0:v:0]" + deinterlaceFilter + fpsFilter + (s4GpuBorder ? "fps=30," : "") + colorFilter + "format=p010le,setpts=PTS-STARTPTS,hwupload[basevk]";
 
                     if (s4GpuBorder)
                         filter = FilmBorderEncodingCore.AppendGpuFilter(
