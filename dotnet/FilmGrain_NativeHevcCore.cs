@@ -383,14 +383,18 @@ namespace FilmGrainStudioPreview
                 // Experimental route is deliberately narrower than the UI's general border mode.
                 // No match means the validated CPU graph is used unchanged.
                 bool s4GpuRequested = Environment.GetEnvironmentVariable("FGS_S4_GPU_BORDER") == "1";
+                bool s4Gpu4k30 = info.Width == 3840 && info.Height == 2160 &&
+                    frame.ActiveWidth == 3840 && frame.ActiveHeight == 2160 &&
+                    frame.ContentX == 0 && frame.ContentY == 276 && frame.ContentWidth == 3840 && frame.ContentHeight == 1608 &&
+                    Math.Abs(ParseFps(fps) - 30.0) < 0.001;
+                bool s4Gpu1080p24 = info.Width == 1920 && info.Height == 1080 &&
+                    frame.ActiveWidth == 1920 && frame.ActiveHeight == 1080 &&
+                    frame.ContentX == 0 && frame.ContentY == 138 && frame.ContentWidth == 1920 && frame.ContentHeight == 804 &&
+                    Math.Abs(ParseFps(fps) - 24.0) < 0.001;
                 bool s4GpuBorder = s4GpuRequested && filmBorder != null && filmBorder.Dynamic &&
                     filmBorder.HdrTransfer != "" && hdrPreserve && !h264 && !interpolate &&
-                    grainEnabled && plateMode && !info.IsInterlaced &&
-                    info.Width == 3840 && info.Height == 2160 &&
-                    !resize.Enabled && frame.ActiveWidth == 3840 && frame.ActiveHeight == 2160 &&
-                    !frame.HasExplicitMargins && frame.ContentX == 0 && frame.ContentY == 276 &&
-                    frame.ContentWidth == 3840 && frame.ContentHeight == 1608 &&
-                    Math.Abs(ParseFps(fps) - 30.0) < 0.001 &&
+                    grainEnabled && plateMode && !info.IsInterlaced && !resize.Enabled && !frame.HasExplicitMargins &&
+                    (s4Gpu4k30 || s4Gpu1080p24) &&
                     string.IsNullOrEmpty(preprocessing) && string.IsNullOrEmpty(colorFilter) &&
                     string.IsNullOrEmpty(lutCompatName) && string.IsNullOrEmpty(subtitleFilter) &&
                     pixelPercent == 100;
@@ -400,6 +404,7 @@ namespace FilmGrainStudioPreview
                     if (!File.Exists(raw) || new FileInfo(raw).Length != 1920L*1080*4)
                     { reason = "S4 GPU film border requires verified 1920x1080 RGBA texture: " + raw; return false; }
                     filmBorder.GpuRaw = raw;
+                    filmBorder.Gpu1080p24 = s4Gpu1080p24;
                 }
                 // The independent R3M8P4 Vulkan->CUDA pass used this FFmpeg binary.
                 // Do not silently switch back to a different FFmpeg build for the GPU experiment.
@@ -429,7 +434,7 @@ namespace FilmGrainStudioPreview
 
                     else
 
-                        baseFilter = "[0:v:0]" + deinterlaceFilter + fpsFilter + (s4GpuBorder ? "fps=30," : "") + colorFilter + "format=p010le,setpts=PTS-STARTPTS,hwupload[basevk]";
+                        baseFilter = "[0:v:0]" + deinterlaceFilter + fpsFilter + (s4GpuBorder ? (s4Gpu1080p24 ? "fps=24," : "fps=30,") : "") + colorFilter + "format=p010le,setpts=PTS-STARTPTS,hwupload[basevk]";
 
                     if (s4GpuBorder)
                         filter = FilmBorderEncodingCore.AppendGpuFilter(
@@ -1542,6 +1547,7 @@ namespace FilmGrainStudioPreview
             internal bool Dynamic;
             internal string HdrTransfer = "";
             internal string GpuRaw;
+            internal bool Gpu1080p24;
         }
 
         private static string Read(IDictionary<string,string> state,string key)
@@ -1644,6 +1650,23 @@ namespace FilmGrainStudioPreview
                 throw new InvalidOperationException("S4 GPU border called outside its validated route.");
             string input = "[2:v:0]format=rgba,setparams=range=full:color_primaries=bt709:"+
                            "color_trc=iec61966-2-1:colorspace=gbr,hwupload[fgsfilm_gpu_png]";
+            if (plan.Gpu1080p24)
+            {
+                string kernel1080 = "libplacebo=inputs=2:w=1920:h=1080:format=p010le:" +
+                    "colorspace=bt2020nc:color_primaries=bt2020:color_trc=" + plan.HdrTransfer + ":range=limited" +
+                    ":crop_x='if(eq(idx,0),43.6363636364,0)'" +
+                    ":crop_y='if(eq(idx,0),138,0)'" +
+                    ":crop_w='if(eq(idx,0),1832.7272727273,iw)'" +
+                    ":crop_h='if(eq(idx,0),804,ih)'" +
+                    ":pos_w='if(eq(idx,0),1680,1920)'" +
+                    ":pos_h='if(eq(idx,0),737,1080)'" +
+                    ":pos_x='if(eq(idx,0),120,0)+(" + MoveX + ")'" +
+                    ":pos_y='if(eq(idx,0),171.5,0)+(" + MoveY + ")'" +
+                    ":upscaler=ewa_lanczos:downscaler=ewa_lanczos:tonemapping=clip:peak_detect=false:dithering=none:fillcolor=black";
+                return graph + ";" + input + ";[fgsfilm_gpu_video][fgsfilm_gpu_png]" + kernel1080 +
+                    ",hwupload=derive_device=cuda,setparams=range=limited:color_primaries=bt2020:" +
+                    "color_trc=" + plan.HdrTransfer + ":colorspace=bt2020nc[vout]";
+            }
             string kernel = "libplacebo=inputs=2:w=3840:h=2160:format=p010le:"+
                             "colorspace=bt2020nc:color_primaries=bt2020:color_trc=" + plan.HdrTransfer + ":range=limited";
             kernel += ":crop_x='if(eq(idx,0),87.2727272727,0)'"+
