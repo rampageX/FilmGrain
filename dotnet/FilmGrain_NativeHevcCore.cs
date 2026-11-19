@@ -387,7 +387,7 @@ namespace FilmGrainStudioPreview
                     frame.ActiveWidth == 3840 && frame.ActiveHeight == 2160 &&
                     frame.ContentX == 0 && frame.ContentY == 276 && frame.ContentWidth == 3840 && frame.ContentHeight == 1608 &&
                     Math.Abs(ParseFps(fps) - 30.0) < 0.001;
-                bool s4GpuBorder = s4GpuRequested && filmBorder != null && filmBorder.Dynamic &&
+                bool s4GpuBorder = s4GpuRequested && filmBorder != null &&
                     filmBorder.HdrTransfer != "" && hdrPreserve && !h264 && !interpolate &&
                     (!grainEnabled || plateMode) && durationSeconds > 0.0 && !info.IsInterlaced && !resize.Enabled &&
                     frame.ActiveWidth == info.Width && frame.ActiveHeight == info.Height &&
@@ -1655,8 +1655,9 @@ namespace FilmGrainStudioPreview
 
         internal static string AppendGpuFilter(string graph,Plan plan)
         {
-            if (plan == null || plan.GpuRaw == null || !plan.Dynamic || plan.HdrTransfer == "")
+            if (plan == null || plan.GpuRaw == null || plan.HdrTransfer == "")
                 throw new InvalidOperationException("S4 GPU border called outside its validated route.");
+            string moveX = plan.Dynamic ? MoveX : "0", moveY = plan.Dynamic ? MoveY : "0";
             string input = "["+N(plan.GpuInputIndex)+":v:0]format=rgba,setparams=range=full:color_primaries=bt709:"+
                            "color_trc=iec61966-2-1:colorspace=gbr,hwupload[fgsfilm_gpu_png]";
             if (!plan.GpuUseLegacy4k)
@@ -1680,8 +1681,8 @@ namespace FilmGrainStudioPreview
                     ":crop_h='if(eq(idx,0),"+f(bottom-top)+",ih)'"+
                     ":pos_w='if(eq(idx,0),"+f((right-left)*scale)+","+N(w)+")'"+
                     ":pos_h='if(eq(idx,0),"+f((bottom-top)*scale)+","+N(h)+")'"+
-                    ":pos_x='if(eq(idx,0),"+f((w-apertureW)/2+(left-cropLeft)*scale)+",0)+("+MoveX+")'"+
-                    ":pos_y='if(eq(idx,0),"+f((h-apertureH)/2+(top-cropTop)*scale)+",0)+("+MoveY+")'"+
+                    ":pos_x='if(eq(idx,0),"+f((w-apertureW)/2+(left-cropLeft)*scale)+",0)+("+moveX+")'"+
+                    ":pos_y='if(eq(idx,0),"+f((h-apertureH)/2+(top-cropTop)*scale)+",0)+("+moveY+")'"+
                     ":upscaler=ewa_lanczos:downscaler=ewa_lanczos:tonemapping=clip:peak_detect=false:dithering=none:fillcolor=black";
                 return graph+";"+input+";[fgsfilm_gpu_video][fgsfilm_gpu_png]"+kernelDynamic+
                     ",hwupload=derive_device=cuda,setparams=range=limited:color_primaries=bt2020:"+
@@ -1695,8 +1696,8 @@ namespace FilmGrainStudioPreview
                       ":crop_h='if(eq(idx,0),1608,ih)'"+
                       ":pos_w='if(eq(idx,0),3360,3840)'"+
                       ":pos_h='if(eq(idx,0),1474,2160)'"+
-                      ":pos_x='if(eq(idx,0),240,0)+(" + MoveX + ")'"+
-                      ":pos_y='if(eq(idx,0),343,0)+(" + MoveY + ")'"+
+                      ":pos_x='if(eq(idx,0),240,0)+(" + moveX + ")'"+
+                      ":pos_y='if(eq(idx,0),343,0)+(" + moveY + ")'"+
                       ":upscaler=ewa_lanczos:downscaler=ewa_lanczos:"+
                       "tonemapping=clip:peak_detect=false:dithering=none:fillcolor=black";
             return graph + ";" + input + ";[fgsfilm_gpu_video][fgsfilm_gpu_png]" + kernel +

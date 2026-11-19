@@ -6,9 +6,9 @@ $planType = $assembly.GetType('FilmGrainStudioPreview.FilmBorderEncodingCore+Pla
 $flags = [Reflection.BindingFlags]'Static, NonPublic'
 $fields = [Reflection.BindingFlags]'Instance, NonPublic, Public'
 $method = $core.GetMethod('AppendGpuFilter', $flags)
-function Make-Graph([int]$width, [int]$height, [int]$x, [int]$y, [int]$cw, [int]$ch, [int]$idx, [bool]$legacy) {
+function Make-Graph([int]$width, [int]$height, [int]$x, [int]$y, [int]$cw, [int]$ch, [int]$idx, [bool]$legacy, [bool]$dynamic = $true) {
     $plan = [Activator]::CreateInstance($planType, $true)
-    $values = @{ GpuRaw='texture.raw'; Dynamic=$true; HdrTransfer='smpte2084'; GpuWidth=$width; GpuHeight=$height; GpuContentX=$x; GpuContentY=$y; GpuContentWidth=$cw; GpuContentHeight=$ch; GpuInputIndex=$idx; GpuUseLegacy4k=$legacy }
+    $values = @{ GpuRaw='texture.raw'; Dynamic=$dynamic; HdrTransfer='smpte2084'; GpuWidth=$width; GpuHeight=$height; GpuContentX=$x; GpuContentY=$y; GpuContentWidth=$cw; GpuContentHeight=$ch; GpuInputIndex=$idx; GpuUseLegacy4k=$legacy }
     foreach ($entry in $values.GetEnumerator()) { $planType.GetField($entry.Key, $fields).SetValue($plan, $entry.Value) }
     return $method.Invoke($null, @('[0:v:0]hwupload[fgsfilm_gpu_video]', $plan))
 }
@@ -24,6 +24,14 @@ $g = Make-Graph 3840 2160 0 276 3840 1608 2 $true
 foreach ($s in @('[2:v:0]format=rgba', 'w=3840:h=2160', "crop_y='if(eq(idx,0),276,0)'", "pos_h='if(eq(idx,0),1474,2160)'")) { Assert-Contains $g $s }
 $g = Make-Graph 1280 720 0 92 1280 536 1 $false
 foreach ($s in @('w=1280:h=720', "crop_y='if(eq(idx,0),92,0)'", "pos_w='if(eq(idx,0),1120,1280)'")) { Assert-Contains $g $s }
+$static = Make-Graph 1920 1080 0 138 1920 804 1 $false $false
+foreach ($s in @("pos_x='if(eq(idx,0),120,0)+(0)'", "pos_y='if(eq(idx,0),171.5,0)+(0)'")) { Assert-Contains $static $s }
+if ($static.Contains('floor(t*')) { throw 'Static border unexpectedly moves.' }
+$static4k = Make-Graph 3840 2160 0 276 3840 1608 2 $true $false
+foreach ($s in @("pos_x='if(eq(idx,0),240,0)+(0)'", "pos_y='if(eq(idx,0),343,0)+(0)'")) { Assert-Contains $static4k $s }
+if ($static4k.Contains('floor(t*')) { throw 'Legacy 4K static border unexpectedly moves.' }
+$dynamic = Make-Graph 1920 1080 0 138 1920 804 1 $false $true
+if (-not $dynamic.Contains('floor(t*13)')) { throw 'Dynamic border no longer moves.' }
 # Exercise the actual encoder argument builder, including the finite end time.
 $nativeType = $assembly.GetType('FilmGrainStudioPreview.NativeHevcCore', $true)
 $buildArgs = $nativeType.GetMethod('BuildHevcArgs', $flags)
@@ -54,4 +62,5 @@ if ($sourceIndex -lt 0 -or $rawIndex -le $sourceIndex -or $rawIndex -ge $filterI
 if ($durationIndex -lt $filterIndex -or $list[$durationIndex+1] -ne '20') { throw 'No-grain output has no finite duration.' }
 if ([array]::IndexOf($list, '-pix_fmt') -ge 0) { throw 'GPU frames unexpectedly force a software pixel format.' }
 Write-Host 'PASS: GPU border input index and 1080p/4K/720p geometry'
+Write-Host 'PASS: static and dynamic GPU border movement'
 Write-Host 'PASS: no-grain encoder input ordering and finite duration'
