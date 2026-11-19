@@ -42,8 +42,7 @@ static const wchar_t *s_border_path;
 static bool s_border_weave;
 static struct pl_frame s_image;
 static enum pl_color_transfer s_hdr_transfer;
-static bool s_source_full, s_hdr_display, s_hdr_display_known;
-static ULONGLONG s_hdr_probe_after;
+static bool s_source_full, s_hdr_display;
 static bool s_combined_grade, s_hint_en;
 static const wchar_t *s_deinterlace = L"";
 static FgsGrainModel s_original;
@@ -1011,9 +1010,7 @@ static void change_slider(int kind, int x)
 static void update_hdr_display(void)
 {
     if (!s_hdr_transfer) return;
-    // A zoom or mouse capture must not renegotiate the swap chain color space.
-    if (s_hdr_display_known && (s_panning || GetTickCount64() < s_hdr_probe_after)) return;
-    bool hdr = false, known = false;
+    bool hdr = false;
     IDXGISwapChain *chain = pl_d3d11_swapchain_unwrap(s_swapchain);
     if (chain) {
         IDXGIOutput *output = NULL;
@@ -1021,22 +1018,17 @@ static void update_hdr_display(void)
             IDXGIOutput6 *output6 = NULL;
             if (SUCCEEDED(IDXGIOutput_QueryInterface(output, &IID_IDXGIOutput6, (void **)&output6))) {
                 DXGI_OUTPUT_DESC1 desc;
-                if (SUCCEEDED(IDXGIOutput6_GetDesc1(output6, &desc))) {
+                if (SUCCEEDED(IDXGIOutput6_GetDesc1(output6, &desc)))
                     hdr = desc.ColorSpace == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020;
-                    known = true;
-                }
                 IDXGIOutput6_Release(output6);
             }
             IDXGIOutput_Release(output);
         }
         IDXGISwapChain_Release(chain);
     }
-    // A failed DXGI lookup supplies no evidence that the monitor changed modes.
-    if (!known) return;
-    if (!s_hdr_display_known || hdr != s_hdr_display) {
+    if (hdr != s_hdr_display) {
         pl_swapchain_colorspace_hint(s_swapchain, hdr ? &pl_color_space_hdr10 : &pl_color_space_srgb);
         s_hdr_display = hdr;
-        s_hdr_display_known = true;
     }
 }
 
@@ -1140,9 +1132,7 @@ static bool render_film_border(struct pl_frame source, const struct pl_frame *ta
         return false;
     intermediate.planes[0].texture = s_border_composite;
     intermediate.crop = output_crop;
-    struct pl_render_params display_params = pl_render_default_params;
-    if (s_hdr_transfer) display_params.peak_detect_params = NULL;
-    return pl_render_image(s_renderer,&intermediate,target,&display_params);
+    return pl_render_image(s_renderer,&intermediate,target,&pl_render_default_params);
 }
 
 static double render_once(bool report)
@@ -1187,8 +1177,6 @@ static double render_once(bool report)
     s_plate_origin_x = source.crop.x0;
     s_plate_origin_y = source.crop.y0;
     struct pl_render_params params = pl_render_default_params;
-    // Pan changes the visible crop of one frame, not the scene being graded.
-    if (s_hdr_transfer) params.peak_detect_params = NULL;
     params.lut = selected_lut();
     params.lut_type = PL_LUT_NATIVE;
     const struct pl_hook *plate_hooks[] = {&s_plate_hook};
@@ -1263,7 +1251,6 @@ static LRESULT CALLBACK view_proc(HWND window, UINT msg, WPARAM wparam, LPARAM l
     case WM_LBUTTONDBLCLK:
         if (s_panning && GetCapture()==window)ReleaseCapture();
         s_panning=false;s_pixel_view=!s_pixel_view;s_pan_x=s_pan_y=0;
-        s_hdr_probe_after=GetTickCount64()+250;
         redraw_controls();
         return 0;
     case WM_MOUSEMOVE:
@@ -1281,7 +1268,6 @@ static LRESULT CALLBACK view_proc(HWND window, UINT msg, WPARAM wparam, LPARAM l
         s_panning=false;
         return 0;
     case WM_CAPTURECHANGED:
-        if (s_panning) s_hdr_probe_after=GetTickCount64()+250;
         s_panning=false;
         return 0;
     default:

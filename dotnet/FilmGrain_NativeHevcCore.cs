@@ -857,6 +857,20 @@ namespace FilmGrainStudioPreview
             if(h264)filter=filter.Replace("[vout]",",format=yuv420p[vout]");
             List<string> a = new List<string>{"-hide_banner","-stats","-progress","pipe:2","-stats_period","0.5","-y"};
 
+            // S4 HDR film-border CPU filter scheduling A/B probe. Unset leaves the validated graph untouched.
+            // Only for this route; existing SDR, HDR OFF and other encoding paths remain unchanged.
+            if (filmBorder != null && filmBorder.HdrTransfer != "")
+            {
+                int filterThreads;
+                string overrideThreads = Environment.GetEnvironmentVariable("FGS_FILM_BORDER_THREADS");
+                if (int.TryParse(overrideThreads, NumberStyles.Integer, CultureInfo.InvariantCulture, out filterThreads) &&
+                    filterThreads >= 1 && filterThreads <= 16)
+                {
+                    a.Add("-filter_complex_threads");
+                    a.Add(filterThreads.ToString(CultureInfo.InvariantCulture));
+                }
+            }
+
             if (plateMode || filter.Contains("libplacebo=") || filter.Contains("fruc_vulkan=")) { a.Add("-init_hw_device"); a.Add(VulkanDevicePolicy.Spec("vk")); a.Add("-filter_hw_device"); a.Add("vk"); }
 
             else if (filter.Contains("bwdif_vulkan=")) { a.Add("-init_hw_device"); a.Add(VulkanDevicePolicy.Spec("deintvk")); a.Add("-filter_hw_device"); a.Add("deintvk"); }
