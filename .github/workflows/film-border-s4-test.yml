@@ -58,3 +58,13 @@ jobs:
           path: |
             FilmGrain_Studio.exe
             GpuAdvancedPreview/
+      - name: Archive exact test source
+        shell: powershell
+        run: |
+          git archive --format=zip --output=FGS_S4_ZScale_L9D7B2_Source.zip HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'git archive failed' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FGS-S4-ZScale-L9D7B2-Source
+          if-no-files-found: error
+          path: FGS_S4_ZScale_L9D7B2_Source.zip
