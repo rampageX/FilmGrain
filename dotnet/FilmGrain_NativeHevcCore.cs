@@ -1593,7 +1593,7 @@ namespace FilmGrainStudioPreview
             graph+=";["+N(input)+":v:0]format=gbrap16le,zscale=w="+N(width)+":h="+N(height)+
                    ":matrixin=gbr:primariesin=709:transferin=iec61966-2-1:rangein=full"+
                    ":matrix=2020_ncl:primaries=2020:transfer="+plan.HdrTransfer+
-                   ":range=limited:npl=100,format=yuva420p10le[fgsfilm_png]";
+                   ":range=limited:npl=100:threads=1,format=yuva420p10le[fgsfilm_png]";
             graph+=";[fgsfilm_canvas][fgsfilm_png]overlay=eof_action=repeat:format=yuv420p10";
             if (plan.Dynamic)
             {
