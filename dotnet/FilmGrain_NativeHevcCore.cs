@@ -389,7 +389,7 @@ namespace FilmGrainStudioPreview
                     Math.Abs(ParseFps(fps) - 30.0) < 0.001;
                 bool s4GpuBorder = s4GpuRequested && filmBorder != null && filmBorder.Dynamic &&
                     filmBorder.HdrTransfer != "" && hdrPreserve && !h264 && !interpolate &&
-                    grainEnabled && plateMode && !info.IsInterlaced && !resize.Enabled &&
+                    (!grainEnabled || plateMode) && durationSeconds > 0.0 && !info.IsInterlaced && !resize.Enabled &&
                     frame.ActiveWidth == info.Width && frame.ActiveHeight == info.Height &&
                     info.Width >= 32 && info.Height >= 32 && info.Width <= 16384 && info.Height <= 16384 &&
                     info.Width % 2 == 0 && info.Height % 2 == 0 && ParseFps(fps) > 0 &&
@@ -402,6 +402,7 @@ namespace FilmGrainStudioPreview
                     if (!File.Exists(raw) || new FileInfo(raw).Length != 1920L*1080*4)
                     { reason = "S4 GPU film border requires verified 1920x1080 RGBA texture: " + raw; return false; }
                     filmBorder.GpuRaw = raw;
+                    filmBorder.GpuInputIndex = plateMode ? 2 : 1;
                     filmBorder.GpuUseLegacy4k = s4Gpu4k30;
                     filmBorder.GpuWidth = info.Width; filmBorder.GpuHeight = info.Height;
                     filmBorder.GpuContentX = frame.ContentX; filmBorder.GpuContentY = frame.ContentY;
@@ -417,9 +418,14 @@ namespace FilmGrainStudioPreview
 
                 if (!grainEnabled)
                 {
-                    filter = SharedGrainCore.BuildWithoutGrain(deinterlaceFilter + fpsFilter + colorFilter,
-                        EscapeFilterPath(lutCompatName), lutOpacity,
-                        frame.Filter + subtitleFilter + (hdrPreserve ? BuildHdrFrameFilter(info) : "") + ",format=" + "p010le");
+                    if (s4GpuBorder)
+                        filter = FilmBorderEncodingCore.AppendGpuFilter(
+                            "[0:v:0]" + deinterlaceFilter + fpsFilter + (s4Gpu4k30 ? "fps=30," : "fps=" + fps + ",") +
+                            "format=p010le,setpts=PTS-STARTPTS,hwupload[fgsfilm_gpu_video]", filmBorder);
+                    else
+                        filter = SharedGrainCore.BuildWithoutGrain(deinterlaceFilter + fpsFilter + colorFilter,
+                            EscapeFilterPath(lutCompatName), lutOpacity,
+                            frame.Filter + subtitleFilter + (hdrPreserve ? BuildHdrFrameFilter(info) : "") + ",format=" + "p010le");
                 }
                 else if (plateMode)
 
@@ -993,7 +999,7 @@ namespace FilmGrainStudioPreview
 
             a.Add("-fps_mode:v"); a.Add(fruc ? "passthrough" : "cfr");
 
-            if (plateMode) { a.Add("-t"); a.Add(duration); }
+            if (plateMode || (filmBorder != null && filmBorder.GpuRaw != null)) { a.Add("-t"); a.Add(duration); }
 
             if (mkv) { a.Add("-c:a"); a.Add("copy"); a.Add("-c:s"); a.Add("copy"); a.Add("-c:t"); a.Add("copy"); }
 
@@ -1549,6 +1555,7 @@ namespace FilmGrainStudioPreview
             internal string HdrTransfer = "";
             internal string GpuRaw;
             internal bool GpuUseLegacy4k;
+            internal int GpuInputIndex;
             internal int GpuWidth, GpuHeight, GpuContentX, GpuContentY, GpuContentWidth, GpuContentHeight;
         }
 
@@ -1650,7 +1657,7 @@ namespace FilmGrainStudioPreview
         {
             if (plan == null || plan.GpuRaw == null || !plan.Dynamic || plan.HdrTransfer == "")
                 throw new InvalidOperationException("S4 GPU border called outside its validated route.");
-            string input = "[2:v:0]format=rgba,setparams=range=full:color_primaries=bt709:"+
+            string input = "["+N(plan.GpuInputIndex)+":v:0]format=rgba,setparams=range=full:color_primaries=bt709:"+
                            "color_trc=iec61966-2-1:colorspace=gbr,hwupload[fgsfilm_gpu_png]";
             if (!plan.GpuUseLegacy4k)
             {
