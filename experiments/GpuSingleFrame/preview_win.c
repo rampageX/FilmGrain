@@ -1140,7 +1140,9 @@ static bool render_film_border(struct pl_frame source, const struct pl_frame *ta
         return false;
     intermediate.planes[0].texture = s_border_composite;
     intermediate.crop = output_crop;
-    return pl_render_image(s_renderer,&intermediate,target,&pl_render_default_params);
+    struct pl_render_params display_params = pl_render_default_params;
+    if (s_hdr_transfer) display_params.peak_detect_params = NULL;
+    return pl_render_image(s_renderer,&intermediate,target,&display_params);
 }
 
 static double render_once(bool report)
@@ -1185,6 +1187,8 @@ static double render_once(bool report)
     s_plate_origin_x = source.crop.x0;
     s_plate_origin_y = source.crop.y0;
     struct pl_render_params params = pl_render_default_params;
+    // Pan changes the visible crop of one frame, not the scene being graded.
+    if (s_hdr_transfer) params.peak_detect_params = NULL;
     params.lut = selected_lut();
     params.lut_type = PL_LUT_NATIVE;
     const struct pl_hook *plate_hooks[] = {&s_plate_hook};
