@@ -28,17 +28,24 @@ foreach ($s in @('w=1280:h=720', "crop_y='if(eq(idx,0),92,0)'", "pos_w='if(eq(id
 $nativeType = $assembly.GetType('FilmGrainStudioPreview.NativeHevcCore', $true)
 $buildArgs = $nativeType.GetMethod('BuildHevcArgs', $flags)
 $capsType = $assembly.GetType('FilmGrainStudioPreview.HardwareCapabilitySnapshot', $true)
-$caps = [Activator]::CreateInstance($capsType, $true)
-$plan = [Activator]::CreateInstance($planType, $true)
-$planType.GetField('GpuRaw', $fields).SetValue($plan, 'texture.raw')
-$state = New-Object 'System.Collections.Generic.Dictionary[string,string]'
-$state['FG_MODE'] = 'HEVC'
-$call = New-Object 'object[]' 19
-$call[0]='source.mp4'; $call[1]=''; $call[2]=$g; $call[3]='out.mkv'; $call[4]='p5'
-$call[5]=$false; $call[6]=[long]5000; $call[7]=[long]10000; $call[8]=[long]20000
-$call[9]='24/1'; $call[10]='20'; $call[11]=$false; $call[12]=$true; $call[13]=$caps
-$call[14]=$state; $call[15]=$null; $call[16]=$false; $call[17]=$null; $call[18]=$plan
-$list = [string[]]($buildArgs.Invoke($null, $call)).ToArray()
+Add-Type -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.Reflection;
+public static class FgsS4ArgsAudit {
+    public static string[] Build(MethodInfo method, Type capsType, Type planType, string graph) {
+        object caps = Activator.CreateInstance(capsType, true);
+        object plan = Activator.CreateInstance(planType, true);
+        planType.GetField("GpuRaw", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public).SetValue(plan, "texture.raw");
+        var state = new Dictionary<string,string>();
+        state["FG_MODE"] = "HEVC";
+        object[] call = { "source.mp4", "", graph, "out.mkv", "p5", false, 5000L, 10000L, 20000L,
+            "24/1", "20", false, true, caps, state, null, false, null, plan };
+        return ((List<string>)method.Invoke(null, call)).ToArray();
+    }
+}
+'@
+$list = [FgsS4ArgsAudit]::Build($buildArgs, $capsType, $planType, $g)
 $sourceIndex = [array]::IndexOf($list, 'source.mp4')
 $rawIndex = [array]::IndexOf($list, 'texture.raw')
 $filterIndex = [array]::IndexOf($list, '-filter_complex')
