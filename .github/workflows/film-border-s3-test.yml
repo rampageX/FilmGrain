@@ -11,6 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: msys2/setup-msys2@v2
+        id: msys2
         with:
           msystem: UCRT64
           release: false
@@ -20,10 +21,28 @@ jobs:
             mingw-w64-ucrt-x86_64-binutils
             mingw-w64-ucrt-x86_64-pkgconf
             mingw-w64-ucrt-x86_64-libplacebo
-      - name: Build GPU preview
-        shell: msys2 {0}
-        working-directory: experiments/GpuSingleFrame
-        run: bash build_ucrt64.sh
+      - name: Build and stage the portable GPU preview
+        shell: powershell
+        env:
+          FGS_MSYS2_ROOT: ${{ steps.msys2.outputs.msys2-location }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $CrLf = "`r`n"
+          $Utf8NoBom = [Text.UTF8Encoding]::new($false)
+          $parseErrors = $null
+          $builder = [System.Management.Automation.Language.Parser]::ParseFile(
+              (Join-Path $env:GITHUB_WORKSPACE '.github/release/build_release.ps1'),
+              [ref]$null, [ref]$parseErrors)
+          if ($parseErrors) { throw ($parseErrors -join "`n") }
+          foreach ($name in @('Get-Ucrt64ImportNames','Build-GpuAdvancedPreview','Assert-File')) {
+              $functionAst = $builder.Find({
+                  param($node)
+                  $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
+              }, $true)
+              if (-not $functionAst) { throw "Missing build helper: $name" }
+              . ([scriptblock]::Create($functionAst.Extent.Text))
+          }
+          Build-GpuAdvancedPreview -StageRoot $env:GITHUB_WORKSPACE
       - name: Build and audit main application
         shell: cmd
         run: dotnet\build_NET_Preview.bat
@@ -33,4 +52,4 @@ jobs:
           if-no-files-found: error
           path: |
             FilmGrain_Studio.exe
-            experiments/GpuSingleFrame/fgs_gpu_preview.exe
+            GpuAdvancedPreview/
