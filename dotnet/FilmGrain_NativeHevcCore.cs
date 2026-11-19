@@ -70,8 +70,6 @@ namespace FilmGrainStudioPreview
             bool fruc = interpolate && Eq(state, "FG_INTERPOLATION_ENGINE", "FRUC");
 
             bool svp = interpolate && !fruc;
-            FilmBorderEncodingCore.Plan filmBorder;
-            if (!FilmBorderEncodingCore.TryCreate(appRoot,info,state,interpolate,out filmBorder,out reason)) return false;
 
             if (interpolate && !fruc && !NvencInterpolationCore.Enabled(state) && !Eq(state, "FG_INTERPOLATION_ENGINE", "SVP") && !string.IsNullOrEmpty(Get(state, "FG_INTERPOLATION_ENGINE")))
 
@@ -83,6 +81,8 @@ namespace FilmGrainStudioPreview
 
             bool hdrToSdr = HdrColorProcessingCore.NvencToSdr(info,state);
             bool hdrPreserve = info.IsHdr && !hdrToSdr;
+            FilmBorderEncodingCore.Plan filmBorder;
+            if (!FilmBorderEncodingCore.TryCreate(appRoot,info,state,interpolate,hdrPreserve,out filmBorder,out reason)) return false;
             if(h264&&hdrPreserve){reason="H.264 NVENC 本线输出 8bit；HDR 源请选 HDR→SDR，不能保留 HDR10。 / H.264 8-bit output requires HDR to SDR.";return false;}
 
             string tonemap = Get(state, "FG_TONEMAP_ALGO").ToLowerInvariant();
@@ -204,6 +204,11 @@ namespace FilmGrainStudioPreview
 
             NvencRateControlCore.RequireSupport(ffmpeg,state);
             if (!File.Exists(ffmpeg)) { reason = "ffmpeg.exe not found: " + ffmpeg; return false; }
+            string zscaleHelp;
+            if (filmBorder != null && filmBorder.HdrTransfer != "" &&
+                (!SharedFrucCore.Run(ffmpeg, "-hide_banner -h filter=zscale", 5000, out zscaleHelp, out reason) ||
+                 !zscaleHelp.Contains("Filter zscale")))
+            { reason = "HDR film border requires FFmpeg with the zscale filter."; return false; }
 
             string vspipe = Path.Combine(appRoot, "_OpenSVPFlow", ".venv", "Scripts", "vspipe.exe");
 
@@ -862,7 +867,8 @@ namespace FilmGrainStudioPreview
 
             if (filmBorder != null)
             {
-                a.Add("-loop");a.Add("1");a.Add("-framerate");a.Add(fps);a.Add("-i");a.Add(filmBorder.Path);
+                if (filmBorder.HdrTransfer == "") { a.Add("-loop"); a.Add("1"); }
+                a.Add("-framerate"); a.Add(fps); a.Add("-i"); a.Add(filmBorder.Path);
             }
 
             a.Add("-filter_complex"); a.Add(filter);
@@ -1484,6 +1490,7 @@ namespace FilmGrainStudioPreview
         {
             internal string Path;
             internal bool Dynamic;
+            internal string HdrTransfer = "";
         }
 
         private static string Read(IDictionary<string,string> state,string key)
@@ -1493,21 +1500,25 @@ namespace FilmGrainStudioPreview
         }
 
         internal static bool TryCreate(string appRoot,MediaProbeInfo media,IDictionary<string,string> state,
-            bool interpolating,out Plan plan,out string reason)
+            bool interpolating,bool hdrPreserve,out Plan plan,out string reason)
         {
             plan=null;reason="";
             string value=Read(state,"FG_FILM_BORDER_MODE").Trim().ToUpperInvariant();
             if(value.Length==0 || value=="OFF") return true;
             if(value!="DARK_STATIC" && value!="DARK_WEAVE")
             {reason="Unknown film border mode: "+value;return false;}
-            if(media.IsHdr)
-            {reason="S2 film border currently supports SDR sources only. HDR10/HLG blending is reserved for S4.";return false;}
+            if (media.IsHdr && !hdrPreserve)
+            { reason="HDR film border currently requires keeping HDR in HEVC NVENC."; return false; }
+            if (hdrPreserve &&
+                ((media.ColorTransfer!="smpte2084" && media.ColorTransfer!="arib-std-b67") ||
+                 media.ColorPrimaries!="bt2020" || media.ColorSpace!="bt2020nc" || media.ColorRange!="tv"))
+            { reason="HDR film border requires limited-range BT.2020 PQ or HLG."; return false; }
             if(interpolating)
             {reason="S2 film border with interpolation is not yet validated (S3/S4).";return false;}
             string path=System.IO.Path.Combine(appRoot,"Utils","_FilmBorders","cinema35_dark_1920x1080.png");
             if(!System.IO.File.Exists(path))
             {reason="Film border asset not found: "+path;return false;}
-            plan=new Plan{Path=path,Dynamic=value=="DARK_WEAVE"};
+            plan=new Plan{Path=path,Dynamic=value=="DARK_WEAVE",HdrTransfer=hdrPreserve?media.ColorTransfer:""};
             return true;
         }
 
@@ -1559,6 +1570,8 @@ namespace FilmGrainStudioPreview
             graph+=";[fgsfilm_src]scale="+N(apertureWidth)+":"+N(apertureHeight)+
                    ":force_original_aspect_ratio=increase:flags=lanczos,crop="+N(apertureWidth)+":"+N(apertureHeight)+
                    ",setsar=1,pad="+N(width)+":"+N(height)+":"+N(x)+":"+N(y)+":color=black[fgsfilm_canvas]";
+            if (plan.HdrTransfer != "")
+                return AppendHdrTexture(graph,plan,filmInputIndex,width,height);
             graph+=";["+N(filmInputIndex)+":v:0]format=rgba,scale="+N(width)+":"+N(height)+
                    ":flags=lanczos[fgsfilm_png]";
             graph+=";[fgsfilm_canvas][fgsfilm_png]overlay=x=0:y=0:shortest=1:format=auto[fgsfilm_joined]";
@@ -1572,6 +1585,24 @@ namespace FilmGrainStudioPreview
             }
             else graph+=";[fgsfilm_joined]setsar=1,format=p010le[vout]";
             return graph;
+        }
+
+        private static string AppendHdrTexture(string graph,Plan plan,int input,int width,int height)
+        {
+            // Resize and convert the PNG once. Framesync holds it until the source ends.
+            graph+=";["+N(input)+":v:0]format=gbrap16le,zscale=w="+N(width)+":h="+N(height)+
+                   ":matrixin=gbr:primariesin=709:transferin=iec61966-2-1:rangein=full"+
+                   ":matrix=2020_ncl:primaries=2020:transfer="+plan.HdrTransfer+
+                   ":range=limited:npl=100,format=yuva420p10le[fgsfilm_png]";
+            graph+=";[fgsfilm_canvas][fgsfilm_png]overlay=eof_action=repeat:format=yuv420p10";
+            if (plan.Dynamic)
+            {
+                // Keep the source-derived frame as the main frame so HDR10 side data survives.
+                graph+=",pad="+N(width+8)+":"+N(height+8)+":4:4:black,crop="+N(width)+":"+N(height)+
+                       ":x='4-("+MoveX+")':y='4-("+MoveY+")'";
+            }
+            return graph+",setsar=1,format=p010le,setparams=range=limited:color_primaries=bt2020"+
+                   ":color_trc="+plan.HdrTransfer+":colorspace=bt2020nc[vout]";
         }
     }
 }
