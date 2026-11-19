@@ -42,7 +42,8 @@ static const wchar_t *s_border_path;
 static bool s_border_weave;
 static struct pl_frame s_image;
 static enum pl_color_transfer s_hdr_transfer;
-static bool s_source_full, s_hdr_display;
+static bool s_source_full, s_hdr_display, s_hdr_display_known;
+static ULONGLONG s_hdr_probe_after;
 static bool s_combined_grade, s_hint_en;
 static const wchar_t *s_deinterlace = L"";
 static FgsGrainModel s_original;
@@ -1010,7 +1011,9 @@ static void change_slider(int kind, int x)
 static void update_hdr_display(void)
 {
     if (!s_hdr_transfer) return;
-    bool hdr = false;
+    // A zoom or mouse capture must not renegotiate the swap chain color space.
+    if (s_hdr_display_known && (s_panning || GetTickCount64() < s_hdr_probe_after)) return;
+    bool hdr = false, known = false;
     IDXGISwapChain *chain = pl_d3d11_swapchain_unwrap(s_swapchain);
     if (chain) {
         IDXGIOutput *output = NULL;
@@ -1018,17 +1021,22 @@ static void update_hdr_display(void)
             IDXGIOutput6 *output6 = NULL;
             if (SUCCEEDED(IDXGIOutput_QueryInterface(output, &IID_IDXGIOutput6, (void **)&output6))) {
                 DXGI_OUTPUT_DESC1 desc;
-                if (SUCCEEDED(IDXGIOutput6_GetDesc1(output6, &desc)))
+                if (SUCCEEDED(IDXGIOutput6_GetDesc1(output6, &desc))) {
                     hdr = desc.ColorSpace == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020;
+                    known = true;
+                }
                 IDXGIOutput6_Release(output6);
             }
             IDXGIOutput_Release(output);
         }
         IDXGISwapChain_Release(chain);
     }
-    if (hdr != s_hdr_display) {
+    // A failed DXGI lookup supplies no evidence that the monitor changed modes.
+    if (!known) return;
+    if (!s_hdr_display_known || hdr != s_hdr_display) {
         pl_swapchain_colorspace_hint(s_swapchain, hdr ? &pl_color_space_hdr10 : &pl_color_space_srgb);
         s_hdr_display = hdr;
+        s_hdr_display_known = true;
     }
 }
 
@@ -1251,6 +1259,7 @@ static LRESULT CALLBACK view_proc(HWND window, UINT msg, WPARAM wparam, LPARAM l
     case WM_LBUTTONDBLCLK:
         if (s_panning && GetCapture()==window)ReleaseCapture();
         s_panning=false;s_pixel_view=!s_pixel_view;s_pan_x=s_pan_y=0;
+        s_hdr_probe_after=GetTickCount64()+250;
         redraw_controls();
         return 0;
     case WM_MOUSEMOVE:
@@ -1268,6 +1277,7 @@ static LRESULT CALLBACK view_proc(HWND window, UINT msg, WPARAM wparam, LPARAM l
         s_panning=false;
         return 0;
     case WM_CAPTURECHANGED:
+        if (s_panning) s_hdr_probe_after=GetTickCount64()+250;
         s_panning=false;
         return 0;
     default:
