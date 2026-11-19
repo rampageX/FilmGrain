@@ -401,6 +401,11 @@ namespace FilmGrainStudioPreview
                     { reason = "S4 GPU film border requires verified 1920x1080 RGBA texture: " + raw; return false; }
                     filmBorder.GpuRaw = raw;
                 }
+                // The independent R3M8P4 Vulkan->CUDA pass used this FFmpeg binary.
+                // Do not silently switch back to a different FFmpeg build for the GPU experiment.
+                string s4GpuFfmpeg = s4GpuBorder ? (Environment.GetEnvironmentVariable("FGS_S4_GPU_FFMPEG") ?? "").Trim().Trim('"') : "";
+                if (s4GpuBorder && (s4GpuFfmpeg.Length == 0 || !File.Exists(s4GpuFfmpeg)))
+                { reason = "S4 GPU route requires FGS_S4_GPU_FFMPEG pointing to the verified FFmpeg build: " + s4GpuFfmpeg; return false; }
 
                 string filter;
 
@@ -573,6 +578,7 @@ namespace FilmGrainStudioPreview
                 request.InputFiles = requestInputs;
 
                 request.Environment = new Dictionary<string,string>(state, StringComparer.OrdinalIgnoreCase);
+                if (s4GpuBorder) request.Environment["FG_S4_GPU_BORDER_ACTIVE"] = "1";
 
                 if (svp && File.Exists(Path.Combine(appRoot, "_OpenSVPFlow", "_UserConfig", "vapoursynth", "vapoursynth.toml")))
 
@@ -629,8 +635,8 @@ namespace FilmGrainStudioPreview
 
                         string mainStageText = h264?"H.264 NVENC final encode":"HEVC final encode";
 
-                        BridgeExecutionStage mainStage = MakeStage(ffmpeg, workingDirectory, hevcArgs, durationSeconds, (needsHdrWorkfile || needsFieldWorkfile ? 2 : 1), totalStages, mainStageText);
-                        if (s4GpuBorder) mainStage.StageText += " / S4 Vulkan-libplacebo-CUDA experimental border";
+                        BridgeExecutionStage mainStage = MakeStage(s4GpuBorder ? s4GpuFfmpeg : ffmpeg, workingDirectory, hevcArgs, durationSeconds, (needsHdrWorkfile || needsFieldWorkfile ? 2 : 1), totalStages, mainStageText);
+                        if (s4GpuBorder) mainStage.StageText += " / S4 Vulkan-libplacebo-CUDA experimental border / verified FFmpeg / software decode";
 
                         if (svp) SharedSvpCore.AttachProducer(mainStage, vspipe, vpy, svpPlugins, encodeInput, state, fps);
                         if (svp && hdrToSdr) SharedHdrPreprocessCore.AttachPipeTimeline(mainStage,ffprobe,encodeInput,info,hevcArgs,input);

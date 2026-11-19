@@ -593,6 +593,9 @@ namespace FilmGrainStudioPreview
         }
         internal static string ApplyArguments(string tool,string args,IDictionary<string,string> state)
         {
+            // R3M8P4's Vulkan->CUDA branch was validated with software input decoding.
+            // Hardware decode is independently supported but this mixed-device route is not.
+            if(Get(state,"FG_S4_GPU_BORDER_ACTIVE")=="1")return args;
             string backend=Get(state,"FG_HWD_BACKEND");
             if(backend.Length==0||!Path.GetFileName(tool).Equals("ffmpeg.exe",StringComparison.OrdinalIgnoreCase))return args;
             if(backend!="cuda"&&backend!="d3d11va")throw new InvalidOperationException("Invalid hardware decode backend");
@@ -620,6 +623,8 @@ namespace FilmGrainStudioPreview
             out IDictionary<string,string> selected,out string notice)
         {
             selected=null;notice="[HWD] requested=off effective=software";
+            if(request!=null && request.Environment!=null && Get(request.Environment,"FG_S4_GPU_BORDER_ACTIVE")=="1")
+            {notice="[HWD] requested=on effective=software reason=S4 GPU border: use verified software decode before Vulkan->CUDA";return false;}
             if(Get(state,"FG_GPU_DECODE")!="1")return false;
             if(NvencInterpolationCore.Enabled(state)){notice="[HWD] requested=on effective=software fallback=NVEncC interpolation uses explicit avsw; existing device-specific FFmpeg decode paths are unchanged";return false;}
             if(request.SuppressSourceAv1Grain){notice="[HWD] requested=on effective=software reason=external AV1 model replacement requires libdav1d filmgrain=0; GPU filters unchanged";return false;}
