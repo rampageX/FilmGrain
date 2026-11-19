@@ -11,6 +11,7 @@
 
 #include <libplacebo/log.h>
 #include <libplacebo/d3d11.h>
+#include <libplacebo/dispatch.h>
 #include <libplacebo/renderer.h>
 #include <libplacebo/shaders/custom.h>
 #include <libplacebo/shaders/lut.h>
@@ -35,11 +36,10 @@ static pl_swapchain s_swapchain;
 static pl_renderer s_renderer;
 static pl_tex s_textures[3];
 static pl_tex s_plate_textures[3];
-static pl_tex s_border_texture, s_border_content;
-static struct pl_hook s_border_hook;
+static pl_tex s_border_texture, s_border_content, s_border_composite;
+static pl_dispatch s_border_dispatch;
 static const wchar_t *s_border_path;
 static bool s_border_weave;
-static float s_border_origin[2];
 static struct pl_frame s_image;
 static enum pl_color_transfer s_hdr_transfer;
 static bool s_source_full, s_hdr_display;
@@ -1049,9 +1049,10 @@ static bool upload_border_texture(void)
     return okay;
 }
 
-static struct pl_hook_res film_border_hook(void *priv, const struct pl_hook_params *params)
+static bool compose_film_border(void)
 {
-    (void)priv;
+    pl_dispatch_reset_frame(s_border_dispatch);
+    pl_shader sh = pl_dispatch_begin(s_border_dispatch);
     struct fgs_film_border_geometry geometry =
         fgs_film_border_geometry(s_width,s_height,s_frame_seconds,s_border_weave);
     const float frame[] = {(float)s_width,(float)s_height};
@@ -1063,7 +1064,6 @@ static struct pl_hook_res film_border_hook(void *priv, const struct pl_hook_para
         {.var=pl_var_vec2("fgsBorderAperture"),.data=aperture},
         {.var=pl_var_vec2("fgsBorderInset"),.data=inset},
         {.var=pl_var_vec2("fgsBorderShift"),.data=shift,.dynamic=true},
-        {.var=pl_var_vec2("fgsBorderOrigin"),.data=s_border_origin,.dynamic=true},
     };
     const struct pl_shader_desc textures[] = {
         {.desc={.name="fgsBorderPng",.type=PL_DESC_SAMPLED_TEX},
@@ -1072,7 +1072,7 @@ static struct pl_hook_res film_border_hook(void *priv, const struct pl_hook_para
          .binding={.object=s_border_content,.address_mode=PL_TEX_ADDRESS_CLAMP,.sample_mode=PL_TEX_SAMPLE_LINEAR}},
     };
     const char shader[] =
-        "vec2 p = gl_FragCoord.xy + fgsBorderOrigin - fgsBorderShift;\n"
+        "vec2 p = gl_FragCoord.xy - fgsBorderShift;\n"
         "vec2 inset = p - fgsBorderInset;\n"
         "vec3 rgb = vec3(0.0);\n"
         "if (all(greaterThanEqual(p, vec2(0.0))) && all(lessThan(p, fgsBorderSize))) {\n"
@@ -1085,14 +1085,51 @@ static struct pl_hook_res film_border_hook(void *priv, const struct pl_hook_para
         "    rgb = mix(rgb, border.rgb, border.a);\n"
         "}\n"
         "color = vec4(rgb, 1.0);\n";
-    if (!pl_shader_custom(params->sh,&(struct pl_custom_shader){
+    if (!pl_shader_custom(sh,&(struct pl_custom_shader){
         .description="FGS Film Border",
-        .input=PL_SHADER_SIG_COLOR,.output=PL_SHADER_SIG_COLOR,
+        .input=PL_SHADER_SIG_NONE,.output=PL_SHADER_SIG_COLOR,
+        .output_w=s_width,.output_h=s_height,
         .body=shader,.descriptors=textures,.num_descriptors=2,
         .variables=variables,.num_variables=sizeof(variables)/sizeof(variables[0]),
-    })) return (struct pl_hook_res){.failed=true};
-    return (struct pl_hook_res){.output=PL_HOOK_SIG_COLOR,.sh=params->sh,
-        .repr=params->repr,.color=params->color,.components=params->components,.rect=params->rect};
+    })) {
+        pl_dispatch_abort(s_border_dispatch, &sh);
+        return false;
+    }
+    return pl_dispatch_finish(s_border_dispatch, &(struct pl_dispatch_params){
+        .shader=&sh,.target=s_border_composite,
+    });
+}
+
+static bool init_film_border_targets(void)
+{
+    pl_gpu gpu = s_device->gpu;
+    pl_fmt format = pl_find_fmt(gpu, PL_FMT_FLOAT, 4, 16, 0,
+                               PL_FMT_CAP_SAMPLEABLE | PL_FMT_CAP_LINEAR | PL_FMT_CAP_RENDERABLE);
+    if (!format) return false;
+    struct pl_tex_params params = {
+        .w=s_width,.h=s_height,.format=format,.sampleable=true,.renderable=true,
+    };
+    s_border_content = pl_tex_create(gpu,&params);
+    s_border_composite = pl_tex_create(gpu,&params);
+    s_border_dispatch = pl_dispatch_create(s_log,gpu);
+    return s_border_content && s_border_composite && s_border_dispatch;
+}
+
+static bool render_film_border(struct pl_frame source, const struct pl_frame *target,
+                               const struct pl_render_params *params)
+{
+    struct pl_frame intermediate = {
+        .num_planes=1,.planes={{.texture=s_border_content,.components=4,.component_mapping={0,1,2,3}}},
+        .repr=pl_color_repr_rgb,.color=source.color,.crop=s_image.crop,
+    };
+    pl_rect2df output_crop = source.crop;
+    s_plate_origin_x = s_plate_origin_y = 0;
+    source.crop = s_image.crop;
+    if (!pl_render_image(s_renderer,&source,&intermediate,params) || !compose_film_border())
+        return false;
+    intermediate.planes[0].texture = s_border_composite;
+    intermediate.crop = output_crop;
+    return pl_render_image(s_renderer,&intermediate,target,&pl_render_default_params);
 }
 
 static double render_once(bool report)
@@ -1150,28 +1187,15 @@ static double render_once(bool report)
         }
         if (s_display_grain) {params.hooks=pixel_hooks;params.num_hooks=1;}
     }
-    bool okay;
-    if (s_border_path) {
-        struct pl_frame intermediate = {
-            .num_planes=1, .planes={{.texture=s_border_content,.components=3,.component_mapping={0,1,2,-1}}},
-            .repr=pl_color_repr_rgb, .color=s_image.color, .crop=s_image.crop,
-        };
-        pl_rect2df output_crop = source.crop;
-        s_plate_origin_x = s_plate_origin_y = 0;
-        source.crop = s_image.crop;
-        okay = pl_render_image(s_renderer, &source, &intermediate, &params);
-        intermediate.crop = output_crop;
-        s_border_origin[0] = output_crop.x0;
-        s_border_origin[1] = output_crop.y0;
-        const struct pl_hook *hooks[] = {&s_border_hook};
-        struct pl_render_params border_params = pl_render_default_params;
-        border_params.hooks = hooks;
-        border_params.num_hooks = 1;
-        if (okay) okay = pl_render_image(s_renderer, &intermediate, &target, &border_params);
-    } else {
-        okay = pl_render_image(s_renderer, &source, &target, &params);
+    bool okay = s_border_path ? render_film_border(source,&target,&params) :
+        pl_render_image(s_renderer,&source,&target,&params);
+    if (!okay || !pl_swapchain_submit_frame(s_swapchain)) {
+        if (s_border_path) {
+            fprintf(stderr,"Film border GPU render failed\n");
+            PostQuitMessage(7);
+        }
+        return -1;
     }
-    if (!okay || !pl_swapchain_submit_frame(s_swapchain)) return -1;
     pl_swapchain_swap_buffers(s_swapchain);
     /* Completion latency, not merely CPU command-submission time. */
     pl_gpu_finish(s_device->gpu);
@@ -1181,7 +1205,8 @@ static double render_once(bool report)
     if (s_fgsim_mode) swprintf(grain_label,40,L"FGSIM %ls",s_display_grain?s_fgsim_names[s_strength]:L"Off");
     else if (s_digital_mode) swprintf(grain_label,40,L"Digital Grain %.2f",s_display_grain?s_strength/100.0:0.0);
     else swprintf(grain_label,40,L"%ls %d%%",s_plate_mode?L"Plate":L"Grain",s_display_grain?s_strength:0);
-    swprintf(title, 256, L"FGS GPU Preview%ls | %ls | %ls | LUT %d%% | %.2f ms | G / L / ESC",
+    swprintf(title, 256, L"FGS GPU Preview%ls%ls | %ls | %ls | LUT %d%% | %.2f ms | G / L / ESC",
+             s_border_path ? (s_border_weave ? L" [Dark Weave]" : L" [Dark Static]") : L"",
              !s_hdr_transfer ? L"" : pl_color_transfer_is_hdr(swap.color_space.transfer) ? L" [HDR display]" : L" [HDR to SDR display]",
              s_pixel_view?L"1:1":L"Fit",
              grain_label,
@@ -1391,12 +1416,14 @@ static LRESULT CALLBACK window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM
 static void destroy_gpu(void)
 {
     if (s_renderer) pl_renderer_destroy(&s_renderer);
+    if (s_border_dispatch) pl_dispatch_destroy(&s_border_dispatch);
     if (s_device) {
         for (int i=0; i<3; i++) pl_tex_destroy(s_device->gpu, &s_textures[i]);
         for (int i=0; i<3; i++) pl_tex_destroy(s_device->gpu, &s_plate_textures[i]);
         pl_tex_destroy(s_device->gpu,&s_pixel_noise);
         pl_tex_destroy(s_device->gpu,&s_border_texture);
         pl_tex_destroy(s_device->gpu,&s_border_content);
+        pl_tex_destroy(s_device->gpu,&s_border_composite);
     }
     if (s_swapchain) pl_swapchain_destroy(&s_swapchain);
     if (s_device) pl_d3d11_destroy(&s_device);
@@ -1474,9 +1501,53 @@ static int compare_latency(const void *left, const void *right)
     return (a > b) - (a < b);
 }
 
+/* Offscreen audit uses D3D11 WARP on a runner without a physical GPU. */
+static int audit_film_border(void)
+{
+    enum { width = 64, height = 64 };
+    s_width=width;
+    s_height=height;
+    s_log=pl_log_create(PL_API_VER,pl_log_params(.log_cb=pl_log_simple,.log_level=PL_LOG_WARN));
+    if (!s_log) return 8;
+    s_device=pl_d3d11_create(s_log,&(struct pl_d3d11_params){.allow_software=true,.force_software=true});
+    if (!s_device) {destroy_gpu();return 8;}
+    pl_gpu gpu=s_device->gpu;
+    s_renderer=pl_renderer_create(s_log,gpu);
+    unsigned char yuv[width*height*3/2], rgba[width*height*4];
+    memset(yuv,200,width*height);
+    memset(yuv+width*height,128,width*height/2);
+    const unsigned char transparent[16]={0};
+    pl_fmt format=pl_find_fmt(gpu,PL_FMT_UNORM,4,8,8,
+                             PL_FMT_CAP_SAMPLEABLE | PL_FMT_CAP_LINEAR | PL_FMT_CAP_RENDERABLE | PL_FMT_CAP_HOST_READABLE);
+    pl_tex target = format ? pl_tex_create(gpu,&(struct pl_tex_params){
+        .w=width,.h=height,.format=format,.renderable=true,.host_readable=true,
+    }) : NULL;
+    s_border_texture = format ? pl_tex_create(gpu,&(struct pl_tex_params){
+        .w=2,.h=2,.format=format,.sampleable=true,.initial_data=transparent,
+    }) : NULL;
+    bool okay=s_renderer && target && s_border_texture && init_film_border_targets() && upload_frame(yuv,8);
+    if (okay) {
+        struct pl_frame output={
+            .num_planes=1,.planes={{.texture=target,.components=4,.component_mapping={0,1,2,3}}},
+            .repr=pl_color_repr_rgb,.color=s_image.color,.crop=s_image.crop,
+        };
+        okay=render_film_border(s_image,&output,&pl_render_default_params) &&
+             pl_tex_download(gpu,&(struct pl_tex_transfer_params){.tex=target,.ptr=rgba});
+        const size_t middle=(height/2*width+width/2)*4;
+        if (okay) okay=rgba[0]<12 && rgba[1]<12 && rgba[2]<12 &&
+            rgba[middle]>160 && rgba[middle+1]>160 && rgba[middle+2]>160;
+        if (!okay) fprintf(stderr,"Film border pixel audit failed: corner/center check\n");
+    }
+    pl_tex_destroy(gpu,&target);
+    destroy_gpu();
+    if (okay) puts("PASS D3D11 WARP: black frame edge and intact source in the aperture");
+    return okay ? 0 : 8;
+}
+
 int wmain(int argc, wchar_t **argv)
 {
     QueryPerformanceFrequency(&s_frequency);
+    if (argc == 2 && !wcscmp(argv[1], L"--audit-film-border")) return audit_film_border();
     double start = timer_ms();
     if (argc < 6) {
         fwprintf(stderr, L"Usage: %ls FRAME.yuv WIDTH HEIGHT FILMGRN1.tbl|- 8|10 [BENCH_COUNT] [MODEL_TIME_SEC] [LUT.cube] [--fps NUM/DEN --result FILE --grain 0..100 --lut 0..100 --grain-on 0|1 --lut-on 0|1 --video FILE --ffmpeg EXE --duration SECONDS --plate MOV --plate-frame YUV --plate-cycle SECONDS --source-color pq|hlg|pq-full|hlg-full --deinterlace auto|tff|bff]\n", argv[0]);
@@ -1603,10 +1674,6 @@ int wmain(int argc, wchar_t **argv)
         .signature=s_fgsim_mode?UINT64_C(0x464753494d):UINT64_C(0x4647534447),
     };
 
-    s_border_hook = (struct pl_hook){
-        .stages=PL_HOOK_RGB,.input=PL_HOOK_SIG_COLOR,.hook=film_border_hook,
-        .signature=UINT64_C(0x464753424f524445),
-    };
     HINSTANCE instance = GetModuleHandleW(NULL);
     WNDCLASSW wc = {0};
     wc.lpfnWndProc = window_proc;
@@ -1691,15 +1758,8 @@ int wmain(int argc, wchar_t **argv)
     if (s_digital_mode && !load_digital_noise(s_frame_seconds)) {
         fprintf(stderr,"Digital Grain noise initialization failed\n");result=6;goto done;
     }
-    if (s_border_path) {
-        pl_fmt format = pl_find_fmt(s_device->gpu, PL_FMT_FLOAT, 4, 16, 0,
-                                    PL_FMT_CAP_SAMPLEABLE | PL_FMT_CAP_LINEAR | PL_FMT_CAP_RENDERABLE);
-        if (format) s_border_content = pl_tex_create(s_device->gpu,&(struct pl_tex_params){
-            .w=s_width,.h=s_height,.format=format,.sampleable=true,.renderable=true,
-        });
-        if (!s_border_content || !upload_border_texture()) {
-            fprintf(stderr,"Film border GPU texture initialization failed\n");result=6;goto done;
-        }
+    if (s_border_path && (!init_film_border_targets() || !upload_border_texture())) {
+        fprintf(stderr,"Film border GPU texture initialization failed\n");result=6;goto done;
     }
     free(raw); raw = NULL; /* One CPU -> GPU upload, no re-upload per adjustment. */
     free(plate_raw);plate_raw=NULL;
@@ -1772,10 +1832,12 @@ int wmain(int argc, wchar_t **argv)
 
     if (!result) {
         MSG msg;
-        while (GetMessageW(&msg, NULL, 0, 0) > 0) {
+        int message_status;
+        while ((message_status = GetMessageW(&msg, NULL, 0, 0)) > 0) {
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
+        result = message_status < 0 ? 7 : (int)msg.wParam;
     }
 done:
     free(plate_raw);

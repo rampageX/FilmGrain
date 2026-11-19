@@ -43,6 +43,11 @@ jobs:
               . ([scriptblock]::Create($functionAst.Extent.Text))
           }
           Build-GpuAdvancedPreview -StageRoot $env:GITHUB_WORKSPACE
+      - name: Verify film border pixels using D3D11 WARP
+        shell: powershell
+        run: |
+          & .\GpuAdvancedPreview\fgs_gpu_preview.exe --audit-film-border
+          if ($LASTEXITCODE -ne 0) { throw "D3D11 border audit failed: $LASTEXITCODE" }
       - name: Build and audit main application
         shell: cmd
         run: dotnet\build_NET_Preview.bat
