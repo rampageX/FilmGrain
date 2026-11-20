@@ -942,11 +942,8 @@ namespace FilmGrainStudioPreview
             a.Add("-map_metadata"); a.Add("0"); a.Add("-map_chapters"); a.Add("0");
 
             a.Add("-c:v"); a.Add(h264?"h264_nvenc":"hevc_nvenc");
-            // S4 compositing returns software P010 after Vulkan hwdownload.
-            // NVENC accepts this format and uploads it internally to CUDA.
-            // Leave unrelated CUDA-frame paths without a forced software format.
-            if (filmBorder == null || filmBorder.GpuRaw == null ||
-                filter.Contains(",hwdownload,format=p010le,"))
+            // CUDA hardware frames preserve the verified Vulkan->CUDA path; no CPU pix_fmt conversion.
+            if (filmBorder == null || filmBorder.GpuRaw == null)
             { a.Add("-pix_fmt"); a.Add(h264?"yuv420p":"p010le"); }
             a.Add("-gpu"); a.Add("0"); a.Add("-profile:v"); a.Add(h264?"high":"main10");
 
@@ -1752,9 +1749,6 @@ namespace FilmGrainStudioPreview
                 double bottom=Math.Min(cropTop+apertureH/scale,plan.GpuContentY+plan.GpuContentHeight);
                 if (right<=left || bottom<=top) throw new InvalidOperationException("GPU film border has no visible picture area.");
                 Func<double,string> f=delegate(double value) { return value.ToString("0.##########",CultureInfo.InvariantCulture); };
-                // RTX 4080 rejected Vulkan->CUDA external-memory mapping for both
-                // P010 and planar 10-bit. Preserve Vulkan/libplacebo composition,
-                // download the resulting P010 once and let NVENC upload internally.
                 string kernelDynamic = "libplacebo=inputs=2:w="+N(w)+":h="+N(h)+":format=p010le:"+
                     "colorspace=bt2020nc:color_primaries=bt2020:color_trc="+plan.HdrTransfer+":range=limited"+
                     ":crop_x='if(eq(idx,0),"+f(left)+",0)'"+
@@ -1767,7 +1761,7 @@ namespace FilmGrainStudioPreview
                     ":pos_y='if(eq(idx,0),"+f((h-apertureH)/2+(top-cropTop)*scale)+",0)+("+moveY+")'"+
                     ":upscaler=ewa_lanczos:downscaler=ewa_lanczos:tonemapping=clip:peak_detect=false:dithering=none:fillcolor=black";
                 return graph+";"+input+";[fgsfilm_gpu_video][fgsfilm_gpu_png]"+kernelDynamic+
-                    ",hwdownload,format=p010le,setparams=range=limited:color_primaries=bt2020:"+
+                    ",hwupload=derive_device=cuda,setparams=range=limited:color_primaries=bt2020:"+
                     "color_trc="+plan.HdrTransfer+":colorspace=bt2020nc[vout]";
             }
             string kernel = "libplacebo=inputs=2:w=3840:h=2160:format=p010le:"+
@@ -1783,7 +1777,7 @@ namespace FilmGrainStudioPreview
                       ":upscaler=ewa_lanczos:downscaler=ewa_lanczos:"+
                       "tonemapping=clip:peak_detect=false:dithering=none:fillcolor=black";
             return graph + ";" + input + ";[fgsfilm_gpu_video][fgsfilm_gpu_png]" + kernel +
-                ",hwdownload,format=p010le,setparams=range=limited:color_primaries=bt2020:"+
+                ",hwupload=derive_device=cuda,setparams=range=limited:color_primaries=bt2020:"+
                 "color_trc=" + plan.HdrTransfer + ":colorspace=bt2020nc[vout]";
         }
 

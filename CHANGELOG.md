@@ -1,6 +1,6 @@
 ## test/film-border-s4 — 交互式画面构图（待用户实机验收，非正式版）
 
-- RTX 4080 实测 Vulkan→CUDA 直接映射在 HLG 1080p 的 P010 与三平面 10-bit 两种格式均报 `CUDA_ERROR_INVALID_VALUE`；4K TrueHDR 路线也被报告失败。S4 GPU 边框输出统一改为 Vulkan/libplacebo P010 → `hwdownload` → NVENC 软件 P010 输入（编码器自行上传显存），适用 1080p、4K 旧版和非旧版几何路径；保留 10-bit/PQ/HLG 标签、画窗、动态参数，单次编码，无中间视频文件。此回退增加帧传输开销，待 RTX 4080 实测速度与画质。
+- 恢复已验收 S4 GPU 边框 Vulkan/libplacebo P010 → CUDA → NVENC **全 GPU 直通**。撤销 6ac6f389 的 `hwdownload` 中转（RTX 4080 上 4K 降至 4–5 fps）和 6f9bf215 的三平面映射试验，编码核心与 a6a88201 一致；UI、画窗导入、构图、配置记忆及其他后续功能不回退。实机对照：2026-11-07 的 Stable `n9.0.2-48-gd4070a14ce` 能正常运行 GPU 直通，而同日 Git master `N-128546-g2d7eacee24` 报 CUDA 外部显存映射错误。推荐主 FFmpeg 指向 Stable，特殊版 FFmpeg 指向 Git master（取消「与主 FFmpeg 相同」）；FRUC Vulkan / SVT-AV1-HDR 保留特殊版探测。现有 `FGS_S4_GPU_FFMPEG` 测试环境变量仍可单独指定 GPU 边框 FFmpeg。新集成包待 RTX 4080 实机验证。
 
 - 用户 PNG 导入画窗首次预填改为 **1650×720**，记忆上一次成功导入时的宽高；取消/失败不修改记忆，内置边框及旧素材的 1680×748 兼容参数不变。
 

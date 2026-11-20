@@ -21,7 +21,7 @@ left = clamp(FocusX*W - sourceWidth/2, 0, W-sourceWidth)
 top  = clamp(FocusY*H - sourceHeight/2,0, H-sourceHeight)
 ```
 
-图像只在画窗内采样；RGBA PNG 原坐标、文字和齿孔固定。动态 Gate Weave 由原运动模块在合成完成后叠加。CPU 分支沿用原 `scale(force_original_aspect_ratio=increase)` / `crop` / `pad`；非中性参数才启用新的动态裁剪表达式。HDR GPU libplacebo 分支沿用原内容裁剪和色彩元数据设置，只更新图片源裁剪及放置尺寸。HDR GPU 正式编码统一使用 Vulkan/libplacebo P010 → `hwdownload,format=p010le` → NVENC（编码器内部上传 CUDA），包括 1080p、4K 旧版及 VFR 非旧版画窗路线，避免 RTX 4080 已复现的 Vulkan→CUDA 外部内存映射失败。保持 10-bit、PQ/HLG 标签及原画窗/动态算法；需要每帧显存↔主存传输，待 RTX 4080 实测性能。
+图像只在画窗内采样；RGBA PNG 原坐标、文字和齿孔固定。动态 Gate Weave 由原运动模块在合成完成后叠加。CPU 分支沿用原 `scale(force_original_aspect_ratio=increase)` / `crop` / `pad`；非中性参数才启用新的动态裁剪表达式。HDR GPU libplacebo 分支沿用原内容裁剪和色彩元数据设置，只更新图片源裁剪及放置尺寸。HDR GPU 正式编码恢复 S4 F3R8J2 已验收的 Vulkan/libplacebo P010 → `hwupload=derive_device=cuda` → NVENC 全 GPU 直通，覆盖 1080p、4K 旧版与 VFR 可变构图路线，不再为胶片边框引入 `hwdownload`。保持 10-bit、PQ/HLG 标签和原画窗/动态算法。用户已验证 FFmpeg Stable `n9.0.2-48-gd4070a14ce` 可用，而同日 Git master `N-128546-g2d7eacee24` 的外部映射失败。推荐 FGS「主 FFmpeg」选择 Stable，独立「特殊版 FFmpeg」选择 Git master（取消「与主 FFmpeg 相同」）用于 FRUC Vulkan / SVT-AV1-HDR；旧 `FGS_S4_GPU_FFMPEG` 实验覆盖仍有效。
 
 滚轮缩放时保留鼠标当前的原始采样坐标（除非触及边界）；拖动通过取景矩形尺寸换算源像素位移并钳制。缩放范围和焦点限制在本地与命令行解析处一致。切换样式、静态/动态不清空焦点。
 
