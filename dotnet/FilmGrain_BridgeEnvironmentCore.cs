@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -82,6 +82,7 @@ namespace FilmGrainStudioPreview
         public string HdrPolicy = "";
         public string TonemapAlgo = "";
         public string FilmBorderMode = "OFF";
+        public string FilmBorderAmplitude="1",FilmBorderSpeed="1",FilmBorderFrequency="1";
 
         
         
@@ -124,8 +125,9 @@ namespace FilmGrainStudioPreview
             // S2 does not silently ignore this enabled effect on unsupported routes.
             if (!string.IsNullOrEmpty(snapshot.FilmBorderMode) &&
                 !string.Equals(snapshot.FilmBorderMode,"OFF",StringComparison.OrdinalIgnoreCase) &&
-                (snapshot.NoReencode || (snapshot.Mode!="HEVC" && snapshot.Mode!="H264")))
-                throw new NotSupportedException("S2 Film Border supports only HEVC/H264 NVENC re-encode, SDR.");
+                (snapshot.NoReencode || (snapshot.Mode!="HEVC" && snapshot.Mode!="H264" &&
+                    snapshot.Mode!="X265" && snapshot.Mode!="X264")))
+                throw new NotSupportedException("Film Border is available on HEVC/H264 NVENC and x265/x264 video re-encoding.");
             return snapshot.NoReencode ? BuildNoReencode(snapshot) : BuildEncode(snapshot);
         }
 
@@ -224,6 +226,9 @@ namespace FilmGrainStudioPreview
             state["FG_HDR_POLICY"] = snapshot.HdrPolicy;
             state["FG_TONEMAP_ALGO"] = snapshot.TonemapAlgo;
             state["FG_FILM_BORDER_MODE"] = snapshot.FilmBorderMode;
+            state["FG_FILM_BORDER_AMP"] = snapshot.FilmBorderAmplitude;
+            state["FG_FILM_BORDER_SPEED"] = snapshot.FilmBorderSpeed;
+            state["FG_FILM_BORDER_FREQUENCY"] = snapshot.FilmBorderFrequency;
             
             
             

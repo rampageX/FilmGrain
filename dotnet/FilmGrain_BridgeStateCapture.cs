@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -175,6 +175,9 @@ namespace FilmGrainStudioPreview
             snapshot.HdrPolicy = config.Get("HDR_POLICY");
             snapshot.TonemapAlgo = config.Get("TONE_MAP_ALGO");
             snapshot.FilmBorderMode = config.Get("FILM_BORDER_MODE");
+            snapshot.FilmBorderAmplitude=config.Get(FilmBorderMotionCore.AmpKey);
+            snapshot.FilmBorderSpeed=config.Get(FilmBorderMotionCore.SpeedKey);
+            snapshot.FilmBorderFrequency=config.Get(FilmBorderMotionCore.FrequencyKey);
             
             
             

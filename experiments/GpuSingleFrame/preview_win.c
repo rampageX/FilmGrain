@@ -41,7 +41,23 @@ static pl_dispatch s_border_dispatch;
 static const wchar_t *s_border_path;
 static bool s_border_weave;
 static bool s_border_settings;
-static int s_border_mode; /* 0 OFF / 1 static / 2 weave */
+static int s_border_mode; /* legacy OFF/STATIC/WEAVE fallback */
+static const wchar_t *s_border_choices_file;
+static const wchar_t *s_initial_border_mode;
+static HWND s_border_combo;
+static const char *s_border_action="APPLY";
+#define FGS_BORDER_MAX_CHOICES 48
+#define FGS_BORDER_COMBO_ID 301
+struct FgsBorderChoice {
+    char mode[96];
+    wchar_t title[128];
+    wchar_t raw_path[32768];
+    bool user;
+    bool weave;
+};
+static struct FgsBorderChoice s_border_choices[FGS_BORDER_MAX_CHOICES];
+static int s_border_choices_count, s_border_selection;
+static double s_motion_amp=1,s_motion_speed=1,s_motion_frequency=1;
 static struct pl_frame s_image;
 static enum pl_color_transfer s_hdr_transfer;
 static bool s_source_full, s_hdr_display;
@@ -85,7 +101,8 @@ static int s_frame_depth;
 static double s_frame_seconds, s_pending_seconds, s_duration_seconds;
 static uint64_t s_grain_event_start;
 static uint32_t s_fps_num = 30, s_fps_den = 1;
-enum { PANEL_HEIGHT = 210, MSG_SEEK_FRAME = WM_APP+7 };
+enum { PANEL_HEIGHT = 210, BORDER_PANEL_HEIGHT=300, MSG_SEEK_FRAME = WM_APP+7 };
+static int panel_height(void){return s_border_settings?BORDER_PANEL_HEIGHT:PANEL_HEIGHT;}
 static double s_setup_ms;
 static LARGE_INTEGER s_frequency;
 
@@ -184,8 +201,11 @@ static bool write_result(void)
     if (!file) { free(temp); return false; }
     int rc;
     if (s_border_settings) {
-        rc = fprintf(file, "{\"Version\":4,\"FilmBorderMode\":\"%s\"}\n",
-            s_border_mode==2?"DARK_WEAVE":s_border_mode==1?"DARK_STATIC":"OFF");
+        const char *mode=s_border_combo && s_border_choices_count>0 ?
+            s_border_choices[s_border_selection].mode :
+            s_border_mode==2?"DARK_WEAVE":s_border_mode==1?"DARK_STATIC":"OFF";
+        rc = fprintf(file, "{\"Version\":4,\"Action\":\"%s\",\"FilmBorderMode\":\"%s\",\"MotionAmplitude\":%.3f,\"MotionSpeed\":%.3f,\"MotionFrequency\":%.3f}\n",
+            s_border_action,mode,s_motion_amp,s_motion_speed,s_motion_frequency);
     } else if (s_fgsim_mode || s_digital_mode) {
         rc = fprintf(file,
             "{\"Version\":3,\"PixelMode\":\"%s\",\"%s\":%d,"
@@ -239,6 +259,96 @@ static bool read_file(const wchar_t *path, size_t exact_bytes, size_t limit,
     buf[sz] = 0;
     *data = buf;
     if (length) *length = (size_t)sz;
+    return true;
+}
+
+static bool upload_border_texture(void);
+static void redraw_controls(void);
+/* A UTF-16LE catalog is written by the existing FGS managed importer. Each
+ * line contains a stable ASCII mode ID, localized title and validated RGBA path.
+ * Native UI never invents paths or mutates user files. */
+static bool load_border_choices(const wchar_t *path, const wchar_t *initial_mode)
+{
+    unsigned char *bytes=NULL;
+    size_t length=0;
+    if(!read_file(path,0,65534,&bytes,&length))return false;
+    if(length<4 || (length&1) || bytes[0]!=0xff || bytes[1]!=0xfe) {free(bytes);return false;}
+    wchar_t *buffer=calloc(length/2+1,sizeof(wchar_t));
+    if(!buffer){free(bytes);return false;}
+    memcpy(buffer,bytes+2,length-2);
+    free(bytes);
+    wchar_t *line=buffer;
+    for(wchar_t *p=buffer; ; p++) {
+        if(*p==L'\r' || *p==L'\n' || !*p) {
+            bool done=!*p;
+            *p=0;
+            if(*line && s_border_choices_count<FGS_BORDER_MAX_CHOICES) {
+                wchar_t *first=wcschr(line,L'\t');
+                if(first) {
+                    *first++=0;
+                    wchar_t *second=wcschr(first,L'\t');
+                    if(second) {
+                        *second++=0;
+                        struct FgsBorderChoice *c=&s_border_choices[s_border_choices_count];
+                        bool valid=wcslen(line)>0 && wcslen(line)<sizeof(c->mode) &&
+                            wcslen(first)<sizeof(c->title)/sizeof(wchar_t) &&
+                            wcslen(second)<sizeof(c->raw_path)/sizeof(wchar_t);
+                        if(valid)for(const wchar_t *m=line;*m;m++)if(!((*m>=L'A'&&*m<=L'Z')||
+                            (*m>=L'0'&&*m<=L'9')||*m==L'_'))valid=false;
+                        if(valid) {
+                            for(size_t j=0;j<wcslen(line);j++)c->mode[j]=(char)line[j];
+                            wcscpy(c->title,first);
+                            wcscpy(c->raw_path,second);
+                            c->weave=wcsstr(line,L"_WEAVE")!=NULL;
+                            c->user=wcsncmp(line,L"USER_",5)==0;
+                            if(initial_mode && !wcscmp(initial_mode,line))s_border_selection=s_border_choices_count;
+                            s_border_choices_count++;
+                        }
+                    }
+                }
+            }
+            if(done)break;
+            while(p[1]==L'\r' || p[1]==L'\n')p++;
+            line=p+1;
+        }
+    }
+    free(buffer);
+    return s_border_choices_count>=3 && !strcmp(s_border_choices[0].mode,"OFF");
+}
+
+static void border_choice_buttons(const RECT *client,RECT *import,RECT *remove,RECT *edit)
+{
+    int top=client->bottom-panel_height()+(s_video_path?61:21);
+    *import=(RECT){client->right-376,top,client->right-278,top+29};
+    *remove=(RECT){client->right-268,top,client->right-170,top+29};
+    *edit=(RECT){client->right-160,top,client->right-13,top+29};
+}
+static void border_combo_layout(const RECT *client)
+{
+    if(!s_border_combo)return;
+    int top=client->bottom-panel_height()+(s_video_path?61:21);
+    int right=client->right-394;
+    MoveWindow(s_border_combo,144,top,right-144,260,FALSE);
+}
+static bool border_choice_apply(int index,bool reload)
+{
+    if(index<0 || index>=s_border_choices_count)return false;
+    struct FgsBorderChoice *c=&s_border_choices[index];
+    const wchar_t *old=s_border_path;
+    int old_index=s_border_selection;
+    bool old_weave=s_border_weave;
+    s_border_path=c->raw_path;
+    s_border_weave=c->weave;
+    s_border_selection=index;
+    if(reload && old && wcscmp(old,s_border_path)) {
+        if(s_device && s_device->gpu)pl_tex_destroy(s_device->gpu,&s_border_texture);
+        if(!upload_border_texture()) {
+            s_border_selection=old_index;s_border_weave=old_weave;s_border_path=old;
+            if(s_device && s_device->gpu)upload_border_texture();
+            return false;
+        }
+    }
+    redraw_controls();
     return true;
 }
 
@@ -589,7 +699,7 @@ static void track_bounds(RECT *client, int *left, int *right, int *top)
     *left = 144;
     *right = client->right - 150;
     if (*right < *left+24) *right = *left+24;
-    *top = client->bottom-PANEL_HEIGHT;
+    *top = client->bottom-panel_height();
 }
 
 /* Center the frame controls in the space left of the action buttons. */
@@ -658,10 +768,10 @@ static void paint_sliders(HWND window)
     HDC target = BeginPaint(window, &ps);
     RECT client;
     GetClientRect(window, &client);
-    RECT panel = {0, client.bottom-PANEL_HEIGHT, client.right, client.bottom};
+    RECT panel = {0, client.bottom-panel_height(), client.right, client.bottom};
     /* Buffer only the panel, leaving the D3D child and video untouched. */
     HDC memory=CreateCompatibleDC(target);
-    HBITMAP bitmap=memory?CreateCompatibleBitmap(target,client.right,PANEL_HEIGHT):NULL;
+    HBITMAP bitmap=memory?CreateCompatibleBitmap(target,client.right,panel_height()):NULL;
     HGDIOBJ old_bitmap=bitmap?SelectObject(memory,bitmap):NULL;
     HDC dc=bitmap?memory:target;
     if (bitmap) SetWindowOrgEx(dc,0,panel.top,NULL);
@@ -675,7 +785,36 @@ static void paint_sliders(HWND window)
                     s_duration_seconds>0?s_pending_seconds/s_duration_seconds:0.0,true,duration,true);
         y+=40;
     }
-    if (s_border_settings) {
+    if (s_border_settings && s_border_combo) {
+        RECT import,remove,edit;
+        border_choice_buttons(&client,&import,&remove,&edit);
+        RECT label={14,import.top,133,import.bottom};
+        SetBkMode(dc,TRANSPARENT);
+        SetTextColor(dc,RGB(235,237,240));
+        DrawTextW(dc,L"边框样式",-1,&label,DT_RIGHT|DT_VCENTER|DT_SINGLELINE);
+        HBRUSH normal=CreateSolidBrush(RGB(27,28,30));
+        HBRUSH disabled=CreateSolidBrush(RGB(47,48,50));
+        FillRect(dc,&import,normal);
+        bool can_delete=s_border_selection>=0 && s_border_selection<s_border_choices_count &&
+            s_border_choices[s_border_selection].user;
+        FillRect(dc,&remove,can_delete?normal:disabled);
+        bool classic=!strncmp(s_border_choices[s_border_selection].mode,"CLASSIC_",8);
+        FillRect(dc,&edit,classic?normal:disabled);
+        SetTextColor(dc,RGB(235,237,240));
+        DrawTextW(dc,L"导入...",-1,&import,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+        SetTextColor(dc,can_delete?RGB(235,237,240):RGB(135,139,143));
+        DrawTextW(dc,L"删除",-1,&remove,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+        SetTextColor(dc,classic?RGB(235,237,240):RGB(135,139,143));
+        DrawTextW(dc,L"编辑边印文字",-1,&edit,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+        DeleteObject(normal);DeleteObject(disabled);
+        wchar_t motion_value[40];
+        swprintf(motion_value,40,L"%.2f x",s_motion_amp);
+        draw_slider(dc,&client,panel.top+130,L"晃动幅度",s_motion_amp/3.,true,motion_value,false);
+        swprintf(motion_value,40,L"%.2f x",s_motion_speed);
+        draw_slider(dc,&client,panel.top+170,L"晃动速度",(s_motion_speed-.25)/2.75,true,motion_value,false);
+        swprintf(motion_value,40,L"%.2f x",s_motion_frequency);
+        draw_slider(dc,&client,panel.top+210,L"随机频率",(s_motion_frequency-.25)/2.75,true,motion_value,false);
+    } else if (s_border_settings) {
         const wchar_t *mode=s_border_mode==2?L"动态 · Gate Weave":s_border_mode==1?L"静态 · Dark":L"关闭";
         draw_slider(dc,&client,y,L"添加边框",s_border_mode/2.0,true,mode,false);
     } else {
@@ -706,7 +845,7 @@ static void paint_sliders(HWND window)
         DrawTextW(dc,L"跳转",-1,&seek_btn,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
         DeleteObject(gray);
     }
-    RECT info={14,panel.top+126,s_result_path?client.right-256:client.right-14,client.bottom-50};
+    RECT info={14,panel.top+(s_border_settings?238:126),s_result_path?client.right-256:client.right-14,client.bottom-50};
     SetBkMode(dc,TRANSPARENT);
     if (s_combined_grade) {
         RECT notice=info;notice.bottom=notice.top+17;
@@ -735,7 +874,7 @@ static void paint_sliders(HWND window)
     }
     if (old_font) SelectObject(dc, old_font);
     if (bitmap) {
-        BitBlt(target,0,panel.top,client.right,PANEL_HEIGHT,dc,0,panel.top,SRCCOPY);
+        BitBlt(target,0,panel.top,client.right,panel_height(),dc,0,panel.top,SRCCOPY);
         SelectObject(memory,old_bitmap);DeleteObject(bitmap);
     }
     if (memory) DeleteDC(memory);
@@ -746,7 +885,7 @@ static void redraw_controls(void)
 {
     if (s_window) {
         RECT client; GetClientRect(s_window, &client);
-        RECT panel = {0, client.bottom-PANEL_HEIGHT, client.right, client.bottom};
+        RECT panel = {0, client.bottom-panel_height(), client.right, client.bottom};
         InvalidateRect(s_window, &panel, FALSE);
     }
     if (s_view) InvalidateRect(s_view, NULL, FALSE);
@@ -999,6 +1138,19 @@ static void change_slider(int kind, int x)
     if (kind == 2 && !s_lut_source) return;
     if (kind == 1 && !s_has_grain) return;
     if (kind == 3) {change_frame_position(x);return;}
+    if(kind>=5 && kind<=7) {
+        RECT client;GetClientRect(s_window,&client);
+        int left,right,top;track_bounds(&client,&left,&right,&top);
+        double fraction=(double)(x-left)/(right-left);
+        if(fraction<0)fraction=0;
+        if(fraction>1)fraction=1;
+        double value=kind==5?fraction*3:0.25+fraction*2.75;
+        value=floor(value*100.+.5)/100.;
+        if(kind==5)s_motion_amp=value;
+        else if(kind==6)s_motion_speed=value;
+        else s_motion_frequency=value;
+        redraw_controls();return;
+    }
     if (kind == 4) {
         RECT client;GetClientRect(s_window,&client);
         int left,right,top;track_bounds(&client,&left,&right,&top);
@@ -1079,7 +1231,8 @@ static bool compose_film_border(void)
     pl_dispatch_reset_frame(s_border_dispatch);
     pl_shader sh = pl_dispatch_begin(s_border_dispatch);
     struct fgs_film_border_geometry geometry =
-        fgs_film_border_geometry(s_width,s_height,s_frame_seconds,s_border_weave);
+        fgs_film_border_geometry_adjusted(s_width,s_height,s_frame_seconds,s_border_weave,
+            s_motion_amp,s_motion_speed,s_motion_frequency);
     const float frame[] = {(float)s_width,(float)s_height};
     const float aperture[] = {(float)geometry.aperture_width,(float)geometry.aperture_height};
     const float inset[] = {(float)geometry.aperture_x,(float)geometry.aperture_y};
@@ -1212,7 +1365,8 @@ static double render_once(bool report)
         }
         if (s_display_grain) {params.hooks=pixel_hooks;params.num_hooks=1;}
     }
-    bool border_visible=s_border_path && (!s_border_settings || s_border_mode!=0);
+    bool border_visible=s_border_path && (!s_border_settings ||
+        (s_border_combo ? strcmp(s_border_choices[s_border_selection].mode,"OFF")!=0 : s_border_mode!=0));
     bool okay = border_visible ? render_film_border(source,&target,&params) :
         pl_render_image(s_renderer,&source,&target,&params);
     if (!okay || !pl_swapchain_submit_frame(s_swapchain)) {
@@ -1233,7 +1387,9 @@ static double render_once(bool report)
     else swprintf(grain_label,40,L"%ls %d%%",s_plate_mode?L"Plate":L"Grain",s_display_grain?s_strength:0);
     if(s_border_settings)
         swprintf(title,256,L"FGS 添加边框 | %ls | %ls | %.2f ms",
-            s_border_mode==2?L"动态":s_border_mode==1?L"静态":L"关闭",s_pixel_view?L"1:1":L"Fit",delta);
+            s_border_combo?s_border_choices[s_border_selection].title:
+                s_border_mode==2?L"动态":s_border_mode==1?L"静态":L"关闭",
+            s_pixel_view?L"1:1":L"Fit",delta);
     else swprintf(title, 256, L"FGS GPU Preview%ls%ls | %ls | %ls | LUT %d%% | %.2f ms | G / L / ESC",
              s_border_path ? (s_border_weave ? L" [Dark Weave]" : L" [Dark Static]") : L"",
              !s_hdr_transfer ? L"" : pl_color_transfer_is_hdr(swap.color_space.transfer) ? L" [HDR display]" : L" [HDR to SDR display]",
@@ -1306,7 +1462,7 @@ static LRESULT CALLBACK window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM
     switch (msg) {
     case WM_LBUTTONDOWN: {
         RECT client; GetClientRect(window, &client);
-        int top = client.bottom-PANEL_HEIGHT;
+        int top = client.bottom-panel_height();
         int y = (short)HIWORD(lparam);
         int x = (short)LOWORD(lparam);
         POINT point={x,y};
@@ -1319,6 +1475,28 @@ static LRESULT CALLBACK window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM
                 return 0;
             }
             if (PtInRect(&cancel,point)) {DestroyWindow(window);return 0;}
+        }
+        if(s_border_settings && s_border_combo) {
+            RECT import,remove,edit;border_choice_buttons(&client,&import,&remove,&edit);
+            if(PtInRect(&import,point)) {
+                s_border_action="IMPORT";
+                if(write_result())DestroyWindow(window);
+                return 0;
+            }
+            if(PtInRect(&edit,point)) {
+                if(!strncmp(s_border_choices[s_border_selection].mode,"CLASSIC_",8)) {
+                    s_border_action="EDIT";
+                    if(write_result())DestroyWindow(window);
+                }
+                return 0;
+            }
+            if(PtInRect(&remove,point)) {
+                if(s_border_choices[s_border_selection].user) {
+                    s_border_action="DELETE";
+                    if(write_result())DestroyWindow(window);
+                }
+                return 0;
+            }
         }
         if (s_video_path) {
             RECT edit,random_btn,seek_btn;
@@ -1337,7 +1515,12 @@ static LRESULT CALLBACK window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM
         track_bounds(&client, &left, &right, &unused_top);
         if (x < left-14 || x > right+14) return 0;
         int row = y >= top+8 && y < top+128 ? (y-top-8)/40 : -1;
-        int kind = s_border_settings ? (s_video_path?(row==0?3:row==1?4:0):(row==0?4:0)) :
+        int kind = s_border_settings ?
+                   (s_border_combo ? (y>=top+116 && y<top+146 ? 5 :
+                                     y>=top+156 && y<top+186 ? 6 :
+                                     y>=top+196 && y<top+226 ? 7 :
+                                     s_video_path && row==0 ? 3 : 0) :
+                    (s_video_path?(row==0?3:row==1?4:0):(row==0?4:0))) :
                    (s_video_path?(row==0?3:row==1?1:row==2?2:0):(row==0?1:row==1?2:0));
         if (kind == 2 && !s_lut_source) kind = 0;
         if (!kind) return 0;
@@ -1363,6 +1546,42 @@ static LRESULT CALLBACK window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM
     case WM_CAPTURECHANGED:
         s_drag_kind = 0;
         return 0;
+    case WM_COMMAND:
+        if(s_border_combo && (HWND)lparam==s_border_combo && HIWORD(wparam)==CBN_SELCHANGE) {
+            int index=(int)SendMessageW(s_border_combo,CB_GETCURSEL,0,0);
+            if(!border_choice_apply(index,true)) {
+                SendMessageW(s_border_combo,CB_SETCURSEL,s_border_selection,0);
+                MessageBoxW(window,L"GPU 边框纹理切换失败，保留原样式。",L"添加边框",MB_OK|MB_ICONERROR);
+            }
+            return 0;
+        }
+        return DefWindowProcW(window,msg,wparam,lparam);
+    case WM_MEASUREITEM: {
+        MEASUREITEMSTRUCT *m=(MEASUREITEMSTRUCT *)lparam;
+        if(m->CtlID==FGS_BORDER_COMBO_ID){m->itemHeight=25;return TRUE;}
+        return DefWindowProcW(window,msg,wparam,lparam);
+    }
+    case WM_DRAWITEM: {
+        DRAWITEMSTRUCT *d=(DRAWITEMSTRUCT *)lparam;
+        if(d->CtlID!=FGS_BORDER_COMBO_ID)return DefWindowProcW(window,msg,wparam,lparam);
+        HBRUSH brush=CreateSolidBrush((d->itemState&ODS_SELECTED)?RGB(48,80,73):RGB(27,28,30));
+        FillRect(d->hDC,&d->rcItem,brush);DeleteObject(brush);
+        if(d->itemID!=(UINT)-1 && d->itemID<(UINT)s_border_choices_count) {
+            RECT text=d->rcItem;text.left+=9;
+            SetBkMode(d->hDC,TRANSPARENT);SetTextColor(d->hDC,RGB(235,237,240));
+            DrawTextW(d->hDC,s_border_choices[d->itemID].title,-1,&text,
+                DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+        }
+        return TRUE;
+    }
+    case WM_CTLCOLORLISTBOX:
+        if(s_border_combo && (HWND)lparam==s_border_combo && s_edit_brush) {
+            SetBkMode((HDC)wparam,TRANSPARENT);
+            SetTextColor((HDC)wparam,RGB(235,237,240));
+            SetBkColor((HDC)wparam,RGB(27,28,30));
+            return (LRESULT)s_edit_brush;
+        }
+        return DefWindowProcW(window,msg,wparam,lparam);
     case WM_GETMINMAXINFO: {
         MINMAXINFO *limits = (MINMAXINFO *)lparam;
         limits->ptMinTrackSize.x = 820;
@@ -1387,7 +1606,7 @@ static LRESULT CALLBACK window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM
             else MessageBoxW(window, L"无法写入调整结果。", L"FGS GPU 预览", MB_ICONERROR|MB_OK);
             return 0;
         }
-        if(s_border_settings && (wparam=='B'||wparam==VK_LEFT||wparam==VK_RIGHT)) {
+        if(s_border_settings && !s_border_combo && (wparam=='B'||wparam==VK_LEFT||wparam==VK_RIGHT)) {
             int step=wparam==VK_LEFT?-1:1;
             s_border_mode=(s_border_mode+step+3)%3;
             s_border_weave=s_border_mode==2;
@@ -1424,9 +1643,10 @@ static LRESULT CALLBACK window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM
         return 0;
     case WM_SIZE: {
         RECT client; GetClientRect(window, &client);
-        int view_height = client.bottom-PANEL_HEIGHT;
+        int view_height = client.bottom-panel_height();
         if (view_height < 1) view_height = 1;
         if (s_view) MoveWindow(s_view, 0, 0, client.right, view_height, TRUE);
+        if(s_border_combo)border_combo_layout(&client);
         if (s_time_edit) {
             RECT edit,random_btn,seek_btn;
             int hint_left;
@@ -1624,12 +1844,25 @@ int wmain(int argc, wchar_t **argv)
             if(!int_arg(value,0,1,&flag))return 2;
             s_border_settings=flag!=0;
         }
+        else if (!wcscmp(key, L"--border-choices-file")) s_border_choices_file=value;
+        else if (!wcscmp(key,L"--film-motion-amp") ||
+                 !wcscmp(key,L"--film-motion-speed") ||
+                 !wcscmp(key,L"--film-motion-frequency")) {
+            wchar_t *end=NULL;
+            double x=wcstod(value,&end);
+            double min=!wcscmp(key,L"--film-motion-amp")?0.0:0.25;
+            if(end==value||*end||!isfinite(x)||x<min||x>3.0)return 2;
+            if(!wcscmp(key,L"--film-motion-amp"))s_motion_amp=x;
+            else if(!wcscmp(key,L"--film-motion-speed"))s_motion_speed=x;
+            else s_motion_frequency=x;
+        }
         else if (!wcscmp(key, L"--film-border-mode")) {
             if(!wcscmp(value,L"OFF"))s_border_mode=0;
             else if(!wcscmp(value,L"DARK_STATIC"))s_border_mode=1;
             else if(!wcscmp(value,L"DARK_WEAVE"))s_border_mode=2;
-            else return 2;
+            else if(wcsncmp(value,L"USER_",5)!=0) return 2;
             s_border_weave=s_border_mode==2;
+            s_initial_border_mode=value;
         }
         else if (!wcscmp(key, L"--film-weave")) {if (!int_arg(value,0,1,&flag)) return 2;s_border_weave=flag!=0;}
         else if (!wcscmp(key, L"--plate")) s_plate_path = value;
@@ -1687,6 +1920,15 @@ int wmain(int argc, wchar_t **argv)
         (s_strength < 0 || s_strength > 100) || (s_plate_mode && depth != 10)) {
         fprintf(stderr, "Invalid even dimensions, bit depth, bench count or timeline seconds\n");
         return 2;
+    }
+    if(s_border_settings && s_border_choices_file &&
+       !load_border_choices(s_border_choices_file,s_initial_border_mode?
+             s_initial_border_mode:L"OFF")) {
+        fprintf(stderr,"Film border choices file is invalid\n");return 2;
+    }
+    if(s_border_choices_count) {
+        s_border_path=s_border_choices[s_border_selection].raw_path;
+        s_border_weave=s_border_choices[s_border_selection].weave;
     }
     s_frame_path=argv[1];s_frame_depth=depth;
     s_frame_seconds=s_pending_seconds=(double)timeline_ticks/10000000.0;
@@ -1755,7 +1997,7 @@ int wmain(int argc, wchar_t **argv)
                 WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,
                 CW_USEDEFAULT, CW_USEDEFAULT,
                 s_width < 1280 ? (s_width+32 < 820 ? 820 : s_width+32) : 1280,
-                s_height < 720 ? s_height+PANEL_HEIGHT+58 : 880,
+                s_height < 720 ? s_height+panel_height()+58 : 880,
                 NULL, NULL, instance, NULL);
     if (!s_window) {free(raw);free(plate_raw);return 5;}
     SendMessageW(s_window, WM_SETICON, ICON_SMALL, (LPARAM)LoadImageW(instance,
@@ -1775,7 +2017,25 @@ int wmain(int argc, wchar_t **argv)
         s_original_edit_proc=(WNDPROC)SetWindowLongPtrW(s_time_edit,GWLP_WNDPROC,(LONG_PTR)frame_edit_proc);
         update_frame_time_text(s_frame_seconds);
     }
-    int view_height = client.bottom-PANEL_HEIGHT;
+    if(s_border_settings && s_border_choices_count) {
+        s_border_combo=CreateWindowExW(0,L"COMBOBOX",L"",
+            WS_CHILD|WS_VISIBLE|WS_TABSTOP|WS_VSCROLL|CBS_DROPDOWNLIST|CBS_OWNERDRAWFIXED|CBS_HASSTRINGS,
+            144,client.bottom-panel_height()+(s_video_path?61:21),
+            client.right-414,260,s_window,(HMENU)(INT_PTR)FGS_BORDER_COMBO_ID,instance,NULL);
+        if(!s_border_combo){free(raw);free(plate_raw);DestroyWindow(s_window);return 5;}
+        if(s_panel_font)SendMessageW(s_border_combo,WM_SETFONT,(WPARAM)s_panel_font,TRUE);
+        HMODULE theme=LoadLibraryW(L"uxtheme.dll");
+        if(theme) {
+            typedef HRESULT (WINAPI *SetWindowThemeFn)(HWND,LPCWSTR,LPCWSTR);
+            SetWindowThemeFn set_theme=(SetWindowThemeFn)GetProcAddress(theme,"SetWindowTheme");
+            if(set_theme)set_theme(s_border_combo,L"DarkMode_CFD",NULL);
+            FreeLibrary(theme);
+        }
+        for(int i=0;i<s_border_choices_count;i++)
+            SendMessageW(s_border_combo,CB_ADDSTRING,0,(LPARAM)s_border_choices[i].title);
+        SendMessageW(s_border_combo,CB_SETCURSEL,s_border_selection,0);
+    }
+    int view_height = client.bottom-panel_height();
     if (view_height < 1) view_height = 1;
     s_view = CreateWindowExW(0, view_class.lpszClassName, NULL,
                 WS_CHILD|WS_VISIBLE|WS_CLIPSIBLINGS,

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -1190,13 +1190,16 @@ namespace FilmGrainStudioPreview
             t.Controls.Add(btnPreprocess,0,0);t.SetColumnSpan(btnPreprocess,2);
             // Reuse ThemeButton; the existing four-bar painter now occupies one tighter row.
             btnFilmBorder = new ThemeButton { Name = "FILM_BORDER_BUTTON",
-                Text = UiText("添加边框", "Film Border"), Size = new Size(132, 28),
-                Anchor = AnchorStyles.None, Margin = Padding.Empty };
+                Text = UiText("添加边框", "Film Border"), Dock = DockStyle.Fill,
+                Margin = new Padding(3,4,8,4) };
             btnFilmBorder.Click += delegate { OpenFilmBorderSettings(); };
             lutToolTip.SetToolTip(btnFilmBorder, UiText(
                 "独立 GPU 边框预览：关闭 / 静态 / 动态；点击应用后写入编码设置。",
                 "GPU border preview: Off / Static / Weave; apply to encoding."));
             t.Controls.Add(btnFilmBorder, 0, 12); t.SetColumnSpan(btnFilmBorder, 2);
+            UpdateFilmBorderButton();
+            UpdateFilmBorderButton();
+            UpdateFilmBorderButton();
             var resourceMonitor = new ResourceMonitorPanel(UiText("内存", "RAM"), UiText("显存", "VRAM"));
             resourceMonitor.Font = UiFont(8f, FontStyle.Regular);
             t.Controls.Add(resourceMonitor, 0, 13); t.SetColumnSpan(resourceMonitor, 2);

@@ -14,6 +14,10 @@ namespace FilmGrainStudioPreview
     {
         public int Version { get; set; }
         public string FilmBorderMode { get; set; }
+        public string Action { get; set; }
+        public double MotionAmplitude { get; set; }
+        public double MotionSpeed { get; set; }
+        public double MotionFrequency { get; set; }
         public string PixelMode { get; set; }
         public int PlateStrength { get; set; }
         public int FgsimPreset { get; set; }
@@ -27,6 +31,8 @@ namespace FilmGrainStudioPreview
     {
         private bool gpuAdvancedPreviewBusy;
         private bool filmBorderSettingsBusy;
+        private double? borderPreviewAmp, borderPreviewSpeed, borderPreviewFrequency;
+        private string borderPreviewPendingMode;
         private readonly object gpuPreviewProcessLock = new object();
         private Process gpuPreviewProcess;
         private bool gpuPreviewOwnerClosed;
@@ -451,11 +457,16 @@ namespace FilmGrainStudioPreview
             if (string.IsNullOrEmpty(input) || !mediaProbeCache.TryGetValue(input, out media)) {
                 FgsMessageBox.Show(this, UiText("请先选择并探测一个视频。", "Select and probe a video first.")); return;
             }
-            if (cmbCodec.SelectedIndex != 1 && cmbCodec.SelectedIndex != 3) {
-                FgsMessageBox.Show(this, UiText("边框支持 HEVC/H.264 NVENC。", "Borders support HEVC/H.264 NVENC.")); return;
+            if (cmbCodec.SelectedIndex == 0 || cmbCodec.SelectedIndex == 4 ||
+                (cmbCodec.SelectedIndex == 2 && CpuCodec() == "SVT")) {
+                FgsMessageBox.Show(this, UiText("AV1 视频边框编码尚未接入。", "AV1 video borders are not integrated.")); return;
             }
-            if (media.IsHdr && (cmbCodec.SelectedIndex != 1 || !UsesHdrColorPreview(media))) {
-                FgsMessageBox.Show(this, UiText("HDR 边框需要 HEVC NVENC 保留 HDR。", "HDR borders require HEVC NVENC HDR preservation.")); return;
+            bool borderHdrPreserved = cmbCodec.SelectedIndex == 2 && CpuCodec() == "X265"
+                ? !SharedGrainCore.CpuHdrToSdr(media,CaptureCpuHdrRouteState())
+                : UsesHdrColorPreview(media);
+            if (media.IsHdr && !borderHdrPreserved) {
+                FgsMessageBox.Show(this, UiText("当前编码路线会将 HDR 转成 SDR，暂不支持边框 HDR 预览。",
+                    "This encoding route converts HDR to SDR; HDR border preview is not available.")); return;
             }
             bool full = media.ColorRange == "pc" || media.ColorRange == "jpeg";
             bool colorOk = media.IsHdr
@@ -474,8 +485,14 @@ namespace FilmGrainStudioPreview
                 FgsMessageBox.Show(this, UiText("胶片边框素材、FFmpeg 或 GPU 预览程序缺失。",
                     "Border asset, FFmpeg or GPU preview executable is missing.")); return;
             }
-            string saved = config.Get("FILM_BORDER_MODE");
-            string mode = saved == "DARK_STATIC" || saved == "DARK_WEAVE" ? saved : "OFF";
+            string saved = borderPreviewPendingMode ?? config.Get("FILM_BORDER_MODE");
+            FilmBorderChoice selectedChoice;string resolveError;
+            string mode = FilmBorderCatalogCore.TryResolve(appRoot,saved,out selectedChoice,out resolveError) ? selectedChoice.Mode : "OFF";
+            borderPreviewPendingMode=null;
+            double amp=borderPreviewAmp ?? FilmBorderMotionCore.Parse(config.Get(FilmBorderMotionCore.AmpKey),0,3);
+            double speed=borderPreviewSpeed ?? FilmBorderMotionCore.Parse(config.Get(FilmBorderMotionCore.SpeedKey),0.25,3);
+            double frequency=borderPreviewFrequency ?? FilmBorderMotionCore.Parse(config.Get(FilmBorderMotionCore.FrequencyKey),0.25,3);
+            borderPreviewAmp=borderPreviewSpeed=borderPreviewFrequency=null;
             int codec = cmbCodec.SelectedIndex;
             bool independent = independentFiles;
             string work = Path.Combine(Path.GetTempPath(), "FilmGrain_Studio",
@@ -484,7 +501,8 @@ namespace FilmGrainStudioPreview
             btnFilmBorder.Enabled = false;
             btnGpuAdvancedPreview.Enabled = false;
             var worker = new Thread(delegate() {
-                string error = "", selected = null;
+                string error = "", selected = null, action = null;
+                double resultAmp=amp,resultSpeed=speed,resultFrequency=frequency;
                 try {
                     if (media.Identity != null) media.Identity.RequireCurrent();
                     Directory.CreateDirectory(work);
@@ -493,7 +511,7 @@ namespace FilmGrainStudioPreview
                         double.IsNaN(duration) || double.IsInfinity(duration) || duration < 0) duration = 0;
                     double seconds = duration > 0 ? NativeGrainPreviewForm.ChooseInitialSeconds(duration, 0.5) : 0;
                     int width = media.Width & ~1, height = media.Height & ~1;
-                    string frame = Path.Combine(work, "frame.yuv"), border = Path.Combine(work, "border.rgba");
+                    string frame = Path.Combine(work, "frame.yuv");
                     string result = Path.Combine(work, "settings.json");
                     string parity = media.IsInterlaced
                         ? SharedHdrPreprocessCore.ResolveDeinterlaceParity("parity=auto", media).Substring("parity=".Length)
@@ -508,20 +526,17 @@ namespace FilmGrainStudioPreview
                     int rc=NativeLibraryTools.RunProcessEnvironment(ffmpeg,fargs,work,null,120000,CancellationToken.None,null);
                     if(rc!=0 || !File.Exists(frame) || new FileInfo(frame).Length!=(long)width*height*3)
                         throw new InvalidDataException("胶片边框预览抽帧失败。");
-                    var bargs=new List<string>{"-hide_banner","-nostdin","-v","error","-y","-i",asset,"-frames:v","1"};
-                    if(media.IsHdr) bargs.AddRange(new[]{"-vf",
-                        "format=gbrap16le,zscale=matrixin=gbr:primariesin=709:transferin=iec61966-2-1:rangein=full"+
-                        ":matrix=gbr:primaries=2020:transfer="+media.ColorTransfer+":range=full:npl=100:threads=1"});
-                    bargs.AddRange(new[]{"-pix_fmt",media.IsHdr?"rgba64le":"rgba","-f","rawvideo",border});
-                    rc=NativeLibraryTools.RunProcessEnvironment(ffmpeg,bargs,work,null,30000,CancellationToken.None,null);
-                    if(rc!=0 || !File.Exists(border) ||
-                        new FileInfo(border).Length!=1920L*1080*(media.IsHdr?8:4))
-                        throw new InvalidDataException("胶片边框纹理准备失败。");
+                    string choices = FilmBorderCatalogCore.CreatePreviewChoices(appRoot,ffmpeg,work,
+                        media.IsHdr,media.ColorTransfer,CancellationToken.None);
                     var args=new List<string>{frame,width.ToString(CultureInfo.InvariantCulture),
                         height.ToString(CultureInfo.InvariantCulture),"-","10","0",
                         seconds.ToString("0.######",CultureInfo.InvariantCulture),
                         "--result",result,"--grain","0","--grain-on","0","--lut-on","0",
-                        "--film-border",border,"--film-border-settings","1","--film-border-mode",mode};
+                        "--film-border",asset,"--film-border-settings","1","--film-border-mode",mode,
+                        "--film-motion-amp",amp.ToString("0.###",CultureInfo.InvariantCulture),
+                        "--film-motion-speed",speed.ToString("0.###",CultureInfo.InvariantCulture),
+                        "--film-motion-frequency",frequency.ToString("0.###",CultureInfo.InvariantCulture),
+                        "--border-choices-file",choices};
                     if(duration>0)args.AddRange(new[]{"--video",input,"--ffmpeg",ffmpeg,"--duration",
                         Math.Min(86400,duration).ToString("0.######",CultureInfo.InvariantCulture)});
                     if(media.IsHdr)args.AddRange(new[]{"--source-color",
@@ -531,11 +546,19 @@ namespace FilmGrainStudioPreview
                     if(File.Exists(result)) {
                         var applied=new JavaScriptSerializer().Deserialize<GpuAdvancedPreviewResult>(
                             File.ReadAllText(result,Encoding.UTF8));
+                        FilmBorderChoice resolved;string why;
                         if(applied==null || applied.Version!=4 ||
-                           (applied.FilmBorderMode!="OFF" && applied.FilmBorderMode!="DARK_STATIC" &&
-                            applied.FilmBorderMode!="DARK_WEAVE"))
-                            throw new InvalidDataException("边框模式回传无效。");
-                        selected=applied.FilmBorderMode;
+                           !FilmBorderCatalogCore.TryResolve(appRoot,applied.FilmBorderMode,out resolved,out why))
+                            throw new InvalidDataException("边框模式回传无效："+why);
+                        selected=resolved.Mode;
+                        action=applied.Action??"APPLY";
+                        resultAmp=applied.MotionAmplitude;
+                        resultSpeed=applied.MotionSpeed;
+                        resultFrequency=applied.MotionFrequency;
+                        if(resultAmp<0 || resultAmp>3 || resultSpeed<0.25 || resultSpeed>3 ||
+                            resultFrequency<0.25 || resultFrequency>3 ||
+                            double.IsNaN(resultAmp) || double.IsNaN(resultSpeed) || double.IsNaN(resultFrequency))
+                            throw new InvalidDataException("投影运动参数无效。");
                     }
                 } catch(Exception ex){error=ex.Message;}
                 finally {
@@ -548,6 +571,25 @@ namespace FilmGrainStudioPreview
                             AppendLog("[Film Border] "+error+Environment.NewLine);
                             FgsMessageBox.Show(this,error,Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);
                         } else if(selected!=null) {
+                            if(action=="IMPORT" || action=="DELETE" || action=="EDIT") {
+                                borderPreviewAmp=resultAmp;
+                                borderPreviewSpeed=resultSpeed;
+                                borderPreviewFrequency=resultFrequency;
+                            }
+                            if(action=="EDIT") {
+                                borderPreviewPendingMode=selected;
+                                EditClassicFilmText();
+                                return;
+                            }
+                            if(action=="IMPORT") {
+                                ImportFilmBorderFromPreview();
+                                return;
+                            }
+                            if(action=="DELETE") {
+                                DeleteFilmBorderFromPreview(selected);
+                                return;
+                            }
+                            if(action!="APPLY")return;
                             if((bridgeTaskCoordinator!=null && bridgeTaskCoordinator.IsActive) ||
                                independentFiles!=independent || cmbCodec.SelectedIndex!=codec ||
                                !string.Equals(GetPreviewVideoPath(),input,StringComparison.OrdinalIgnoreCase)){
@@ -556,7 +598,13 @@ namespace FilmGrainStudioPreview
                                 return;
                             }
                             try {
-                                config.SaveValue("FILM_BORDER_MODE",selected);
+                                config.Save(new Dictionary<string,string> {
+                                    {"FILM_BORDER_MODE",selected},
+                                    {FilmBorderMotionCore.AmpKey,resultAmp.ToString("0.###",CultureInfo.InvariantCulture)},
+                                    {FilmBorderMotionCore.SpeedKey,resultSpeed.ToString("0.###",CultureInfo.InvariantCulture)},
+                                    {FilmBorderMotionCore.FrequencyKey,resultFrequency.ToString("0.###",CultureInfo.InvariantCulture)}
+                                });
+                                UpdateFilmBorderButton();
                                 AppendLog("[Film Border] "+selected+Environment.NewLine);
                                 UpdateHdrRouteStatus(GetSelectedMediaInfo());
                             } catch(Exception ex){FgsMessageBox.Show(this,ex.Message);}
@@ -566,6 +614,82 @@ namespace FilmGrainStudioPreview
             });
             worker.IsBackground=true;
             worker.Start();
+        }
+
+        private void UpdateFilmBorderButton()
+        {
+            if(btnFilmBorder==null)return;
+            string mode=config.Get("FILM_BORDER_MODE");
+            FilmBorderChoice choice;string error;
+            if(!FilmBorderCatalogCore.TryResolve(appRoot,mode,out choice,out error))
+                btnFilmBorder.Text=UiText("添加边框", "Film Border");
+            else if(choice.Mode==FilmBorderCatalogCore.Off)
+                btnFilmBorder.Text=UiText("添加边框", "Film Border");
+            else btnFilmBorder.Text=UiText("添加边框 · ","Film Border · ")+choice.Label;
+        }
+        private void ImportFilmBorderFromPreview()
+        {
+            using(var picker=new OpenFileDialog()) {
+                picker.Title=UiText("导入胶片边框（1920×1080 RGBA PNG）", "Import film border (1920×1080 RGBA PNG)");
+                picker.Filter="PNG (*.png)|*.png";
+                picker.CheckFileExists=true;
+                if(picker.ShowDialog(this)!=DialogResult.OK){OpenFilmBorderSettings();return;}
+                try {
+                    string mode=FilmBorderCatalogCore.Import(appRoot,picker.FileName);
+                    borderPreviewPendingMode=mode;
+                    OpenFilmBorderSettings();
+                } catch(Exception ex) {FgsMessageBox.Show(this,ex.Message,Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);OpenFilmBorderSettings();}
+            }
+        }
+        private void DeleteFilmBorderFromPreview(string mode)
+        {
+            FilmBorderChoice choice;string error;
+            if(!FilmBorderCatalogCore.TryResolve(appRoot,mode,out choice,out error) || !choice.User) {
+                FgsMessageBox.Show(this,UiText("内置边框不能删除。","Built-in borders cannot be deleted."));
+                OpenFilmBorderSettings();return;
+            }
+            if(FgsMessageBox.Show(this,UiText("删除用户边框：","Delete custom film border: ")+choice.Label+"?",
+                Text,MessageBoxButtons.YesNo,MessageBoxIcon.Question)==DialogResult.Yes) {
+                try {
+                    FilmBorderCatalogCore.Delete(appRoot,mode);
+                    string saved=config.Get("FILM_BORDER_MODE");
+                    if(saved.StartsWith(choice.StyleId+"_",StringComparison.OrdinalIgnoreCase))
+                        config.SaveValue("FILM_BORDER_MODE","OFF");
+                    UpdateFilmBorderButton();
+                } catch(Exception ex) {FgsMessageBox.Show(this,ex.Message);}
+                borderPreviewPendingMode="OFF";
+            } else borderPreviewPendingMode=mode;
+            OpenFilmBorderSettings();
+        }
+
+        private void EditClassicFilmText()
+        {
+            string brand,serial;
+            FilmBorderCatalogCore.ReadClassicText(appRoot,out brand,out serial);
+            using(var dlg=new SettingsDialogForm()) {
+                dlg.Text=UiText("经典纯黑 · 胶片边印文字","Classic Black · film edge markings");
+                dlg.StartPosition=FormStartPosition.CenterParent;
+                dlg.FormBorderStyle=FormBorderStyle.FixedDialog;
+                dlg.MaximizeBox=false;dlg.MinimizeBox=false;
+                dlg.ShowInTaskbar=false;dlg.ClientSize=new System.Drawing.Size(540,210);
+                dlg.BackColor=selectedDarkTheme?UiTheme.Surface:System.Drawing.SystemColors.Control;
+                dlg.ForeColor=selectedDarkTheme?UiTheme.TextColor:System.Drawing.SystemColors.ControlText;
+                var name=new ThemeTextBox{Text=brand,Location=new System.Drawing.Point(140,37),Width=366,MaxLength=36};
+                var code=new ThemeTextBox{Text=serial,Location=new System.Drawing.Point(140,95),Width=366,MaxLength=62};
+                var save=new ThemeButton{Text=UiText("应用文字","Apply text"),Location=new System.Drawing.Point(298,160),Size=new System.Drawing.Size(110,32)};
+                var cancel=new ThemeButton{Text=UiText("取消","Cancel"),Location=new System.Drawing.Point(419,160),Size=new System.Drawing.Size(87,32),DialogResult=DialogResult.Cancel};
+                dlg.Controls.AddRange(new Control[]{
+                    new ThemeLabel{Text=UiText("左上品牌","Upper-left brand"),Location=new System.Drawing.Point(18,43),AutoSize=true},name,
+                    new ThemeLabel{Text=UiText("下方编号","Bottom inscription"),Location=new System.Drawing.Point(18,101),AutoSize=true},code,save,cancel});
+                dlg.CancelButton=cancel;
+                save.Click+=delegate {
+                    try {FilmBorderCatalogCore.SaveClassicText(appRoot,name.Text,code.Text);dlg.DialogResult=DialogResult.OK;dlg.Close();}
+                    catch(Exception ex){FgsMessageBox.Show(dlg,ex.Message,dlg.Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);}
+                };
+                AttachThemeWindow(dlg);
+                dlg.ShowDialog(this);
+            }
+            OpenFilmBorderSettings();
         }
 
         private string ResolveGpuAdvancedPreviewExecutable()

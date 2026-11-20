@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 using System.Collections.Generic;
 
@@ -398,7 +398,7 @@ namespace FilmGrainStudioPreview
                     pixelPercent == 100;
                 if (s4GpuBorder)
                 {
-                    string raw = Path.Combine(appRoot,"Utils","_FilmBorders","cinema35_dark_1920x1080_rgba.raw");
+                    string raw = filmBorder.GpuRaw;
                     if (!File.Exists(raw) || new FileInfo(raw).Length != 1920L*1080*4)
                     { reason = "S4 GPU film border requires verified 1920x1080 RGBA texture: " + raw; return false; }
                     filmBorder.GpuRaw = raw;
@@ -1555,6 +1555,7 @@ namespace FilmGrainStudioPreview
         {
             internal string Path;
             internal bool Dynamic;
+            internal string MoveX=FilmBorderMotionCore.MoveX,MoveY=FilmBorderMotionCore.MoveY;
             internal string HdrTransfer = "";
             internal string GpuRaw;
             internal bool GpuUseLegacy4k;
@@ -1575,8 +1576,8 @@ namespace FilmGrainStudioPreview
             plan=null;reason="";
             string value=Read(state,"FG_FILM_BORDER_MODE").Trim().ToUpperInvariant();
             if(value.Length==0 || value=="OFF") return true;
-            if(value!="DARK_STATIC" && value!="DARK_WEAVE")
-            {reason="Unknown film border mode: "+value;return false;}
+            FilmBorderChoice chosen;
+            if(!FilmBorderCatalogCore.TryResolve(appRoot,value,out chosen,out reason))return false;
             if (media.IsHdr && !hdrPreserve)
             { reason="HDR film border currently requires keeping HDR in HEVC NVENC."; return false; }
             if (hdrPreserve &&
@@ -1585,10 +1586,13 @@ namespace FilmGrainStudioPreview
             { reason="HDR film border requires limited-range BT.2020 PQ or HLG."; return false; }
             if(interpolating)
             {reason="S2 film border with interpolation is not yet validated (S3/S4).";return false;}
-            string path=System.IO.Path.Combine(appRoot,"Utils","_FilmBorders","cinema35_dark_1920x1080.png");
-            if(!System.IO.File.Exists(path))
-            {reason="Film border asset not found: "+path;return false;}
-            plan=new Plan{Path=path,Dynamic=value=="DARK_WEAVE",HdrTransfer=hdrPreserve?media.ColorTransfer:""};
+            double amp=FilmBorderMotionCore.Parse(Read(state,"FG_FILM_BORDER_AMP"),0,3);
+            double speed=FilmBorderMotionCore.Parse(Read(state,"FG_FILM_BORDER_SPEED"),0.25,3);
+            double frequency=FilmBorderMotionCore.Parse(Read(state,"FG_FILM_BORDER_FREQUENCY"),0.25,3);
+            plan=new Plan{Path=chosen.PngPath,Dynamic=chosen.Weave,HdrTransfer=hdrPreserve?media.ColorTransfer:"",
+                GpuRaw=chosen.RawPath,
+                MoveX=FilmBorderMotionCore.Expression(true,amp,speed,frequency),
+                MoveY=FilmBorderMotionCore.Expression(false,amp,speed,frequency)};
             return true;
         }
 
@@ -1619,12 +1623,12 @@ namespace FilmGrainStudioPreview
 
         // R3 accepted discrete gate registration: hash changes at integer time slots,
         // not smooth sinusoids. The sin() calls are deterministic hash functions only.
-        private const string MoveX = "if(lt(mod(abs(sin(floor(t*13)*12.9898+23)*43758.5453),1),0.12),if(lt(mod(abs(sin(floor(t*13)*12.9898+23)*43758.5453),1),0.06),-2,2),0)+if(lt(mod(abs(sin(floor(t*29.97)*40.317+31)*17231.213),1),0.13),1,0)";
-        private const string MoveY = "if(lt(mod(abs(sin(floor(t*13)*78.233+97)*23577.731),1),0.19),if(lt(mod(abs(sin(floor(t*13)*78.233+97)*23577.731),1),0.07),-3,2),0)+if(lt(mod(abs(sin(floor(t*29.97)*91.789+17)*23577.731),1),0.17),1,0)";
+        private const string MoveX = FilmBorderMotionCore.MoveX;
+        private const string MoveY = FilmBorderMotionCore.MoveY;
 
         // Final filter stage: existing color, frame, LUT, subtitles and grain complete first.
         // Dimensions are normalized from the R3 1920x1080 aperture; SAR remains square.
-        internal static string AppendFilter(string original,Plan plan,int width,int height,int filmInputIndex,string fps,MediaProbeInfo media)
+        internal static string AppendFilter(string original,Plan plan,int width,int height,int filmInputIndex,string fps,MediaProbeInfo media,string outputFormat="p010le")
         {
             if(plan==null) return original;
             if(width<32 || height<32 || width%2!=0 || height%2!=0 || width>16384 || height>16384)
@@ -1641,7 +1645,7 @@ namespace FilmGrainStudioPreview
                    ":force_original_aspect_ratio=increase:flags=lanczos,crop="+N(apertureWidth)+":"+N(apertureHeight)+
                    ",setsar=1,pad="+N(width)+":"+N(height)+":"+N(x)+":"+N(y)+":color=black[fgsfilm_canvas]";
             if (plan.HdrTransfer != "")
-                return AppendHdrTexture(graph,plan,filmInputIndex,width,height);
+                return AppendHdrTexture(graph,plan,filmInputIndex,width,height,outputFormat);
             graph+=";["+N(filmInputIndex)+":v:0]format=rgba,scale="+N(width)+":"+N(height)+
                    ":flags=lanczos[fgsfilm_png]";
             graph+=";[fgsfilm_canvas][fgsfilm_png]overlay=x=0:y=0:shortest=1:format=auto[fgsfilm_joined]";
@@ -1651,9 +1655,9 @@ namespace FilmGrainStudioPreview
                 // The overlay on generated black must end when the actual clip ends.
                 graph+=";color=c=black:s="+N(width)+"x"+N(height)+":r="+fps+"[fgsfilm_black]";
                 graph+=";[fgsfilm_black][fgsfilm_joined]overlay=x='"+MoveX+"':y='"+MoveY+
-                       "':shortest=1:eval=frame:format=auto,setsar=1,format=p010le" + RestoreColorTags(media) + "[vout]";
+                       "':shortest=1:eval=frame:format=auto,setsar=1,format="+outputFormat + RestoreColorTags(media) + "[vout]";
             }
-            else graph+=";[fgsfilm_joined]setsar=1,format=p010le[vout]";
+            else graph+=";[fgsfilm_joined]setsar=1,format="+outputFormat+"[vout]";
             return graph;
         }
 
@@ -1661,7 +1665,7 @@ namespace FilmGrainStudioPreview
         {
             if (plan == null || plan.GpuRaw == null || plan.HdrTransfer == "")
                 throw new InvalidOperationException("S4 GPU border called outside its validated route.");
-            string moveX = plan.Dynamic ? MoveX : "0", moveY = plan.Dynamic ? MoveY : "0";
+            string moveX = plan.Dynamic ? plan.MoveX : "0", moveY = plan.Dynamic ? plan.MoveY : "0";
             // For no-grain graphs, clock the still texture with the video.  The
             // off-screen overlay keeps every RGBA pixel intact and ends at video EOF.
             string texture = "["+N(plan.GpuInputIndex)+":v:0]format=rgba";
@@ -1716,7 +1720,7 @@ namespace FilmGrainStudioPreview
                 "color_trc=" + plan.HdrTransfer + ":colorspace=bt2020nc[vout]";
         }
 
-        private static string AppendHdrTexture(string graph,Plan plan,int input,int width,int height)
+        private static string AppendHdrTexture(string graph,Plan plan,int input,int width,int height,string outputFormat)
         {
             // Resize and convert the PNG once. Framesync holds it until the source ends.
             graph+=";["+N(input)+":v:0]format=gbrap16le,zscale=w="+N(width)+":h="+N(height)+
@@ -1728,9 +1732,9 @@ namespace FilmGrainStudioPreview
             {
                 // Keep the source-derived frame as the main frame so HDR10 side data survives.
                 graph+=",pad="+N(width+8)+":"+N(height+8)+":4:4:black,crop="+N(width)+":"+N(height)+
-                       ":x='4-("+MoveX+")':y='4-("+MoveY+")'";
+                       ":x='4-("+plan.MoveX+")':y='4-("+plan.MoveY+")'";
             }
-            return graph+",setsar=1,format=p010le,setparams=range=limited:color_primaries=bt2020"+
+            return graph+",setsar=1,format="+outputFormat+",setparams=range=limited:color_primaries=bt2020"+
                    ":color_trc="+plan.HdrTransfer+":colorspace=bt2020nc[vout]";
         }
     }
