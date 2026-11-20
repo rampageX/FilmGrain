@@ -12,7 +12,7 @@ namespace FilmGrainStudioPreview
 {
     internal sealed class FilmBorderChoice
     {
-        internal string Mode, StyleId, Label, PngPath, RawPath;
+        internal string Mode, StyleId, Label, PngPath, RawPath, UserName;
         internal bool User, Weave;
         internal int ApertureWidth1080, ApertureHeight1080;
     }
@@ -31,13 +31,13 @@ namespace FilmGrainStudioPreview
         }
         internal static string Root(string appRoot) { return Path.Combine(appRoot, "Utils", "_FilmBorders"); }
         private static string UserRoot(string appRoot) { return Path.Combine(Root(appRoot), "User"); }
-        private static FilmBorderChoice Choice(string id, string label, string path, bool weave, bool user)
+        private static FilmBorderChoice Choice(string id, string label, string path, bool weave, bool user, string userName=null)
         {
             int apertureWidth=ImportApertureWidth;
             int apertureHeight=id==Dark?990:ImportApertureHeight;
             if(user)ReadUserAperture(path,out apertureWidth,out apertureHeight);
             return new FilmBorderChoice { StyleId=id, Mode=id+(weave?"_WEAVE":"_STATIC"),
-                Label=label+(weave?" · 动态":" · 静态"), PngPath=path,
+                Label=label+(weave?" · 动态":" · 静态"), PngPath=path, UserName=user?userName:null,
                 RawPath=id==Dark ? Path.Combine(Path.GetDirectoryName(path),
                     "cinema35_dark_1920x1080_rgba.raw") : Path.ChangeExtension(path,".raw"),
                 Weave=weave, User=user,
@@ -168,6 +168,19 @@ namespace FilmGrainStudioPreview
             string brand,serial;ReadClassicText(appRoot,out brand,out serial);
             GenerateClassic(appRoot,brand,serial);
         }
+        private static string ReadUserName(string path)
+        {
+            string id=Path.GetFileNameWithoutExtension(path).ToUpperInvariant();
+            string label=id.Substring(0,8);
+            string labelPath=Path.ChangeExtension(path,".label");
+            if(File.Exists(labelPath))
+            {
+                string stored=File.ReadAllText(labelPath,Encoding.UTF8).Trim();
+                if(stored.Length>0)label=stored.Length>40?stored.Substring(0,40):stored;
+            }
+            return label;
+        }
+
         internal static List<FilmBorderChoice> List(string appRoot)
         {
             // A read-only deployment may retain the original Dark style even
@@ -194,15 +207,9 @@ namespace FilmGrainStudioPreview
                     string id=Path.GetFileNameWithoutExtension(path).ToUpperInvariant();
                     Guid ignored;
                     if(id.Length!=32 || !Guid.TryParseExact(id,"N",out ignored))continue;
-                    string label=id.Substring(0,8);
-                    string labelPath=Path.ChangeExtension(path,".label");
-                    if(File.Exists(labelPath))
-                    {
-                        string stored=File.ReadAllText(labelPath,Encoding.UTF8).Trim();
-                        if(stored.Length>0)label=stored.Length>40?stored.Substring(0,40):stored;
-                    }
-                    result.Add(Choice("USER_"+id,"自定义 · "+label,path,false,true));
-                    result.Add(Choice("USER_"+id,"自定义 · "+label,path,true,true));
+                    string label=ReadUserName(path);
+                    result.Add(Choice("USER_"+id,"自定义 · "+label,path,false,true,label));
+                    result.Add(Choice("USER_"+id,"自定义 · "+label,path,true,true,label));
                 }
             }
             return result;
@@ -400,12 +407,49 @@ namespace FilmGrainStudioPreview
             return name;
         }
 
+        // Output-name normalization is shared by import validation and encoding.
+        internal static string SafeUserFileToken(string name)
+        {
+            if(string.IsNullOrWhiteSpace(name))return "";
+            var safe=new StringBuilder();
+            foreach(char c in name.Trim().Normalize(NormalizationForm.FormC))
+            {
+                if(char.IsControl(c) || c=='\u2028' || c=='\u2029' ||
+                   "\\/:*?\"<>|".IndexOf(c)>=0)
+                    safe.Append('_');
+                else safe.Append(c);
+            }
+            return safe.ToString().Trim(' ','.','_');
+        }
+
+        // The dialog validates names early; Import repeats the guard before
+        // creating files. Existing old imports are checked on encode as well.
+        internal static string ValidateUniqueDisplayName(string appRoot,string value,string exceptStyleId=null)
+        {
+            string name=ValidateDisplayName(value);
+            string token=SafeUserFileToken(name);
+            if(token.Length==0)
+                throw new InvalidDataException("边框名称不能仅包含文件名非法字符。");
+            string folder=UserRoot(appRoot);
+            if(!Directory.Exists(folder))return name;
+            foreach(string path in Directory.GetFiles(folder,"*.png",SearchOption.TopDirectoryOnly))
+            {
+                string id=Path.GetFileNameWithoutExtension(path).ToUpperInvariant();
+                Guid parsed;
+                if(id.Length!=32 || !Guid.TryParseExact(id,"N",out parsed))continue;
+                if(string.Equals("USER_"+id,exceptStyleId,StringComparison.OrdinalIgnoreCase))continue;
+                if(string.Equals(token,SafeUserFileToken(ReadUserName(path)),StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException("边框名称已存在，请输入其他名称。");
+            }
+            return name;
+        }
+
         internal static string Import(string appRoot,string source,string displayName)
         {return Import(appRoot,source,displayName,ImportApertureWidth,ImportApertureHeight);}
 
         internal static string Import(string appRoot,string source,string displayName,int apertureWidth,int apertureHeight)
         {
-            displayName=ValidateDisplayName(displayName);
+            displayName=ValidateUniqueDisplayName(appRoot,displayName);
             ValidateAperture(apertureWidth,apertureHeight);
             if(!File.Exists(source))throw new FileNotFoundException("PNG 不存在",source);
             ValidatePngWithAperture(source,apertureWidth,apertureHeight);

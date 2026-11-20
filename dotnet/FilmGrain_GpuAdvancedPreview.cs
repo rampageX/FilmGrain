@@ -759,7 +759,7 @@ namespace FilmGrainStudioPreview
                 dlg.AcceptButton=apply;dlg.CancelButton=cancel;
                 apply.Click+=delegate {
                     try {
-                        acceptedName=FilmBorderCatalogCore.ValidateDisplayName(name.Text);
+                        acceptedName=FilmBorderCatalogCore.ValidateUniqueDisplayName(appRoot,name.Text);
                         acceptedWidth=(int)width.Value;acceptedHeight=(int)height.Value;
                         FilmBorderCatalogCore.ValidateAperture(acceptedWidth,acceptedHeight);
                         dlg.DialogResult=DialogResult.OK;dlg.Close();

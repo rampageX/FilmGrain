@@ -1604,9 +1604,8 @@ namespace FilmGrainStudioPreview
             return state != null && state.TryGetValue(key,out value) ? (value ?? "") : "";
         }
 
-        // Keep original Dark output names for compatibility. Other styles must never
-        // overwrite Dark, Classic, or each other, even with identical encode settings.
-        internal static string OutputFileSuffix(string styleId,bool dynamic)
+        // Imported names are readable; GUIDs remain internal identifiers.
+        internal static string OutputFileSuffix(string styleId,bool dynamic,string userName)
         {
             if (string.IsNullOrEmpty(styleId) || styleId=="OFF") return "";
             string motion=dynamic?"D":"S";
@@ -1614,7 +1613,12 @@ namespace FilmGrainStudioPreview
             if (styleId=="CLASSIC") return "_FILMCLASSIC35"+motion;
             if (styleId.StartsWith("USER_",StringComparison.Ordinal) && styleId.Length==37 &&
                 System.Text.RegularExpressions.Regex.IsMatch(styleId.Substring(5),@"\A[0-9A-F]{32}\z"))
-                return "_FILMUSER_"+styleId.Substring(5)+"_"+motion;
+            {
+                string token=FilmBorderCatalogCore.SafeUserFileToken(userName);
+                if(token.Length==0)
+                    throw new InvalidDataException("自定义边框缺少有效名称，请重新导入。");
+                return "_FILMUSER_"+token+"_"+motion;
+            }
             throw new InvalidDataException("Unknown film border filename style: "+styleId);
         }
 
@@ -1626,6 +1630,11 @@ namespace FilmGrainStudioPreview
             if(value.Length==0 || value=="OFF") return true;
             FilmBorderChoice chosen;
             if(!FilmBorderCatalogCore.TryResolve(appRoot,value,out chosen,out reason))return false;
+            if(chosen.User)
+            {
+                try {FilmBorderCatalogCore.ValidateUniqueDisplayName(appRoot,chosen.UserName,chosen.StyleId);}
+                catch(InvalidDataException ex) {reason=ex.Message;return false;}
+            }
             if (media.IsHdr && !hdrPreserve)
             { reason="HDR film border currently requires keeping HDR in HEVC NVENC."; return false; }
             if (hdrPreserve &&
@@ -1639,7 +1648,7 @@ namespace FilmGrainStudioPreview
             double frequency=FilmBorderMotionCore.Parse(Read(state,"FG_FILM_BORDER_FREQUENCY"),0.25,3);
             plan=new Plan{Path=chosen.PngPath,Dynamic=chosen.Weave,Classic=chosen.StyleId=="CLASSIC" || chosen.User,User=chosen.User,
                 ApertureWidth1080=chosen.ApertureWidth1080,ApertureHeight1080=chosen.ApertureHeight1080,
-                FileSuffix=OutputFileSuffix(chosen.StyleId,chosen.Weave),HdrTransfer=hdrPreserve?media.ColorTransfer:"",
+                FileSuffix=OutputFileSuffix(chosen.StyleId,chosen.Weave,chosen.UserName),HdrTransfer=hdrPreserve?media.ColorTransfer:"",
                 FocusX=FilmBorderFramingCore.Parse(Read(state,"FG_"+FilmBorderFramingCore.FocusXKey),0.5,0,1),
                 FocusY=FilmBorderFramingCore.Parse(Read(state,"FG_"+FilmBorderFramingCore.FocusYKey),0.5,0,1),
                 Zoom=FilmBorderFramingCore.Parse(Read(state,"FG_"+FilmBorderFramingCore.ZoomKey),1,1,3),
