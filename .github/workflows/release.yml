@@ -115,6 +115,20 @@ jobs:
             ${{ steps.build.outputs.combined_zip_name }}
           if-no-files-found: error
 
+      - name: Delete accepted S4 test branch after successful v5.0.77 release
+        if: success() && (github.event_name == 'push' || inputs.publish == true)
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = (Get-Content -LiteralPath '.github\release\version.txt' -Raw).Trim()
+          if ($version -ne '5.0.77') { exit 0 }
+          $ref = 'heads/test/film-border-s4'
+          $sha = gh api "repos/$env:GITHUB_REPOSITORY/git/ref/$ref" --jq '.object.sha'
+          if ($LASTEXITCODE -ne 0) { throw 'S4 test branch verification failed.' }
+          if ($sha.Trim() -ne 'f4bc1d22f37efc7ef56208da07d18fbcf37eaffb') { throw 'S4 test branch changed; refusing deletion.' }
+          gh api --method DELETE "repos/$env:GITHUB_REPOSITORY/git/refs/$ref"
+          if ($LASTEXITCODE -ne 0) { throw 'S4 test branch deletion failed.' }
       - name: Delete merged release branch
         if: success() && (github.event_name == 'push' || inputs.publish == true)
         shell: powershell

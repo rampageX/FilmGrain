@@ -1,8 +1,6 @@
 # Film Grain Studio
 
-- 胶片边框测试分支交互式画面构图规范：[FILM_BORDER_FRAMING_SPEC.md](FILM_BORDER_FRAMING_SPEC.md)
-
-> **Film Grain Studio v5.0.76 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.77 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 <table>
   <tr>
@@ -180,7 +178,7 @@ Source 与 Stable 来自同一次已提交源码归档，`SOURCE_BUILD_INFO.txt`
 
 编码区的「添加边框」可在独立的 GPU 预览窗口中选择 **Dark 35mm** 或 **FGS Classic Black**，设置静态/动态胶片效果。动态效果可调整晃动幅度、速度及随机频率；默认 1.0。Classic Black 支持修改左上边印与底部编号；内置款不能删除。
 
-自定义胶片框支持导入单张 **1920×1080、8-bit RGBA PNG**，必须有符合规范的完全透明视频画窗，导入前进行逐像素校验。详细的制作尺寸、透明区域、文件要求和拒绝原因见 [FILM_BORDER_ASSET_SPEC.md](FILM_BORDER_ASSET_SPEC.md)。自定义样式可以删除，运动效果由 FGS 独立提供，不需要两张素材。
+自定义胶片框支持导入单张 **1920×1080、8-bit RGBA PNG**，视频画窗可使用符合规范的半透明叠加层，导入前进行逐像素校验。详细的制作尺寸、透明区域、文件要求和拒绝原因见 [FILM_BORDER_ASSET_SPEC.md](FILM_BORDER_ASSET_SPEC.md)。自定义样式可以删除，运动效果由 FGS 独立提供，不需要两张素材。视频构图支持在画窗内拖动、缩放与 X/Y 精确定位，详见 [FILM_BORDER_FRAMING_SPEC.md](FILM_BORDER_FRAMING_SPEC.md)。
 
 目前不支持 AV1 边框输出、边框与插帧组合、HDR 输入转 SDR 时的双 GPU 边框预览；这几项是后续扩展，不会因选择胶片样式而自动绕过。已支持的编码路线按照原有 HDR/SDR 色彩设置工作。开发/整合追踪见 [FILM_BORDER_INTEGRATION.md](FILM_BORDER_INTEGRATION.md)。
 
@@ -188,7 +186,7 @@ Git 源码中 Dark 原始 RAW 以 `.raw.gz` 无损归档，Windows 构建前会�
 
 ## 前处理
 
-编码区顶部的「前处理...」打开「滤波／缩放」两页；启用后显示已用模块，例如「前处理 [bilateral] [Resize 1080p]」。字幕位于画幅处理选项前方。滤波页目前提供 CPU Bilateral；缩放页使用 Vulkan/libplacebo Lanczos，见上方「画面缩放（Resize）」。
+编码区顶部的「前处理...」打开「滤波／缩放／剪裁」三页；启用后显示已用模块，例如「前处理 [bilateral] [Resize 1080p]」。字幕位于画幅处理选项前方。滤波页目前提供 CPU Bilateral；缩放页使用 Vulkan/libplacebo Lanczos，见上方「画面缩放（Resize）」。
 
 默认关闭，启用默认值为 `sigmaS=3 / sigmaR=0.05 / planes=1`。sigmaS 控制空间范围（0–512），sigmaR 控制像素差异容忍度（0–1），planes 为通道位掩码（0–15；1=Y、2=U、4=V、6=UV、7=YUV，0=不处理）。数值越强不代表画质越好，建议先比较默认值。
 
