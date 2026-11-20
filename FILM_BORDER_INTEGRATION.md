@@ -42,7 +42,7 @@
 - `Utils/_FilmBorders/cinema35_dark_1920x1080.png`
 - `Utils/_FilmBorders/cinema35_dark_1920x1080_rgba.raw`（1920×1080×4 字节，RGBA 顺序）
 
-用户导入的 `User/`、自定义边印 `classic-text.txt`、Classic 运行时生成 PNG/RAW 已加入 `.gitignore`，避免误把用户个人素材/运行缓存提交到源码库；**原版 Dark 两个发布素材未被忽略**。
+用户导入的 `User/`、自定义边印 `classic-text.txt`、Classic 运行时生成 PNG/RAW 以及 Dark 解压后的本地 RAW 缓存已加入 `.gitignore`；**原版 Dark PNG 与精确 RAW 的 gzip 归档均受 Git 管理**。
 
 内置 Classic Black 继续按代码首次生成；Dark 使用用户提供、SHA256 锁定的原版素材。正式 Stable 的新目录验收尚需用户确认，**不因 CI 成功而自行发布**。
 

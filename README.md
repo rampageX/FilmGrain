@@ -174,6 +174,16 @@ Stable 不附带开发源码、Legacy 历史实现或项目截图，也不预装
 
 Source 与 Stable 来自同一次已提交源码归档，`SOURCE_BUILD_INFO.txt` 记录源码 commit 和对应运行 EXE 的 SHA256。当前磁盘状态的 `Working_Source_日期时间.zip` 用于开发交接，按导出规则包含未提交修改和新文件，不会自动上传为 Release 附件。
 
+## 胶片边框（Film Border）
+
+编码区的「添加边框」可在独立的 GPU 预览窗口中选择 **Dark 35mm** 或 **FGS Classic Black**，设置静态/动态胶片效果。动态效果可调整晃动幅度、速度及随机频率；默认 1.0。Classic Black 支持修改左上边印与底部编号；内置款不能删除。
+
+自定义胶片框支持导入单张 **1920×1080、8-bit RGBA PNG**，必须有符合规范的完全透明视频画窗，导入前进行逐像素校验。详细的制作尺寸、透明区域、文件要求和拒绝原因见 [FILM_BORDER_ASSET_SPEC.md](FILM_BORDER_ASSET_SPEC.md)。自定义样式可以删除，运动效果由 FGS 独立提供，不需要两张素材。
+
+目前不支持 AV1 边框输出、边框与插帧组合、HDR 输入转 SDR 时的双 GPU 边框预览；这几项是后续扩展，不会因选择胶片样式而自动绕过。已支持的编码路线按照原有 HDR/SDR 色彩设置工作。开发/整合追踪见 [FILM_BORDER_INTEGRATION.md](FILM_BORDER_INTEGRATION.md)。
+
+Git 源码中 Dark 原始 RAW 以 `.raw.gz` 无损归档，Windows 构建前会自动恢复为逐字节一致的 `.raw`。运行时 ZIP 已包含 PNG 与展开后的 RAW，无需用户处理归档。
+
 ## 前处理
 
 编码区顶部的「前处理...」打开「滤波／缩放」两页；启用后显示已用模块，例如「前处理 [bilateral] [Resize 1080p]」。字幕位于画幅处理选项前方。滤波页目前提供 CPU Bilateral；缩放页使用 Vulkan/libplacebo Lanczos，见上方「画面缩放（Resize）」。

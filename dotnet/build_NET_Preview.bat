@@ -92,6 +92,11 @@ if not exist "%CONFIGCORE%" exit /b 1
 if not exist "%SETTINGSDIALOGS%" exit /b 1
 if not exist "%NETWORKPROXY%" exit /b 1
 if not exist "%FGSIMTEXTURE%" exit /b 1
+rem Restore exactly the source-controlled Dark film cache for a fresh Git checkout.
+if exist "%ROOT_DIR%\Utils\_FilmBorders\cinema35_dark_1920x1080_rgba.raw.gz" (
+    powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%SCRIPT_DIR%BuildTools\Restore_FilmBorderDarkAssets.ps1" -Root "%ROOT_DIR%"
+    if errorlevel 1 exit /b 1
+)
 if not exist "%~dp0FilmGrain_SetupPhase1.cs" exit /b 1
 if not exist "%~dp0FilmGrain_QueueHistory.cs" exit /b 1
 if not exist "%OUT_DIR%" mkdir "%OUT_DIR%"
