@@ -8,7 +8,7 @@ $fields = [Reflection.BindingFlags]'Instance, NonPublic, Public'
 $method = $core.GetMethod('AppendGpuFilter', $flags)
 function Make-Graph([int]$width, [int]$height, [int]$x, [int]$y, [int]$cw, [int]$ch, [int]$idx, [bool]$legacy, [bool]$dynamic = $true) {
     $plan = [Activator]::CreateInstance($planType, $true)
-    $values = @{ GpuRaw='texture.raw'; Dynamic=$dynamic; HdrTransfer='smpte2084'; GpuWidth=$width; GpuHeight=$height; GpuContentX=$x; GpuContentY=$y; GpuContentWidth=$cw; GpuContentHeight=$ch; GpuInputIndex=$idx; GpuUseLegacy4k=$legacy }
+    $values = @{ GpuRaw='texture.raw'; Dynamic=$dynamic; HdrTransfer='smpte2084'; GpuWidth=$width; GpuHeight=$height; GpuContentX=$x; GpuContentY=$y; GpuContentWidth=$cw; GpuContentHeight=$ch; GpuInputIndex=$idx; GpuClockGated=($idx -eq 1); GpuUseLegacy4k=$legacy }
     foreach ($entry in $values.GetEnumerator()) { $planType.GetField($entry.Key, $fields).SetValue($plan, $entry.Value) }
     return $method.Invoke($null, @('[0:v:0]hwupload[fgsfilm_gpu_video]', $plan))
 }
@@ -18,8 +18,11 @@ function Assert-Contains([string]$actual,[string]$expected) {
 $g = Make-Graph 1920 1080 0 138 1920 804 1 $false
 foreach ($s in @('[1:v:0]format=rgba', 'w=1920:h=1080', "crop_y='if(eq(idx,0),138,0)'", "crop_h='if(eq(idx,0),804,ih)'", "pos_w='if(eq(idx,0),1680,1920)'", "pos_h='if(eq(idx,0),737,1080)'", "pos_y='if(eq(idx,0),171.5,0)", 'hwupload=derive_device=cuda', '[vout]')) { Assert-Contains $g $s }
 if ($g.Contains('[2:v:0]')) { throw 'No-grain route references a non-existent grain input.' }
+Assert-Contains $g '[fgsfilm_clock_src]scale=2:2,format=rgba[fgsfilm_clock]'
+Assert-Contains $g 'overlay=x=main_w:shortest=1:format=rgb,format=rgba'
 $g = Make-Graph 1920 1080 0 0 1920 1080 2 $false
 foreach ($s in @('[2:v:0]format=rgba', "crop_y='if(eq(idx,0),0,0)'", "pos_h='if(eq(idx,0),990,1080)'")) { Assert-Contains $g $s }
+if ($g.Contains('fgsfilm_clock')) { throw 'Verified Grain Plate route changed unexpectedly.' }
 $g = Make-Graph 3840 2160 0 276 3840 1608 2 $true
 foreach ($s in @('[2:v:0]format=rgba', 'w=3840:h=2160', "crop_y='if(eq(idx,0),276,0)'", "pos_h='if(eq(idx,0),1474,2160)'")) { Assert-Contains $g $s }
 $g = Make-Graph 1280 720 0 92 1280 536 1 $false
@@ -64,3 +67,4 @@ if ([array]::IndexOf($list, '-pix_fmt') -ge 0) { throw 'GPU frames unexpectedly 
 Write-Host 'PASS: GPU border input index and 1080p/4K/720p geometry'
 Write-Host 'PASS: static and dynamic GPU border movement'
 Write-Host 'PASS: no-grain encoder input ordering and finite duration'
+Write-Host 'PASS: no-grain texture ends with source clock; Grain Plate path unchanged'

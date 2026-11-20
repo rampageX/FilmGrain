@@ -403,6 +403,7 @@ namespace FilmGrainStudioPreview
                     { reason = "S4 GPU film border requires verified 1920x1080 RGBA texture: " + raw; return false; }
                     filmBorder.GpuRaw = raw;
                     filmBorder.GpuInputIndex = plateMode ? 2 : 1;
+                    filmBorder.GpuClockGated = !grainEnabled;
                     filmBorder.GpuUseLegacy4k = s4Gpu4k30;
                     filmBorder.GpuWidth = info.Width; filmBorder.GpuHeight = info.Height;
                     filmBorder.GpuContentX = frame.ContentX; filmBorder.GpuContentY = frame.ContentY;
@@ -421,7 +422,8 @@ namespace FilmGrainStudioPreview
                     if (s4GpuBorder)
                         filter = FilmBorderEncodingCore.AppendGpuFilter(
                             "[0:v:0]" + deinterlaceFilter + fpsFilter + (s4Gpu4k30 ? "fps=30," : "fps=" + fps + ",") +
-                            "format=p010le,setpts=PTS-STARTPTS,hwupload[fgsfilm_gpu_video]", filmBorder);
+                            "format=p010le,setpts=PTS-STARTPTS,split[fgsfilm_gpu_src][fgsfilm_clock_src];" +
+                            "[fgsfilm_gpu_src]hwupload[fgsfilm_gpu_video]", filmBorder);
                     else
                         filter = SharedGrainCore.BuildWithoutGrain(deinterlaceFilter + fpsFilter + colorFilter,
                             EscapeFilterPath(lutCompatName), lutOpacity,
@@ -1555,6 +1557,7 @@ namespace FilmGrainStudioPreview
             internal string HdrTransfer = "";
             internal string GpuRaw;
             internal bool GpuUseLegacy4k;
+            internal bool GpuClockGated;
             internal int GpuInputIndex;
             internal int GpuWidth, GpuHeight, GpuContentX, GpuContentY, GpuContentWidth, GpuContentHeight;
         }
@@ -1658,8 +1661,15 @@ namespace FilmGrainStudioPreview
             if (plan == null || plan.GpuRaw == null || plan.HdrTransfer == "")
                 throw new InvalidOperationException("S4 GPU border called outside its validated route.");
             string moveX = plan.Dynamic ? MoveX : "0", moveY = plan.Dynamic ? MoveY : "0";
-            string input = "["+N(plan.GpuInputIndex)+":v:0]format=rgba,setparams=range=full:color_primaries=bt709:"+
-                           "color_trc=iec61966-2-1:colorspace=gbr,hwupload[fgsfilm_gpu_png]";
+            // For no-grain graphs, clock the still texture with the video.  The
+            // off-screen overlay keeps every RGBA pixel intact and ends at video EOF.
+            string texture = "["+N(plan.GpuInputIndex)+":v:0]format=rgba";
+            string input = plan.GpuClockGated
+                ? "[fgsfilm_clock_src]scale=2:2,format=rgba[fgsfilm_clock];"+texture+
+                  "[fgsfilm_texture];[fgsfilm_texture][fgsfilm_clock]overlay=x=main_w:shortest=1:format=rgb,format=rgba"
+                : texture;
+            input += ",setparams=range=full:color_primaries=bt709:"+
+                     "color_trc=iec61966-2-1:colorspace=gbr,hwupload[fgsfilm_gpu_png]";
             if (!plan.GpuUseLegacy4k)
             {
                 int w=plan.GpuWidth, h=plan.GpuHeight;
