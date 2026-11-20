@@ -16,8 +16,10 @@ namespace FilmGrainStudioPreview
         public string FilmBorderMode { get; set; }
         public string Action { get; set; }
         public double MotionAmplitude { get; set; }
-        public double MotionSpeed { get; set; }
-        public double MotionFrequency { get; set; }
+        public double MotionSpeed { get; set; }        public double MotionFrequency { get; set; }
+        public double FocusX { get; set; }
+        public double FocusY { get; set; }
+        public double Zoom { get; set; }
         public string PixelMode { get; set; }
         public int PlateStrength { get; set; }
         public int FgsimPreset { get; set; }
@@ -30,8 +32,8 @@ namespace FilmGrainStudioPreview
     internal sealed partial class MainForm
     {
         private bool gpuAdvancedPreviewBusy;
-        private bool filmBorderSettingsBusy;
-        private double? borderPreviewAmp, borderPreviewSpeed, borderPreviewFrequency;
+        private bool filmBorderSettingsBusy;        private double? borderPreviewAmp, borderPreviewSpeed, borderPreviewFrequency;
+        private double? borderPreviewFocusX, borderPreviewFocusY, borderPreviewZoom;
         private string borderPreviewPendingMode;
         private readonly object gpuPreviewProcessLock = new object();
         private Process gpuPreviewProcess;
@@ -343,10 +345,15 @@ namespace FilmGrainStudioPreview
                         if (borderRc != 0 || !File.Exists(borderRaw) || new FileInfo(borderRaw).Length != 1920L*1080*(media.IsHdr?8:4))
                             throw new InvalidDataException("Film border texture decode failed.");
                         args.AddRange(new[]{"--film-border",borderRaw,"--film-border-mode",previewBorderChoice.Mode,
+                            "--film-border-aperture-w",previewBorderChoice.ApertureWidth1080.ToString(CultureInfo.InvariantCulture),
+                            "--film-border-aperture-h",previewBorderChoice.ApertureHeight1080.ToString(CultureInfo.InvariantCulture),
                             "--film-weave",previewBorderChoice.Weave?"1":"0",
                             "--film-motion-amp",FilmBorderMotionCore.Parse(config.Get(FilmBorderMotionCore.AmpKey),0,3).ToString("0.###",CultureInfo.InvariantCulture),
                             "--film-motion-speed",FilmBorderMotionCore.Parse(config.Get(FilmBorderMotionCore.SpeedKey),0.25,3).ToString("0.###",CultureInfo.InvariantCulture),
-                            "--film-motion-frequency",FilmBorderMotionCore.Parse(config.Get(FilmBorderMotionCore.FrequencyKey),0.25,3).ToString("0.###",CultureInfo.InvariantCulture)});
+                            "--film-motion-frequency",FilmBorderMotionCore.Parse(config.Get(FilmBorderMotionCore.FrequencyKey),0.25,3).ToString("0.###",CultureInfo.InvariantCulture),
+                            "--film-focus-x",FilmBorderFramingCore.N(FilmBorderFramingCore.Parse(config.Get(FilmBorderFramingCore.FocusXKey),0.5,0,1)),
+                            "--film-focus-y",FilmBorderFramingCore.N(FilmBorderFramingCore.Parse(config.Get(FilmBorderFramingCore.FocusYKey),0.5,0,1)),
+                            "--film-zoom",FilmBorderFramingCore.N(FilmBorderFramingCore.Parse(config.Get(FilmBorderFramingCore.ZoomKey),1,1,3))});
                     }
                     if (plateCycle>0) args.AddRange(new[]{"--plate-cycle",plateCycle.ToString("0.#########",CultureInfo.InvariantCulture)});
                     // grav1synth advances AV1 grain seeds per output frame. Use the
@@ -502,7 +509,11 @@ namespace FilmGrainStudioPreview
             double amp=borderPreviewAmp ?? FilmBorderMotionCore.Parse(config.Get(FilmBorderMotionCore.AmpKey),0,3);
             double speed=borderPreviewSpeed ?? FilmBorderMotionCore.Parse(config.Get(FilmBorderMotionCore.SpeedKey),0.25,3);
             double frequency=borderPreviewFrequency ?? FilmBorderMotionCore.Parse(config.Get(FilmBorderMotionCore.FrequencyKey),0.25,3);
+            double focusX=borderPreviewFocusX ?? FilmBorderFramingCore.Parse(config.Get(FilmBorderFramingCore.FocusXKey),0.5,0,1);
+            double focusY=borderPreviewFocusY ?? FilmBorderFramingCore.Parse(config.Get(FilmBorderFramingCore.FocusYKey),0.5,0,1);
+            double zoom=borderPreviewZoom ?? FilmBorderFramingCore.Parse(config.Get(FilmBorderFramingCore.ZoomKey),1,1,3);
             borderPreviewAmp=borderPreviewSpeed=borderPreviewFrequency=null;
+            borderPreviewFocusX=borderPreviewFocusY=borderPreviewZoom=null;
             int codec = cmbCodec.SelectedIndex;
             bool independent = independentFiles;
             string work = Path.Combine(Path.GetTempPath(), "FilmGrain_Studio",
@@ -513,6 +524,7 @@ namespace FilmGrainStudioPreview
             var worker = new Thread(delegate() {
                 string error = "", selected = null, action = null;
                 double resultAmp=amp,resultSpeed=speed,resultFrequency=frequency;
+                 double resultFocusX=focusX,resultFocusY=focusY,resultZoom=zoom;
                 try {
                     if (media.Identity != null) media.Identity.RequireCurrent();
                     Directory.CreateDirectory(work);
@@ -546,7 +558,10 @@ namespace FilmGrainStudioPreview
                         "--film-motion-amp",amp.ToString("0.###",CultureInfo.InvariantCulture),
                         "--film-motion-speed",speed.ToString("0.###",CultureInfo.InvariantCulture),
                         "--film-motion-frequency",frequency.ToString("0.###",CultureInfo.InvariantCulture),
-                        "--border-choices-file",choices};
+                         "--film-focus-x",FilmBorderFramingCore.N(focusX),
+                         "--film-focus-y",FilmBorderFramingCore.N(focusY),
+                         "--film-zoom",FilmBorderFramingCore.N(zoom),
+                         "--border-choices-file",choices};
                     if(duration>0)args.AddRange(new[]{"--video",input,"--ffmpeg",ffmpeg,"--duration",
                         Math.Min(86400,duration).ToString("0.######",CultureInfo.InvariantCulture)});
                     if(media.IsHdr)args.AddRange(new[]{"--source-color",
@@ -557,7 +572,7 @@ namespace FilmGrainStudioPreview
                         var applied=new JavaScriptSerializer().Deserialize<GpuAdvancedPreviewResult>(
                             File.ReadAllText(result,Encoding.UTF8));
                         FilmBorderChoice resolved;string why="";
-                        if(applied==null || applied.Version!=4 ||
+                        if(applied==null || applied.Version!=5 ||
                            !FilmBorderCatalogCore.TryResolve(appRoot,applied.FilmBorderMode,out resolved,out why))
                             throw new InvalidDataException("边框模式回传无效："+why);
                         selected=resolved.Mode;
@@ -565,7 +580,15 @@ namespace FilmGrainStudioPreview
                         resultAmp=applied.MotionAmplitude;
                         resultSpeed=applied.MotionSpeed;
                         resultFrequency=applied.MotionFrequency;
-                        if(resultAmp<0 || resultAmp>3 || resultSpeed<0.25 || resultSpeed>3 ||
+                         resultFocusX=applied.FocusX;
+                         resultFocusY=applied.FocusY;
+                         resultZoom=applied.Zoom;
+                         if(resultFocusX<0 || resultFocusX>1 || resultFocusY<0 || resultFocusY>1 ||
+                             resultZoom<1 || resultZoom>3 ||
+                             double.IsNaN(resultFocusX) || double.IsNaN(resultFocusY) || double.IsNaN(resultZoom) ||
+                             double.IsInfinity(resultFocusX) || double.IsInfinity(resultFocusY) || double.IsInfinity(resultZoom))
+                             throw new InvalidDataException("画面构图参数无效。");
+                         if(resultAmp<0 || resultAmp>3 || resultSpeed<0.25 || resultSpeed>3 ||
                             resultFrequency<0.25 || resultFrequency>3 ||
                             double.IsNaN(resultAmp) || double.IsNaN(resultSpeed) || double.IsNaN(resultFrequency))
                             throw new InvalidDataException("投影运动参数无效。");
@@ -585,8 +608,11 @@ namespace FilmGrainStudioPreview
                                 borderPreviewAmp=resultAmp;
                                 borderPreviewSpeed=resultSpeed;
                                 borderPreviewFrequency=resultFrequency;
-                            }
-                            if(action=="EDIT") {
+                                 borderPreviewFocusX=resultFocusX;
+                                 borderPreviewFocusY=resultFocusY;
+                                 borderPreviewZoom=resultZoom;
+                             }
+                             if(action=="EDIT") {
                                 borderPreviewPendingMode=selected;
                                 EditClassicFilmText();
                                 return;
@@ -612,8 +638,11 @@ namespace FilmGrainStudioPreview
                                     {"FILM_BORDER_MODE",selected},
                                     {FilmBorderMotionCore.AmpKey,resultAmp.ToString("0.###",CultureInfo.InvariantCulture)},
                                     {FilmBorderMotionCore.SpeedKey,resultSpeed.ToString("0.###",CultureInfo.InvariantCulture)},
-                                    {FilmBorderMotionCore.FrequencyKey,resultFrequency.ToString("0.###",CultureInfo.InvariantCulture)}
-                                });
+                                    {FilmBorderMotionCore.FrequencyKey,resultFrequency.ToString("0.###",CultureInfo.InvariantCulture)},
+                                     {FilmBorderFramingCore.FocusXKey,FilmBorderFramingCore.N(resultFocusX)},
+                                     {FilmBorderFramingCore.FocusYKey,FilmBorderFramingCore.N(resultFocusY)},
+                                     {FilmBorderFramingCore.ZoomKey,FilmBorderFramingCore.N(resultZoom)}
+                                 });
                                 UpdateFilmBorderButton();
                                 AppendLog("[Film Border] "+selected+Environment.NewLine);
                                 UpdateHdrRouteStatus(GetSelectedMediaInfo());

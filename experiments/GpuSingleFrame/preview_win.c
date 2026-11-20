@@ -27,6 +27,7 @@
 
 #include "fgs_table.h"
 #include "film_border_geometry.h"
+#include "film_border_focus.h"
 
 static HWND s_window, s_view, s_time_edit;
 static WNDPROC s_original_edit_proc;
@@ -60,6 +61,14 @@ struct FgsBorderChoice {
 static struct FgsBorderChoice s_border_choices[FGS_BORDER_MAX_CHOICES];
 static int s_border_choices_count, s_border_selection;
 static double s_motion_amp=1,s_motion_speed=1,s_motion_frequency=1;
+static double s_focus_x=0.5,s_focus_y=0.5,s_focus_zoom=1.0;
+static bool s_compose_mode=false,s_focus_dragging=false;
+static bool s_compose_old_pixel_view;
+static int s_compose_old_pan_x,s_compose_old_pan_y;
+static int s_preview_aperture_width,s_preview_aperture_height;
+static int s_focus_last_x,s_focus_last_y;
+static HWND s_focus_x_edit,s_focus_y_edit;
+static WNDPROC s_original_focus_edit_proc;
 static struct pl_frame s_image;
 static enum pl_color_transfer s_hdr_transfer;
 static bool s_source_full, s_hdr_display;
@@ -103,7 +112,7 @@ static int s_frame_depth;
 static double s_frame_seconds, s_pending_seconds, s_duration_seconds;
 static uint64_t s_grain_event_start;
 static uint32_t s_fps_num = 30, s_fps_den = 1;
-enum { PANEL_HEIGHT = 210, BORDER_PANEL_HEIGHT=300, MSG_SEEK_FRAME = WM_APP+7 };
+enum { PANEL_HEIGHT = 210, BORDER_PANEL_HEIGHT=410, MSG_SEEK_FRAME = WM_APP+7 };
 static int panel_height(void){return s_border_settings?BORDER_PANEL_HEIGHT:PANEL_HEIGHT;}
 static double s_setup_ms;
 static LARGE_INTEGER s_frequency;
@@ -206,8 +215,8 @@ static bool write_result(void)
         const char *mode=s_border_combo && s_border_choices_count>0 ?
             s_border_choices[s_border_selection].mode :
             s_border_mode==2?"DARK_WEAVE":s_border_mode==1?"DARK_STATIC":"OFF";
-        rc = fprintf(file, "{\"Version\":4,\"Action\":\"%s\",\"FilmBorderMode\":\"%s\",\"MotionAmplitude\":%.3f,\"MotionSpeed\":%.3f,\"MotionFrequency\":%.3f}\n",
-            s_border_action,mode,s_motion_amp,s_motion_speed,s_motion_frequency);
+        rc = fprintf(file, "{\"Version\":5,\"Action\":\"%s\",\"FilmBorderMode\":\"%s\",\"MotionAmplitude\":%.3f,\"MotionSpeed\":%.3f,\"MotionFrequency\":%.3f,\"FocusX\":%.10g,\"FocusY\":%.10g,\"Zoom\":%.10g}\n",
+            s_border_action,mode,s_motion_amp,s_motion_speed,s_motion_frequency,s_focus_x,s_focus_y,s_focus_zoom);
     } else if (s_fgsim_mode || s_digital_mode) {
         rc = fprintf(file,
             "{\"Version\":3,\"PixelMode\":\"%s\",\"%s\":%d,"
@@ -879,6 +888,63 @@ static void draw_slider(HDC dc, RECT *client, int y, const wchar_t *name,
     DrawTextW(dc,value,-1,&amount,DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS);
 }
 
+static void redraw_controls(void);
+/* Separate composition controls; they do not change the existing 1:1 inspection mode. */
+static void focus_buttons(const RECT *client,RECT *compose,RECT *reset)
+{
+    int y=client->bottom-panel_height()+244;
+    *compose=(RECT){144,y,client->right-160,y+28};
+    *reset=(RECT){client->right-147,y,client->right-13,y+28};
+}
+static void focus_edit_layout(const RECT *client)
+{
+    int y=client->bottom-panel_height()+318;
+    if(s_focus_x_edit)MoveWindow(s_focus_x_edit,216,y,110,25,TRUE);
+    if(s_focus_y_edit)MoveWindow(s_focus_y_edit,423,y,110,25,TRUE);
+}
+static void sync_focus_edits(void)
+{
+    wchar_t value[48];
+    if(s_focus_x_edit && GetFocus()!=s_focus_x_edit) {
+        swprintf(value,48,L"%.4f",s_focus_x);
+        SetWindowTextW(s_focus_x_edit,value);
+    }
+    if(s_focus_y_edit && GetFocus()!=s_focus_y_edit) {
+        swprintf(value,48,L"%.4f",s_focus_y);
+        SetWindowTextW(s_focus_y_edit,value);
+    }
+}
+static void commit_focus_edit(HWND edit)
+{
+    if(edit!=s_focus_x_edit && edit!=s_focus_y_edit)return;
+    wchar_t input[64];
+    GetWindowTextW(edit,input,64);
+    wchar_t *end=NULL;
+    double value=wcstod(input,&end);
+    if(end!=input && !*end && isfinite(value)) {
+        value=fgs_focus_clamp(value,0,1);
+        if(edit==s_focus_x_edit)s_focus_x=value;
+        else s_focus_y=value;
+    }
+    sync_focus_edits();
+    redraw_controls();
+}
+static LRESULT CALLBACK focus_edit_proc(HWND edit,UINT msg,WPARAM wparam,LPARAM lparam)
+{
+    if(msg==WM_KEYDOWN && wparam==VK_RETURN) {
+        SetFocus(s_window); /* EN_KILLFOCUS commits; never applies the whole window. */
+        return 0;
+    }
+    if(msg==WM_KEYDOWN && wparam==VK_ESCAPE) {
+        wchar_t value[48];
+        swprintf(value,48,L"%.4f",edit==s_focus_x_edit?s_focus_x:s_focus_y);
+        SetWindowTextW(edit,value);
+        SetFocus(s_window);
+        return 0;
+    }
+    return CallWindowProcW(s_original_focus_edit_proc,edit,msg,wparam,lparam);
+}
+
 static void paint_sliders(HWND window)
 {
     PAINTSTRUCT ps;
@@ -931,6 +997,22 @@ static void paint_sliders(HWND window)
         draw_slider(dc,&client,panel.top+170,L"晃动速度",(s_motion_speed-.25)/2.75,true,motion_value,false);
         swprintf(motion_value,40,L"%.2f x",s_motion_frequency);
         draw_slider(dc,&client,panel.top+210,L"随机频率",(s_motion_frequency-.25)/2.75,true,motion_value,false);
+        RECT compose,reset;focus_buttons(&client,&compose,&reset);
+        HBRUSH focus_brush=CreateSolidBrush(s_compose_mode?RGB(0,111,85):RGB(27,28,30));
+        HBRUSH focus_gray=CreateSolidBrush(RGB(27,28,30));
+        HBRUSH focus_edge=CreateSolidBrush(RGB(64,66,71));
+        FillRect(dc,&compose,focus_brush);FillRect(dc,&reset,focus_gray);
+        FrameRect(dc,&compose,focus_edge);FrameRect(dc,&reset,focus_edge);
+        SetTextColor(dc,RGB(235,237,240));
+        DrawTextW(dc,s_compose_mode?L"画面构图 · 拖动画面":L"画面构图 · 点击启用",-1,&compose,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+        DrawTextW(dc,L"恢复居中 1.00×",-1,&reset,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+        DeleteObject(focus_brush);DeleteObject(focus_gray);DeleteObject(focus_edge);
+        wchar_t zoom_value[40];swprintf(zoom_value,40,L"%.3f x",s_focus_zoom);
+        draw_slider(dc,&client,panel.top+295,L"画面缩放",(s_focus_zoom-1)/2,true,zoom_value,false);
+        RECT label_x={144,panel.top+318,210,panel.top+343};
+        RECT label_y={350,panel.top+318,417,panel.top+343};
+        DrawTextW(dc,L"X (0–1)",-1,&label_x,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+        DrawTextW(dc,L"Y (0–1)",-1,&label_y,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
     } else if (s_border_settings) {
         const wchar_t *mode=s_border_mode==2?L"动态 · Gate Weave":s_border_mode==1?L"静态 · Dark":L"关闭";
         draw_slider(dc,&client,y,L"添加边框",s_border_mode/2.0,true,mode,false);
@@ -962,7 +1044,7 @@ static void paint_sliders(HWND window)
         DrawTextW(dc,L"跳转",-1,&seek_btn,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
         DeleteObject(gray);
     }
-    RECT info={14,panel.top+(s_border_settings?238:126),s_result_path?client.right-256:client.right-14,client.bottom-50};
+    RECT info={14,panel.top+(s_border_settings?348:126),s_result_path?client.right-256:client.right-14,client.bottom-50};
     SetBkMode(dc,TRANSPARENT);
     if (s_combined_grade) {
         RECT notice=info;notice.bottom=notice.top+17;
@@ -975,6 +1057,7 @@ static void paint_sliders(HWND window)
     }
     SetTextColor(dc,s_frame_loading?RGB(255,181,83):RGB(162,167,174));
     const wchar_t *hint_text = s_frame_loading ? L"正在抽取所选视频帧…" :
+        s_border_settings && s_compose_mode ? L"构图模式：拖动透明画窗中的视频；滚轮以鼠标位置缩放" :
         s_hint_en ? (s_pixel_view ? L"Double-click: fit  |  Drag: pan 1:1" : L"Double-click: 1:1 preview") :
         (s_pixel_view ? L"双击：适应窗口  |  拖动：平移 1:1" : L"双击画面：切换 1:1 预览");
     DrawTextW(dc,hint_text,-1,&info,DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
@@ -1255,6 +1338,13 @@ static void change_slider(int kind, int x)
     if (kind == 2 && !s_lut_source) return;
     if (kind == 1 && !s_has_grain) return;
     if (kind == 3) {change_frame_position(x);return;}
+    if(kind==8) {
+        RECT client;GetClientRect(s_window,&client);
+        int left,right,top;track_bounds(&client,&left,&right,&top);
+        double fraction=fgs_focus_clamp((double)(x-left)/(right-left),0,1);
+        s_focus_zoom=floor((1+2*fraction)*1000.+0.5)/1000.;
+        redraw_controls();return;
+    }
     if(kind>=5 && kind<=7) {
         RECT client;GetClientRect(s_window,&client);
         int left,right,top;track_bounds(&client,&left,&right,&top);
@@ -1353,6 +1443,41 @@ static bool border_has_classic_geometry(void)
         (!wcsncmp(s_initial_border_mode,L"CLASSIC_",8) ||
          !wcsncmp(s_initial_border_mode,L"USER_",5));
 }
+static void border_aperture(int *width,int *height)
+{
+    int w=s_preview_aperture_width?s_preview_aperture_width:1680;
+    int h=s_preview_aperture_height?s_preview_aperture_height:
+          (border_has_classic_geometry()?FGS_CLASSIC_APERTURE_HEIGHT_1080:990);
+    if(s_border_settings && s_border_combo &&
+       s_border_selection>=0 && s_border_selection<s_border_choices_count) {
+        w=s_border_choices[s_border_selection].aperture_width;
+        h=s_border_choices[s_border_selection].aperture_height;
+    }
+    *width=((s_width*w+960)/1920)&~1;
+    *height=((s_height*h+540)/1080)&~1;
+    if(*width>s_width)*width=s_width&~1;
+    if(*height>s_height)*height=s_height&~1;
+}
+
+/* Translate a cursor position from the fitted D3D11 child into aperture UVs. */
+static bool focus_view_point(HWND view,int mouse_x,int mouse_y,double *u,double *v)
+{
+    if(!s_border_settings || !s_compose_mode || !s_border_combo ||
+       !strcmp(s_border_choices[s_border_selection].mode,"OFF"))return false;
+    RECT client;GetClientRect(view,&client);
+    if(!s_width||!s_height||!client.right||!client.bottom)return false;
+    double display=fmin((double)client.right/s_width,(double)client.bottom/s_height);
+    double left=(client.right-s_width*display)/2.0,top=(client.bottom-s_height*display)/2.0;
+    double px=(mouse_x-left)/display,py=(mouse_y-top)/display;
+    int aw,ah;border_aperture(&aw,&ah);
+    struct fgs_film_motion motion=fgs_film_border_motion_adjusted(s_frame_seconds,s_border_weave,
+        s_motion_amp,s_motion_speed,s_motion_frequency);
+    px-=motion.shift_x;py-=motion.shift_y;
+    *u=(px-(s_width-aw)/2.0)/aw;
+    *v=(py-(s_height-ah)/2.0)/ah;
+    return *u>=0 && *u<=1 && *v>=0 && *v<=1;
+}
+
 static bool compose_film_border(void)
 {
     pl_dispatch_reset_frame(s_border_dispatch);
@@ -1360,27 +1485,22 @@ static bool compose_film_border(void)
     struct fgs_film_border_geometry geometry =
         fgs_film_border_geometry_adjusted(s_width,s_height,s_frame_seconds,s_border_weave,
             s_motion_amp,s_motion_speed,s_motion_frequency);
-    int apertureW=1680,apertureH=border_has_classic_geometry()?FGS_CLASSIC_APERTURE_HEIGHT_1080:990;
-    if(s_border_settings && s_border_combo &&
-       s_border_selection>=0 && s_border_selection<s_border_choices_count) {
-        apertureW=s_border_choices[s_border_selection].aperture_width;
-        apertureH=s_border_choices[s_border_selection].aperture_height;
-    }
-    geometry.aperture_width=((s_width*apertureW+960)/1920)&~1;
-    geometry.aperture_height=((s_height*apertureH+540)/1080)&~1;
-    if(geometry.aperture_width>s_width)geometry.aperture_width=s_width&~1;
-    if(geometry.aperture_height>s_height)geometry.aperture_height=s_height&~1;
+    border_aperture(&geometry.aperture_width,&geometry.aperture_height);
     geometry.aperture_x=(s_width-geometry.aperture_width)/2;
     geometry.aperture_y=(s_height-geometry.aperture_height)/2;
     const float frame[] = {(float)s_width,(float)s_height};
     const float aperture[] = {(float)geometry.aperture_width,(float)geometry.aperture_height};
     const float inset[] = {(float)geometry.aperture_x,(float)geometry.aperture_y};
     const float shift[] = {(float)geometry.shift_x,(float)geometry.shift_y};
+    const float focus[] = {(float)s_focus_x,(float)s_focus_y};
+    const float zoom[] = {(float)s_focus_zoom,(float)s_focus_zoom};
     const struct pl_shader_var variables[] = {
         {.var=pl_var_vec2("fgsBorderSize"),.data=frame},
         {.var=pl_var_vec2("fgsBorderAperture"),.data=aperture},
         {.var=pl_var_vec2("fgsBorderInset"),.data=inset},
         {.var=pl_var_vec2("fgsBorderShift"),.data=shift,.dynamic=true},
+        {.var=pl_var_vec2("fgsBorderFocus"),.data=focus,.dynamic=true},
+        {.var=pl_var_vec2("fgsBorderZoom"),.data=zoom,.dynamic=true},
     };
     const struct pl_shader_desc textures[] = {
         {.desc={.name="fgsBorderPng",.type=PL_DESC_SAMPLED_TEX},
@@ -1394,8 +1514,10 @@ static bool compose_film_border(void)
         "vec3 rgb = vec3(0.0);\n"
         "if (all(greaterThanEqual(p, vec2(0.0))) && all(lessThan(p, fgsBorderSize))) {\n"
         "    if (all(greaterThanEqual(inset, vec2(0.0))) && all(lessThan(inset, fgsBorderAperture))) {\n"
-        "        float scale = max(fgsBorderAperture.x / fgsBorderSize.x, fgsBorderAperture.y / fgsBorderSize.y);\n"
-        "        vec2 uv = (inset - 0.5 * fgsBorderAperture) / (fgsBorderSize * scale) + 0.5;\n"
+        "        float scale = max(fgsBorderAperture.x / fgsBorderSize.x, fgsBorderAperture.y / fgsBorderSize.y) * fgsBorderZoom.x;\n"
+        "        vec2 extent = fgsBorderAperture / (fgsBorderSize * scale);\n"
+        "        vec2 origin = clamp(fgsBorderFocus - 0.5 * extent, vec2(0.0), vec2(1.0) - extent);\n"
+        "        vec2 uv = origin + (inset / fgsBorderAperture) * extent;\n"
         "        rgb = texture(fgsBorderContent, uv).rgb;\n"
         "    }\n"
         "    vec4 border = texture(fgsBorderPng, p / fgsBorderSize);\n"
@@ -1563,6 +1685,15 @@ static LRESULT CALLBACK view_proc(HWND window, UINT msg, WPARAM wparam, LPARAM l
         return SendMessageW(s_window, msg, wparam, lparam);
     case WM_LBUTTONDOWN:
         SetFocus(s_window);
+        if(s_border_settings && s_compose_mode) {
+            double u,v;
+            int x=(short)LOWORD(lparam),y=(short)HIWORD(lparam);
+            if(focus_view_point(window,x,y,&u,&v)) {
+                s_focus_dragging=true;s_focus_last_x=x;s_focus_last_y=y;
+                SetCapture(window);
+            }
+            return 0;
+        }
         if (s_pixel_view) {
             s_panning=true;
             s_pan_last_x=(short)LOWORD(lparam);s_pan_last_y=(short)HIWORD(lparam);
@@ -1570,11 +1701,26 @@ static LRESULT CALLBACK view_proc(HWND window, UINT msg, WPARAM wparam, LPARAM l
         }
         return 0;
     case WM_LBUTTONDBLCLK:
+        if(s_border_settings && s_compose_mode)return 0;
         if (s_panning && GetCapture()==window)ReleaseCapture();
         s_panning=false;s_pixel_view=!s_pixel_view;s_pan_x=s_pan_y=0;
         redraw_controls();
         return 0;
     case WM_MOUSEMOVE:
+        if(s_focus_dragging && GetCapture()==window && (wparam&MK_LBUTTON)) {
+            int x=(short)LOWORD(lparam),y=(short)HIWORD(lparam);
+            RECT client;GetClientRect(window,&client);
+            double scale=fmin((double)client.right/s_width,(double)client.bottom/s_height);
+            if(scale>0) {
+                int aw,ah;border_aperture(&aw,&ah);
+                fgs_focus_pan(s_width,s_height,aw,ah,
+                    (x-s_focus_last_x)/scale,(y-s_focus_last_y)/scale,
+                    &s_focus_x,&s_focus_y,s_focus_zoom);
+                s_focus_last_x=x;s_focus_last_y=y;
+                sync_focus_edits();redraw_controls();
+            }
+            return 0;
+        }
         if (s_panning && GetCapture()==window && (wparam&MK_LBUTTON)) {
             int x=(short)LOWORD(lparam),y=(short)HIWORD(lparam);
             if (x!=s_pan_last_x || y!=s_pan_last_y) {
@@ -1585,12 +1731,33 @@ static LRESULT CALLBACK view_proc(HWND window, UINT msg, WPARAM wparam, LPARAM l
         }
         return 0;
     case WM_LBUTTONUP:
+        if(s_focus_dragging) {
+            s_focus_dragging=false;
+            if(GetCapture()==window)ReleaseCapture();
+            return 0;
+        }
         if (s_panning && GetCapture()==window)ReleaseCapture();
         s_panning=false;
         return 0;
     case WM_CAPTURECHANGED:
-        s_panning=false;
+        s_panning=false;s_focus_dragging=false;
         return 0;
+    case WM_MOUSEWHEEL:
+        if(s_border_settings && s_compose_mode) {
+            POINT pt={(short)LOWORD(lparam),(short)HIWORD(lparam)};
+            ScreenToClient(window,&pt);
+            double u,v;
+            if(focus_view_point(window,pt.x,pt.y,&u,&v)) {
+                double amount=(double)GET_WHEEL_DELTA_WPARAM(wparam)/WHEEL_DELTA;
+                double new_zoom=fgs_focus_clamp(s_focus_zoom*pow(1.15,amount),1,3);
+                int aw,ah;border_aperture(&aw,&ah);
+                fgs_focus_zoom_at(s_width,s_height,aw,ah,u,v,new_zoom,
+                    &s_focus_x,&s_focus_y,&s_focus_zoom);
+                sync_focus_edits();redraw_controls();
+            }
+            return 0;
+        }
+        return DefWindowProcW(window,msg,wparam,lparam);
     default:
         return DefWindowProcW(window, msg, wparam, lparam);
     }
@@ -1600,6 +1767,8 @@ static LRESULT CALLBACK window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM
 {
     switch (msg) {
     case WM_LBUTTONDOWN: {
+        if(s_border_settings && (GetFocus()==s_focus_x_edit || GetFocus()==s_focus_y_edit))
+            SetFocus(window);
         RECT client; GetClientRect(window, &client);
         int top = client.bottom-panel_height();
         int y = (short)HIWORD(lparam);
@@ -1616,6 +1785,23 @@ static LRESULT CALLBACK window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM
             if (PtInRect(&cancel,point)) {DestroyWindow(window);return 0;}
         }
         if(s_border_settings && s_border_combo) {
+            RECT compose,reset;focus_buttons(&client,&compose,&reset);
+            if(PtInRect(&compose,point)) {
+                s_compose_mode=!s_compose_mode;
+                if(s_compose_mode) {
+                    s_compose_old_pixel_view=s_pixel_view;
+                    s_compose_old_pan_x=s_pan_x;s_compose_old_pan_y=s_pan_y;
+                    s_pixel_view=false;s_pan_x=s_pan_y=0;
+                } else {
+                    s_pixel_view=s_compose_old_pixel_view;
+                    s_pan_x=s_compose_old_pan_x;s_pan_y=s_compose_old_pan_y;
+                }
+                redraw_controls();return 0;
+            }
+            if(PtInRect(&reset,point)) {
+                s_focus_x=s_focus_y=0.5;s_focus_zoom=1;
+                sync_focus_edits();redraw_controls();return 0;
+            }
             RECT import,remove,edit;border_choice_buttons(&client,&import,&remove,&edit);
             if(PtInRect(&import,point)) {
                 s_border_action="IMPORT";
@@ -1658,6 +1844,7 @@ static LRESULT CALLBACK window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM
                    (s_border_combo ? (y>=top+116 && y<top+146 ? 5 :
                                      y>=top+156 && y<top+186 ? 6 :
                                      y>=top+196 && y<top+226 ? 7 :
+                                     y>=top+281 && y<top+309 ? 8 :
                                      s_video_path && row==0 ? 3 : 0) :
                     (s_video_path?(row==0?3:row==1?4:0):(row==0?4:0))) :
                    (s_video_path?(row==0?3:row==1?1:row==2?2:0):(row==0?1:row==1?2:0));
@@ -1686,6 +1873,10 @@ static LRESULT CALLBACK window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM
         s_drag_kind = 0;
         return 0;
     case WM_COMMAND:
+        if(s_border_settings && HIWORD(wparam)==EN_KILLFOCUS &&
+           ((HWND)lparam==s_focus_x_edit || (HWND)lparam==s_focus_y_edit)) {
+            commit_focus_edit((HWND)lparam);return 0;
+        }
         if(s_border_combo && (HWND)lparam==s_border_combo && HIWORD(wparam)==CBN_SELCHANGE) {
             int index=(int)SendMessageW(s_border_combo,CB_GETCURSEL,0,0);
             if(!border_choice_apply(index,true)) {
@@ -1729,11 +1920,12 @@ static LRESULT CALLBACK window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM
     case WM_GETMINMAXINFO: {
         MINMAXINFO *limits = (MINMAXINFO *)lparam;
         limits->ptMinTrackSize.x = 820;
-        limits->ptMinTrackSize.y = 420;
+        limits->ptMinTrackSize.y = s_border_settings?610:420;
         return 0;
     }
     case WM_CTLCOLOREDIT:
-        if ((HWND)lparam==s_time_edit && s_edit_brush) {
+        if (((HWND)lparam==s_time_edit || (HWND)lparam==s_focus_x_edit ||
+             (HWND)lparam==s_focus_y_edit) && s_edit_brush) {
             HDC dc=(HDC)wparam;
             SetTextColor(dc,RGB(229,240,232));
             SetBkColor(dc,RGB(27,28,30));
@@ -1791,6 +1983,7 @@ static LRESULT CALLBACK window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM
         if (view_height < 1) view_height = 1;
         if (s_view) MoveWindow(s_view, 0, 0, client.right, view_height, TRUE);
         if(s_border_combo)border_combo_layout(&client);
+        if(s_border_settings)focus_edit_layout(&client);
         if (s_time_edit) {
             RECT edit,random_btn,seek_btn;
             int hint_left;
@@ -1950,9 +2143,43 @@ static int audit_film_border(void)
     return okay ? 0 : 8;
 }
 
+static int audit_border_framing(void)
+{
+    const int sizes[][4]={{1920,1080,1680,990},{1920,1080,1680,748},
+        {3840,2160,3360,1496},{1920,1080,1630,698},{1920,1080,1730,798},
+        {1080,1920,950,700}};
+    const double foci[]={0,0.25,0.5,0.75,1};
+    const double zooms[]={1,1.5,2,3};
+    for(size_t k=0;k<sizeof(sizes)/sizeof(sizes[0]);k++)
+    for(size_t zi=0;zi<sizeof(zooms)/sizeof(zooms[0]);zi++)
+    for(size_t fx=0;fx<sizeof(foci)/sizeof(foci[0]);fx++)
+    for(size_t fy=0;fy<sizeof(foci)/sizeof(foci[0]);fy++) {
+        int w=sizes[k][0],h=sizes[k][1],aw=sizes[k][2],ah=sizes[k][3];
+        struct fgs_focus_rect crop=fgs_focus_crop(w,h,aw,ah,foci[fx],foci[fy],zooms[zi]);
+        if(crop.width<=0||crop.height<=0||crop.left<-.00001||crop.top<-.00001||
+           crop.left+crop.width>w+.00001||crop.top+crop.height>h+.00001)
+            return 12;
+        if(foci[fx]==0.5&&foci[fy]==0.5&&zooms[zi]==1 &&
+           (fabs(crop.left-(w-crop.width)/2)>1e-8||
+            fabs(crop.top-(h-crop.height)/2)>1e-8))return 13;
+    }
+    /* A centered free crop preserves the pixel under the cursor as zoom changes. */
+    double x=.5,y=.5,z=1.7;
+    const double u=.35,v=.65;
+    struct fgs_focus_rect a=fgs_focus_crop(1920,1080,1680,748,x,y,z);
+    const double before_x=a.left+u*a.width,before_y=a.top+v*a.height;
+    fgs_focus_zoom_at(1920,1080,1680,748,u,v,2.1,&x,&y,&z);
+    struct fgs_focus_rect b=fgs_focus_crop(1920,1080,1680,748,x,y,z);
+    if(fabs(before_x-(b.left+u*b.width))>1e-6||
+       fabs(before_y-(b.top+v*b.height))>1e-6)return 14;
+    puts("PASS Film Border focus/zoom: neutral, corners, 1080p, UHD, custom gates, mouse anchor");
+    return 0;
+}
+
 int wmain(int argc, wchar_t **argv)
 {
     QueryPerformanceFrequency(&s_frequency);
+    if (argc == 2 && !wcscmp(argv[1], L"--audit-border-framing")) return audit_border_framing();
     if (argc == 2 && !wcscmp(argv[1], L"--audit-film-border")) return audit_film_border();
     if (argc == 2 && !wcscmp(argv[1], L"--audit-border-modes")) {
         const wchar_t *valid[]={L"OFF",L"DARK_STATIC",L"DARK_WEAVE",L"CLASSIC_STATIC",
@@ -2004,12 +2231,28 @@ int wmain(int argc, wchar_t **argv)
         else if (!wcscmp(key,L"--fgsim-shader")) s_fgsim_shader_path=value;
         else if (!wcscmp(key,L"--digital-noise")) s_digital_path=value;
         else if (!wcscmp(key,L"--noise-ffmpeg")) s_noise_ffmpeg=value;
+        else if (!wcscmp(key,L"--film-focus-x") || !wcscmp(key,L"--film-focus-y") || !wcscmp(key,L"--film-zoom")) {
+            wchar_t *end=NULL;
+            double n=wcstod(value,&end);
+            double low=!wcscmp(key,L"--film-zoom")?1.0:0.0;
+            double high=!wcscmp(key,L"--film-zoom")?3.0:1.0;
+            if(end==value||*end||!isfinite(n)||n<low||n>high)return 2;
+            if(!wcscmp(key,L"--film-focus-x"))s_focus_x=n;
+            else if(!wcscmp(key,L"--film-focus-y"))s_focus_y=n;
+            else s_focus_zoom=n;
+        }
         else if (!wcscmp(key, L"--film-border")) s_border_path = value;
         else if (!wcscmp(key, L"--film-border-settings")) {
             if(!int_arg(value,0,1,&flag))return 2;
             s_border_settings=flag!=0;
         }
         else if (!wcscmp(key, L"--border-choices-file")) s_border_choices_file=value;
+        else if (!wcscmp(key,L"--film-border-aperture-w")) {
+            if(!int_arg(value,2,1920,&s_preview_aperture_width))return 2;
+        }
+        else if (!wcscmp(key,L"--film-border-aperture-h")) {
+            if(!int_arg(value,2,1080,&s_preview_aperture_height))return 2;
+        }
         else if (!wcscmp(key,L"--film-motion-amp") ||
                  !wcscmp(key,L"--film-motion-speed") ||
                  !wcscmp(key,L"--film-motion-frequency")) {
@@ -2204,6 +2447,21 @@ int wmain(int argc, wchar_t **argv)
                                                        (LONG_PTR)border_combo_proc);
         if(!s_original_border_combo_proc){free(raw);free(plate_raw);DestroyWindow(s_window);return 5;}
         InvalidateRect(s_border_combo,NULL,TRUE);
+    }
+    if(s_border_settings && s_border_choices_count) {
+        int top=client.bottom-panel_height()+318;
+        s_focus_x_edit=CreateWindowExW(0,L"EDIT",L"",WS_CHILD|WS_VISIBLE|WS_BORDER|WS_TABSTOP|ES_CENTER|ES_AUTOHSCROLL,
+            216,top,110,25,s_window,(HMENU)(INT_PTR)302,instance,NULL);
+        s_focus_y_edit=CreateWindowExW(0,L"EDIT",L"",WS_CHILD|WS_VISIBLE|WS_BORDER|WS_TABSTOP|ES_CENTER|ES_AUTOHSCROLL,
+            423,top,110,25,s_window,(HMENU)(INT_PTR)303,instance,NULL);
+        if(!s_focus_x_edit||!s_focus_y_edit){free(raw);free(plate_raw);DestroyWindow(s_window);return 5;}
+        if(s_panel_font) {
+            SendMessageW(s_focus_x_edit,WM_SETFONT,(WPARAM)s_panel_font,TRUE);
+            SendMessageW(s_focus_y_edit,WM_SETFONT,(WPARAM)s_panel_font,TRUE);
+        }
+        s_original_focus_edit_proc=(WNDPROC)SetWindowLongPtrW(s_focus_x_edit,GWLP_WNDPROC,(LONG_PTR)focus_edit_proc);
+        SetWindowLongPtrW(s_focus_y_edit,GWLP_WNDPROC,(LONG_PTR)focus_edit_proc);
+        sync_focus_edits();
     }
     int view_height = client.bottom-panel_height();
     if (view_height < 1) view_height = 1;

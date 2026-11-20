@@ -404,7 +404,8 @@ namespace FilmGrainStudioPreview
                     filmBorder.GpuRaw = raw;
                     filmBorder.GpuInputIndex = plateMode ? 2 : 1;
                     filmBorder.GpuClockGated = !grainEnabled;
-                    filmBorder.GpuUseLegacy4k = s4Gpu4k30 && !filmBorder.User; // user aperture must use flexible kernel
+                    filmBorder.GpuUseLegacy4k = s4Gpu4k30 && !filmBorder.User &&
+                        FilmBorderFramingCore.Neutral(filmBorder.FocusX,filmBorder.FocusY,filmBorder.Zoom);
                     filmBorder.GpuWidth = info.Width; filmBorder.GpuHeight = info.Height;
                     filmBorder.GpuContentX = frame.ContentX; filmBorder.GpuContentY = frame.ContentY;
                     filmBorder.GpuContentWidth = frame.ContentWidth; filmBorder.GpuContentHeight = frame.ContentHeight;
@@ -1549,11 +1550,40 @@ namespace FilmGrainStudioPreview
 {
     // S2: common FFmpeg filter-graph integration for all native HEVC/H264 invocations.
     // No UI rendering or separate video baking. OFF leaves the existing graph unchanged.
+    // Normalized focus/zoom shared by the GUI, CLI and all FFmpeg encoding routes.
+    internal static class FilmBorderFramingCore
+    {
+        internal const string FocusXKey="FILM_BORDER_FOCUS_X",FocusYKey="FILM_BORDER_FOCUS_Y",ZoomKey="FILM_BORDER_ZOOM";
+        internal static double Parse(string input,double fallback,double min,double max)
+        {
+            double value;
+            if(!double.TryParse(input,NumberStyles.Float,CultureInfo.InvariantCulture,out value) ||
+               double.IsNaN(value) || double.IsInfinity(value)) return fallback;
+            return Math.Max(min,Math.Min(max,value));
+        }
+        internal static string N(double value) {return value.ToString("0.##########",CultureInfo.InvariantCulture);}
+        internal static bool Neutral(double x,double y,double zoom)
+        {return Math.Abs(x-0.5)<1e-9 && Math.Abs(y-0.5)<1e-9 && Math.Abs(zoom-1)<1e-9;}
+        internal static string CpuScaleCrop(int apertureW,int apertureH,double x,double y,double zoom)
+        {
+            string w=apertureW.ToString(CultureInfo.InvariantCulture),h=apertureH.ToString(CultureInfo.InvariantCulture);
+            // The original S4 filter graph is preserved verbatim for neutral framing.
+            if(Neutral(x,y,zoom))
+                return "scale="+w+":"+h+":force_original_aspect_ratio=increase:flags=lanczos,crop="+w+":"+h;
+            int scaledW=(int)Math.Ceiling(apertureW*zoom/2.0)*2;
+            int scaledH=(int)Math.Ceiling(apertureH*zoom/2.0)*2;
+            return "scale="+scaledW+":"+scaledH+":force_original_aspect_ratio=increase:flags=lanczos"+
+                ",crop="+w+":"+h+":x='max(0,min(iw-ow,"+N(x)+"*iw-ow/2))'"+
+                ":y='max(0,min(ih-oh,"+N(y)+"*ih-oh/2))'";
+        }
+    }
+
     internal static class FilmBorderEncodingCore
     {
         internal sealed class Plan
         {
             internal string Path;
+            internal double FocusX=0.5,FocusY=0.5,Zoom=1;
             internal bool Dynamic;
             internal bool Classic;
             internal bool User;
@@ -1610,6 +1640,9 @@ namespace FilmGrainStudioPreview
             plan=new Plan{Path=chosen.PngPath,Dynamic=chosen.Weave,Classic=chosen.StyleId=="CLASSIC" || chosen.User,User=chosen.User,
                 ApertureWidth1080=chosen.ApertureWidth1080,ApertureHeight1080=chosen.ApertureHeight1080,
                 FileSuffix=OutputFileSuffix(chosen.StyleId,chosen.Weave),HdrTransfer=hdrPreserve?media.ColorTransfer:"",
+                FocusX=FilmBorderFramingCore.Parse(Read(state,"FG_"+FilmBorderFramingCore.FocusXKey),0.5,0,1),
+                FocusY=FilmBorderFramingCore.Parse(Read(state,"FG_"+FilmBorderFramingCore.FocusYKey),0.5,0,1),
+                Zoom=FilmBorderFramingCore.Parse(Read(state,"FG_"+FilmBorderFramingCore.ZoomKey),1,1,3),
                 GpuRaw=chosen.RawPath,
                 MoveX=FilmBorderMotionCore.Expression(true,amp,speed,frequency),
                 MoveY=FilmBorderMotionCore.Expression(false,amp,speed,frequency)};
@@ -1667,8 +1700,8 @@ namespace FilmGrainStudioPreview
             if(apertureHeight>height)apertureHeight=height;
             int x=(width-apertureWidth)/2,y=(height-apertureHeight)/2;
             string graph=original.Substring(0,at)+"[fgsfilm_src]"+original.Substring(at+6);
-            graph+=";[fgsfilm_src]scale="+N(apertureWidth)+":"+N(apertureHeight)+
-                   ":force_original_aspect_ratio=increase:flags=lanczos,crop="+N(apertureWidth)+":"+N(apertureHeight)+
+            graph+=";[fgsfilm_src]"+FilmBorderFramingCore.CpuScaleCrop(apertureWidth,apertureHeight,
+                 plan.FocusX,plan.FocusY,plan.Zoom)+
                    ",setsar=1,pad="+N(width)+":"+N(height)+":"+N(x)+":"+N(y)+":color=black[fgsfilm_canvas]";
             if (plan.HdrTransfer != "")
                 return AppendHdrTexture(graph,plan,filmInputIndex,width,height,outputFormat);
@@ -1707,8 +1740,10 @@ namespace FilmGrainStudioPreview
                 int apertureW=EvenDimension(((long)w*ApertureWidth(plan)+960)/1920);
                 int apertureH=EvenDimension(((long)h*ApertureHeight(plan)+540)/1080);
                 apertureW=Math.Min(apertureW,w); apertureH=Math.Min(apertureH,h);
-                double scale=Math.Max((double)apertureW/w,(double)apertureH/h);
-                double cropLeft=(w-apertureW/scale)/2.0, cropTop=(h-apertureH/scale)/2.0;
+                double scale=Math.Max((double)apertureW/w,(double)apertureH/h)*plan.Zoom;
+                 double cropWidth=apertureW/scale,cropHeight=apertureH/scale;
+                 double cropLeft=Math.Max(0,Math.Min(w-cropWidth,plan.FocusX*w-cropWidth/2.0));
+                 double cropTop=Math.Max(0,Math.Min(h-cropHeight,plan.FocusY*h-cropHeight/2.0));
                 double left=Math.Max(cropLeft,plan.GpuContentX), top=Math.Max(cropTop,plan.GpuContentY);
                 double right=Math.Min(cropLeft+apertureW/scale,plan.GpuContentX+plan.GpuContentWidth);
                 double bottom=Math.Min(cropTop+apertureH/scale,plan.GpuContentY+plan.GpuContentHeight);

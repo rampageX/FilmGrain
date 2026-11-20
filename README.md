@@ -1,5 +1,7 @@
 # Film Grain Studio
 
+- 胶片边框测试分支交互式画面构图规范：[FILM_BORDER_FRAMING_SPEC.md](FILM_BORDER_FRAMING_SPEC.md)
+
 > **Film Grain Studio v5.0.76 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 <table>

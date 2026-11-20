@@ -81,6 +81,15 @@ jobs:
         shell: powershell
         run: |
           & .\dotnet\BuildTools\Test_S4_GpuBorder.ps1
+      - name: Verify interactive border framing calculations and FFmpeg graph
+        shell: powershell
+        run: |
+          & .\dotnet\BuildTools\Test_FilmBorderFraming.ps1
+      - name: Verify native mouse-anchor, zoom and no-gap framing mathematics
+        shell: powershell
+        run: |
+          & .\GpuAdvancedPreview\fgs_gpu_preview.exe --audit-border-framing
+          if ($LASTEXITCODE -ne 0) { throw "Native framing audit failed: $LASTEXITCODE" }
       - name: Archive exact test source
         shell: powershell
         run: |

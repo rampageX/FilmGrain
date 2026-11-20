@@ -178,6 +178,9 @@ namespace FilmGrainStudioPreview
             snapshot.FilmBorderAmplitude=config.Get(FilmBorderMotionCore.AmpKey);
             snapshot.FilmBorderSpeed=config.Get(FilmBorderMotionCore.SpeedKey);
             snapshot.FilmBorderFrequency=config.Get(FilmBorderMotionCore.FrequencyKey);
+            snapshot.FilmBorderFocusX=config.Get(FilmBorderFramingCore.FocusXKey);
+            snapshot.FilmBorderFocusY=config.Get(FilmBorderFramingCore.FocusYKey);
+            snapshot.FilmBorderZoom=config.Get(FilmBorderFramingCore.ZoomKey);
             
             
             

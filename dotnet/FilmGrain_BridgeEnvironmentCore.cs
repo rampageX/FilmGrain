@@ -83,6 +83,7 @@ namespace FilmGrainStudioPreview
         public string TonemapAlgo = "";
         public string FilmBorderMode = "OFF";
         public string FilmBorderAmplitude="1",FilmBorderSpeed="1",FilmBorderFrequency="1";
+        public string FilmBorderFocusX="0.5",FilmBorderFocusY="0.5",FilmBorderZoom="1";
 
         
         
@@ -229,6 +230,9 @@ namespace FilmGrainStudioPreview
             state["FG_FILM_BORDER_AMP"] = snapshot.FilmBorderAmplitude;
             state["FG_FILM_BORDER_SPEED"] = snapshot.FilmBorderSpeed;
             state["FG_FILM_BORDER_FREQUENCY"] = snapshot.FilmBorderFrequency;
+            state["FG_"+FilmBorderFramingCore.FocusXKey] = snapshot.FilmBorderFocusX;
+            state["FG_"+FilmBorderFramingCore.FocusYKey] = snapshot.FilmBorderFocusY;
+            state["FG_"+FilmBorderFramingCore.ZoomKey] = snapshot.FilmBorderZoom;
             
             
             
