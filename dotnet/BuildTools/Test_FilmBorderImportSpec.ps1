@@ -69,7 +69,10 @@ try {
     }
     $list=$type.GetMethod('List',$flags)
     $styles=$list.Invoke($null,@([string]$dir))
-    $names=@($styles | ForEach-Object { $_.Label })
+    $labelField=$assembly.GetType('FilmGrainStudioPreview.FilmBorderChoice',$true).GetField('Label',
+        [Reflection.BindingFlags]'Instance,NonPublic')
+    if(-not $labelField){throw 'FilmBorderChoice.Label field missing'}
+    $names=@($styles | ForEach-Object { [string]$labelField.GetValue($_) })
     if($names -notcontains ('自定义 · '+$descriptiveName+' · 静态') -or
        $names -notcontains ('自定义 · '+$descriptiveName+' · 动态')){
         throw 'Custom display name not propagated to static/dynamic dropdown choices'
