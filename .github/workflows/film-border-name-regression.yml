@@ -1,0 +1,55 @@
+name: FGS Film Border Filename Regression
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/film-border-name-regression.yml'
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup MSYS2 toolchain
+        id: msys2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          release: false
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-binutils
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-libplacebo
+      - name: Build and validate portable package
+        shell: powershell
+        env:
+          FGS_MSYS2_ROOT: ${{ steps.msys2.outputs.msys2-location }}
+        run: |
+          & '.\.github\release\build_release.ps1' -RepositoryRoot $env:GITHUB_WORKSPACE -Version '5.0.77' -OutputDirectory $env:GITHUB_WORKSPACE
+      - name: Build main application and verify output names
+        shell: cmd
+        run: dotnet\build_NET_Preview.bat
+      - name: Regression - filenames and user import
+        shell: powershell
+        run: |
+          & '.\dotnet\BuildTools\Test_FilmBorderFileSuffix.ps1'
+          & '.\dotnet\BuildTools\Test_FilmBorderImportSpec.ps1'
+      - name: Package self-contained test runtime and matching source
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $stage=Join-Path $env:RUNNER_TEMP 'FGS_NameFix_Stage'
+          New-Item -ItemType Directory -Path $stage -Force | Out-Null
+          Copy-Item -LiteralPath 'FilmGrain_Studio_v5.0.77_Stable.zip' -Destination (Join-Path $stage 'FGS_NameFix_Portable.zip')
+          Copy-Item -LiteralPath 'FilmGrain_Studio_v5.0.77_Source.zip' -Destination (Join-Path $stage 'FGS_NameFix_Source.zip')
+          $random=[Guid]::NewGuid().ToString('N').Substring(0,6)
+          $file='FGS_FilmBorder_NameFix_'+$env:GITHUB_SHA.Substring(0,8)+'_'+$random+'_Test_and_Source.zip'
+          Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $file -CompressionLevel Optimal -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FGS-FilmBorder-NameFix-${{ github.sha }}
+          path: FGS_FilmBorder_NameFix_*_Test_and_Source.zip
+          if-no-files-found: error

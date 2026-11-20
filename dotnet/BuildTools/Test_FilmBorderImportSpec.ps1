@@ -9,16 +9,18 @@ $validate=$type.GetMethod('ValidatePng',$flags)
 $validateNew=$type.GetMethod('ValidatePngWithAperture',$flags)
 $import=$type.GetMethod('Import',$flags,$null,[type[]]@([string],[string],[string],[int],[int]),$null)
 $checkName=$type.GetMethod('ValidateDisplayName',$flags)
+$checkUnique=$type.GetMethod('ValidateUniqueDisplayName',$flags)
 $checkSize=$type.GetMethod('ValidateAperture',$flags)
 $list=$type.GetMethod('List',$flags)
 $choiceType=$assembly.GetType('FilmGrainStudioPreview.FilmBorderChoice',$true)
 $fieldFlags=[Reflection.BindingFlags]'Instance,NonPublic'
 $labelField=$choiceType.GetField('Label',$fieldFlags)
+$userNameField=$choiceType.GetField('UserName',$fieldFlags)
 $pngField=$choiceType.GetField('PngPath',$fieldFlags)
 $widthField=$choiceType.GetField('ApertureWidth1080',$fieldFlags)
 $heightField=$choiceType.GetField('ApertureHeight1080',$fieldFlags)
 if(-not $validate -or -not $validateNew -or -not $import -or -not $checkName -or -not $checkSize -or
-   -not $list -or -not $labelField -or -not $pngField -or -not $widthField -or -not $heightField){
+   -not $list -or -not $checkUnique -or -not $labelField -or -not $userNameField -or -not $pngField -or -not $widthField -or -not $heightField){
     throw 'Film Border import v1.1 API/metadata fields unavailable'
 }
 $dir=Join-Path $env:RUNNER_TEMP ('FGS_ImportV11_'+[guid]::NewGuid().ToString('N'))
@@ -90,6 +92,7 @@ function Assert-Imported([string]$path,[string]$name,[int]$apW,[int]$apH){
     })
     if($items.Count -ne 2){throw 'Imported static and dynamic catalog entries missing'}
     foreach($style in $items){
+        if([string]$userNameField.GetValue($style) -cne $name){throw 'UserName not passed to encoding choice'}
         if([int]$widthField.GetValue($style) -ne $apW -or [int]$heightField.GetValue($style) -ne $apH){
             throw 'Imported aperture geometry differs from saved value'
         }
@@ -138,6 +141,20 @@ try {
     foreach($bad in @('', '   ', ('X'*41), "bad`tname", "bad`nname")){
         Assert-Rejected { $checkName.Invoke($null,@([string]$bad)) } '边框名称'
     }
+
+    # Duplicate rejection occurs in the naming dialog, before PNG copy.
+    Assert-Rejected { $checkUnique.Invoke($null,@([string]$dir,'柔和暗角 · 默认',$null)) } '已存在'
+    Assert-Rejected { $checkUnique.Invoke($null,@([string]$dir,'旧片仓 · 半透明',$null)) } '已存在'
+    Assert-Rejected { $checkUnique.Invoke($null,@([string]$dir,'青色颗粒覆盖  ',$null)) } '已存在'
+    $named=Assert-Imported $default 'Case / Film' 1680 748
+    Assert-Rejected { $checkUnique.Invoke($null,@([string]$dir,'case _ film',$null)) } '已存在'
+    $before=@(Get-ChildItem -LiteralPath (Join-Path $dir 'Utils\_FilmBorders\User') -Filter '*.png').Count
+    Assert-Rejected { $import.Invoke($null,@([string]$dir,[string]$default,'CASE _ FILM',1680,748)) } '已存在'
+    $after=@(Get-ChildItem -LiteralPath (Join-Path $dir 'Utils\_FilmBorders\User') -Filter '*.png').Count
+    if($before -ne $after){throw 'Duplicate import created a PNG file'}
+    Assert-Rejected { $checkUnique.Invoke($null,@([string]$dir,'///',$null)) } '非法字符'
+    $checkUnique.Invoke($null,@([string]$dir,'胶片 & 35mm ^ (原片)!',$null)) | Out-Null
+    Write-Host 'PASS: import-time duplicate rejection, sanitized collisions, and rollback'
 
     $fake=Join-Path $dir 'fake.png'
     [IO.File]::WriteAllText($fake,'not a PNG')
