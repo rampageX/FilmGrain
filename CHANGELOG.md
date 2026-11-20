@@ -1,6 +1,6 @@
 ## test/film-border-s4 — 交互式画面构图（待用户实机验收，非正式版）
 
-- 修复 1080p HLG 自定义 1650×720 边框经 Vulkan→CUDA 交接 P010 半平面图像时报 `cuExternalMemoryGetMappedMipmappedArray CUDA_ERROR_INVALID_VALUE`：非旧版 4K 快速分支改用 GPU 内三平面 10-bit 映射＋CUDA P010 格式转换；不增加 CPU 内存回传，旧版 4K 分支保留。
+- RTX 4080 实测 Vulkan→CUDA 直接映射在 HLG 1080p 的 P010 与三平面 10-bit 两种格式均报 `CUDA_ERROR_INVALID_VALUE`；4K TrueHDR 路线也被报告失败。S4 GPU 边框输出统一改为 Vulkan/libplacebo P010 → `hwdownload` → NVENC 软件 P010 输入（编码器自行上传显存），适用 1080p、4K 旧版和非旧版几何路径；保留 10-bit/PQ/HLG 标签、画窗、动态参数，单次编码，无中间视频文件。此回退增加帧传输开销，待 RTX 4080 实测速度与画质。
 
 - 用户 PNG 导入画窗首次预填改为 **1650×720**，记忆上一次成功导入时的宽高；取消/失败不修改记忆，内置边框及旧素材的 1680×748 兼容参数不变。
 

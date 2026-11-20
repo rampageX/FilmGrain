@@ -16,10 +16,10 @@ function Assert-Contains([string]$actual,[string]$expected) {
     if (-not $actual.Contains($expected)) { throw "Expected graph text not found: $expected`nGraph: $actual" }
 }
 $g = Make-Graph 1920 1080 0 138 1920 804 1 $false
-foreach ($s in @('[1:v:0]format=rgba', 'libplacebo=inputs=2:w=1920:h=1080:format=yuv420p10le', 'hwupload=derive_device=cuda,scale_cuda=format=p010le', 'w=1920:h=1080', "crop_y='if(eq(idx,0),138,0)'", "crop_h='if(eq(idx,0),804,ih)'", "pos_w='if(eq(idx,0),1680,1920)'", "pos_h='if(eq(idx,0),737,1080)'", "pos_y='if(eq(idx,0),171.5,0)", 'hwupload=derive_device=cuda', '[vout]')) { Assert-Contains $g $s }
+foreach ($s in @('[1:v:0]format=rgba', 'libplacebo=inputs=2:w=1920:h=1080:format=p010le', 'hwdownload,format=p010le', 'w=1920:h=1080', "crop_y='if(eq(idx,0),138,0)'", "crop_h='if(eq(idx,0),804,ih)'", "pos_w='if(eq(idx,0),1680,1920)'", "pos_h='if(eq(idx,0),737,1080)'", "pos_y='if(eq(idx,0),171.5,0)", 'color_trc=smpte2084', '[vout]')) { Assert-Contains $g $s }
 if ($g.Contains('[2:v:0]')) { throw 'No-grain route references a non-existent grain input.' }
-if ($g.Contains('libplacebo=inputs=2:w=1920:h=1080:format=p010le') -or $g.Contains('hwdownload')) {
-    throw 'Nonlegacy GPU route must not map semi-planar P010 or round-trip through host memory.'
+if ($g.Contains('hwupload=derive_device=cuda') -or $g.Contains('scale_cuda=')) {
+    throw 'Nonlegacy GPU border must avoid Vulkan/CUDA external-memory mapping.'
 }
 Assert-Contains $g '[fgsfilm_clock_src]scale=2:2,format=rgba[fgsfilm_clock]'
 Assert-Contains $g 'overlay=x=main_w:shortest=1:format=rgb,format=rgba'
@@ -27,8 +27,12 @@ $g = Make-Graph 1920 1080 0 0 1920 1080 2 $false
 foreach ($s in @('[2:v:0]format=rgba', "crop_y='if(eq(idx,0),0,0)'", "pos_h='if(eq(idx,0),990,1080)'")) { Assert-Contains $g $s }
 if ($g.Contains('fgsfilm_clock')) { throw 'Verified Grain Plate route changed unexpectedly.' }
 $g = Make-Graph 3840 2160 0 276 3840 1608 2 $true
-foreach ($s in @('[2:v:0]format=rgba', 'w=3840:h=2160', 'libplacebo=inputs=2:w=3840:h=2160:format=p010le', "crop_y='if(eq(idx,0),276,0)'", "pos_h='if(eq(idx,0),1474,2160)'")) { Assert-Contains $g $s }
-if ($g.Contains('scale_cuda=')) { throw 'Previously verified legacy 4K path must remain unchanged.' }
+$g4k=$g
+foreach ($s in @('[2:v:0]format=rgba', 'w=3840:h=2160', 'libplacebo=inputs=2:w=3840:h=2160:format=p010le', 'hwdownload,format=p010le', "crop_y='if(eq(idx,0),276,0)'", "pos_h='if(eq(idx,0),1474,2160)'")) { Assert-Contains $g $s }
+if ($g.Contains('hwupload=derive_device=cuda') -or $g.Contains('scale_cuda=')) { throw '4K GPU border must avoid Vulkan/CUDA mapping.' }
+$g4kVfr=Make-Graph 3840 2160 0 276 3840 1608 1 $false
+Assert-Contains $g4kVfr 'hwdownload,format=p010le'
+if ($g4kVfr.Contains('hwupload=derive_device=cuda')) { throw 'Nonlegacy 4K/VFR border must avoid Vulkan/CUDA mapping.' }
 $g = Make-Graph 1280 720 0 92 1280 536 1 $false
 foreach ($s in @('w=1280:h=720', "crop_y='if(eq(idx,0),92,0)'", "pos_w='if(eq(idx,0),1120,1280)'")) { Assert-Contains $g $s }
 $static = Make-Graph 1920 1080 0 138 1920 804 1 $false $false
@@ -67,7 +71,11 @@ $filterIndex = [array]::IndexOf($list, '-filter_complex')
 $durationIndex = [array]::LastIndexOf($list, '-t')
 if ($sourceIndex -lt 0 -or $rawIndex -le $sourceIndex -or $rawIndex -ge $filterIndex) { throw 'No-grain input order is wrong.' }
 if ($durationIndex -lt $filterIndex -or $list[$durationIndex+1] -ne '20') { throw 'No-grain output has no finite duration.' }
-if ([array]::IndexOf($list, '-pix_fmt') -ge 0) { throw 'GPU frames unexpectedly force a software pixel format.' }
+$pixfmt=[array]::IndexOf($list, '-pix_fmt')
+if ($pixfmt -lt 0 -or $list[$pixfmt+1] -ne 'p010le') { throw 'NVENC must accept software P010 after Vulkan hwdownload.' }
+$legacyArgs=[FgsS4ArgsAudit]::Build($buildArgs, $capsType, $planType, $g4k)
+$legacyPixfmt=[array]::IndexOf($legacyArgs, '-pix_fmt')
+if ($legacyPixfmt -lt 0 -or $legacyArgs[$legacyPixfmt+1] -ne 'p010le') { throw '4K NVENC must also accept software P010.' }
 # v1.1 flexible user aperture must map identically in CPU and Vulkan compositor.
 $customPlan=[Activator]::CreateInstance($planType,$true)
 $planType.GetField('GpuRaw',$fields).SetValue($customPlan,'texture.raw')
@@ -92,10 +100,10 @@ $planType.GetField('ApertureWidth1080',$fields).SetValue($customPlan,1650)
 $planType.GetField('ApertureHeight1080',$fields).SetValue($customPlan,720)
 $planType.GetField('HdrTransfer',$fields).SetValue($customPlan,'arib-std-b67')
 $hlgGpu=[string]$method.Invoke($null,@('[0:v:0]hwupload[fgsfilm_gpu_video]',$customPlan))
-foreach($s in @('format=yuv420p10le', 'hwupload=derive_device=cuda,scale_cuda=format=p010le',
+foreach($s in @('format=p010le', 'hwdownload,format=p010le',
     "pos_w='if(eq(idx,0),1650,1920)'", "pos_h='if(eq(idx,0),720,1080)'", 'color_trc=arib-std-b67')) { Assert-Contains $hlgGpu $s }
-if($hlgGpu.Contains('hwdownload') -or $hlgGpu.Contains('libplacebo=inputs=2:w=1920:h=1080:format=p010le')){
-    throw 'HLG GPU border must use planar CUDA interop without CPU round-trip'
+if($hlgGpu.Contains('hwupload=derive_device=cuda') -or $hlgGpu.Contains('scale_cuda=')){
+    throw 'HLG GPU border must avoid invalid Vulkan/CUDA external-memory mapping'
 }
 $planType.GetField('HdrTransfer',$fields).SetValue($customPlan,'')
 $planType.GetField('ApertureWidth1080',$fields).SetValue($customPlan,1630)
