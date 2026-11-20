@@ -1590,7 +1590,7 @@ namespace FilmGrainStudioPreview
             double amp=FilmBorderMotionCore.Parse(Read(state,"FG_FILM_BORDER_AMP"),0,3);
             double speed=FilmBorderMotionCore.Parse(Read(state,"FG_FILM_BORDER_SPEED"),0.25,3);
             double frequency=FilmBorderMotionCore.Parse(Read(state,"FG_FILM_BORDER_FREQUENCY"),0.25,3);
-            plan=new Plan{Path=chosen.PngPath,Dynamic=chosen.Weave,Classic=chosen.StyleId=="CLASSIC",HdrTransfer=hdrPreserve?media.ColorTransfer:"",
+            plan=new Plan{Path=chosen.PngPath,Dynamic=chosen.Weave,Classic=chosen.StyleId=="CLASSIC" || chosen.User,HdrTransfer=hdrPreserve?media.ColorTransfer:"",
                 GpuRaw=chosen.RawPath,
                 MoveX=FilmBorderMotionCore.Expression(true,amp,speed,frequency),
                 MoveY=FilmBorderMotionCore.Expression(false,amp,speed,frequency)};

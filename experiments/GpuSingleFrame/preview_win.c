@@ -1328,8 +1328,11 @@ static bool border_has_classic_geometry(void)
 {
     if (s_border_settings && s_border_combo &&
         s_border_selection>=0 && s_border_selection<s_border_choices_count)
-        return !strncmp(s_border_choices[s_border_selection].mode,"CLASSIC_",8);
-    return s_initial_border_mode && !wcsncmp(s_initial_border_mode,L"CLASSIC_",8);
+        return !strncmp(s_border_choices[s_border_selection].mode,"CLASSIC_",8) ||
+               s_border_choices[s_border_selection].user;
+    return s_initial_border_mode &&
+        (!wcsncmp(s_initial_border_mode,L"CLASSIC_",8) ||
+         !wcsncmp(s_initial_border_mode,L"USER_",5));
 }
 static bool compose_film_border(void)
 {

@@ -60,6 +60,10 @@ jobs:
         shell: powershell
         run: |
           & .\dotnet\BuildTools\Test_FilmBorderClassicVisual.ps1
+      - name: Verify user-import film border format v1.0
+        shell: powershell
+        run: |
+          & .\dotnet\BuildTools\Test_FilmBorderImportSpec.ps1
       - name: Verify GPU border graphs and input mapping
         shell: powershell
         run: |

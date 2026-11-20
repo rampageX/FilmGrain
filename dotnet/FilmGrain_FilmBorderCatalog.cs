@@ -211,18 +211,121 @@ namespace FilmGrainStudioPreview
                 if(item.Mode==mode) {choice=item;return true;}
             reason="Unknown or missing film border style: "+mode;return false;
         }
-        private static void ValidatePng(string filename)
+        // User-import v1.0: same aperture as FGS Classic Black. Built-ins are
+        // intentionally excluded from these constraints for compatibility.
+        internal const int ImportWidth=1920, ImportHeight=1080;
+        internal const int ImportApertureX=120, ImportApertureY=166;
+        internal const int ImportApertureWidth=1680, ImportApertureHeight=748;
+        internal const int MaxImportBytes=32*1024*1024;
+        private static readonly byte[] PngSignature={137,80,78,71,13,10,26,10};
+
+        private static uint ReadPngUInt(BinaryReader reader)
         {
-            using(var image=new Bitmap(filename))
+            uint a=reader.ReadByte(),b=reader.ReadByte(),c=reader.ReadByte(),d=reader.ReadByte();
+            return (a<<24)|(b<<16)|(c<<8)|d;
+        }
+        private static void ValidatePngContainer(string filename)
+        {
+            using(var stream=new FileStream(filename,FileMode.Open,FileAccess.Read,FileShare.Read))
+            using(var reader=new BinaryReader(stream))
             {
-                if(image.Width!=1920 || image.Height!=1080)
-                    throw new InvalidDataException("边框 PNG 必须为 1920 × 1080。");
-                if((Image.GetPixelFormatSize(image.PixelFormat)!=32 && Image.GetPixelFormatSize(image.PixelFormat)!=64) ||
-                    !Image.IsAlphaPixelFormat(image.PixelFormat))
-                    throw new InvalidDataException("边框素材必须是真正带 Alpha 通道的 RGBA PNG。");
-                if(image.GetPixel(960,540).A>12)
-                    throw new InvalidDataException("中心画面必须透明（Alpha ≤ 12），不能覆盖原视频。");
+                if(stream.Length>MaxImportBytes)throw new InvalidDataException("PNG 文件不得超过 32 MiB。");
+                if(stream.Length<67)throw new InvalidDataException("PNG 文件不完整。");
+                byte[] signature=reader.ReadBytes(8);
+                for(int i=0;i<PngSignature.Length;i++)
+                    if(signature[i]!=PngSignature[i])
+                        throw new InvalidDataException("只能导入真正的 PNG 文件，扩展名不能代替格式。");
+                bool first=true,hasIdat=false,ended=false;
+                while(stream.Position<stream.Length)
+                {
+                    if(stream.Length-stream.Position<12)throw new InvalidDataException("PNG 块结构不完整。");
+                    uint length=ReadPngUInt(reader);
+                    string name=Encoding.ASCII.GetString(reader.ReadBytes(4));
+                    if(length>(ulong)(stream.Length-stream.Position-4))
+                        throw new InvalidDataException("PNG 块长度不合法。");
+                    if(first)
+                    {
+                        if(name!="IHDR" || length!=13)throw new InvalidDataException("PNG 文件头 IHDR 不合法。");
+                        uint w=ReadPngUInt(reader),h=ReadPngUInt(reader);
+                        int depth=reader.ReadByte(),kind=reader.ReadByte();
+                        int compression=reader.ReadByte(),filter=reader.ReadByte(),interlace=reader.ReadByte();
+                        if(w!=ImportWidth || h!=ImportHeight)
+                            throw new InvalidDataException("胶片边框必须为 1920 × 1080 像素，不接受自动拉伸。");
+                        if(depth!=8 || kind!=6)
+                            throw new InvalidDataException("必须是 8-bit RGBA PNG（每通道 8-bit，PNG color type=6），不接受 RGB、索引色或 16-bit。");
+                        if(compression!=0 || filter!=0 || interlace!=0)
+                            throw new InvalidDataException("PNG 必须使用标准压缩/滤波和非隔行扫描。");
+                    }
+                    else
+                    {
+                        if(name=="acTL" || name=="fcTL" || name=="fdAT")
+                            throw new InvalidDataException("不接受 APNG 动画，只能导入单帧静态 PNG。");
+                        if(name=="IHDR")throw new InvalidDataException("PNG 重复 IHDR 块。");
+                        if(name=="IDAT")hasIdat=true;
+                        if(name=="IEND")
+                        {
+                            if(length!=0)throw new InvalidDataException("PNG IEND 块不合法。");
+                            ended=true;
+                        }
+                        stream.Seek(length,SeekOrigin.Current);
+                    }
+                    reader.ReadUInt32(); // PNG CRC is processed by image decoder below.
+                    first=false;
+                    if(ended)break;
+                }
+                if(!ended || !hasIdat || stream.Position!=stream.Length)
+                    throw new InvalidDataException("PNG 缺少图像数据、结束块，或存在多余内容。");
             }
+        }
+        // Only the import entry point calls this validator; it must never
+        // rewrite a user-provided image or silently crop an invalid aperture.
+        internal static void ValidatePng(string filename)
+        {
+            ValidatePngContainer(filename);
+            try
+            {
+                using(var source=new Bitmap(filename))
+                using(var normalized=new Bitmap(ImportWidth,ImportHeight,PixelFormat.Format32bppArgb))
+                {
+                    if(source.Width!=ImportWidth || source.Height!=ImportHeight)
+                        throw new InvalidDataException("解码后的胶片边框尺寸不正确。");
+                    using(var g=Graphics.FromImage(normalized))
+                    {
+                        g.CompositingMode=System.Drawing.Drawing2D.CompositingMode.SourceCopy;
+                        g.DrawImage(source,new Rectangle(0,0,ImportWidth,ImportHeight));
+                    }
+                    var area=new Rectangle(0,0,ImportWidth,ImportHeight);
+                    BitmapData pixels=normalized.LockBits(area,ImageLockMode.ReadOnly,PixelFormat.Format32bppArgb);
+                    try
+                    {
+                        byte[] row=new byte[ImportWidth*4];
+                        int visible=0;
+                        for(int y=0;y<ImportHeight;y++)
+                        {
+                            Marshal.Copy(IntPtr.Add(pixels.Scan0,y*pixels.Stride),row,0,row.Length);
+                            for(int x=0;x<ImportWidth;x++)
+                            {
+                                int alpha=row[x*4+3]; // BGRA memory: alpha is byte 3.
+                                bool aperture=x>=ImportApertureX &&
+                                    x<ImportApertureX+ImportApertureWidth &&
+                                    y>=ImportApertureY && y<ImportApertureY+ImportApertureHeight;
+                                if(aperture && alpha!=0)
+                                    throw new InvalidDataException(
+                                        "中心透明画窗必须完全透明 (Alpha=0)。不合格像素 x="+
+                                        x.ToString(CultureInfo.InvariantCulture)+", y="+
+                                        y.ToString(CultureInfo.InvariantCulture)+
+                                        ", Alpha="+alpha.ToString(CultureInfo.InvariantCulture)+"。");
+                                if(!aperture && alpha>=64)visible++;
+                            }
+                        }
+                        if(visible<1024)
+                            throw new InvalidDataException("边框区域可见像素不足（需至少 1024 个 Alpha≥64 的像素）。");
+                    }
+                    finally {normalized.UnlockBits(pixels);}
+                }
+            }
+            catch(ArgumentException ex){throw new InvalidDataException("PNG 图像无法解码。",ex);}
+            catch(OutOfMemoryException ex){throw new InvalidDataException("PNG 图像无效或内存不足。",ex);}
         }
         // Generates the exact FFmpeg raw RGBA byte order for Vulkan input.
         private static void BuildRaw(string png,string raw)
