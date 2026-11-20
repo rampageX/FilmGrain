@@ -4,6 +4,7 @@ on:
     branches: [master]
     paths:
       - '.github/workflows/film-border-av1-ui-guard.yml'
+      - 'dotnet/BuildTools/Test_FilmBorderAv1UiGuard.ps1'
 permissions:
   contents: read
 jobs:

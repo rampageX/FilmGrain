@@ -17,10 +17,10 @@ $caught=$false
 try { $builder.Invoke($null,@($snapshot)) | Out-Null }
 catch { $ex=$_.Exception;while($ex.InnerException){$ex=$ex.InnerException};if($ex -is [NotSupportedException]){$caught=$true}else{throw} }
 if(-not $caught){throw 'Native bridge lost protection against unsupported AV1 borders'}
-$state=Get-Content -LiteralPath (Join-Path $root 'dotnet\FilmGrain_BridgeStateCapture.cs') -Raw
-$ui=Get-Content -LiteralPath (Join-Path $root 'dotnet\FilmGrain_GpuAdvancedPreview.cs') -Raw
-$main=Get-Content -LiteralPath (Join-Path $root 'dotnet\FilmGrain_Studio_NET_Preview.cs') -Raw
-$svt=Get-Content -LiteralPath (Join-Path $root 'dotnet\FilmGrain_NativeX264DigitalGrainCore.cs') -Raw
+$state=Get-Content -LiteralPath (Join-Path $root 'dotnet\FilmGrain_BridgeStateCapture.cs') -Raw -Encoding UTF8
+$ui=Get-Content -LiteralPath (Join-Path $root 'dotnet\FilmGrain_GpuAdvancedPreview.cs') -Raw -Encoding UTF8
+$main=Get-Content -LiteralPath (Join-Path $root 'dotnet\FilmGrain_Studio_NET_Preview.cs') -Raw -Encoding UTF8
+$svt=Get-Content -LiteralPath (Join-Path $root 'dotnet\FilmGrain_NativeX264DigitalGrainCore.cs') -Raw -Encoding UTF8
 if($state -notmatch 'snapshot\.Mode=="AV1"\|\|snapshot\.Mode=="SVT"\|\|snapshot\.NoReencode' -or
    $state -notmatch 'snapshot\.FilmBorderMode=FilmBorderCatalogCore\.Off' -or
    $state -notmatch 'catch\(NotSupportedException ex\)'){throw 'Snapshot AV1 border guard missing'}
