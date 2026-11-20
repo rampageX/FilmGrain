@@ -33,6 +33,8 @@
 - `Utils/_FilmBorders/cinema35_dark_1920x1080.png`
 - `Utils/_FilmBorders/cinema35_dark_1920x1080_rgba.raw`（1920×1080×4 字节，RGBA 顺序）
 
+用户导入的 `User/`、自定义边印 `classic-text.txt`、Classic 运行时生成 PNG/RAW 已加入 `.gitignore`，避免误把用户个人素材/运行缓存提交到源码库；**原版 Dark 两个发布素材未被忽略**。
+
 内置 Classic Black 可以按代码首次生成；**Dark 必须使用此前已验收的原版素材，不可拿其他图片临时顶替**。整洁环境/正式 Stable 的打包前，必须核对素材来源、版权、尺寸、缓存格式、包内文件和运行路径；缺素材时不能宣布“新安装版完整可用”。
 
 `dotnet/BuildTools/Test_FilmBorderIntegrationReadiness.ps1` 的常规模式验证源码/配置一致性并记录素材缺失；`-RequireDarkAssets` 为正式发布前的强制检查。

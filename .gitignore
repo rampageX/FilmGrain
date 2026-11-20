@@ -4,6 +4,14 @@
 /UserPresets.seed.*/
 /Utils/_HardwareCaps.json
 /Utils/_FilmGrainSimplified/Generated/
+
+# Film Border generated/personal assets (original Dark 35mm is deliberately NOT ignored)
+/Utils/_FilmBorders/User/
+/Utils/_FilmBorders/classic-text.txt
+/Utils/_FilmBorders/fgs_classic_black_135.png
+/Utils/_FilmBorders/fgs_classic_black_135.raw
+/Utils/_FilmBorders/fgs_classic_black_135.version
+/Utils/_FilmBorders/*.new
 /Logs/
 /_OpenSVPFlow/_PluginBackup/
 /_Dependencies
