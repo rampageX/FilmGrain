@@ -86,7 +86,7 @@ $planType.GetField('ApertureWidth1080',$fields).SetValue($customPlan,1630)
 $planType.GetField('ApertureHeight1080',$fields).SetValue($customPlan,698)
 $customGpu=[string]$method.Invoke($null,@('[0:v:0]hwupload[fgsfilm_gpu_video]',$customPlan))
 Assert-Contains $customGpu "pos_w='if(eq(idx,0),1630,1920)'"
-Assert-Contains $customGpu "pos_h='if(eq(idx,0),698,1080)'
+Assert-Contains $customGpu "pos_h='if(eq(idx,0),698,1080)'"
 # HLG import regression: custom 1650x720 gate hit the CUDA P010 interop error on RTX 4080.
 $planType.GetField('ApertureWidth1080',$fields).SetValue($customPlan,1650)
 $planType.GetField('ApertureHeight1080',$fields).SetValue($customPlan,720)
@@ -98,6 +98,8 @@ if($hlgGpu.Contains('hwdownload') -or $hlgGpu.Contains('libplacebo=inputs=2:w=19
     throw 'HLG GPU border must use planar CUDA interop without CPU round-trip'
 }
 $planType.GetField('HdrTransfer',$fields).SetValue($customPlan,'')
+$planType.GetField('ApertureWidth1080',$fields).SetValue($customPlan,1630)
+$planType.GetField('ApertureHeight1080',$fields).SetValue($customPlan,698)
 $appendCpu=$core.GetMethod('AppendFilter',$flags)
 $planType.GetField('Dynamic',$fields).SetValue($customPlan,$false)
 $customCpu=[string]$appendCpu.Invoke($null,@('[0:v:0]format=yuv420p[vout]',$customPlan,1920,1080,1,'24/1',$null,'yuv420p'))
