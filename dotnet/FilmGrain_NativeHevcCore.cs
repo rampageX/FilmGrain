@@ -404,7 +404,7 @@ namespace FilmGrainStudioPreview
                     filmBorder.GpuRaw = raw;
                     filmBorder.GpuInputIndex = plateMode ? 2 : 1;
                     filmBorder.GpuClockGated = !grainEnabled;
-                    filmBorder.GpuUseLegacy4k = s4Gpu4k30;
+                    filmBorder.GpuUseLegacy4k = s4Gpu4k30 && !filmBorder.User; // user aperture must use flexible kernel
                     filmBorder.GpuWidth = info.Width; filmBorder.GpuHeight = info.Height;
                     filmBorder.GpuContentX = frame.ContentX; filmBorder.GpuContentY = frame.ContentY;
                     filmBorder.GpuContentWidth = frame.ContentWidth; filmBorder.GpuContentHeight = frame.ContentHeight;
@@ -1556,6 +1556,8 @@ namespace FilmGrainStudioPreview
             internal string Path;
             internal bool Dynamic;
             internal bool Classic;
+            internal bool User;
+            internal int ApertureWidth1080=1680,ApertureHeight1080;
             internal string FileSuffix = "";
             internal string MoveX=FilmBorderMotionCore.MoveX,MoveY=FilmBorderMotionCore.MoveY;
             internal string HdrTransfer = "";
@@ -1605,7 +1607,9 @@ namespace FilmGrainStudioPreview
             double amp=FilmBorderMotionCore.Parse(Read(state,"FG_FILM_BORDER_AMP"),0,3);
             double speed=FilmBorderMotionCore.Parse(Read(state,"FG_FILM_BORDER_SPEED"),0.25,3);
             double frequency=FilmBorderMotionCore.Parse(Read(state,"FG_FILM_BORDER_FREQUENCY"),0.25,3);
-            plan=new Plan{Path=chosen.PngPath,Dynamic=chosen.Weave,Classic=chosen.StyleId=="CLASSIC" || chosen.User,FileSuffix=OutputFileSuffix(chosen.StyleId,chosen.Weave),HdrTransfer=hdrPreserve?media.ColorTransfer:"",
+            plan=new Plan{Path=chosen.PngPath,Dynamic=chosen.Weave,Classic=chosen.StyleId=="CLASSIC" || chosen.User,User=chosen.User,
+                ApertureWidth1080=chosen.ApertureWidth1080,ApertureHeight1080=chosen.ApertureHeight1080,
+                FileSuffix=OutputFileSuffix(chosen.StyleId,chosen.Weave),HdrTransfer=hdrPreserve?media.ColorTransfer:"",
                 GpuRaw=chosen.RawPath,
                 MoveX=FilmBorderMotionCore.Expression(true,amp,speed,frequency),
                 MoveY=FilmBorderMotionCore.Expression(false,amp,speed,frequency)};
@@ -1642,6 +1646,12 @@ namespace FilmGrainStudioPreview
         private const string MoveX = FilmBorderMotionCore.MoveX;
         private const string MoveY = FilmBorderMotionCore.MoveY;
 
+        private static int ApertureWidth(Plan plan)
+        {return plan.ApertureWidth1080>0?plan.ApertureWidth1080:1680;}
+        private static int ApertureHeight(Plan plan)
+        {return plan.ApertureHeight1080>0?plan.ApertureHeight1080:
+            (plan.Classic?FilmBorderCatalogCore.ClassicApertureHeight1080:990);}
+
         // Final filter stage: existing color, frame, LUT, subtitles and grain complete first.
         // Dimensions are normalized from the R3 1920x1080 aperture; SAR remains square.
         internal static string AppendFilter(string original,Plan plan,int width,int height,int filmInputIndex,string fps,MediaProbeInfo media,string outputFormat="p010le")
@@ -1651,8 +1661,8 @@ namespace FilmGrainStudioPreview
                 throw new InvalidOperationException("Film border requires even output dimensions in the range 32..16384.");
             int at=original.LastIndexOf("[vout]",StringComparison.Ordinal);
             if(at<0) throw new InvalidOperationException("Existing filter graph has no final [vout] label.");
-            int apertureWidth=EvenDimension(((long)width*1680+960)/1920);
-            int apertureHeight=EvenDimension(((long)height*(plan.Classic?FilmBorderCatalogCore.ClassicApertureHeight1080:990)+540)/1080);
+            int apertureWidth=EvenDimension(((long)width*ApertureWidth(plan)+960)/1920);
+            int apertureHeight=EvenDimension(((long)height*ApertureHeight(plan)+540)/1080);
             if(apertureWidth>width)apertureWidth=width;
             if(apertureHeight>height)apertureHeight=height;
             int x=(width-apertureWidth)/2,y=(height-apertureHeight)/2;
@@ -1694,8 +1704,8 @@ namespace FilmGrainStudioPreview
             if (!plan.GpuUseLegacy4k)
             {
                 int w=plan.GpuWidth, h=plan.GpuHeight;
-                int apertureW=EvenDimension(((long)w*1680+960)/1920);
-                int apertureH=EvenDimension(((long)h*(plan.Classic?FilmBorderCatalogCore.ClassicApertureHeight1080:990)+540)/1080);
+                int apertureW=EvenDimension(((long)w*ApertureWidth(plan)+960)/1920);
+                int apertureH=EvenDimension(((long)h*ApertureHeight(plan)+540)/1080);
                 apertureW=Math.Min(apertureW,w); apertureH=Math.Min(apertureH,h);
                 double scale=Math.Max((double)apertureW/w,(double)apertureH/h);
                 double cropLeft=(w-apertureW/scale)/2.0, cropTop=(h-apertureH/scale)/2.0;
