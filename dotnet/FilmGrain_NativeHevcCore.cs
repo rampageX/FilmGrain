@@ -382,7 +382,7 @@ namespace FilmGrainStudioPreview
 
                 // Experimental route is deliberately narrower than the UI's general border mode.
                 // No match means the validated CPU graph is used unchanged.
-                bool s4GpuRequested = Environment.GetEnvironmentVariable("FGS_S4_GPU_BORDER") == "1";
+                bool s4GpuRequested = Environment.GetEnvironmentVariable("FGS_S4_GPU_BORDER") != "0";
                 bool s4Gpu4k30 = info.Width == 3840 && info.Height == 2160 &&
                     frame.ActiveWidth == 3840 && frame.ActiveHeight == 2160 &&
                     frame.ContentX == 0 && frame.ContentY == 276 && frame.ContentWidth == 3840 && frame.ContentHeight == 1608 &&
@@ -412,6 +412,7 @@ namespace FilmGrainStudioPreview
                 // The independent R3M8P4 Vulkan->CUDA pass used this FFmpeg binary.
                 // Do not silently switch back to a different FFmpeg build for the GPU experiment.
                 string s4GpuFfmpeg = s4GpuBorder ? (Environment.GetEnvironmentVariable("FGS_S4_GPU_FFMPEG") ?? "").Trim().Trim('"') : "";
+                if (s4GpuBorder && s4GpuFfmpeg.Length == 0) s4GpuFfmpeg = ffmpeg;
                 if (s4GpuBorder && (s4GpuFfmpeg.Length == 0 || !File.Exists(s4GpuFfmpeg)))
                 { reason = "S4 GPU route requires FGS_S4_GPU_FFMPEG pointing to the verified FFmpeg build: " + s4GpuFfmpeg; return false; }
 

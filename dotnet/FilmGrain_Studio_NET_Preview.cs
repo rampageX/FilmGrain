@@ -430,6 +430,7 @@ namespace FilmGrainStudioPreview
         private Button btnLutGallery;
         private Button btnColorCorrection;
         private Button btnGpuAdvancedPreview;
+        private Button btnFilmBorder;
         private readonly ToolTip lutToolTip = new ThemeToolTip();
         private readonly ToolTip sfeToolTip = new ThemeToolTip();
         private ComboBox cmbLanguage;
@@ -1187,9 +1188,18 @@ namespace FilmGrainStudioPreview
             lutToolTip.SetToolTip(btnPreprocess, UiText("右键：关闭滤镜、缩放或剪裁。", "Right-click: turn off filters, resize or crop."));
             RefreshPreprocessButton();
             t.Controls.Add(btnPreprocess,0,0);t.SetColumnSpan(btnPreprocess,2);
+            // Reuse ThemeButton; the existing four-bar painter now occupies one tighter row.
+            btnFilmBorder = new ThemeButton { Name = "FILM_BORDER_BUTTON",
+                Text = UiText("添加边框", "Film Border"), Size = new Size(132, 28),
+                Anchor = AnchorStyles.None, Margin = Padding.Empty };
+            btnFilmBorder.Click += delegate { OpenFilmBorderSettings(); };
+            lutToolTip.SetToolTip(btnFilmBorder, UiText(
+                "独立 GPU 边框预览：关闭 / 静态 / 动态；点击应用后写入编码设置。",
+                "GPU border preview: Off / Static / Weave; apply to encoding."));
+            t.Controls.Add(btnFilmBorder, 0, 12); t.SetColumnSpan(btnFilmBorder, 2);
             var resourceMonitor = new ResourceMonitorPanel(UiText("内存", "RAM"), UiText("显存", "VRAM"));
             resourceMonitor.Font = UiFont(8f, FontStyle.Regular);
-            t.Controls.Add(resourceMonitor, 0, 12); t.SetColumnSpan(resourceMonitor, 2); t.SetRowSpan(resourceMonitor, 2);
+            t.Controls.Add(resourceMonitor, 0, 13); t.SetColumnSpan(resourceMonitor, 2);
 
             cmbCodec.SelectedIndexChanged += delegate
             { if(restoringFileEditor)return;

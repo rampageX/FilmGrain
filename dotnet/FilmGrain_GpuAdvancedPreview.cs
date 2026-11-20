@@ -13,6 +13,7 @@ namespace FilmGrainStudioPreview
     public sealed class GpuAdvancedPreviewResult
     {
         public int Version { get; set; }
+        public string FilmBorderMode { get; set; }
         public string PixelMode { get; set; }
         public int PlateStrength { get; set; }
         public int FgsimPreset { get; set; }
@@ -25,6 +26,7 @@ namespace FilmGrainStudioPreview
     internal sealed partial class MainForm
     {
         private bool gpuAdvancedPreviewBusy;
+        private bool filmBorderSettingsBusy;
         private readonly object gpuPreviewProcessLock = new object();
         private Process gpuPreviewProcess;
         private bool gpuPreviewOwnerClosed;
@@ -432,6 +434,137 @@ namespace FilmGrainStudioPreview
                 }
             });
             worker.IsBackground = true;
+            worker.Start();
+        }
+
+
+        // Use the existing GPU preview renderer and controls in border-only mode.
+        // Its own window previews HDR/PQ/HLG correctly, with 1:1 pan and frame seeking.
+        private void OpenFilmBorderSettings()
+        {
+            if (gpuAdvancedPreviewBusy || filmBorderSettingsBusy) return;
+            if (bridgeTaskCoordinator != null && bridgeTaskCoordinator.IsActive) {
+                FgsMessageBox.Show(this, UiText("请等待当前编码结束。", "Wait for encoding to finish.")); return;
+            }
+            string input = GetPreviewVideoPath();
+            MediaProbeInfo media;
+            if (string.IsNullOrEmpty(input) || !mediaProbeCache.TryGetValue(input, out media)) {
+                FgsMessageBox.Show(this, UiText("请先选择并探测一个视频。", "Select and probe a video first.")); return;
+            }
+            if (cmbCodec.SelectedIndex != 1 && cmbCodec.SelectedIndex != 3) {
+                FgsMessageBox.Show(this, UiText("边框支持 HEVC/H.264 NVENC。", "Borders support HEVC/H.264 NVENC.")); return;
+            }
+            if (media.IsHdr && (cmbCodec.SelectedIndex != 1 || !UsesHdrColorPreview(media))) {
+                FgsMessageBox.Show(this, UiText("HDR 边框需要 HEVC NVENC 保留 HDR。", "HDR borders require HEVC NVENC HDR preservation.")); return;
+            }
+            bool full = media.ColorRange == "pc" || media.ColorRange == "jpeg";
+            bool colorOk = media.IsHdr
+                ? !full && media.ColorPrimaries == "bt2020" && media.ColorSpace == "bt2020nc" &&
+                    (media.ColorTransfer == "smpte2084" || media.ColorTransfer == "arib-std-b67")
+                : !full && (string.IsNullOrEmpty(media.ColorSpace) || media.ColorSpace == "bt709");
+            if (!colorOk || media.Width < 2 || media.Height < 2 ||
+                media.Width > 8192 || media.Height > 8192) {
+                FgsMessageBox.Show(this, UiText("当前素材的色彩格式或尺寸暂不支持边框 GPU 预览。",
+                    "Source color format or size is not supported by this preview.")); return;
+            }
+            string asset = Path.Combine(appRoot, "Utils", "_FilmBorders", "cinema35_dark_1920x1080.png");
+            string ffmpeg = Path.Combine(config.Get("FFMPEG_DIR"), "ffmpeg.exe");
+            string exe = ResolveGpuAdvancedPreviewExecutable();
+            if (!File.Exists(asset) || !File.Exists(ffmpeg) || exe.Length == 0) {
+                FgsMessageBox.Show(this, UiText("胶片边框素材、FFmpeg 或 GPU 预览程序缺失。",
+                    "Border asset, FFmpeg or GPU preview executable is missing.")); return;
+            }
+            string saved = config.Get("FILM_BORDER_MODE");
+            string mode = saved == "DARK_STATIC" || saved == "DARK_WEAVE" ? saved : "OFF";
+            int codec = cmbCodec.SelectedIndex;
+            bool independent = independentFiles;
+            string work = Path.Combine(Path.GetTempPath(), "FilmGrain_Studio",
+                "FilmBorder_" + Guid.NewGuid().ToString("N"));
+            gpuAdvancedPreviewBusy = filmBorderSettingsBusy = true;
+            btnFilmBorder.Enabled = false;
+            btnGpuAdvancedPreview.Enabled = false;
+            var worker = new Thread(delegate {
+                string error = "", selected = null;
+                try {
+                    if (media.Identity != null) media.Identity.RequireCurrent();
+                    Directory.CreateDirectory(work);
+                    double duration;
+                    if (!double.TryParse(media.Duration, NumberStyles.Float, CultureInfo.InvariantCulture, out duration) ||
+                        double.IsNaN(duration) || double.IsInfinity(duration) || duration < 0) duration = 0;
+                    double seconds = duration > 0 ? NativeGrainPreviewForm.ChooseInitialSeconds(duration, 0.5) : 0;
+                    int width = media.Width & ~1, height = media.Height & ~1;
+                    string frame = Path.Combine(work, "frame.yuv"), border = Path.Combine(work, "border.rgba");
+                    string result = Path.Combine(work, "settings.json");
+                    string parity = media.IsInterlaced
+                        ? SharedHdrPreprocessCore.ResolveDeinterlaceParity("parity=auto", media).Substring("parity=".Length)
+                        : "";
+                    string filter = (parity.Length > 0 ? "bwdif=mode=send_frame:parity="+parity+":deint=all," : "") +
+                        "scale="+width+":"+height+":flags=bicubic" +
+                        (media.IsHdr?":in_range=limited:out_range=limited":"") + ",format=yuv420p10le";
+                    var fargs = new List<string> { "-hide_banner", "-nostdin", "-v", "error", "-y",
+                        "-ss", seconds.ToString("0.######",CultureInfo.InvariantCulture), "-i", input,
+                        "-map", "0:v:0", "-an", "-sn", "-dn", "-frames:v", "1", "-vf", filter,
+                        "-f", "rawvideo", frame };
+                    int rc=NativeLibraryTools.RunProcessEnvironment(ffmpeg,fargs,work,null,120000,CancellationToken.None,null);
+                    if(rc!=0 || !File.Exists(frame) || new FileInfo(frame).Length!=(long)width*height*3)
+                        throw new InvalidDataException("胶片边框预览抽帧失败。");
+                    var bargs=new List<string>{"-hide_banner","-nostdin","-v","error","-y","-i",asset,"-frames:v","1"};
+                    if(media.IsHdr) bargs.AddRange(new[]{"-vf",
+                        "format=gbrap16le,zscale=matrixin=gbr:primariesin=709:transferin=iec61966-2-1:rangein=full"+
+                        ":matrix=gbr:primaries=2020:transfer="+media.ColorTransfer+":range=full:npl=100:threads=1"});
+                    bargs.AddRange(new[]{"-pix_fmt",media.IsHdr?"rgba64le":"rgba","-f","rawvideo",border});
+                    rc=NativeLibraryTools.RunProcessEnvironment(ffmpeg,bargs,work,null,30000,CancellationToken.None,null);
+                    if(rc!=0 || !File.Exists(border) ||
+                        new FileInfo(border).Length!=1920L*1080*(media.IsHdr?8:4))
+                        throw new InvalidDataException("胶片边框纹理准备失败。");
+                    var args=new List<string>{frame,width.ToString(CultureInfo.InvariantCulture),
+                        height.ToString(CultureInfo.InvariantCulture),"-","10","0",
+                        seconds.ToString("0.######",CultureInfo.InvariantCulture),
+                        "--result",result,"--grain","0","--grain-on","0","--lut-on","0",
+                        "--film-border",border,"--film-border-settings","1","--film-border-mode",mode};
+                    if(duration>0)args.AddRange(new[]{"--video",input,"--ffmpeg",ffmpeg,"--duration",
+                        Math.Min(86400,duration).ToString("0.######",CultureInfo.InvariantCulture)});
+                    if(media.IsHdr)args.AddRange(new[]{"--source-color",
+                        media.ColorTransfer=="smpte2084"?"pq":"hlg"});
+                    if(parity.Length>0)args.AddRange(new[]{"--deinterlace",parity});
+                    RunGpuAdvancedPreviewProcess(exe,args,null);
+                    if(File.Exists(result)) {
+                        var applied=new JavaScriptSerializer().Deserialize<GpuAdvancedPreviewResult>(
+                            File.ReadAllText(result,Encoding.UTF8));
+                        if(applied==null || applied.Version!=4 ||
+                           (applied.FilmBorderMode!="OFF" && applied.FilmBorderMode!="DARK_STATIC" &&
+                            applied.FilmBorderMode!="DARK_WEAVE"))
+                            throw new InvalidDataException("边框模式回传无效。");
+                        selected=applied.FilmBorderMode;
+                    }
+                } catch(Exception ex){error=ex.Message;}
+                finally {
+                    try {if(Directory.Exists(work))Directory.Delete(work,true);}catch {}
+                    try {BeginInvoke((MethodInvoker)delegate {
+                        gpuAdvancedPreviewBusy=filmBorderSettingsBusy=false;
+                        btnFilmBorder.Enabled=true;
+                        btnGpuAdvancedPreview.Enabled=true;
+                        if(error.Length>0) {
+                            AppendLog("[Film Border] "+error+Environment.NewLine);
+                            FgsMessageBox.Show(this,error,Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);
+                        } else if(selected!=null) {
+                            if((bridgeTaskCoordinator!=null && bridgeTaskCoordinator.IsActive) ||
+                               independentFiles!=independent || cmbCodec.SelectedIndex!=codec ||
+                               !string.Equals(GetPreviewVideoPath(),input,StringComparison.OrdinalIgnoreCase)){
+                                FgsMessageBox.Show(this,UiText("预览期间视频或任务已变化，未应用。",
+                                    "Video or task changed during preview; no changes applied."));
+                                return;
+                            }
+                            try {
+                                config.SaveValue("FILM_BORDER_MODE",selected);
+                                AppendLog("[Film Border] "+selected+Environment.NewLine);
+                                UpdateHdrRouteStatus(GetSelectedMediaInfo());
+                            } catch(Exception ex){FgsMessageBox.Show(this,ex.Message);}
+                        }
+                    });}catch(InvalidOperationException){}
+                }
+            });
+            worker.IsBackground=true;
             worker.Start();
         }
 

@@ -40,6 +40,8 @@ static pl_tex s_border_texture, s_border_content, s_border_composite;
 static pl_dispatch s_border_dispatch;
 static const wchar_t *s_border_path;
 static bool s_border_weave;
+static bool s_border_settings;
+static int s_border_mode; /* 0 OFF / 1 static / 2 weave */
 static struct pl_frame s_image;
 static enum pl_color_transfer s_hdr_transfer;
 static bool s_source_full, s_hdr_display;
@@ -117,6 +119,7 @@ typedef struct FgsSavedWindowBounds {
 } FgsSavedWindowBounds;
 
 static const wchar_t s_window_key[] = L"Software\\FilmGrainStudio\\GpuAdvancedPreview";
+static const wchar_t s_border_window_key[] = L"Software\\FilmGrainStudio\\FilmBorderPreview";
 
 /* Store only standalone window geometry, never an FGS encoding preference. */
 static void save_window_bounds(HWND window)
@@ -130,7 +133,7 @@ static void save_window_bounds(HWND window)
                      (placement.flags & WPF_RESTORETOMAXIMIZED) != 0,
     };
     HKEY key;
-    if (RegCreateKeyExW(HKEY_CURRENT_USER,s_window_key,0,NULL,0,KEY_SET_VALUE,
+    if (RegCreateKeyExW(HKEY_CURRENT_USER,s_border_settings?s_border_window_key:s_window_key,0,NULL,0,KEY_SET_VALUE,
                         NULL,&key,NULL) != ERROR_SUCCESS) return;
     RegSetValueExW(key,L"WindowBounds",0,REG_BINARY,(const BYTE *)&bounds,sizeof(bounds));
     RegCloseKey(key);
@@ -139,7 +142,7 @@ static void save_window_bounds(HWND window)
 static void restore_window_bounds(HWND window)
 {
     HKEY key;
-    if (RegOpenKeyExW(HKEY_CURRENT_USER,s_window_key,0,KEY_QUERY_VALUE,&key) != ERROR_SUCCESS)
+    if (RegOpenKeyExW(HKEY_CURRENT_USER,s_border_settings?s_border_window_key:s_window_key,0,KEY_QUERY_VALUE,&key) != ERROR_SUCCESS)
         return;
     FgsSavedWindowBounds bounds;
     DWORD type = 0, bytes = sizeof(bounds);
@@ -180,7 +183,10 @@ static bool write_result(void)
     FILE *file = _wfopen(temp, L"wb");
     if (!file) { free(temp); return false; }
     int rc;
-    if (s_fgsim_mode || s_digital_mode) {
+    if (s_border_settings) {
+        rc = fprintf(file, "{\"Version\":4,\"FilmBorderMode\":\"%s\"}\n",
+            s_border_mode==2?"DARK_WEAVE":s_border_mode==1?"DARK_STATIC":"OFF");
+    } else if (s_fgsim_mode || s_digital_mode) {
         rc = fprintf(file,
             "{\"Version\":3,\"PixelMode\":\"%s\",\"%s\":%d,"
             "\"GrainEnabled\":%s,\"LutStrength\":%d,\"LutEnabled\":%s}\n",
@@ -669,6 +675,10 @@ static void paint_sliders(HWND window)
                     s_duration_seconds>0?s_pending_seconds/s_duration_seconds:0.0,true,duration,true);
         y+=40;
     }
+    if (s_border_settings) {
+        const wchar_t *mode=s_border_mode==2?L"动态 · Gate Weave":s_border_mode==1?L"静态 · Dark":L"关闭";
+        draw_slider(dc,&client,y,L"添加边框",s_border_mode/2.0,true,mode,false);
+    } else {
     wchar_t grain_value[32];
     if (s_fgsim_mode) swprintf(grain_value,32,L"%ls",s_display_grain?s_fgsim_names[s_strength]:L"关闭 · G");
     else if (s_digital_mode) {
@@ -684,6 +694,7 @@ static void paint_sliders(HWND window)
     draw_slider(dc,&client,y+40,s_combined_grade?L"LUT 强度 *":L"LUT 强度",
                 (s_lut_source && s_lut_enabled?s_lut_strength:0)/100.0,
                 s_lut_source!=NULL,lut_value,false);
+    }
     RECT edit, random_btn, seek_btn;
     int hint_left = 14;
     if (s_video_path) {
@@ -988,6 +999,17 @@ static void change_slider(int kind, int x)
     if (kind == 2 && !s_lut_source) return;
     if (kind == 1 && !s_has_grain) return;
     if (kind == 3) {change_frame_position(x);return;}
+    if (kind == 4) {
+        RECT client;GetClientRect(s_window,&client);
+        int left,right,top;track_bounds(&client,&left,&right,&top);
+        int mode=((x-left)*2+(right-left)/2)/(right-left);
+        if(mode<0)mode=0;
+        if(mode>2)mode=2;
+        if(s_border_mode!=mode) {
+            s_border_mode=mode;s_border_weave=mode==2;redraw_controls();
+        }
+        return;
+    }
     RECT client; GetClientRect(s_window, &client);
     int left, right, top;
     track_bounds(&client, &left, &right, &top);
@@ -1190,7 +1212,8 @@ static double render_once(bool report)
         }
         if (s_display_grain) {params.hooks=pixel_hooks;params.num_hooks=1;}
     }
-    bool okay = s_border_path ? render_film_border(source,&target,&params) :
+    bool border_visible=s_border_path && (!s_border_settings || s_border_mode!=0);
+    bool okay = border_visible ? render_film_border(source,&target,&params) :
         pl_render_image(s_renderer,&source,&target,&params);
     if (!okay || !pl_swapchain_submit_frame(s_swapchain)) {
         if (s_border_path) {
@@ -1208,7 +1231,10 @@ static double render_once(bool report)
     if (s_fgsim_mode) swprintf(grain_label,40,L"FGSIM %ls",s_display_grain?s_fgsim_names[s_strength]:L"Off");
     else if (s_digital_mode) swprintf(grain_label,40,L"Digital Grain %.2f",s_display_grain?s_strength/100.0:0.0);
     else swprintf(grain_label,40,L"%ls %d%%",s_plate_mode?L"Plate":L"Grain",s_display_grain?s_strength:0);
-    swprintf(title, 256, L"FGS GPU Preview%ls%ls | %ls | %ls | LUT %d%% | %.2f ms | G / L / ESC",
+    if(s_border_settings)
+        swprintf(title,256,L"FGS 添加边框 | %ls | %ls | %.2f ms",
+            s_border_mode==2?L"动态":s_border_mode==1?L"静态":L"关闭",s_pixel_view?L"1:1":L"Fit",delta);
+    else swprintf(title, 256, L"FGS GPU Preview%ls%ls | %ls | %ls | LUT %d%% | %.2f ms | G / L / ESC",
              s_border_path ? (s_border_weave ? L" [Dark Weave]" : L" [Dark Static]") : L"",
              !s_hdr_transfer ? L"" : pl_color_transfer_is_hdr(swap.color_space.transfer) ? L" [HDR display]" : L" [HDR to SDR display]",
              s_pixel_view?L"1:1":L"Fit",
@@ -1311,8 +1337,8 @@ static LRESULT CALLBACK window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM
         track_bounds(&client, &left, &right, &unused_top);
         if (x < left-14 || x > right+14) return 0;
         int row = y >= top+8 && y < top+128 ? (y-top-8)/40 : -1;
-        int kind = s_video_path ? (row==0?3:row==1?1:row==2?2:0) :
-                                  (row==0?1:row==1?2:0);
+        int kind = s_border_settings ? (s_video_path?(row==0?3:row==1?4:0):(row==0?4:0)) :
+                   (s_video_path?(row==0?3:row==1?1:row==2?2:0):(row==0?1:row==1?2:0));
         if (kind == 2 && !s_lut_source) kind = 0;
         if (!kind) return 0;
         SetFocus(window);
@@ -1361,7 +1387,11 @@ static LRESULT CALLBACK window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM
             else MessageBoxW(window, L"无法写入调整结果。", L"FGS GPU 预览", MB_ICONERROR|MB_OK);
             return 0;
         }
-        if (wparam == 'G' && s_has_grain) {
+        if(s_border_settings && (wparam=='B'||wparam==VK_LEFT||wparam==VK_RIGHT)) {
+            int step=wparam==VK_LEFT?-1:1;
+            s_border_mode=(s_border_mode+step+3)%3;
+            s_border_weave=s_border_mode==2;
+        } else if (wparam == 'G' && s_has_grain) {
             s_display_grain = !s_display_grain;
             if (s_display_grain && s_plate_mode && s_strength==0) s_strength=1;
         }
@@ -1590,6 +1620,17 @@ int wmain(int argc, wchar_t **argv)
         else if (!wcscmp(key,L"--digital-noise")) s_digital_path=value;
         else if (!wcscmp(key,L"--noise-ffmpeg")) s_noise_ffmpeg=value;
         else if (!wcscmp(key, L"--film-border")) s_border_path = value;
+        else if (!wcscmp(key, L"--film-border-settings")) {
+            if(!int_arg(value,0,1,&flag))return 2;
+            s_border_settings=flag!=0;
+        }
+        else if (!wcscmp(key, L"--film-border-mode")) {
+            if(!wcscmp(value,L"OFF"))s_border_mode=0;
+            else if(!wcscmp(value,L"DARK_STATIC"))s_border_mode=1;
+            else if(!wcscmp(value,L"DARK_WEAVE"))s_border_mode=2;
+            else return 2;
+            s_border_weave=s_border_mode==2;
+        }
         else if (!wcscmp(key, L"--film-weave")) {if (!int_arg(value,0,1,&flag)) return 2;s_border_weave=flag!=0;}
         else if (!wcscmp(key, L"--plate")) s_plate_path = value;
         else if (!wcscmp(key, L"--plate-frame")) s_plate_frame_path = value;
@@ -1620,6 +1661,7 @@ int wmain(int argc, wchar_t **argv)
         next += 2;
     }
     if (s_result_path && !*s_result_path) return 2;
+    if (s_border_settings && (!s_result_path || !s_border_path)) return 2;
     if (!!s_video_path != !!s_ffmpeg_path || (s_video_path && s_duration_seconds<=0)) {
         fprintf(stderr,"Frame selection requires --video, --ffmpeg and positive --duration\n");
         return 2;
@@ -1709,7 +1751,7 @@ int wmain(int argc, wchar_t **argv)
         SelectObject(font_dc,previous);
     }
     ReleaseDC(NULL,font_dc);
-    s_window = CreateWindowExW(0, wc.lpszClassName, L"FGS GPU Preview",
+    s_window = CreateWindowExW(0, wc.lpszClassName, s_border_settings?L"FGS 添加边框":L"FGS GPU Preview",
                 WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,
                 CW_USEDEFAULT, CW_USEDEFAULT,
                 s_width < 1280 ? (s_width+32 < 820 ? 820 : s_width+32) : 1280,
