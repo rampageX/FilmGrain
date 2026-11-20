@@ -353,8 +353,20 @@ namespace FilmGrainStudioPreview
                 } finally { normalized.UnlockBits(lockData); }
             }
         }
-        internal static string Import(string appRoot,string source)
+        internal static string ValidateDisplayName(string value)
         {
+            string name=(value??"").Trim();
+            if(name.Length==0)throw new InvalidDataException("请输入边框名称，不能为空。");
+            if(name.Length>40)throw new InvalidDataException("边框名称最多40个字符。");
+            foreach(char c in name)
+                if(char.IsControl(c) || c=='\u2028' || c=='\u2029')
+                    throw new InvalidDataException("边框名称不能包含换行、Tab 或控制字符。");
+            return name;
+        }
+
+        internal static string Import(string appRoot,string source,string displayName)
+        {
+            displayName=ValidateDisplayName(displayName);
             if(!File.Exists(source))throw new FileNotFoundException("PNG 不存在",source);
             ValidatePng(source);
             string id=Guid.NewGuid().ToString("N").ToUpperInvariant();
@@ -365,10 +377,7 @@ namespace FilmGrainStudioPreview
             try {
                 File.Copy(source,path,false);
                 BuildRaw(path,raw);
-                string label=Path.GetFileNameWithoutExtension(source);
-                foreach(char invalid in Path.GetInvalidFileNameChars())label=label.Replace(invalid,'_');
-                if(label.Length>40)label=label.Substring(0,40);
-                File.WriteAllText(Path.ChangeExtension(path,".label"),label,new UTF8Encoding(false));
+                File.WriteAllText(Path.ChangeExtension(path,".label"),displayName,new UTF8Encoding(false));
                 return "USER_"+id+"_STATIC";
             } catch {
                 foreach(string f in new[]{path,raw,Path.ChangeExtension(path,".label")})

@@ -644,13 +644,67 @@ namespace FilmGrainStudioPreview
                 picker.Filter="PNG (*.png)|*.png";
                 picker.CheckFileExists=true;
                 if(picker.ShowDialog(this)!=DialogResult.OK){OpenFilmBorderSettings();return;}
+                string displayName;
+                if(!PromptImportedFilmBorderName(picker.FileName,out displayName)) {
+                    OpenFilmBorderSettings();return;
+                }
                 try {
-                    string mode=FilmBorderCatalogCore.Import(appRoot,picker.FileName);
+                    string mode=FilmBorderCatalogCore.Import(appRoot,picker.FileName,displayName);
                     borderPreviewPendingMode=mode;
                     OpenFilmBorderSettings();
                 } catch(Exception ex) {FgsMessageBox.Show(this,ex.Message,Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);OpenFilmBorderSettings();}
             }
         }
+
+        private bool PromptImportedFilmBorderName(string source,out string displayName)
+        {
+            displayName=null;
+            string suggested=Path.GetFileNameWithoutExtension(source);
+            if(suggested.Length>40)suggested=suggested.Substring(0,40);
+            string acceptedName=null;
+            using(var dlg=new SettingsDialogForm()) {
+                dlg.Text=UiText("导入胶片边框 · 名称","Import film border · name");
+                dlg.StartPosition=FormStartPosition.CenterParent;
+                dlg.FormBorderStyle=FormBorderStyle.FixedDialog;
+                dlg.MaximizeBox=false;dlg.MinimizeBox=false;dlg.ShowInTaskbar=false;
+                dlg.ClientSize=new System.Drawing.Size(540,170);
+                dlg.BackColor=selectedDarkTheme?UiTheme.Surface:System.Drawing.SystemColors.Control;
+                dlg.ForeColor=selectedDarkTheme?UiTheme.TextColor:System.Drawing.SystemColors.ControlText;
+                var name=new ThemeTextBox {Text=suggested,
+                    Location=new System.Drawing.Point(126,36),Width=380,MaxLength=40};
+                var hint=new ThemeLabel {Text=UiText(
+                    "显示在边框样式下拉菜单中（最多40个字符）",
+                    "Shown in the border style list (max 40 characters)"),
+                    Location=new System.Drawing.Point(126,73),
+                    Size=new System.Drawing.Size(380,30),
+                    ForeColor=selectedDarkTheme?UiTheme.Muted:System.Drawing.SystemColors.GrayText};
+                var apply=new ThemeButton {Text=UiText("导入","Import"),
+                    Location=new System.Drawing.Point(304,124),Size=new System.Drawing.Size(99,32)};
+                var cancel=new ThemeButton {Text=UiText("取消","Cancel"),
+                    Location=new System.Drawing.Point(416,124),Size=new System.Drawing.Size(90,32),
+                    DialogResult=DialogResult.Cancel};
+                dlg.Controls.AddRange(new Control[]{
+                    new ThemeLabel{Text=UiText("边框名称","Border name"),
+                        Location=new System.Drawing.Point(18,42),AutoSize=true},
+                    name,hint,apply,cancel});
+                dlg.AcceptButton=apply;dlg.CancelButton=cancel;
+                apply.Click+=delegate {
+                    try {
+                        acceptedName=FilmBorderCatalogCore.ValidateDisplayName(name.Text);
+                        dlg.DialogResult=DialogResult.OK;dlg.Close();
+                    } catch(Exception ex) {
+                        FgsMessageBox.Show(dlg,ex.Message,dlg.Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);
+                        name.Focus();
+                    }
+                };
+                AttachThemeWindow(dlg);
+                dlg.Shown+=delegate {name.Focus();name.SelectAll();};
+                if(dlg.ShowDialog(this)!=DialogResult.OK)return false;
+            }
+            displayName=acceptedName;
+            return !string.IsNullOrEmpty(displayName);
+        }
+
         private void DeleteFilmBorderFromPreview(string mode)
         {
             FilmBorderChoice choice;string error;

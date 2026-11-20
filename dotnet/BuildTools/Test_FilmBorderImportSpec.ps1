@@ -5,8 +5,9 @@ $assembly=[Reflection.Assembly]::LoadFrom((Resolve-Path 'FilmGrain_Studio.exe').
 $type=$assembly.GetType('FilmGrainStudioPreview.FilmBorderCatalogCore',$true)
 $flags=[Reflection.BindingFlags]'Static,NonPublic'
 $validate=$type.GetMethod('ValidatePng',$flags)
-$import=$type.GetMethod('Import',$flags)
-if(-not $validate -or -not $import){throw 'PNG spec validator/importer not found'}
+$import=$type.GetMethod('Import',$flags,$null,[type[]]@([string],[string],[string]),$null)
+$checkName=$type.GetMethod('ValidateDisplayName',$flags)
+if(-not $validate -or -not $import -or -not $checkName){throw 'PNG spec validator/importer/name validation not found'}
 $dir=Join-Path $env:RUNNER_TEMP ('FGS_ImportSpec_'+[guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $dir -Force | Out-Null
 function New-Png($name,$mode){
@@ -56,11 +57,32 @@ function Assert-Invalid($path,$contains){
 try {
     $ok=New-Png 'valid' 'valid'
     Validate $ok
-    $mode=$import.Invoke($null,@([string]$dir,[string]$ok))
+    $descriptiveName='柔和暗角 · 135'
+    $mode=$import.Invoke($null,@([string]$dir,[string]$ok,[string]$descriptiveName))
     if(-not [string]$mode -or -not ([string]$mode).StartsWith('USER_')){throw 'valid import mode missing'}
     $userDir=Join-Path $dir 'Utils\_FilmBorders\User'
     $raws=@(Get-ChildItem $userDir -Filter '*.raw')
     if($raws.Count -ne 1 -or $raws[0].Length -ne (1920*1080*4)){throw 'valid PNG raw cache missing/invalid'}
+    $labels=@(Get-ChildItem $userDir -Filter '*.label')
+    if($labels.Count -ne 1 -or ([IO.File]::ReadAllText($labels[0].FullName,[Text.Encoding]::UTF8)) -cne $descriptiveName){
+        throw 'Imported display name was not persisted in UTF-8'
+    }
+    $list=$type.GetMethod('List',$flags)
+    $styles=$list.Invoke($null,@([string]$dir))
+    $names=@($styles | ForEach-Object { $_.Label })
+    if($names -notcontains ('自定义 · '+$descriptiveName+' · 静态') -or
+       $names -notcontains ('自定义 · '+$descriptiveName+' · 动态')){
+        throw 'Custom display name not propagated to static/dynamic dropdown choices'
+    }
+    foreach($bad in @('', '   ', ('X'*41), "bad`tname", "bad`nname")){
+        try {
+            $checkName.Invoke($null,@([string]$bad)) | Out-Null
+            throw 'EXPECTED_NAME_REJECTION'
+        } catch {
+            if($_.Exception.Message -match 'EXPECTED_NAME_REJECTION') {throw 'Invalid border name was accepted'}
+        }
+    }
+    Write-Host 'PASS custom display name persistence and static/dynamic dropdown labels'
     Write-Host 'PASS 1920x1080 RGBA8 PNG import and 8294400-byte RGBA raw cache'
     Assert-Invalid (New-Png 'wrong-size' 'wrong-size') '1920'
     Assert-Invalid (New-Png 'rgb' 'rgb') 'RGBA'
