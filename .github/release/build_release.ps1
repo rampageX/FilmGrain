@@ -498,6 +498,10 @@ $RuntimeFiles = @(
     'FilmGrain_Studio.exe', 'FilmGrain_Config.default.ini',
     'CHANGELOG.md', 'LICENSE', 'README_FilmGrain_Studio.txt',
     'Utils/FGS.ico',
+    # Original verified Dark artwork must be checked in before any Stable build.
+    # Do not stage the developer's personal User/ directory or generate stand-ins.
+    'Utils/_FilmBorders/cinema35_dark_1920x1080.png',
+    'Utils/_FilmBorders/cinema35_dark_1920x1080_rgba.raw',
     'Presets/Initial/01.fgspreset.json',
     'Presets/Initial/02.fgspreset.json',
     'Presets/Initial/03.fgspreset.json',
@@ -538,6 +542,18 @@ function New-RuntimeStage {
         Assert-Directory -Root $Source -RelativePath $relative
         Copy-Item -LiteralPath (Join-Path $Source $relative) -Destination (Join-Path $Destination $relative) -Recurse -Force
     }
+    $darkRaw = Join-Path $Destination 'Utils\_FilmBorders\cinema35_dark_1920x1080_rgba.raw'
+    if ((Get-Item -LiteralPath $darkRaw).Length -ne 1920*1080*4) {
+        throw 'Dark 35mm original RGBA texture is missing or has an invalid byte length.'
+    }
+    Add-Type -AssemblyName System.Drawing
+    $darkPng = Join-Path $Destination 'Utils\_FilmBorders\cinema35_dark_1920x1080.png'
+    $image = New-Object System.Drawing.Bitmap($darkPng)
+    try {
+        if ($image.Width -ne 1920 -or $image.Height -ne 1080) {
+            throw 'Dark 35mm original PNG must be 1920x1080.'
+        }
+    } finally { $image.Dispose() }
     # Only sanitize the disposable runtime copy, never the developer defaults.
     $configPath = Join-Path $Destination 'FilmGrain_Config.default.ini'
     $config = [IO.File]::ReadAllText($configPath)

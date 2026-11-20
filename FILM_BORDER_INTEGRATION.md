@@ -28,7 +28,7 @@
 
 ## 发布前必须解决的资源缺口
 
-**Dark 35mm 原始 PNG 与 RGBA 缓存当前不在 Git 受控源树及测试整合包中**。旧测试目录之所以正常，依赖预先存在的 `Utils/_FilmBorders` 文件：
+**Dark 35mm 原始 PNG 与 RGBA 缓存当前不在 Git 受控源树及测试整合包中**。正式打包脚本原先也没有将它们列入运行资源，本轮已把两者加入 `.github/release/build_release.ps1` 的 `RuntimeFiles` 强制清单，并校验尺寸／字节数；缺少原版文件将阻断 Stable 构建，不能静默发不完整版本。旧测试目录之所以正常，依赖预先存在的 `Utils/_FilmBorders` 文件：
 
 - `Utils/_FilmBorders/cinema35_dark_1920x1080.png`
 - `Utils/_FilmBorders/cinema35_dark_1920x1080_rgba.raw`（1920×1080×4 字节，RGBA 顺序）

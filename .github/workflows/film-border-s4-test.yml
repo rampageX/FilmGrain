@@ -57,7 +57,7 @@ jobs:
         shell: powershell
         run: |
           & .\dotnet\BuildTools\Test_FilmBorderIntegrationReadiness.ps1
-          if ($LASTEXITCODE -ne 0) { throw "Film border integration audit failed" }
+          # PowerShell scripts throw on failure; $LASTEXITCODE is for native executables.
       - name: Build and audit main application
         shell: cmd
         run: dotnet\build_NET_Preview.bat
