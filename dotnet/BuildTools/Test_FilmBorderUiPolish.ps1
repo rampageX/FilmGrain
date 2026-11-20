@@ -4,13 +4,19 @@ $assembly=[Reflection.Assembly]::LoadFrom((Join-Path $root 'FilmGrain_Studio.exe
 $type=$assembly.GetType('FilmGrainStudioPreview.FgsConfig',$true)
 $testIni=Join-Path $env:RUNNER_TEMP ('FGS_Cinematic_'+[Guid]::NewGuid().ToString('N')+'.ini')
 try {
-    $settings=[Activator]::CreateInstance($type,[object[]]@($root,$testIni))
+    $ctor=$type.GetConstructor([type[]]@([string],[string]))
+    if(-not $ctor){throw 'FgsConfig constructor missing'}
+    # Explicit CLR strings and a fixed object[]; do not pass PowerShell-wrapped arguments.
+    $ctorArgs=[object[]]::new(2)
+    $ctorArgs[0]=[string]::Copy([string]$root)
+    $ctorArgs[1]=[string]::Copy([string]$testIni)
+    $settings=$ctor.Invoke($ctorArgs)
     if($settings.GetBool('CINEMATIC_STYLE_ENABLED')){throw 'Cinema style must default OFF on fresh setup.'}
     $settings.SaveValue('CINEMATIC_STYLE_ENABLED','true')
-    $settings=[Activator]::CreateInstance($type,[object[]]@($root,$testIni))
+    $settings=$ctor.Invoke($ctorArgs)
     if(-not $settings.GetBool('CINEMATIC_STYLE_ENABLED')){throw 'Cinema style ON did not persist.'}
     $settings.SaveValue('CINEMATIC_STYLE_ENABLED','false')
-    $settings=[Activator]::CreateInstance($type,[object[]]@($root,$testIni))
+    $settings=$ctor.Invoke($ctorArgs)
     if($settings.GetBool('CINEMATIC_STYLE_ENABLED')){throw 'Cinema style OFF did not persist.'}
 } finally {
     if(Test-Path -LiteralPath $testIni){Remove-Item -LiteralPath $testIni -Force}
