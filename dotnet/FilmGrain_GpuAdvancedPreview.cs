@@ -546,7 +546,7 @@ namespace FilmGrainStudioPreview
                     if(File.Exists(result)) {
                         var applied=new JavaScriptSerializer().Deserialize<GpuAdvancedPreviewResult>(
                             File.ReadAllText(result,Encoding.UTF8));
-                        FilmBorderChoice resolved;string why;
+                        FilmBorderChoice resolved;string why="";
                         if(applied==null || applied.Version!=4 ||
                            !FilmBorderCatalogCore.TryResolve(appRoot,applied.FilmBorderMode,out resolved,out why))
                             throw new InvalidDataException("边框模式回传无效："+why);

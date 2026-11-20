@@ -29,7 +29,9 @@ namespace FilmGrainStudioPreview
         {
             return new FilmBorderChoice { StyleId=id, Mode=id+(weave?"_WEAVE":"_STATIC"),
                 Label=label+(weave?" · 动态":" · 静态"), PngPath=path,
-                RawPath=Path.ChangeExtension(path,".raw"), Weave=weave, User=user };
+                RawPath=id==Dark ? Path.Combine(Path.GetDirectoryName(path),
+                    "cinema35_dark_1920x1080_rgba.raw") : Path.ChangeExtension(path,".raw"),
+                Weave=weave, User=user };
         }
 
         // Genuine editable, original FGS classic-black optical print. No third-party
