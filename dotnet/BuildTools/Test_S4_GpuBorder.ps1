@@ -64,6 +64,32 @@ $durationIndex = [array]::LastIndexOf($list, '-t')
 if ($sourceIndex -lt 0 -or $rawIndex -le $sourceIndex -or $rawIndex -ge $filterIndex) { throw 'No-grain input order is wrong.' }
 if ($durationIndex -lt $filterIndex -or $list[$durationIndex+1] -ne '20') { throw 'No-grain output has no finite duration.' }
 if ([array]::IndexOf($list, '-pix_fmt') -ge 0) { throw 'GPU frames unexpectedly force a software pixel format.' }
+# v1.1 flexible user aperture must map identically in CPU and Vulkan compositor.
+$customPlan=[Activator]::CreateInstance($planType,$true)
+$planType.GetField('GpuRaw',$fields).SetValue($customPlan,'texture.raw')
+$planType.GetField('HdrTransfer',$fields).SetValue($customPlan,'smpte2084')
+$planType.GetField('GpuWidth',$fields).SetValue($customPlan,1920)
+$planType.GetField('GpuHeight',$fields).SetValue($customPlan,1080)
+$planType.GetField('GpuContentWidth',$fields).SetValue($customPlan,1920)
+$planType.GetField('GpuContentHeight',$fields).SetValue($customPlan,1080)
+$planType.GetField('GpuInputIndex',$fields).SetValue($customPlan,1)
+$planType.GetField('ApertureWidth1080',$fields).SetValue($customPlan,1730)
+$planType.GetField('ApertureHeight1080',$fields).SetValue($customPlan,798)
+$customGpu=[string]$method.Invoke($null,@('[0:v:0]hwupload[fgsfilm_gpu_video]',$customPlan))
+Assert-Contains $customGpu "pos_w='if(eq(idx,0),1730,1920)'"
+Assert-Contains $customGpu "pos_h='if(eq(idx,0),798,1080)'"
+$planType.GetField('ApertureWidth1080',$fields).SetValue($customPlan,1630)
+$planType.GetField('ApertureHeight1080',$fields).SetValue($customPlan,698)
+$customGpu=[string]$method.Invoke($null,@('[0:v:0]hwupload[fgsfilm_gpu_video]',$customPlan))
+Assert-Contains $customGpu "pos_w='if(eq(idx,0),1630,1920)'"
+Assert-Contains $customGpu "pos_h='if(eq(idx,0),698,1080)'"
+$planType.GetField('HdrTransfer',$fields).SetValue($customPlan,'')
+$appendCpu=$core.GetMethod('AppendFilter',$flags)
+$planType.GetField('Dynamic',$fields).SetValue($customPlan,$false)
+$customCpu=[string]$appendCpu.Invoke($null,@('[0:v:0]format=yuv420p[vout]',$customPlan,1920,1080,1,'24/1',$null,'yuv420p'))
+Assert-Contains $customCpu 'scale=1630:698'
+Assert-Contains $customCpu 'pad=1920:1080:145:191'
+Write-Host 'PASS flexible user film aperture: CPU encoder and Vulkan GPU geometry match'
 Write-Host 'PASS: GPU border input index and 1080p/4K/720p geometry'
 Write-Host 'PASS: static and dynamic GPU border movement'
 Write-Host 'PASS: no-grain encoder input ordering and finite duration'

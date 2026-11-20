@@ -1,113 +1,160 @@
-﻿# Verify the published PNG import specification with decoded images, not just file headers.
+﻿# Film Border import v1.1: real RGBA8 pixel validation, user window geometry,
+# semi-transparent center, metadata persistence, legacy fallback and bad input rejection.
 $ErrorActionPreference='Stop'
 Add-Type -AssemblyName System.Drawing
 $assembly=[Reflection.Assembly]::LoadFrom((Resolve-Path 'FilmGrain_Studio.exe').Path)
 $type=$assembly.GetType('FilmGrainStudioPreview.FilmBorderCatalogCore',$true)
 $flags=[Reflection.BindingFlags]'Static,NonPublic'
 $validate=$type.GetMethod('ValidatePng',$flags)
-$import=$type.GetMethod('Import',$flags,$null,[type[]]@([string],[string],[string]),$null)
+$validateNew=$type.GetMethod('ValidatePngWithAperture',$flags)
+$import=$type.GetMethod('Import',$flags,$null,[type[]]@([string],[string],[string],[int],[int]),$null)
 $checkName=$type.GetMethod('ValidateDisplayName',$flags)
-if(-not $validate -or -not $import -or -not $checkName){throw 'PNG spec validator/importer/name validation not found'}
-$dir=Join-Path $env:RUNNER_TEMP ('FGS_ImportSpec_'+[guid]::NewGuid().ToString('N'))
+$checkSize=$type.GetMethod('ValidateAperture',$flags)
+$list=$type.GetMethod('List',$flags)
+$choiceType=$assembly.GetType('FilmGrainStudioPreview.FilmBorderChoice',$true)
+$fieldFlags=[Reflection.BindingFlags]'Instance,NonPublic'
+$labelField=$choiceType.GetField('Label',$fieldFlags)
+$pngField=$choiceType.GetField('PngPath',$fieldFlags)
+$widthField=$choiceType.GetField('ApertureWidth1080',$fieldFlags)
+$heightField=$choiceType.GetField('ApertureHeight1080',$fieldFlags)
+if(-not $validate -or -not $validateNew -or -not $import -or -not $checkName -or -not $checkSize -or
+   -not $list -or -not $labelField -or -not $pngField -or -not $widthField -or -not $heightField){
+    throw 'Film Border import v1.1 API/metadata fields unavailable'
+}
+$dir=Join-Path $env:RUNNER_TEMP ('FGS_ImportV11_'+[guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $dir -Force | Out-Null
-function New-Png($name,$mode){
+function New-Png([string]$name,[string]$mode,[int]$apW=1680,[int]$apH=748){
     $w=1920;$h=1080
     if($mode -eq 'wrong-size'){$w=1280;$h=720}
-    $pixel=if($mode -eq 'rgb'){
-        [System.Drawing.Imaging.PixelFormat]::Format24bppRgb
-    } else { [System.Drawing.Imaging.PixelFormat]::Format32bppArgb }
-    $image=[System.Drawing.Bitmap]::new($w,$h,$pixel)
+    $pixel=if($mode -eq 'rgb'){[Drawing.Imaging.PixelFormat]::Format24bppRgb}
+        else {[Drawing.Imaging.PixelFormat]::Format32bppArgb}
+    $image=[Drawing.Bitmap]::new($w,$h,$pixel)
     try {
-        $g=[System.Drawing.Graphics]::FromImage($image)
+        $g=[Drawing.Graphics]::FromImage($image)
         try {
-            $g.Clear([System.Drawing.Color]::Transparent)
+            $g.Clear([Drawing.Color]::Transparent)
             if($mode -ne 'blank'){
-                $brush=[System.Drawing.SolidBrush]::new([System.Drawing.Color]::FromArgb(255,6,7,9))
+                $x=[int][Math]::Floor(($w-$apW)/2)
+                $y=[int][Math]::Floor(($h-$apH)/2)
+                $brush=[Drawing.SolidBrush]::new([Drawing.Color]::FromArgb(255,6,7,9))
                 try {
-                    $g.FillRectangle($brush,0,0,$w,166)
-                    $g.FillRectangle($brush,0,914,$w,166)
-                    $g.FillRectangle($brush,0,166,120,748)
-                    $g.FillRectangle($brush,1800,166,120,748)
+                    $g.FillRectangle($brush,0,0,$w,$y)
+                    $g.FillRectangle($brush,0,$y,$x,$apH)
+                    $g.FillRectangle($brush,$x+$apW,$y,$w-($x+$apW),$apH)
+                    $g.FillRectangle($brush,0,$y+$apH,$w,$h-$y-$apH)
                 } finally {$brush.Dispose()}
-            }
-            if($mode -eq 'dirty-aperture'){
-                $b=[System.Drawing.SolidBrush]::new([System.Drawing.Color]::FromArgb(1,255,255,255))
-                try {$g.FillRectangle($b,140,200,4,4)} finally {$b.Dispose()}
+                if($mode -eq 'tint' -or $mode -eq 'opaque-center' -or $mode -eq 'small-mark'){
+                    $alpha=if($mode -eq 'opaque-center'){255}elseif($mode -eq 'small-mark'){1}else{96}
+                    $overlay=[Drawing.SolidBrush]::new([Drawing.Color]::FromArgb($alpha,170,110,66))
+                    try {
+                        if($mode -eq 'small-mark'){$g.FillRectangle($overlay,$x+20,$y+30,4,4)}
+                        else {$g.FillRectangle($overlay,$x,$y,$apW,$apH)}
+                    } finally {$overlay.Dispose()}
+                }
             }
         } finally {$g.Dispose()}
         $file=Join-Path $dir ($name+'.png')
-        $image.Save($file,[System.Drawing.Imaging.ImageFormat]::Png)
+        $image.Save($file,[Drawing.Imaging.ImageFormat]::Png)
         return $file
     } finally {$image.Dispose()}
 }
-function Validate($path){
-    try {$validate.Invoke($null,@([string]$path)) | Out-Null}
-    catch { $err=$_.Exception; while($err.InnerException){$err=$err.InnerException}; throw $err }
-}
-function Assert-Invalid($path,$contains){
-    try {Validate $path;throw ('EXPECTED_REJECTION: '+$path)}
+function Assert-Rejected([scriptblock]$action,[string]$expected){
+    $msg=$null
+    try {& $action | Out-Null}
     catch {
-        $message=$_.Exception.Message
-        if($message.StartsWith('EXPECTED_REJECTION') -or -not $message.Contains($contains)){
-            throw ('Wrong rejection for '+$path+': '+$message)
-        }
-        Write-Host ('PASS reject '+[IO.Path]::GetFileName($path)+' : '+$message)
+        $err=$_.Exception
+        while($err.InnerException){$err=$err.InnerException}
+        $msg=$err.Message
     }
+    if($null -eq $msg -or -not $msg.Contains($expected)){
+        throw "Wrong/missing rejection. Expected '$expected', got '$msg'"
+    }
+    Write-Host "PASS rejected: $expected"
+}
+function Assert-Imported([string]$path,[string]$name,[int]$apW,[int]$apH){
+    $mode=[string]$import.Invoke($null,@([string]$dir,[string]$path,[string]$name,[int]$apW,[int]$apH))
+    if(-not $mode.StartsWith('USER_')){throw 'User import mode missing'}
+    $id=$mode.Substring(5,32)
+    $folder=Join-Path $dir 'Utils\_FilmBorders\User'
+    $png=Join-Path $folder ($id+'.png')
+    $raw=Join-Path $folder ($id+'.raw')
+    $label=Join-Path $folder ($id+'.label')
+    $aperture=Join-Path $folder ($id+'.aperture')
+    if((Get-Item -LiteralPath $raw).Length -ne (1920*1080*4)){throw 'RGBA cache length incorrect'}
+    if([IO.File]::ReadAllText($label,[Text.Encoding]::UTF8) -cne $name){throw 'User label not saved'}
+    $record=[IO.File]::ReadAllText($aperture,[Text.Encoding]::UTF8).Trim()
+    if($record -ne ($apW.ToString()+"`t"+$apH.ToString())){throw 'Aperture metadata incorrect: '+$record}
+    $styles=$list.Invoke($null,@([string]$dir))
+    $items=@($styles | Where-Object {
+        [string]$pngField.GetValue($_) -eq $png
+    })
+    if($items.Count -ne 2){throw 'Imported static and dynamic catalog entries missing'}
+    foreach($style in $items){
+        if([int]$widthField.GetValue($style) -ne $apW -or [int]$heightField.GetValue($style) -ne $apH){
+            throw 'Imported aperture geometry differs from saved value'
+        }
+    }
+    $labels=@($items | ForEach-Object {[string]$labelField.GetValue($_)})
+    if($labels -notcontains ('自定义 · '+$name+' · 静态') -or
+       $labels -notcontains ('自定义 · '+$name+' · 动态')){
+        throw 'User dropdown descriptions not retained'
+    }
+    return $png
 }
 try {
-    $ok=New-Png 'valid' 'valid'
-    Validate $ok
-    $descriptiveName='柔和暗角 · 135'
-    $mode=$import.Invoke($null,@([string]$dir,[string]$ok,[string]$descriptiveName))
-    if(-not [string]$mode -or -not ([string]$mode).StartsWith('USER_')){throw 'valid import mode missing'}
-    $userDir=Join-Path $dir 'Utils\_FilmBorders\User'
-    $raws=@(Get-ChildItem $userDir -Filter '*.raw')
-    if($raws.Count -ne 1 -or $raws[0].Length -ne (1920*1080*4)){throw 'valid PNG raw cache missing/invalid'}
-    $labels=@(Get-ChildItem $userDir -Filter '*.label')
-    if($labels.Count -ne 1 -or ([IO.File]::ReadAllText($labels[0].FullName,[Text.Encoding]::UTF8)) -cne $descriptiveName){
-        throw 'Imported display name was not persisted in UTF-8'
-    }
-    $list=$type.GetMethod('List',$flags)
+    $default=New-Png 'default' 'small-mark'
+    $validate.Invoke($null,@([string]$default)) | Out-Null
+    $original=Assert-Imported $default '柔和暗角 · 默认' 1680 748
+    $originalAp=[IO.Path]::ChangeExtension($original,'.aperture')
+    Remove-Item -LiteralPath $originalAp
     $styles=$list.Invoke($null,@([string]$dir))
-    $labelField=$assembly.GetType('FilmGrainStudioPreview.FilmBorderChoice',$true).GetField('Label',
-        [Reflection.BindingFlags]'Instance,NonPublic')
-    if(-not $labelField){throw 'FilmBorderChoice.Label field missing'}
-    $names=@($styles | ForEach-Object { [string]$labelField.GetValue($_) })
-    if($names -notcontains ('自定义 · '+$descriptiveName+' · 静态') -or
-       $names -notcontains ('自定义 · '+$descriptiveName+' · 动态')){
-        throw 'Custom display name not propagated to static/dynamic dropdown choices'
-    }
-    foreach($bad in @('', '   ', ('X'*41), "bad`tname", "bad`nname")){
-        try {
-            $checkName.Invoke($null,@([string]$bad)) | Out-Null
-            throw 'EXPECTED_NAME_REJECTION'
-        } catch {
-            if($_.Exception.Message -match 'EXPECTED_NAME_REJECTION') {throw 'Invalid border name was accepted'}
+    foreach($item in @($styles | Where-Object {[string]$pngField.GetValue($_) -eq $original})){
+        if([int]$widthField.GetValue($item) -ne 1680 -or [int]$heightField.GetValue($item) -ne 748){
+            throw 'Old v1.0 import without metadata changed geometry'
         }
     }
-    Write-Host 'PASS custom display name persistence and static/dynamic dropdown labels'
-    Write-Host 'PASS 1920x1080 RGBA8 PNG import and 8294400-byte RGBA raw cache'
-    Assert-Invalid (New-Png 'wrong-size' 'wrong-size') '1920'
-    Assert-Invalid (New-Png 'rgb' 'rgb') 'RGBA'
-    Assert-Invalid (New-Png 'dirty-aperture' 'dirty-aperture') 'Alpha=0'
-    Assert-Invalid (New-Png 'blank' 'blank') '可见像素不足'
+    Write-Host 'PASS: original imported assets keep default aperture if sidecar is absent'
+
+    $min=New-Png 'minimum-window' 'tint' 1630 698
+    $max=New-Png 'maximum-window' 'tint' 1730 798
+    $validateNew.Invoke($null,@([string]$min,1630,698)) | Out-Null
+    $validateNew.Invoke($null,@([string]$max,1730,798)) | Out-Null
+    $importMin=Assert-Imported $min '旧片仓 · 半透明' 1630 698
+    $importMax=Assert-Imported $max '青色颗粒覆盖' 1730 798
+    $bmp=[Drawing.Bitmap]::new($importMax)
+    try {
+        if($bmp.GetPixel(960,540).A -ne 96){throw 'Center tint Alpha was rewritten during import'}
+    } finally {$bmp.Dispose()}
+    Write-Host 'PASS: min/max aperture, translucent full-center RGBA and saved user sizes'
+
+    Assert-Rejected { $checkSize.Invoke($null,@(1629,748)) } '1630'
+    Assert-Rejected { $checkSize.Invoke($null,@(1731,748)) } '1630'
+    Assert-Rejected { $checkSize.Invoke($null,@(1680,697)) } '698'
+    Assert-Rejected { $checkSize.Invoke($null,@(1680,799)) } '698'
+    Assert-Rejected { $validateNew.Invoke($null,@([string](New-Png 'opaque' 'opaque-center'),1680,748)) } '95%'
+    Assert-Rejected { $validate.Invoke($null,@([string](New-Png 'blank' 'blank'))) } '可见像素不足'
+    Assert-Rejected { $validate.Invoke($null,@([string](New-Png 'wrong-size' 'wrong-size'))) } '1920'
+    Assert-Rejected { $validate.Invoke($null,@([string](New-Png 'rgb' 'rgb'))) } 'RGBA'
+    foreach($bad in @('', '   ', ('X'*41), "bad`tname", "bad`nname")){
+        Assert-Rejected { $checkName.Invoke($null,@([string]$bad)) } '边框名称'
+    }
+
     $fake=Join-Path $dir 'fake.png'
     [IO.File]::WriteAllText($fake,'not a PNG')
-    Assert-Invalid $fake 'PNG'
+    Assert-Rejected { $validate.Invoke($null,@([string]$fake)) } 'PNG'
     $apng=Join-Path $dir 'animated.png'
-    $bytes=[IO.File]::ReadAllBytes($ok)
-    # PNG IHDR ends at byte 33; insert an acTL chunk after IHDR to test rejection.
+    $bytes=[IO.File]::ReadAllBytes($default)
     $chunk=[byte[]](0,0,0,8,97,99,84,76,0,0,0,2,0,0,0,0,0,0,0,0)
     $out=[byte[]]::new($bytes.Length+$chunk.Length)
     [Array]::Copy($bytes,0,$out,0,33)
     [Array]::Copy($chunk,0,$out,33,$chunk.Length)
-    [Array]::Copy($bytes,33,$out,33+$chunk.Length,$bytes.Length-33)
     [IO.File]::WriteAllBytes($apng,$out)
-    Assert-Invalid $apng 'APNG'
+    Assert-Rejected { $validate.Invoke($null,@([string]$apng)) } 'APNG'
     $tooLarge=Join-Path $dir 'oversize.png'
     $stream=[IO.File]::Open($tooLarge,[IO.FileMode]::Create)
     try {$stream.SetLength(33MB)} finally {$stream.Dispose()}
-    Assert-Invalid $tooLarge '32 MiB'
-    Write-Host 'PASS Film Border user-import v1.0 checks'
+    Assert-Rejected { $validate.Invoke($null,@([string]$tooLarge)) } '32 MiB'
+    Write-Host 'PASS Film Border user import v1.1 - geometry, Alpha, description and rollback rules'
+} finally {
+    Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
 }
-finally {Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue}
