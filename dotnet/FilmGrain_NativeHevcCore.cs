@@ -1749,7 +1749,11 @@ namespace FilmGrainStudioPreview
                 double bottom=Math.Min(cropTop+apertureH/scale,plan.GpuContentY+plan.GpuContentHeight);
                 if (right<=left || bottom<=top) throw new InvalidOperationException("GPU film border has no visible picture area.");
                 Func<double,string> f=delegate(double value) { return value.ToString("0.##########",CultureInfo.InvariantCulture); };
-                string kernelDynamic = "libplacebo=inputs=2:w="+N(w)+":h="+N(h)+":format=p010le:"+
+                // P010 semi-planar Vulkan images fail CUDA external-memory mapping on some
+                // FFmpeg/driver builds (CUDA_ERROR_INVALID_VALUE). Use planar 10-bit for
+                // the Vulkan->CUDA handoff, then pack to NVENC's P010 entirely on CUDA.
+                // Keep the previously validated legacy 4K zero-copy path unchanged.
+                string kernelDynamic = "libplacebo=inputs=2:w="+N(w)+":h="+N(h)+":format=yuv420p10le:"+
                     "colorspace=bt2020nc:color_primaries=bt2020:color_trc="+plan.HdrTransfer+":range=limited"+
                     ":crop_x='if(eq(idx,0),"+f(left)+",0)'"+
                     ":crop_y='if(eq(idx,0),"+f(top)+",0)'"+
@@ -1761,7 +1765,7 @@ namespace FilmGrainStudioPreview
                     ":pos_y='if(eq(idx,0),"+f((h-apertureH)/2+(top-cropTop)*scale)+",0)+("+moveY+")'"+
                     ":upscaler=ewa_lanczos:downscaler=ewa_lanczos:tonemapping=clip:peak_detect=false:dithering=none:fillcolor=black";
                 return graph+";"+input+";[fgsfilm_gpu_video][fgsfilm_gpu_png]"+kernelDynamic+
-                    ",hwupload=derive_device=cuda,setparams=range=limited:color_primaries=bt2020:"+
+                    ",hwupload=derive_device=cuda,scale_cuda=format=p010le,setparams=range=limited:color_primaries=bt2020:"+
                     "color_trc="+plan.HdrTransfer+":colorspace=bt2020nc[vout]";
             }
             string kernel = "libplacebo=inputs=2:w=3840:h=2160:format=p010le:"+
