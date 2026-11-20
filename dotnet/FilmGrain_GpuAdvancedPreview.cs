@@ -665,7 +665,7 @@ namespace FilmGrainStudioPreview
             if(nvencAv1||svtAv1||av1Copy)
             {
                 SetEffectButtonState(btnFilmBorder,false);
-                btnFilmBorder.Text=nvencAv1?UiText("NVENC AV1 暂不可用","NVENC AV1 unavailable"):
+                btnFilmBorder.Text=nvencAv1?UiText("NVENC_AV1 暂不可用","NVENC AV1 unavailable"):
                     svtAv1?UiText("SVT-AV1 暂不可用","SVT-AV1 unavailable"):
                     UiText("AV1 仅替换颗粒 · 暂不可用","AV1 copy · unavailable");
                 btnFilmBorder.Enabled=false;

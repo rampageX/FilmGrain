@@ -27,6 +27,11 @@
 - 用户导入样式：`_FILMUSER_<边框名称>_S` / `_FILMUSER_<边框名称>_D`，不附加短 ID/GUID。导入名称必须唯一（不区分大小写，并检查文件名非法字符替换后的重名）。
 - H.264 NVENC、HEVC NVENC、x264、x265 统一使用 `FilmBorderEncodingCore.Plan.FileSuffix`；未开启边框时不添加后缀。文件名后缀与边框画面逻辑无关。
 
+### FGB-04 · SVT-AV1 胶片边框与 Film Grain 联合接入（TODO）
+
+**状态：延期，未开放。** 待 SVT-AV1 的 Film Grain 能力进入可供 FGS 使用和验证的 Windows 构建后，再一起规划和测试 SVT-AV1 胶片边框。需要分别覆盖普通 SVT 编码、AV1 参数颗粒/像素颗粒、SDR/HDR、边框插入顺序、合成速度及音视频时间戳；现有 SVT 禁用边框的编码保护不得提前移除。
+
+**当前交互：** NVENC_AV1、SVT-AV1、AV1 仅替换颗粒均禁用主界面“添加边框”，显示灰色“暂不可用”。AV1 编码的有效任务配置不携带之前保留的边框，切回 HEVC/H.264/x265/x264 后恢复用户原选择。此次不改任何实际编码滤镜。
 ## 明确延期（不要在这次整理中开启）
 
 ### FGB-01 · HDR→SDR GPU 预览统一修复
