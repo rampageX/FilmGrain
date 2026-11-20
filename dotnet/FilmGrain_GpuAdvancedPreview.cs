@@ -660,11 +660,12 @@ namespace FilmGrainStudioPreview
             if(btnFilmBorder==null)return;
             string mode=config.Get("FILM_BORDER_MODE");
             FilmBorderChoice choice;string error;
-            if(!FilmBorderCatalogCore.TryResolve(appRoot,mode,out choice,out error))
-                btnFilmBorder.Text=UiText("添加边框", "Film Border");
-            else if(choice.Mode==FilmBorderCatalogCore.Off)
-                btnFilmBorder.Text=UiText("添加边框", "Film Border");
-            else btnFilmBorder.Text=UiText("添加边框 · ","Film Border · ")+choice.Label;
+            bool active=FilmBorderCatalogCore.TryResolve(appRoot,mode,out choice,out error) &&
+                choice.Mode!=FilmBorderCatalogCore.Off;
+            btnFilmBorder.Text=active
+                ? UiText("添加边框 · ","Film Border · ")+choice.Label
+                : UiText("添加边框", "Film Border");
+            SetEffectButtonState(btnFilmBorder,active);
         }
         private void ImportFilmBorderFromPreview()
         {

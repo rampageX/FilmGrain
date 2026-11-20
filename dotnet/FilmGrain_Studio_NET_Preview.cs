@@ -1116,7 +1116,7 @@ namespace FilmGrainStudioPreview
             cmbDeint = Combo(new string[] { lang.T("deint.auto"), lang.T("deint.off") }, 0);
             cmbDeintMethod = Combo(new string[] { lang.T("deint.vulkan"), lang.T("deint.cuda"), lang.T("deint.w3fdif") }, 1);
             cmbDeint.SelectedIndexChanged += delegate { if(restoringFileEditor)return; UpdateMediaDrivenUi(GetSelectedMediaInfo()); UpdateBitrateDisplays(); };
-            chkCinematic = Check(UiText("影院样式","Cinema Style"), !config.GetBool(CinematicFrameCore.CropEnabledKey));
+            chkCinematic = Check(UiText("影院样式","Cinema Style"), config.GetBool("CINEMATIC_STYLE_ENABLED"));
             cmbFrameMode = Combo(new string[] { lang.T("cinematic.letterbox"), lang.T("cinematic.crop") }, config.Get(CinematicFrameCore.CropModeKey)=="CROP"?1:0);
 
             btnSubtitle = new ThemeButton(); btnSubtitle.Text = lang.T("button.subtitle"); btnSubtitle.Dock = DockStyle.Fill; btnSubtitle.Margin = new Padding(3, 4, 8, 4);
@@ -1161,7 +1161,15 @@ namespace FilmGrainStudioPreview
             cinematicShortcut.Enabled = chkCinematic.Checked;
             chkCinematic.CheckedChanged += delegate {
                 cinematicShortcut.Enabled = chkCinematic.Checked;
-                if(!restoringFileEditor)RefreshPreprocessUi();
+                if(restoringFileEditor)return;
+                try { config.SaveValue("CINEMATIC_STYLE_ENABLED",chkCinematic.Checked?"true":"false"); }
+                catch(Exception ex) {
+                    restoringFileEditor=true;
+                    try { chkCinematic.Checked=config.GetBool("CINEMATIC_STYLE_ENABLED"); }
+                    finally { restoringFileEditor=false; }
+                    FgsMessageBox.Show(this,ex.Message,Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);
+                }
+                RefreshPreprocessUi();
             };
             cmbFrameMode.SelectionChangeCommitted += delegate {
                 if(restoringFileEditor)return;
@@ -1193,9 +1201,23 @@ namespace FilmGrainStudioPreview
                 Text = UiText("添加边框", "Film Border"), Dock = DockStyle.Fill,
                 Margin = new Padding(3,4,8,4) };
             btnFilmBorder.Click += delegate { OpenFilmBorderSettings(); };
+            var borderMenu = new ContextMenuStrip();
+            var clearBorder = borderMenu.Items.Add(UiText("清空边框","Clear film border"),null,delegate {
+                try {
+                    config.SaveValue("FILM_BORDER_MODE",FilmBorderCatalogCore.Off);
+                    borderPreviewPendingMode=null;
+                    UpdateFilmBorderButton();
+                    UpdateHdrRouteStatus(GetSelectedMediaInfo());
+                    UpdateFileSettingsLabels();
+                } catch(Exception ex) {FgsMessageBox.Show(this,ex.Message,Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);}
+            });
+            borderMenu.Opening += delegate {
+                clearBorder.Enabled=!string.Equals(config.Get("FILM_BORDER_MODE"),FilmBorderCatalogCore.Off,StringComparison.OrdinalIgnoreCase);
+            };
+            btnFilmBorder.ContextMenuStrip=borderMenu;
             lutToolTip.SetToolTip(btnFilmBorder, UiText(
-                "独立 GPU 边框预览：关闭 / 静态 / 动态；点击应用后写入编码设置。",
-                "GPU border preview: Off / Static / Weave; apply to encoding."));
+                "左键：打开独立 GPU 边框预览和设置；右键：清空边框。",
+                "Left-click: GPU border preview and settings; right-click: clear border."));
             t.Controls.Add(btnFilmBorder, 0, 12); t.SetColumnSpan(btnFilmBorder, 2);
             UpdateFilmBorderButton();
             var resourceMonitor = new ResourceMonitorPanel(UiText("内存", "RAM"), UiText("显存", "VRAM"));
@@ -4709,7 +4731,7 @@ namespace FilmGrainStudioPreview
 
         private void MigrateStartupFraming()
         {
-            if (config.Get(CinematicFrameCore.CropEnabledKey) != "" ||
+            if (config.GetBool("CINEMATIC_STYLE_ENABLED") || config.Get(CinematicFrameCore.CropEnabledKey) != "" ||
                 !CinematicFrameCore.HasLegacyCrop("LETTERBOX", config.Get(CinematicFrameCore.MarginsKey),
                     config.Get("CINEMATIC_CROP_PER_SIDE"), config.Get("CINEMATIC_CROP_HORIZONTAL"), config.Get("CINEMATIC_NO_CROP"))) return;
             try { config.SaveValue(CinematicFrameCore.CropEnabledKey,"true"); }

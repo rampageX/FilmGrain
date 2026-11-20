@@ -82,6 +82,10 @@ jobs:
         shell: powershell
         run: |
           & .\dotnet\BuildTools\Test_FilmBorderImportSizeMemory.ps1
+      - name: Verify cinema mode persistence and border button quick actions
+        shell: powershell
+        run: |
+          & .\dotnet\BuildTools\Test_FilmBorderUiPolish.ps1
       - name: Verify GPU border graphs and input mapping
         shell: powershell
         run: |
