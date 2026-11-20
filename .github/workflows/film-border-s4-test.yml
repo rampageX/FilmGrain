@@ -55,20 +55,23 @@ jobs:
         shell: powershell
         run: |
           & .\dotnet\BuildTools\Test_S4_GpuBorder.ps1
-      - uses: actions/upload-artifact@v4
-        with:
-          name: FGS-FilmBorder-UI-Windows
-          if-no-files-found: error
-          path: |
-            FilmGrain_Studio.exe
-            GpuAdvancedPreview/
       - name: Archive exact test source
         shell: powershell
         run: |
           git archive --format=zip --output=FGS_FilmBorder_UI_Source.zip HEAD
           if ($LASTEXITCODE -ne 0) { throw 'git archive failed' }
+      - name: Create integrated test and source ZIP
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $stage = Join-Path $env:RUNNER_TEMP 'FGS_FilmBorder_UI_Integrated'
+          New-Item -ItemType Directory -Path $stage -Force | Out-Null
+          Copy-Item -LiteralPath 'FilmGrain_Studio.exe' -Destination $stage
+          Copy-Item -LiteralPath 'GpuAdvancedPreview' -Destination $stage -Recurse
+          Copy-Item -LiteralPath 'FGS_FilmBorder_UI_Source.zip' -Destination $stage
+          Compress-Archive -Path (Join-Path $stage '*') -DestinationPath 'FGS_FilmBorder_UI_Test_and_Source.zip' -CompressionLevel Optimal
       - uses: actions/upload-artifact@v4
         with:
-          name: FGS-FilmBorder-UI-Source
+          name: FGS-FilmBorder-UI-Test-and-Source
           if-no-files-found: error
-          path: FGS_FilmBorder_UI_Source.zip
+          path: FGS_FilmBorder_UI_Test_and_Source.zip

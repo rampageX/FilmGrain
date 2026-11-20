@@ -483,7 +483,7 @@ namespace FilmGrainStudioPreview
             gpuAdvancedPreviewBusy = filmBorderSettingsBusy = true;
             btnFilmBorder.Enabled = false;
             btnGpuAdvancedPreview.Enabled = false;
-            var worker = new Thread(delegate {
+            var worker = new Thread(delegate() {
                 string error = "", selected = null;
                 try {
                     if (media.Identity != null) media.Identity.RequireCurrent();
