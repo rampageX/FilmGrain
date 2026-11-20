@@ -233,6 +233,17 @@ namespace FilmGrainStudioPreview
         internal const string ImportLastWidthKey="FILM_BORDER_IMPORT_LAST_WIDTH";
         internal const string ImportLastHeightKey="FILM_BORDER_IMPORT_LAST_HEIGHT";
         internal const int ImportApertureTolerance=50;
+        // Import profiles are explicitly selected by perforation direction.
+        // The legacy 1680x748 gate remains unchanged for old imports and callers.
+        internal const string ImportLayoutSide="SIDE";
+        internal const string ImportLayoutTopBottom="TOP_BOTTOM";
+        internal const string ImportLastLayoutKey="FILM_BORDER_IMPORT_LAYOUT";
+        internal const string ImportSideLastWidthKey="FILM_BORDER_SIDE_LAST_WIDTH";
+        internal const string ImportSideLastHeightKey="FILM_BORDER_SIDE_LAST_HEIGHT";
+        internal const string ImportTopBottomLastWidthKey="FILM_BORDER_TB_LAST_WIDTH";
+        internal const string ImportTopBottomLastHeightKey="FILM_BORDER_TB_LAST_HEIGHT";
+        internal const int ImportSideDefaultWidth=1688, ImportSideDefaultHeight=970;
+        internal const int ImportTopBottomDefaultWidth=1880, ImportTopBottomDefaultHeight=780;
         internal const int MaxImportBytes=32*1024*1024;
         private static string AperturePath(string png) {return Path.ChangeExtension(png,".aperture");}
         internal static void ValidateAperture(int width,int height)
@@ -241,16 +252,34 @@ namespace FilmGrainStudioPreview
                height<ImportApertureHeight-ImportApertureTolerance || height>ImportApertureHeight+ImportApertureTolerance)
                 throw new InvalidDataException("中心画窗宽必须在 1630–1730px，高必须在 698–798px。");
         }
+        internal static void ValidateApertureForLayout(int width,int height,string layout)
+        {
+            if(string.IsNullOrEmpty(layout) || layout=="LEGACY") {ValidateAperture(width,height);return;}
+            if(layout==ImportLayoutSide)
+            {
+                if(width<1600 || width>1780 || height<900 || height>1020)
+                    throw new InvalidDataException("左右齿孔画窗宽必须在1600–1780px，高必须在900–1020px。");
+                return;
+            }
+            if(layout==ImportLayoutTopBottom)
+            {
+                if(width<1600 || width>1910 || height<700 || height>860)
+                    throw new InvalidDataException("上下齿孔画窗宽必须在1600–1910px，高必须在700–860px。");
+                return;
+            }
+            throw new InvalidDataException("未知的胶片边框齿孔方向："+layout);
+        }
         internal static void ReadUserAperture(string png,out int width,out int height)
         {
             width=ImportApertureWidth;height=ImportApertureHeight;
             string metadata=AperturePath(png);
             if(!File.Exists(metadata))return; // backwards compatibility for v1.0 imports
             string[] parts=File.ReadAllText(metadata,Encoding.UTF8).Trim().Split('\t');
-            if(parts.Length!=2 || !int.TryParse(parts[0],NumberStyles.Integer,CultureInfo.InvariantCulture,out width) ||
+            if((parts.Length!=2 && parts.Length!=3) ||
+                !int.TryParse(parts[0],NumberStyles.Integer,CultureInfo.InvariantCulture,out width) ||
                 !int.TryParse(parts[1],NumberStyles.Integer,CultureInfo.InvariantCulture,out height))
                 throw new InvalidDataException("用户边框的画窗尺寸记录损坏："+metadata);
-            ValidateAperture(width,height);
+            ValidateApertureForLayout(width,height,parts.Length==3?parts[2]:"LEGACY");
         }
         private static readonly byte[] PngSignature={137,80,78,71,13,10,26,10};
 
@@ -319,8 +348,14 @@ namespace FilmGrainStudioPreview
         { ValidatePngWithAperture(filename,ImportApertureWidth,ImportApertureHeight); }
 
         internal static void ValidatePngWithAperture(string filename,int apertureWidth,int apertureHeight)
+        { ValidatePngInternal(filename,apertureWidth,apertureHeight,"LEGACY"); }
+
+        internal static void ValidatePngForLayout(string filename,int apertureWidth,int apertureHeight,string layout)
+        { ValidatePngInternal(filename,apertureWidth,apertureHeight,layout); }
+
+        private static void ValidatePngInternal(string filename,int apertureWidth,int apertureHeight,string layout)
         {
-            ValidateAperture(apertureWidth,apertureHeight);
+            ValidateApertureForLayout(apertureWidth,apertureHeight,layout);
             ValidatePngContainer(filename);
             int x0=(ImportWidth-apertureWidth)/2;
             int y0=(ImportHeight-apertureHeight)/2;
@@ -448,11 +483,14 @@ namespace FilmGrainStudioPreview
         {return Import(appRoot,source,displayName,ImportApertureWidth,ImportApertureHeight);}
 
         internal static string Import(string appRoot,string source,string displayName,int apertureWidth,int apertureHeight)
+        {return ImportWithLayout(appRoot,source,displayName,apertureWidth,apertureHeight,"LEGACY");}
+
+        internal static string ImportWithLayout(string appRoot,string source,string displayName,int apertureWidth,int apertureHeight,string layout)
         {
             displayName=ValidateUniqueDisplayName(appRoot,displayName);
-            ValidateAperture(apertureWidth,apertureHeight);
+            ValidateApertureForLayout(apertureWidth,apertureHeight,layout);
             if(!File.Exists(source))throw new FileNotFoundException("PNG 不存在",source);
-            ValidatePngWithAperture(source,apertureWidth,apertureHeight);
+            ValidatePngForLayout(source,apertureWidth,apertureHeight,layout);
             string id=Guid.NewGuid().ToString("N").ToUpperInvariant();
             string folder=UserRoot(appRoot);
             Directory.CreateDirectory(folder);
@@ -464,7 +502,8 @@ namespace FilmGrainStudioPreview
                 File.WriteAllText(Path.ChangeExtension(path,".label"),displayName,new UTF8Encoding(false));
                 File.WriteAllText(AperturePath(path),
                     apertureWidth.ToString(CultureInfo.InvariantCulture)+"\t"+
-                    apertureHeight.ToString(CultureInfo.InvariantCulture)+"\n",new UTF8Encoding(false));
+                    apertureHeight.ToString(CultureInfo.InvariantCulture)+
+                    (layout=="LEGACY"?"\n":"\t"+layout+"\n"),new UTF8Encoding(false));
                 return "USER_"+id+"_STATIC";
             } catch {
                 foreach(string f in new[]{path,raw,Path.ChangeExtension(path,".label"),AperturePath(path)})

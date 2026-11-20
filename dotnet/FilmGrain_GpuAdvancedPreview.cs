@@ -690,16 +690,24 @@ namespace FilmGrainStudioPreview
                 if(picker.ShowDialog(this)!=DialogResult.OK){OpenFilmBorderSettings();return;}
                 string displayName;
                 int apertureWidth,apertureHeight;
-                if(!PromptImportedFilmBorderName(picker.FileName,out displayName,out apertureWidth,out apertureHeight)) {
+                string apertureLayout;
+                if(!PromptImportedFilmBorderName(picker.FileName,out displayName,out apertureWidth,out apertureHeight,out apertureLayout)) {
                     OpenFilmBorderSettings();return;
                 }
                 try {
-                    string mode=FilmBorderCatalogCore.Import(appRoot,picker.FileName,displayName,apertureWidth,apertureHeight);
+                    string mode=FilmBorderCatalogCore.ImportWithLayout(appRoot,picker.FileName,displayName,apertureWidth,apertureHeight,apertureLayout);
                     borderPreviewPendingMode=mode;
                     // Only a successful PNG import updates the remembered aperture.
                     config.Save(new Dictionary<string,string> {
                         {FilmBorderCatalogCore.ImportLastWidthKey,apertureWidth.ToString(CultureInfo.InvariantCulture)},
-                        {FilmBorderCatalogCore.ImportLastHeightKey,apertureHeight.ToString(CultureInfo.InvariantCulture)}
+                        {FilmBorderCatalogCore.ImportLastHeightKey,apertureHeight.ToString(CultureInfo.InvariantCulture)},
+                        {FilmBorderCatalogCore.ImportLastLayoutKey,apertureLayout},
+                        {apertureLayout==FilmBorderCatalogCore.ImportLayoutSide?
+                            FilmBorderCatalogCore.ImportSideLastWidthKey:FilmBorderCatalogCore.ImportTopBottomLastWidthKey,
+                            apertureWidth.ToString(CultureInfo.InvariantCulture)},
+                        {apertureLayout==FilmBorderCatalogCore.ImportLayoutSide?
+                            FilmBorderCatalogCore.ImportSideLastHeightKey:FilmBorderCatalogCore.ImportTopBottomLastHeightKey,
+                            apertureHeight.ToString(CultureInfo.InvariantCulture)}
                     });
                     OpenFilmBorderSettings();
                 } catch(Exception ex) {FgsMessageBox.Show(this,ex.Message,Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);OpenFilmBorderSettings();}
@@ -712,70 +720,104 @@ namespace FilmGrainStudioPreview
                    value<=nominal+FilmBorderCatalogCore.ImportApertureTolerance ? value : fallback;
         }
 
-        private bool PromptImportedFilmBorderName(string source,out string displayName,out int apertureWidth,out int apertureHeight)
+        private bool PromptImportedFilmBorderName(string source,out string displayName,out int apertureWidth,out int apertureHeight,out string layout)
         {
             displayName=null;
-            apertureWidth=ValidImportDialogAperture(
-                config.GetInt(FilmBorderCatalogCore.ImportLastWidthKey,FilmBorderCatalogCore.ImportDialogDefaultWidth),
-                FilmBorderCatalogCore.ImportApertureWidth,FilmBorderCatalogCore.ImportDialogDefaultWidth);
-            apertureHeight=ValidImportDialogAperture(
-                config.GetInt(FilmBorderCatalogCore.ImportLastHeightKey,FilmBorderCatalogCore.ImportDialogDefaultHeight),
-                FilmBorderCatalogCore.ImportApertureHeight,FilmBorderCatalogCore.ImportDialogDefaultHeight);
+            layout=config.Get(FilmBorderCatalogCore.ImportLastLayoutKey);
+            if(layout!=FilmBorderCatalogCore.ImportLayoutTopBottom)layout=FilmBorderCatalogCore.ImportLayoutSide;
+            apertureWidth=layout==FilmBorderCatalogCore.ImportLayoutSide?
+                FilmBorderCatalogCore.ImportSideDefaultWidth:FilmBorderCatalogCore.ImportTopBottomDefaultWidth;
+            apertureHeight=layout==FilmBorderCatalogCore.ImportLayoutSide?
+                FilmBorderCatalogCore.ImportSideDefaultHeight:FilmBorderCatalogCore.ImportTopBottomDefaultHeight;
             string suggested=Path.GetFileNameWithoutExtension(source);
             if(suggested.Length>40)suggested=suggested.Substring(0,40);
             string acceptedName=null;
             int acceptedWidth=apertureWidth,acceptedHeight=apertureHeight;
+            string acceptedLayout=layout;
             using(var dlg=new SettingsDialogForm()) {
-                dlg.Text=UiText("导入胶片边框 · 名称","Import film border · name");
+                dlg.Text=UiText("导入胶片边框 · 名称与画窗","Import film border · Name and aperture");
                 dlg.StartPosition=FormStartPosition.CenterParent;
                 dlg.FormBorderStyle=FormBorderStyle.FixedDialog;
                 dlg.MaximizeBox=false;dlg.MinimizeBox=false;dlg.ShowInTaskbar=false;
-                dlg.ClientSize=new System.Drawing.Size(540,248);
+                dlg.ClientSize=new System.Drawing.Size(540,296);
                 dlg.BackColor=selectedDarkTheme?UiTheme.Surface:System.Drawing.SystemColors.Control;
                 dlg.ForeColor=selectedDarkTheme?UiTheme.TextColor:System.Drawing.SystemColors.ControlText;
                 var name=new ThemeTextBox {Text=suggested,
-                    Location=new System.Drawing.Point(126,36),Width=380,MaxLength=40};
+                    Location=new System.Drawing.Point(126,31),Width=380,MaxLength=40};
                 var hint=new ThemeLabel {Text=UiText(
                     "显示在边框样式下拉菜单中（最多40个字符）",
                     "Shown in the border style list (max 40 characters)"),
-                    Location=new System.Drawing.Point(126,73),
+                    Location=new System.Drawing.Point(126,68),
                     Size=new System.Drawing.Size(380,30),
                     ForeColor=selectedDarkTheme?UiTheme.Muted:System.Drawing.SystemColors.GrayText};
+                var direction=new ThemeComboBox { Name="FILM_IMPORT_LAYOUT",
+                    DropDownStyle=ComboBoxStyle.DropDownList,
+                    Location=new System.Drawing.Point(126,114),Size=new System.Drawing.Size(380,27)};
+                direction.Items.AddRange(new object[]{
+                    UiText("左右齿孔","Sprockets left / right"),
+                    UiText("上下齿孔","Sprockets top / bottom")});
                 var width=new ThemeNumericUpDown {
-                    Name="FILM_IMPORT_APERTURE_WIDTH",Location=new System.Drawing.Point(126,122),
-                    Size=new System.Drawing.Size(100,27),Minimum=1630,Maximum=1730,
+                    Name="FILM_IMPORT_APERTURE_WIDTH",Location=new System.Drawing.Point(126,163),
+                    Size=new System.Drawing.Size(100,27),Minimum=1600,Maximum=1910,
                     Value=apertureWidth,Increment=2};
                 var height=new ThemeNumericUpDown {
-                    Name="FILM_IMPORT_APERTURE_HEIGHT",Location=new System.Drawing.Point(379,122),
-                    Size=new System.Drawing.Size(127,27),Minimum=698,Maximum=798,
+                    Name="FILM_IMPORT_APERTURE_HEIGHT",Location=new System.Drawing.Point(379,163),
+                    Size=new System.Drawing.Size(127,27),Minimum=700,Maximum=1020,
                     Value=apertureHeight,Increment=2};
                 var geometryHint=new ThemeLabel {
-                    Text=UiText("画窗居中；宽1630-1730px、高698-798px；支持半透明效果。",
-                        "Centered: width 1630-1730px, height 698-798px; translucent effects allowed."),
-                    Location=new System.Drawing.Point(18,162),
-                    Size=new System.Drawing.Size(488,31),
+                    Location=new System.Drawing.Point(18,204),
+                    Size=new System.Drawing.Size(488,34),
                     ForeColor=selectedDarkTheme?UiTheme.Muted:System.Drawing.SystemColors.GrayText};
+                Action reloadGeometry=delegate {
+                    bool side=direction.SelectedIndex==0;
+                    width.Minimum=1600;
+                    width.Maximum=side?1780:1910;
+                    height.Minimum=side?900:700;
+                    height.Maximum=side?1020:860;
+                    int defaultW=side?FilmBorderCatalogCore.ImportSideDefaultWidth:
+                        FilmBorderCatalogCore.ImportTopBottomDefaultWidth;
+                    int defaultH=side?FilmBorderCatalogCore.ImportSideDefaultHeight:
+                        FilmBorderCatalogCore.ImportTopBottomDefaultHeight;
+                    int storedW=config.GetInt(side?FilmBorderCatalogCore.ImportSideLastWidthKey:
+                        FilmBorderCatalogCore.ImportTopBottomLastWidthKey,defaultW);
+                    int storedH=config.GetInt(side?FilmBorderCatalogCore.ImportSideLastHeightKey:
+                        FilmBorderCatalogCore.ImportTopBottomLastHeightKey,defaultH);
+                    width.Value=Math.Max((int)width.Minimum,Math.Min((int)width.Maximum,storedW));
+                    height.Value=Math.Max((int)height.Minimum,Math.Min((int)height.Maximum,storedH));
+                    geometryHint.Text=side?
+                        UiText("左右齿孔：宽1600-1780px，高900-1020px；中心透明，画窗居中。",
+                            "Side sprockets: W 1600-1780, H 900-1020; centered window."):
+                        UiText("上下齿孔：宽1600-1910px，高700-860px；中心透明，画窗居中。",
+                            "Top/bottom sprockets: W 1600-1910, H 700-860; centered window.");
+                };
+                direction.SelectedIndexChanged+=delegate {reloadGeometry();};
+                direction.SelectedIndex=layout==FilmBorderCatalogCore.ImportLayoutSide?0:1;
                 var apply=new ThemeButton {Text=UiText("导入","Import"),
-                    Location=new System.Drawing.Point(304,200),Size=new System.Drawing.Size(99,32)};
+                    Location=new System.Drawing.Point(304,248),Size=new System.Drawing.Size(99,32)};
                 var cancel=new ThemeButton {Text=UiText("取消","Cancel"),
-                    Location=new System.Drawing.Point(416,200),Size=new System.Drawing.Size(90,32),
+                    Location=new System.Drawing.Point(416,248),Size=new System.Drawing.Size(90,32),
                     DialogResult=DialogResult.Cancel};
                 dlg.Controls.AddRange(new Control[]{
                     new ThemeLabel{Text=UiText("边框名称","Border name"),
-                        Location=new System.Drawing.Point(18,42),AutoSize=true},
+                        Location=new System.Drawing.Point(18,37),AutoSize=true},
                     name,hint,
+                    new ThemeLabel{Text=UiText("齿孔方向","Sprocket layout"),
+                        Location=new System.Drawing.Point(18,120),AutoSize=true},
+                    direction,
                     new ThemeLabel{Text=UiText("画窗宽度","Aperture width"),
-                        Location=new System.Drawing.Point(18,127),AutoSize=true},
+                        Location=new System.Drawing.Point(18,168),AutoSize=true},
                     width,
                     new ThemeLabel{Text=UiText("画窗高度","Aperture height"),
-                        Location=new System.Drawing.Point(262,127),AutoSize=true},
+                        Location=new System.Drawing.Point(262,168),AutoSize=true},
                     height,geometryHint,apply,cancel});
                 dlg.AcceptButton=apply;dlg.CancelButton=cancel;
                 apply.Click+=delegate {
                     try {
                         acceptedName=FilmBorderCatalogCore.ValidateUniqueDisplayName(appRoot,name.Text);
                         acceptedWidth=(int)width.Value;acceptedHeight=(int)height.Value;
-                        FilmBorderCatalogCore.ValidateAperture(acceptedWidth,acceptedHeight);
+                        acceptedLayout=direction.SelectedIndex==0?
+                            FilmBorderCatalogCore.ImportLayoutSide:FilmBorderCatalogCore.ImportLayoutTopBottom;
+                        FilmBorderCatalogCore.ValidateApertureForLayout(acceptedWidth,acceptedHeight,acceptedLayout);
                         dlg.DialogResult=DialogResult.OK;dlg.Close();
                     } catch(Exception ex) {
                         FgsMessageBox.Show(dlg,ex.Message,dlg.Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);
@@ -787,7 +829,7 @@ namespace FilmGrainStudioPreview
                 if(dlg.ShowDialog(this)!=DialogResult.OK)return false;
             }
             displayName=acceptedName;
-            apertureWidth=acceptedWidth;apertureHeight=acceptedHeight;
+            apertureWidth=acceptedWidth;apertureHeight=acceptedHeight;layout=acceptedLayout;
             return !string.IsNullOrEmpty(displayName);
         }
 

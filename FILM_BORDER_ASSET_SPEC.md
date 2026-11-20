@@ -77,3 +77,17 @@ Utils/_FilmBorders/User/
 请仅导入自己制作或已获得适当授权的素材，本功能不内置 FilmFrame 项目图片。
 
 版本 **v1.1**。实现：`dotnet/FilmGrain_FilmBorderCatalog.cs`、`dotnet/FilmGrain_NativeHevcCore.cs`、`experiments/GpuSingleFrame/preview_win.c`；回归检查：`dotnet/BuildTools/Test_FilmBorderImportSpec.ps1` 和 `Test_S4_GpuBorder.ps1`。
+
+## v1.2 用户自定义齿孔方向（2026-11-21）
+
+导入对话框选择 **左右齿孔** 或 **上下齿孔**，画布仍为 1920×1080、8-bit RGBA PNG；非 APNG、非隔行，文件不得大于 32 MiB。**保留原有 v1.1 PNG 校验；仅按齿孔方向分开尺寸范围。**
+
+| 齿孔方向 | 中央居中画窗宽度 | 高度 | 新建默认 |
+| --- | --- | --- | --- |
+| 左右齿孔 `SIDE` | 1600–1780 | 900–1020 | 1688×970 |
+| 上下齿孔 `TOP_BOTTOM` | 1600–1910 | 700–860 | 1880×780 |
+
+两类画窗使用同一 RGBA Alpha 防遮挡检测：窗内 Alpha=255 不得超过 95%，窗外须有至少 1024 个 Alpha≥64 的像素。图像不会被应用程序压扁或重新缩放。画窗几何由用户输入，生成在 `.aperture` 元数据中：`width<TAB>height<TAB>layout`。旧版两列元数据不变，按旧区间 1630–1730×698–798 校验；没有 `.aperture` 的旧用户素材继续使用 1680×748。两款内置边框完全不变。
+
+选定的 15 张原创胶片素材已另行制作 1920×1080 RGBA8 静态 PNG，每张具体画窗宽高记录于 `apertures.csv`，导入时按表输入。不能把原始 1672×941 RGB 预览图直接导入。导入框的上一组成功尺寸按齿孔方向独立记忆。GPU 预览与正式编码读取相同画窗记录。
+
