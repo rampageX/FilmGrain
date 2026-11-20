@@ -65,6 +65,10 @@ jobs:
       - name: Build and audit main application
         shell: cmd
         run: dotnet\build_NET_Preview.bat
+      - name: Verify distinct output suffixes for all film border styles and encoders
+        shell: powershell
+        run: |
+          & .\dotnet\BuildTools\Test_FilmBorderFileSuffix.ps1
       - name: Verify generated Classic Black perforations and aperture
         shell: powershell
         run: |

@@ -10,6 +10,13 @@
 - 已接入的正式编码路径保持原样；不扩大 AV1、HDR→SDR 或插帧的支持范围。
 - 用户边框格式和机器校验见仓库根目录 [FILM_BORDER_ASSET_SPEC.md](FILM_BORDER_ASSET_SPEC.md)；用户导入款采用 1920×1080 RGBA8、固定透明画窗 1680×748。
 
+## 输出文件名：独立样式后缀
+
+- Dark 35mm：静态 `_FILM35S`、动态 `_FILM35D`（保留旧版）。
+- FGS Classic Black：静态 `_FILMCLASSIC35S`、动态 `_FILMCLASSIC35D`。
+- 用户导入样式：`_FILMUSER_<32位GUID>_S` / `_FILMUSER_<32位GUID>_D`，按素材唯一标识区分不同导入款。
+- H.264 NVENC、HEVC NVENC、x264、x265 统一使用 `FilmBorderEncodingCore.Plan.FileSuffix`；未开启边框时不添加后缀。文件名后缀与边框画面逻辑无关。
+
 ## 明确延期（不要在这次整理中开启）
 
 ### FGB-01 · HDR→SDR GPU 预览统一修复

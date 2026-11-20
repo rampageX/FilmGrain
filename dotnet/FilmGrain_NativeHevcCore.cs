@@ -329,7 +329,7 @@ namespace FilmGrainStudioPreview
             string grainFileName = !grainEnabled ? "" : plateMode ? "_FG_" + grainTag + "_STR" + plateStrengthPercent.ToString(CultureInfo.InvariantCulture) : fgsimMode ? "_FG_FGSIM_" + fgsimTag : "_FG_DG" + procStrength.ToString(CultureInfo.InvariantCulture);
 
             if (grainEnabled && pixelPercent != 100) grainFileName += "_GS" + pixelPercent.ToString(CultureInfo.InvariantCulture);
-            string borderSuffix = filmBorder == null ? "" : filmBorder.Dynamic ? "_FILM35D" : "_FILM35S";
+            string borderSuffix = filmBorder == null ? "" : filmBorder.FileSuffix;
             string output = Path.Combine(outDir, Path.GetFileNameWithoutExtension(input) + (h264?"_H264_NVENC_":"_HEVC_") + speedSuffix + "_" + NvencRateControlCore.FileToken(state,bitrate) + fpsSuffix + deinterlaceSuffix + frame.FileSuffix + grainFileName + colorSuffix + lutNamingSuffix + (hdrToSdr ? "_SDR_" + tonemapLabel : "") + subSuffix + borderSuffix + HardwareDecodeCore.FileSuffix(state) + (mkv ? ".mkv" : ".mp4"));
 
             if (File.Exists(output)) { reason = "native output already exists: " + output; return false; }
@@ -1556,6 +1556,7 @@ namespace FilmGrainStudioPreview
             internal string Path;
             internal bool Dynamic;
             internal bool Classic;
+            internal string FileSuffix = "";
             internal string MoveX=FilmBorderMotionCore.MoveX,MoveY=FilmBorderMotionCore.MoveY;
             internal string HdrTransfer = "";
             internal string GpuRaw;
@@ -1569,6 +1570,20 @@ namespace FilmGrainStudioPreview
         {
             string value;
             return state != null && state.TryGetValue(key,out value) ? (value ?? "") : "";
+        }
+
+        // Keep original Dark output names for compatibility. Other styles must never
+        // overwrite Dark, Classic, or each other, even with identical encode settings.
+        internal static string OutputFileSuffix(string styleId,bool dynamic)
+        {
+            if (string.IsNullOrEmpty(styleId) || styleId=="OFF") return "";
+            string motion=dynamic?"D":"S";
+            if (styleId=="DARK") return "_FILM35"+motion;
+            if (styleId=="CLASSIC") return "_FILMCLASSIC35"+motion;
+            if (styleId.StartsWith("USER_",StringComparison.Ordinal) && styleId.Length==37 &&
+                System.Text.RegularExpressions.Regex.IsMatch(styleId.Substring(5),@"\A[0-9A-F]{32}\z"))
+                return "_FILMUSER_"+styleId.Substring(5)+"_"+motion;
+            throw new InvalidDataException("Unknown film border filename style: "+styleId);
         }
 
         internal static bool TryCreate(string appRoot,MediaProbeInfo media,IDictionary<string,string> state,
@@ -1590,7 +1605,7 @@ namespace FilmGrainStudioPreview
             double amp=FilmBorderMotionCore.Parse(Read(state,"FG_FILM_BORDER_AMP"),0,3);
             double speed=FilmBorderMotionCore.Parse(Read(state,"FG_FILM_BORDER_SPEED"),0.25,3);
             double frequency=FilmBorderMotionCore.Parse(Read(state,"FG_FILM_BORDER_FREQUENCY"),0.25,3);
-            plan=new Plan{Path=chosen.PngPath,Dynamic=chosen.Weave,Classic=chosen.StyleId=="CLASSIC" || chosen.User,HdrTransfer=hdrPreserve?media.ColorTransfer:"",
+            plan=new Plan{Path=chosen.PngPath,Dynamic=chosen.Weave,Classic=chosen.StyleId=="CLASSIC" || chosen.User,FileSuffix=OutputFileSuffix(chosen.StyleId,chosen.Weave),HdrTransfer=hdrPreserve?media.ColorTransfer:"",
                 GpuRaw=chosen.RawPath,
                 MoveX=FilmBorderMotionCore.Expression(true,amp,speed,frequency),
                 MoveY=FilmBorderMotionCore.Expression(false,amp,speed,frequency)};
