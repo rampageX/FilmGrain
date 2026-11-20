@@ -697,6 +697,9 @@ try {
     }
 
     [System.IO.Compression.ZipFile]::ExtractToDirectory($sourceArchive, $stageRoot)
+    # The repo stores the accepted Dark RAW as a lossless gzip, not a PNG re-encode.
+    # The restoration validates exact original SHA256 and aborts if missing.
+    & (Join-Path $stageRoot 'dotnet\BuildTools\Restore_FilmBorderDarkAssets.ps1') -Root $stageRoot
 
     # Validate the committed HEAD before any package-only exclusions are applied.
     Test-SourceLayout -Root $stageRoot -ReleaseVersion $Version

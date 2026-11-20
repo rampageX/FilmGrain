@@ -31,7 +31,11 @@ if($missing.Count -eq 0) {
             throw 'Original Dark PNG dimensions are not 1920x1080'
         }
     } finally { $image.Dispose() }
-    Write-Host 'PASS: original Dark assets present (content fidelity still requires accepted SHA-256)'
+    $accepted='d51d6f9496c939d6b8b8ab60e5cd96bddc4111497ba7e9d010669b479b781b66'
+    if((Get-FileHash -LiteralPath $raw -Algorithm SHA256).Hash.ToLowerInvariant() -ne $accepted) {
+        throw 'Accepted Dark RAW SHA-256 mismatch'
+    }
+    Write-Host 'PASS: original Dark assets present, SHA256 matched accepted RAW'
 } elseif($RequireDarkAssets) {
     throw ("Release blocked: original Dark assets missing: " + ($missing -join '; '))
 } else {

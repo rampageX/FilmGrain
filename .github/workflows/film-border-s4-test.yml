@@ -21,6 +21,10 @@ jobs:
             mingw-w64-ucrt-x86_64-binutils
             mingw-w64-ucrt-x86_64-pkgconf
             mingw-w64-ucrt-x86_64-libplacebo
+      - name: Restore accepted Dark 35mm artwork and verify both SHA256 values
+        shell: powershell
+        run: |
+          & .\dotnet\BuildTools\Restore_FilmBorderDarkAssets.ps1
       - name: Build and stage the portable GPU preview
         shell: powershell
         env:
@@ -86,6 +90,10 @@ jobs:
           New-Item -ItemType Directory -Path $stage -Force | Out-Null
           Copy-Item -LiteralPath 'FilmGrain_Studio.exe' -Destination $stage
           Copy-Item -LiteralPath 'GpuAdvancedPreview' -Destination $stage -Recurse
+          $dark = Join-Path $stage 'Utils\_FilmBorders'
+          New-Item -ItemType Directory -Path $dark -Force | Out-Null
+          Copy-Item -LiteralPath 'Utils\_FilmBorders\cinema35_dark_1920x1080.png' -Destination $dark
+          Copy-Item -LiteralPath 'Utils\_FilmBorders\cinema35_dark_1920x1080_rgba.raw' -Destination $dark
           Copy-Item -LiteralPath 'FGS_FilmBorder_UI_Source.zip' -Destination $stage
           Compress-Archive -Path (Join-Path $stage '*') -DestinationPath 'FGS_FilmBorder_UI_Test_and_Source.zip' -CompressionLevel Optimal
       - uses: actions/upload-artifact@v4

@@ -26,16 +26,25 @@
 
 **状态：待提供符合规范的真实用户 PNG。** `Test_FilmBorderImportSpec.ps1` 的自动化正反例测试已通过。尚未对用户自行制作的素材完成界面导入、修改、删除、GPU 预览与正式成片的整体验收。无样本时不追加人为测试，也不假定已通过。
 
+## Dark 35mm 原版资源归档（2026-11-20 已处理）
+
+用户提交并核验原版素材：`cinema35_dark_1920x1080.png` 和 `cinema35_dark_1920x1080_rgba.raw`。PNG 为 1920×1080 RGBA；RAW 为 8,294,400 字节，两者 Alpha 逐字节一致；非透明区域的 RGB 可能有少量舍入差异，**不能重新由 PNG 生成 RAW 替代用户原件**。
+
+- PNG 已受 Git 管理，SHA256 `921d54afb402c4eb66aa85bdd9343e85455eab885c09fff3b26a5c15f2c830d0`。
+- 原始 RAW 为减小源码归档体积，**无损压缩**为 `Utils/_FilmBorders/cinema35_dark_1920x1080_rgba.raw.gz` 并受 Git 管理，SHA256（展开原件）`d51d6f9496c939d6b8b8ab60e5cd96bddc4111497ba7e9d010669b479b781b66`。
+- `dotnet/BuildTools/Restore_FilmBorderDarkAssets.ps1` 在 Windows 测试与正式构建 staging 时解压，三份文件均做 SHA256 校验。**最终 Stable ZIP / 测试整合包提供原版 PNG 和原版 RAW**，不会要求用户自行解压 gzip，也不会改变色彩。
+- 对全新源码工作目录，在直接启动/调试 FGS 前可运行 `powershell -ExecutionPolicy Bypass -File dotnet/BuildTools/Restore_FilmBorderDarkAssets.ps1` 生成运行缓存。运行缓存不参与 Git 源码归档，gzip 归档源和 PNG 才是对应的源码版本。
+
 ## 发布前必须解决的资源缺口
 
-**Dark 35mm 原始 PNG 与 RGBA 缓存当前不在 Git 受控源树及测试整合包中**。正式打包脚本原先也没有将它们列入运行资源，本轮已把两者加入 `.github/release/build_release.ps1` 的 `RuntimeFiles` 强制清单，并校验尺寸／字节数；缺少原版文件将阻断 Stable 构建，不能静默发不完整版本。旧测试目录之所以正常，依赖预先存在的 `Utils/_FilmBorders` 文件：
+**原版 Dark 两份资源已归档；此前缺失的资源问题已解决。** 正式打包脚本已将两者列入 `.github/release/build_release.ps1` 的 `RuntimeFiles` 强制清单，并校验尺寸／字节数；缺少原版文件将阻断 Stable 构建，不能静默发不完整版本。新的测试 ZIP 和 Stable 构建均会包含以下文件：
 
 - `Utils/_FilmBorders/cinema35_dark_1920x1080.png`
 - `Utils/_FilmBorders/cinema35_dark_1920x1080_rgba.raw`（1920×1080×4 字节，RGBA 顺序）
 
 用户导入的 `User/`、自定义边印 `classic-text.txt`、Classic 运行时生成 PNG/RAW 已加入 `.gitignore`，避免误把用户个人素材/运行缓存提交到源码库；**原版 Dark 两个发布素材未被忽略**。
 
-内置 Classic Black 可以按代码首次生成；**Dark 必须使用此前已验收的原版素材，不可拿其他图片临时顶替**。整洁环境/正式 Stable 的打包前，必须核对素材来源、版权、尺寸、缓存格式、包内文件和运行路径；缺素材时不能宣布“新安装版完整可用”。
+内置 Classic Black 继续按代码首次生成；Dark 使用用户提供、SHA256 锁定的原版素材。正式 Stable 的新目录验收尚需用户确认，**不因 CI 成功而自行发布**。
 
 `dotnet/BuildTools/Test_FilmBorderIntegrationReadiness.ps1` 的常规模式验证源码/配置一致性并记录素材缺失；`-RequireDarkAssets` 为正式发布前的强制检查。
 
@@ -43,5 +52,5 @@
 
 1. **当前阶段：**只做去重、格式清理、文档归档、自动化构建；不改已验收效果。编译通过只代表代码和自动化检查通过。
 2. 保持 `master`、正式 Release、旧 Stable 不变。当前 S3/S4 专用 GitHub Actions 属于测试分支的验证设施，正式合并前应评估是否排除或移入持续回归。
-3. 完成 Dark 原版素材归档及完整新目录安装验证后，向用户提交集成候选验收；未经明确确认不合并 master / 不创建 Release。
+3. Dark 原版素材归档已经完成；完成完整新目录安装的集成候选验收后，未经明确确认不合并 master / 不创建 Release。
 4. FGB-01、FGB-02、FGB-03 均为已记录的延期项，不应在本轮以未经验证的代码绕过限制。
