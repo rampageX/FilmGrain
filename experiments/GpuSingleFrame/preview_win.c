@@ -112,8 +112,10 @@ static int s_frame_depth;
 static double s_frame_seconds, s_pending_seconds, s_duration_seconds;
 static uint64_t s_grain_event_start;
 static uint32_t s_fps_num = 30, s_fps_den = 1;
-enum { PANEL_HEIGHT = 210, BORDER_PANEL_HEIGHT=410, MSG_SEEK_FRAME = WM_APP+7 };
-static int panel_height(void){return s_border_settings?BORDER_PANEL_HEIGHT:PANEL_HEIGHT;}
+enum { PANEL_HEIGHT = 210, BORDER_PANEL_HEIGHT=410, BORDER_TIMELINE_SHIFT=64,
+       MSG_SEEK_FRAME = WM_APP+7 };
+static int border_timeline_shift(void){return s_border_settings && s_video_path ? BORDER_TIMELINE_SHIFT : 0;}
+static int panel_height(void){return s_border_settings?BORDER_PANEL_HEIGHT+border_timeline_shift():PANEL_HEIGHT;}
 static double s_setup_ms;
 static LARGE_INTEGER s_frequency;
 
@@ -347,7 +349,7 @@ static bool load_border_choices(const wchar_t *path, const wchar_t *initial_mode
 
 static void border_choice_buttons(const RECT *client,RECT *import,RECT *remove,RECT *edit)
 {
-    int top=client->bottom-panel_height()+(s_video_path?61:21);
+    int top=client->bottom-panel_height()+(s_video_path?61:21)+border_timeline_shift();
     *import=(RECT){client->right-376,top,client->right-278,top+29};
     *remove=(RECT){client->right-268,top,client->right-170,top+29};
     *edit=(RECT){client->right-160,top,client->right-13,top+29};
@@ -452,7 +454,7 @@ static bool valid_border_mode_arg(const wchar_t *name)
 static void border_combo_layout(const RECT *client)
 {
     if(!s_border_combo)return;
-    int top=client->bottom-panel_height()+(s_video_path?61:21);
+    int top=client->bottom-panel_height()+(s_video_path?61:21)+border_timeline_shift();
     int right=client->right-394;
     MoveWindow(s_border_combo,144,top,right-144,260,FALSE);
 }
@@ -832,10 +834,12 @@ static void track_bounds(RECT *client, int *left, int *right, int *top)
 static void bottom_frame_controls(const RECT *client, RECT *edit,
                                   RECT *random_btn, RECT *seek_btn, int *hint_left)
 {
-    int bottom=client->bottom-12;
     int height=s_time_edit_height>32?s_time_edit_height:32;
+    // The border settings timeline toolbar lives immediately under its frame slider.
+    bool border_toolbar=s_border_settings && s_video_path;
+    int bottom=border_toolbar?client->bottom-panel_height()+66+height:client->bottom-12;
     int group_width=s_time_edit_width+12+106+12+106;
-    int area_right=s_result_path?client->right-256:client->right-14;
+    int area_right=s_result_path && !border_toolbar?client->right-256:client->right-14;
     int x=14+(area_right-14-group_width)/2;
     int edit_top=bottom-height+(height-s_time_edit_height)/2;
     *edit=(RECT){x,edit_top,x+s_time_edit_width,edit_top+s_time_edit_height};
@@ -892,7 +896,7 @@ static void redraw_controls(void);
 /* Separate composition controls; they do not change the existing 1:1 inspection mode. */
 static void focus_buttons(const RECT *client,RECT *compose,RECT *reset)
 {
-    int y=client->bottom-panel_height()+244;
+    int y=client->bottom-panel_height()+244+border_timeline_shift();
     *compose=(RECT){144,y,client->right-160,y+28};
     *reset=(RECT){client->right-147,y,client->right-13,y+28};
 }
@@ -903,7 +907,7 @@ static void focus_edit_rects(const RECT *client,RECT *label_x,RECT *edit_x,
     const int label_width=68,field_width=110,label_gap=6,pair_gap=24;
     const int group_width=2*(label_width+label_gap+field_width)+pair_gap;
     const int left=(client->right-group_width)/2;
-    const int top=client->bottom-panel_height()+318;
+    const int top=client->bottom-panel_height()+318+border_timeline_shift();
     const int row_height=s_time_edit_height>25?s_time_edit_height:25;
     const int edit_top=top+(row_height-s_time_edit_height)/2;
     *label_x=(RECT){left,top,left+label_width,top+row_height};
@@ -1013,11 +1017,11 @@ static void paint_sliders(HWND window)
         DeleteObject(normal);DeleteObject(disabled);
         wchar_t motion_value[40];
         swprintf(motion_value,40,L"%.2f x",s_motion_amp);
-        draw_slider(dc,&client,panel.top+130,L"晃动幅度",s_motion_amp/3.,true,motion_value,false);
+        draw_slider(dc,&client,panel.top+130+border_timeline_shift(),L"晃动幅度",s_motion_amp/3.,true,motion_value,false);
         swprintf(motion_value,40,L"%.2f x",s_motion_speed);
-        draw_slider(dc,&client,panel.top+170,L"晃动速度",(s_motion_speed-.25)/2.75,true,motion_value,false);
+        draw_slider(dc,&client,panel.top+170+border_timeline_shift(),L"晃动速度",(s_motion_speed-.25)/2.75,true,motion_value,false);
         swprintf(motion_value,40,L"%.2f x",s_motion_frequency);
-        draw_slider(dc,&client,panel.top+210,L"随机频率",(s_motion_frequency-.25)/2.75,true,motion_value,false);
+        draw_slider(dc,&client,panel.top+210+border_timeline_shift(),L"随机频率",(s_motion_frequency-.25)/2.75,true,motion_value,false);
         RECT compose,reset;focus_buttons(&client,&compose,&reset);
         HBRUSH focus_brush=CreateSolidBrush(s_compose_mode?RGB(0,111,85):RGB(27,28,30));
         HBRUSH focus_gray=CreateSolidBrush(RGB(27,28,30));
@@ -1029,7 +1033,7 @@ static void paint_sliders(HWND window)
         DrawTextW(dc,L"恢复居中 1.00×",-1,&reset,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
         DeleteObject(focus_brush);DeleteObject(focus_gray);DeleteObject(focus_edge);
         wchar_t zoom_value[40];swprintf(zoom_value,40,L"%.3f x",s_focus_zoom);
-        draw_slider(dc,&client,panel.top+295,L"画面缩放",(s_focus_zoom-1)/2,true,zoom_value,false);
+        draw_slider(dc,&client,panel.top+295+border_timeline_shift(),L"画面缩放",(s_focus_zoom-1)/2,true,zoom_value,false);
         RECT label_x,edit_x,label_y,edit_y;
         focus_edit_rects(&client,&label_x,&edit_x,&label_y,&edit_y);
         DrawTextW(dc,L"X (0–1)",-1,&label_x,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
@@ -1065,7 +1069,12 @@ static void paint_sliders(HWND window)
         DrawTextW(dc,L"跳转",-1,&seek_btn,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
         DeleteObject(gray);
     }
-    RECT info={14,panel.top+(s_border_settings?348:126),s_result_path?client.right-256:client.right-14,client.bottom-50};
+    // Place the 1:1 hint above the timeline controls, rather than at the panel foot.
+    bool border_toolbar=s_border_settings && s_video_path;
+    RECT info=border_toolbar
+        ? (RECT){14,panel.top+44,client.right-14,panel.top+62}
+        : (RECT){14,panel.top+(s_border_settings?348:126),
+                 s_result_path?client.right-256:client.right-14,client.bottom-50};
     SetBkMode(dc,TRANSPARENT);
     if (s_combined_grade) {
         RECT notice=info;notice.bottom=notice.top+17;
@@ -1861,11 +1870,12 @@ static LRESULT CALLBACK window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM
         track_bounds(&client, &left, &right, &unused_top);
         if (x < left-14 || x > right+14) return 0;
         int row = y >= top+8 && y < top+128 ? (y-top-8)/40 : -1;
+        int border_shift=border_timeline_shift();
         int kind = s_border_settings ?
-                   (s_border_combo ? (y>=top+116 && y<top+146 ? 5 :
-                                     y>=top+156 && y<top+186 ? 6 :
-                                     y>=top+196 && y<top+226 ? 7 :
-                                     y>=top+281 && y<top+309 ? 8 :
+                   (s_border_combo ? (y>=top+116+border_shift && y<top+146+border_shift ? 5 :
+                                     y>=top+156+border_shift && y<top+186+border_shift ? 6 :
+                                     y>=top+196+border_shift && y<top+226+border_shift ? 7 :
+                                     y>=top+281+border_shift && y<top+309+border_shift ? 8 :
                                      s_video_path && row==0 ? 3 : 0) :
                     (s_video_path?(row==0?3:row==1?4:0):(row==0?4:0))) :
                    (s_video_path?(row==0?3:row==1?1:row==2?2:0):(row==0?1:row==1?2:0));
@@ -1941,7 +1951,7 @@ static LRESULT CALLBACK window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM
     case WM_GETMINMAXINFO: {
         MINMAXINFO *limits = (MINMAXINFO *)lparam;
         limits->ptMinTrackSize.x = 820;
-        limits->ptMinTrackSize.y = s_border_settings?610:420;
+        limits->ptMinTrackSize.y = s_border_settings?610+border_timeline_shift():420;
         return 0;
     }
     case WM_CTLCOLOREDIT:
@@ -2202,7 +2212,20 @@ static int audit_border_framing(void)
            ex.bottom-ex.top!=s_time_edit_height || ey.bottom-ey.top!=s_time_edit_height)
             return 15;
     }
-    puts("PASS Film Border focus/zoom: neutral, corners, 1080p, UHD, custom gates, mouse anchor, centered X/Y fields");
+    // Assert the relocated toolbar sits between the timeline slider and the style selector.
+    s_border_settings=true;
+    s_video_path=L"a.mkv";
+    if(panel_height()!=BORDER_PANEL_HEIGHT+BORDER_TIMELINE_SHIFT)return 16;
+    RECT client={0,0,1280,960},time_edit,random_btn,seek_btn,import_btn,remove_btn,edit_btn;
+    int hint_left;
+    bottom_frame_controls(&client,&time_edit,&random_btn,&seek_btn,&hint_left);
+    border_choice_buttons(&client,&import_btn,&remove_btn,&edit_btn);
+    int panel_top=client.bottom-panel_height();
+    if(time_edit.top<panel_top+66 || random_btn.top<panel_top+66 ||
+       seek_btn.bottom>=import_btn.top || time_edit.left+seek_btn.right!=client.right)
+        return 17;
+    s_video_path=NULL;s_border_settings=false;
+    puts("PASS Film Border focus/zoom: neutral, corners, centered X/Y, toolbar under frame slider");
     return 0;
 }
 
@@ -2436,7 +2459,7 @@ int wmain(int argc, wchar_t **argv)
                 WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,
                 CW_USEDEFAULT, CW_USEDEFAULT,
                 s_width < 1280 ? (s_width+32 < 820 ? 820 : s_width+32) : 1280,
-                s_height < 720 ? s_height+panel_height()+58 : 880,
+                s_height < 720 ? s_height+panel_height()+58 : 880+border_timeline_shift(),
                 NULL, NULL, instance, NULL);
     if (!s_window) {free(raw);free(plate_raw);return 5;}
     SendMessageW(s_window, WM_SETICON, ICON_SMALL, (LPARAM)LoadImageW(instance,
@@ -2459,7 +2482,7 @@ int wmain(int argc, wchar_t **argv)
     if(s_border_settings && s_border_choices_count) {
         s_border_combo=CreateWindowExW(0,L"COMBOBOX",L"",
             WS_CHILD|WS_VISIBLE|WS_TABSTOP|WS_VSCROLL|CBS_DROPDOWNLIST|CBS_OWNERDRAWFIXED|CBS_HASSTRINGS,
-            144,client.bottom-panel_height()+(s_video_path?61:21),
+            144,client.bottom-panel_height()+(s_video_path?61:21)+border_timeline_shift(),
             client.right-414,260,s_window,(HMENU)(INT_PTR)FGS_BORDER_COMBO_ID,instance,NULL);
         if(!s_border_combo){free(raw);free(plate_raw);DestroyWindow(s_window);return 5;}
         if(s_panel_font)SendMessageW(s_border_combo,WM_SETFONT,(WPARAM)s_panel_font,TRUE);

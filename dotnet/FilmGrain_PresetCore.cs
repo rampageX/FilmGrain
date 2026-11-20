@@ -31,7 +31,7 @@ namespace FilmGrainStudioPreview
         internal const string Styles="FontName FontSize PrimaryHex BorderHex Outline Shadow MarginV";
         internal const string BasicKeys="NVENC_AI_MODE RESIZE_MODE RESIZE_WIDTH RESIZE_HEIGHT RESIZE_KEEP_ASPECT RESIZE_ALGORITHM RESIZE_FACTOR RESIZE_CROP_AFTER RESIZE_CROP_MARGINS PRE_BILATERAL_ENABLED PRE_BILATERAL_SIGMA_S PRE_BILATERAL_SIGMA_R PRE_BILATERAL_PLANES GRAIN_ENABLED AV1_GRAIN_STRENGTH HDR_POLICY AUDIO_MODE AUDIO_BITRATE INTERPOLATION_TARGET_FPS CINEMATIC_CROP_PER_SIDE CINEMATIC_CROP_HORIZONTAL PRE_CROP_ENABLED PRE_CROP_MODE CINEMATIC_CROP_MARGINS CINEMATIC_NO_CROP COLOR_CORRECTION_ENABLED COLOR_CONTRAST COLOR_BRIGHTNESS COLOR_SATURATION COLOR_GAMMA COLOR_BLACK_WHITE NVENC_AV1_RATE_CONTROL NVENC_AV1_CQ NVENC_AV1_CQ_AUTO NVENC_HEVC_RATE_CONTROL NVENC_HEVC_CQ NVENC_HEVC_CQ_AUTO NVENC_H264_RATE_CONTROL NVENC_H264_CQ NVENC_H264_CQ_AUTO";
         internal static bool Contains(string list,string key) {return Array.IndexOf(list.Split(' '),key)>=0;}
-        internal static bool Includes(string kind,string key) {return FgsConfig.IsTaskKey(key)&&(kind=="Full"||key==ColorGrade.ConfigKey||key=="GPU_DECODE"||key=="CPU_CODEC"||Contains("CPU_SVT_CQ CPU_SVT_CQ_AUTO",key)||key=="CPU_SVT_RATE_CONTROL"||Contains("CPU_X265_CQ CPU_X265_CQ_AUTO",key)||key=="CPU_X265_RATE_CONTROL"||Contains(BasicKeys,key));}
+        internal static bool Includes(string kind,string key) {return FgsConfig.IsTaskKey(key)&&(kind=="Full"||key==ColorGrade.ConfigKey||key=="GPU_DECODE"||key=="CPU_CODEC"||Contains("CPU_SVT_CQ CPU_SVT_CQ_AUTO",key)||key=="CPU_SVT_RATE_CONTROL"||Contains("CPU_X265_CQ CPU_X265_CQ_AUTO",key)||key=="CPU_X265_RATE_CONTROL"||Contains(BasicKeys,key)||key==CinematicCropGeometry.PresetKey);}
         internal static JavaScriptSerializer Serializer() {return new JavaScriptSerializer {MaxJsonLength=262144,RecursionLimit=16};}
         internal static FgsPreset Copy(FgsPreset p) {return Serializer().Deserialize<FgsPreset>(Serializer().Serialize(p));}
         internal static void Require(bool valid,string error) {if(!valid)throw new InvalidDataException(error);}
@@ -100,6 +100,7 @@ namespace FilmGrainStudioPreview
             case "AV1_GRAIN_STRENGTH":Integer(v,1,100,k);return;
             case "CINEMATIC_CROP_PER_SIDE":case "CINEMATIC_CROP_HORIZONTAL":Integer(v,0,10000,k);return;
             case CinematicFrameCore.CropModeKey:Choice(v,"CROP LETTERBOX",k);return;
+            case CinematicCropGeometry.PresetKey:Integer(v,0,9,k);return;
             case CinematicFrameCore.CropEnabledKey: if(v!="")Choice(v,"true false",k);return;
             case CinematicFrameCore.MarginsKey:
                 int[] margins;Require(v==""||CinematicFrameCore.TryParseMargins(v,out margins),"无效的四边剪裁参数");return;

@@ -158,7 +158,8 @@ namespace FilmGrainStudioPreview
             mode.SelectedIndexChanged += delegate { if (!updating) { selectedPresetIndex=0; RefreshValues(); NotifyChanged(); } };
             preset.SelectionChangeCommitted += delegate {
                 int selection = preset.SelectedIndex;
-                if (selection <= 0 || Canvas == null) return;
+                if (selection == 0) { selectedPresetIndex=0; NotifyChanged(); return; }
+                if (selection < 0 || Canvas == null) return;
                 Rectangle region = selection == 1 ? new Rectangle(Point.Empty, SourceSize)
                     : CinematicCropGeometry.Fit(SourceSize, CinematicCropGeometry.PresetRatio(selection) / CinematicCropGeometry.SampleAspect(Canvas), Mode == 1);
                 SetMargins(region.Left, region.Top, SourceSize.Width - region.Right, SourceSize.Height - region.Bottom, selection);
@@ -265,8 +266,6 @@ namespace FilmGrainStudioPreview
                         size.Text = string.Format(CultureInfo.InvariantCulture,
                             text("有效区域 {0}×{1}   输出 {2}×{3}", "Active area {0}×{1}   Output {2}×{3}"),
                             plan.ContentWidth, plan.ContentHeight, plan.ActiveWidth, plan.ActiveHeight);
-                        preset.SelectedIndex = CinematicCropGeometry.MatchPreset(SourceSize, new Size(plan.ContentWidth, plan.ContentHeight),
-                            CinematicCropGeometry.SampleAspect(Canvas), Mode == 1);
                         if(selectedPresetIndex>0) {
                             Rectangle expected=selectedPresetIndex==1 ? new Rectangle(Point.Empty,SourceSize)
                                 : CinematicCropGeometry.Fit(SourceSize,CinematicCropGeometry.PresetRatio(selectedPresetIndex)/
@@ -275,6 +274,9 @@ namespace FilmGrainStudioPreview
                                expected.Width!=plan.ContentWidth || expected.Height!=plan.ContentHeight)
                                 selectedPresetIndex=0;
                         }
+                        // Geometry can match more than one preset (e.g. 2560x1072 fits 2.39:1
+                        // without trimming pixels). Keep the choice that the user actually made.
+                        preset.SelectedIndex=selectedPresetIndex;
                     }
                     else { size.Text = text("四边剪裁至少需要保留 2×2 像素。", reason); preset.SelectedIndex = 0; selectedPresetIndex=0; }
                 }
