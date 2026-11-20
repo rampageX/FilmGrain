@@ -82,6 +82,10 @@ jobs:
         shell: powershell
         run: |
           & .\dotnet\BuildTools\Test_FilmBorderImportSizeMemory.ps1
+      - name: Verify preset names and crop UI alignment
+        shell: powershell
+        run: |
+          & .\dotnet\BuildTools\Test_CropPresetButton.ps1
       - name: Verify cinema mode persistence and border button quick actions
         shell: powershell
         run: |

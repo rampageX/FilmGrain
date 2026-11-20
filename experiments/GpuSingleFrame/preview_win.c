@@ -896,11 +896,32 @@ static void focus_buttons(const RECT *client,RECT *compose,RECT *reset)
     *compose=(RECT){144,y,client->right-160,y+28};
     *reset=(RECT){client->right-147,y,client->right-13,y+28};
 }
+/* Center the X/Y labels and fields as a single row; mirror the frame-time EDIT height. */
+static void focus_edit_rects(const RECT *client,RECT *label_x,RECT *edit_x,
+                             RECT *label_y,RECT *edit_y)
+{
+    const int label_width=68,field_width=110,label_gap=6,pair_gap=24;
+    const int group_width=2*(label_width+label_gap+field_width)+pair_gap;
+    const int left=(client->right-group_width)/2;
+    const int top=client->bottom-panel_height()+318;
+    const int row_height=s_time_edit_height>25?s_time_edit_height:25;
+    const int edit_top=top+(row_height-s_time_edit_height)/2;
+    *label_x=(RECT){left,top,left+label_width,top+row_height};
+    *edit_x=(RECT){label_x->right+label_gap,edit_top,
+                    label_x->right+label_gap+field_width,edit_top+s_time_edit_height};
+    *label_y=(RECT){edit_x->right+pair_gap,top,
+                    edit_x->right+pair_gap+label_width,top+row_height};
+    *edit_y=(RECT){label_y->right+label_gap,edit_top,
+                    label_y->right+label_gap+field_width,edit_top+s_time_edit_height};
+}
 static void focus_edit_layout(const RECT *client)
 {
-    int y=client->bottom-panel_height()+318;
-    if(s_focus_x_edit)MoveWindow(s_focus_x_edit,216,y,110,25,TRUE);
-    if(s_focus_y_edit)MoveWindow(s_focus_y_edit,423,y,110,25,TRUE);
+    RECT label_x,edit_x,label_y,edit_y;
+    focus_edit_rects(client,&label_x,&edit_x,&label_y,&edit_y);
+    if(s_focus_x_edit)MoveWindow(s_focus_x_edit,edit_x.left,edit_x.top,
+        edit_x.right-edit_x.left,edit_x.bottom-edit_x.top,TRUE);
+    if(s_focus_y_edit)MoveWindow(s_focus_y_edit,edit_y.left,edit_y.top,
+        edit_y.right-edit_y.left,edit_y.bottom-edit_y.top,TRUE);
 }
 static void sync_focus_edits(void)
 {
@@ -1009,8 +1030,8 @@ static void paint_sliders(HWND window)
         DeleteObject(focus_brush);DeleteObject(focus_gray);DeleteObject(focus_edge);
         wchar_t zoom_value[40];swprintf(zoom_value,40,L"%.3f x",s_focus_zoom);
         draw_slider(dc,&client,panel.top+295,L"画面缩放",(s_focus_zoom-1)/2,true,zoom_value,false);
-        RECT label_x={144,panel.top+318,210,panel.top+343};
-        RECT label_y={350,panel.top+318,417,panel.top+343};
+        RECT label_x,edit_x,label_y,edit_y;
+        focus_edit_rects(&client,&label_x,&edit_x,&label_y,&edit_y);
         DrawTextW(dc,L"X (0–1)",-1,&label_x,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
         DrawTextW(dc,L"Y (0–1)",-1,&label_y,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
     } else if (s_border_settings) {
@@ -2172,7 +2193,16 @@ static int audit_border_framing(void)
     struct fgs_focus_rect b=fgs_focus_crop(1920,1080,1680,748,x,y,z);
     if(fabs(before_x-(b.left+u*b.width))>1e-6||
        fabs(before_y-(b.top+v*b.height))>1e-6)return 14;
-    puts("PASS Film Border focus/zoom: neutral, corners, 1080p, UHD, custom gates, mouse anchor");
+    /* The X/Y row must stay centered at any window width and use the time-field height. */
+    const int widths[]={820,1280,1800};
+    for(size_t i=0;i<sizeof(widths)/sizeof(widths[0]);i++) {
+        RECT client={0,0,widths[i],900},lx,ex,ly,ey;
+        focus_edit_rects(&client,&lx,&ex,&ly,&ey);
+        if(lx.left+ey.right!=client.right || ex.top!=ey.top ||
+           ex.bottom-ex.top!=s_time_edit_height || ey.bottom-ey.top!=s_time_edit_height)
+            return 15;
+    }
+    puts("PASS Film Border focus/zoom: neutral, corners, 1080p, UHD, custom gates, mouse anchor, centered X/Y fields");
     return 0;
 }
 
@@ -2449,11 +2479,14 @@ int wmain(int argc, wchar_t **argv)
         InvalidateRect(s_border_combo,NULL,TRUE);
     }
     if(s_border_settings && s_border_choices_count) {
-        int top=client.bottom-panel_height()+318;
+        RECT label_x,edit_x,label_y,edit_y;
+        focus_edit_rects(&client,&label_x,&edit_x,&label_y,&edit_y);
         s_focus_x_edit=CreateWindowExW(0,L"EDIT",L"",WS_CHILD|WS_VISIBLE|WS_BORDER|WS_TABSTOP|ES_CENTER|ES_AUTOHSCROLL,
-            216,top,110,25,s_window,(HMENU)(INT_PTR)302,instance,NULL);
+            edit_x.left,edit_x.top,edit_x.right-edit_x.left,edit_x.bottom-edit_x.top,
+            s_window,(HMENU)(INT_PTR)302,instance,NULL);
         s_focus_y_edit=CreateWindowExW(0,L"EDIT",L"",WS_CHILD|WS_VISIBLE|WS_BORDER|WS_TABSTOP|ES_CENTER|ES_AUTOHSCROLL,
-            423,top,110,25,s_window,(HMENU)(INT_PTR)303,instance,NULL);
+            edit_y.left,edit_y.top,edit_y.right-edit_y.left,edit_y.bottom-edit_y.top,
+            s_window,(HMENU)(INT_PTR)303,instance,NULL);
         if(!s_focus_x_edit||!s_focus_y_edit){free(raw);free(plate_raw);DestroyWindow(s_window);return 5;}
         if(s_panel_font) {
             SendMessageW(s_focus_x_edit,WM_SETFONT,(WPARAM)s_panel_font,TRUE);

@@ -62,6 +62,8 @@ namespace FilmGrainStudioPreview
         private readonly CheckBox afterResize = new ThemeCheckBox { AutoSize = true };
         private readonly Label size = new ThemeLabel { AutoSize = true };
         private string marginText, resizedMargins, vertical, horizontal, noCrop;
+        // Only a deliberate preset selection retains its name; edited geometry is Custom.
+        private int selectedPresetIndex;
         private bool updating;
         internal event Action Changed;
         internal bool Enabled { get { return enabled.Checked; } }
@@ -96,9 +98,11 @@ namespace FilmGrainStudioPreview
             mode.Items.AddRange(new object[] { text("加黑边", "Letterbox"), text("裁剪画面", "Crop") });
             mode.SelectedIndex = frameMode == 1 || config.Get(CinematicFrameCore.CropEnabledKey) == "" ? 1 : 0;
             preset.Items.AddRange(CinematicCropGeometry.PresetLabels(text));
+            selectedPresetIndex = config.GetInt(CinematicCropGeometry.PresetKey,0);
+            if(selectedPresetIndex<0 || selectedPresetIndex>=preset.Items.Count)selectedPresetIndex=0;
             preset.Enabled = this.media != null;
             var visual = new ThemeButton {
-                Text = text("可视化裁剪…", "Visual Crop…"), Width = 158, Height = 31,
+                Text = text("可视化裁剪…", "Visual Crop…"), Width = 158,
                 FlatStyle = FlatStyle.Flat, UseVisualStyleBackColor = false, BackColor = Color.LightSteelBlue
             };
             visual.Click += delegate {
@@ -117,7 +121,12 @@ namespace FilmGrainStudioPreview
                 {
                     if (window.ShowDialog(page.FindForm()) != DialogResult.OK) return;
                     updating = true;
-                    try { mode.SelectedIndex = window.FrameMode; CurrentMargins = window.CropMargins; enabled.Checked = true; }
+                    try {
+                        mode.SelectedIndex = window.FrameMode;
+                        CurrentMargins = window.CropMargins;
+                        enabled.Checked = true;
+                        if(window.Changed)selectedPresetIndex=0;
+                    }
                     finally { updating = false; }
                     RefreshValues();
                     NotifyChanged();
@@ -128,6 +137,15 @@ namespace FilmGrainStudioPreview
             for (int i = 0; i < 4; i++) layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             var top = new SettingsFlowPanel { AutoSize = true, Dock = DockStyle.Top, WrapContents = false };
+            // Use native combo heights for all three controls; center the checkbox in the same row.
+            mode.Margin = preset.Margin = visual.Margin = new Padding(3,2,3,2);
+            enabled.Margin = new Padding(3,2,8,2);
+            enabled.Anchor = AnchorStyles.None;
+            visual.Height = Math.Max(mode.Height,preset.Height);
+            top.Layout += delegate {
+                int height=Math.Max(mode.Height,preset.Height);
+                if(visual.Height!=height)visual.Height=height;
+            };
             top.Controls.Add(enabled); top.Controls.Add(mode); top.Controls.Add(preset); top.Controls.Add(visual);
             layout.Controls.Add(top, 0, 0);
             layout.Controls.Add(NativeCinematicCropForm.BuildMarginControls(margins, text, EditMargin), 0, 1);
@@ -135,15 +153,15 @@ namespace FilmGrainStudioPreview
             layout.Controls.Add(size, 0, 3);
             page.Controls.Add(layout);
 
-            afterResize.CheckedChanged += delegate { if (!updating) { RefreshValues(); if (Enabled) NotifyChanged(); } };
+            afterResize.CheckedChanged += delegate { if (!updating) { selectedPresetIndex=0; RefreshValues(); if (Enabled) NotifyChanged(); } };
             enabled.CheckedChanged += delegate { if (!updating) NotifyChanged(); };
-            mode.SelectedIndexChanged += delegate { if (!updating) { RefreshValues(); NotifyChanged(); } };
+            mode.SelectedIndexChanged += delegate { if (!updating) { selectedPresetIndex=0; RefreshValues(); NotifyChanged(); } };
             preset.SelectionChangeCommitted += delegate {
                 int selection = preset.SelectedIndex;
                 if (selection <= 0 || Canvas == null) return;
                 Rectangle region = selection == 1 ? new Rectangle(Point.Empty, SourceSize)
                     : CinematicCropGeometry.Fit(SourceSize, CinematicCropGeometry.PresetRatio(selection) / CinematicCropGeometry.SampleAspect(Canvas), Mode == 1);
-                SetMargins(region.Left, region.Top, SourceSize.Width - region.Right, SourceSize.Height - region.Bottom);
+                SetMargins(region.Left, region.Top, SourceSize.Width - region.Right, SourceSize.Height - region.Bottom, selection);
             };
             RefreshValues();
         }
@@ -185,6 +203,7 @@ namespace FilmGrainStudioPreview
         {
             values[CinematicFrameCore.CropEnabledKey] = Enabled ? "true" : "false";
             values[CinematicFrameCore.CropModeKey] = Mode == 1 ? "CROP" : "LETTERBOX";
+            values[CinematicCropGeometry.PresetKey] = selectedPresetIndex.ToString(CultureInfo.InvariantCulture);
             values[CinematicFrameCore.MarginsKey] = marginText;
             values[ResizeCore.CropAfterKey] = afterResize.Checked ? "true" : "false";
             values[ResizeCore.CropMarginsKey] = resizedMargins;
@@ -196,7 +215,7 @@ namespace FilmGrainStudioPreview
         internal void Reset()
         {
             updating = true;
-            try { enabled.Checked = false; mode.SelectedIndex = 1; marginText = resizedMargins = "0,0,0,0"; afterResize.Checked = false; vertical = horizontal = noCrop = "0"; }
+            try { enabled.Checked = false; mode.SelectedIndex = 1; marginText = resizedMargins = "0,0,0,0"; afterResize.Checked = false; vertical = horizontal = noCrop = "0"; selectedPresetIndex=0; }
             finally { updating = false; }
             RefreshValues();
             NotifyChanged();
@@ -216,8 +235,9 @@ namespace FilmGrainStudioPreview
             SetMargins(current[0], current[1], current[2], current[3]);
         }
 
-        private void SetMargins(int left, int top, int right, int bottom)
+        private void SetMargins(int left, int top, int right, int bottom, int presetIndex=0)
         {
+            selectedPresetIndex=presetIndex;
             CurrentMargins = CinematicFrameCore.FormatMargins(left, top, right, bottom);
             updating = true;
             try { enabled.Checked = true; }
@@ -247,8 +267,16 @@ namespace FilmGrainStudioPreview
                             plan.ContentWidth, plan.ContentHeight, plan.ActiveWidth, plan.ActiveHeight);
                         preset.SelectedIndex = CinematicCropGeometry.MatchPreset(SourceSize, new Size(plan.ContentWidth, plan.ContentHeight),
                             CinematicCropGeometry.SampleAspect(Canvas), Mode == 1);
+                        if(selectedPresetIndex>0) {
+                            Rectangle expected=selectedPresetIndex==1 ? new Rectangle(Point.Empty,SourceSize)
+                                : CinematicCropGeometry.Fit(SourceSize,CinematicCropGeometry.PresetRatio(selectedPresetIndex)/
+                                    CinematicCropGeometry.SampleAspect(Canvas),Mode==1);
+                            if(expected.X!=plan.ContentX || expected.Y!=plan.ContentY ||
+                               expected.Width!=plan.ContentWidth || expected.Height!=plan.ContentHeight)
+                                selectedPresetIndex=0;
+                        }
                     }
-                    else { size.Text = text("四边剪裁至少需要保留 2×2 像素。", reason); preset.SelectedIndex = 0; }
+                    else { size.Text = text("四边剪裁至少需要保留 2×2 像素。", reason); preset.SelectedIndex = 0; selectedPresetIndex=0; }
                 }
                 else
                 {
@@ -321,8 +349,11 @@ namespace FilmGrainStudioPreview
                 } else if(mode=="720"||mode=="1080"||mode=="1440"||mode=="2160")target+="p";
                 tags+=" [Resize "+target+"]";
             }
-            if (config.GetBool(CinematicFrameCore.CropEnabledKey) && (chkCinematic == null || !chkCinematic.Checked))
-                tags += cmbFrameMode != null && cmbFrameMode.SelectedIndex == 1 ? UiText(" [剪裁]", " [Crop]") : UiText(" [黑边]", " [Letterbox]");
+            if (config.GetBool(CinematicFrameCore.CropEnabledKey) && (chkCinematic == null || !chkCinematic.Checked)) {
+                string label=CinematicCropGeometry.PresetShortName(config.GetInt(CinematicCropGeometry.PresetKey,0),
+                    string.Equals(lang.Code,"zh-CN",StringComparison.OrdinalIgnoreCase));
+                tags += (cmbFrameMode != null && cmbFrameMode.SelectedIndex == 1 ? UiText(" [剪裁 ", " [Crop ") : UiText(" [黑边 ", " [Letterbox ")) + label + "]";
+            }
             btnPreprocess.Text=UiText("前处理","Preprocessing")+(tags.Length==0?"...":tags);
             SetEffectButtonState(btnPreprocess,tags.Length>0);
         }

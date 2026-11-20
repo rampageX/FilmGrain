@@ -4797,6 +4797,7 @@ namespace FilmGrainStudioPreview
                 try {config.Save(new Dictionary<string,string> {
                     {CinematicFrameCore.CropEnabledKey,"true"},
                     {CinematicFrameCore.CropModeKey,window.FrameMode==1?"CROP":"LETTERBOX"},
+                    {CinematicCropGeometry.PresetKey,"0"},
                     {CinematicFrameCore.MarginsKey,window.CropMargins},
                     {ResizeCore.CropAfterKey,"false"},
                     {"CINEMATIC_CROP_PER_SIDE","0"},{"CINEMATIC_CROP_HORIZONTAL","0"},{"CINEMATIC_NO_CROP","0"}

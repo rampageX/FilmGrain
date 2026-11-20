@@ -492,6 +492,17 @@ namespace FilmGrainStudioPreview
             return labels;
         }
 
+        // A preset title is retained only after a direct selection, not inferred from matching dimensions.
+        internal const string PresetKey = "CINEMATIC_CROP_PRESET";
+        internal static string PresetShortName(int selectedIndex, bool chinese)
+        {
+            if (selectedIndex == 1) return chinese ? "原始画幅" : "Full frame";
+            if (selectedIndex < 2 || selectedIndex >= Presets.Length+2)
+                return chinese ? "自定义" : "Custom";
+            string name=chinese ? Presets[selectedIndex-2].Item2 : Presets[selectedIndex-2].Item3;
+            int separator=name.IndexOf(' ');
+            return separator>=0 ? name.Substring(separator+1) : name;
+        }
         internal static double PresetRatio(int selectedIndex) { return Presets[selectedIndex-2].Item1; }
         internal static double SampleAspect(MediaProbeInfo media)
         {
