@@ -46,7 +46,11 @@ New-Item -ItemType Directory -Path $temp -Force | Out-Null
 try {
     $ctor=$configType.GetConstructor([type[]]@([string],[string]))
     if(-not $ctor){throw 'FgsConfig constructor missing'}
-    $cfg=$ctor.Invoke([object[]]@($temp,$ini))
+    # Construct true CLR strings explicitly; PSObject-wrapped pipeline values are rejected by reflection.
+    $ctorArgs=[object[]]::new(2)
+    $ctorArgs[0]=[string]::Copy([string]$temp)
+    $ctorArgs[1]=[string]::Copy([string]$ini)
+    $cfg=$ctor.Invoke($ctorArgs)
     if($cfg.Get($widthKey) -ne '1650' -or $cfg.Get($heightKey) -ne '720'){
         throw 'Clean configuration does not use 1650x720 defaults'
     }
@@ -54,7 +58,7 @@ try {
     $update[$widthKey]='1700'
     $update[$heightKey]='760'
     $cfg.Save($update)
-    $fresh=$ctor.Invoke([object[]]@($temp,$ini))
+    $fresh=$ctor.Invoke($ctorArgs)
     if($fresh.Get($widthKey) -ne '1700' -or $fresh.Get($heightKey) -ne '760'){
         throw 'Saved import aperture not retained across configuration reload'
     }
