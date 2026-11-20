@@ -598,7 +598,7 @@ namespace FilmGrainStudioPreview
                     try {if(Directory.Exists(work))Directory.Delete(work,true);}catch {}
                     try {BeginInvoke((MethodInvoker)delegate {
                         gpuAdvancedPreviewBusy=filmBorderSettingsBusy=false;
-                        btnFilmBorder.Enabled=true;
+                        UpdateFilmBorderButton();
                         btnGpuAdvancedPreview.Enabled=true;
                         if(error.Length>0) {
                             AppendLog("[Film Border] "+error+Environment.NewLine);
@@ -658,6 +658,19 @@ namespace FilmGrainStudioPreview
         private void UpdateFilmBorderButton()
         {
             if(btnFilmBorder==null)return;
+            // Preserve the saved border while viewing an AV1-only encoder.
+            bool nvencAv1=cmbCodec!=null&&cmbCodec.SelectedIndex==0;
+            bool svtAv1=cmbCodec!=null&&cmbCodec.SelectedIndex==2&&CpuCodec()=="SVT";
+            bool av1Copy=cmbCodec!=null&&cmbCodec.SelectedIndex==4;
+            if(nvencAv1||svtAv1||av1Copy)
+            {
+                SetEffectButtonState(btnFilmBorder,false);
+                btnFilmBorder.Text=nvencAv1?UiText("NVENC AV1 暂不可用","NVENC AV1 unavailable"):
+                    svtAv1?UiText("SVT-AV1 暂不可用","SVT-AV1 unavailable"):
+                    UiText("AV1 仅替换颗粒 · 暂不可用","AV1 copy · unavailable");
+                btnFilmBorder.Enabled=false;
+                return;
+            }
             string mode=config.Get("FILM_BORDER_MODE");
             FilmBorderChoice choice;string error;
             bool active=FilmBorderCatalogCore.TryResolve(appRoot,mode,out choice,out error) &&
@@ -666,6 +679,7 @@ namespace FilmGrainStudioPreview
                 ? UiText("添加边框 · ","Film Border · ")+choice.Label
                 : UiText("添加边框", "Film Border");
             SetEffectButtonState(btnFilmBorder,active);
+            btnFilmBorder.Enabled=!(gpuAdvancedPreviewBusy||filmBorderSettingsBusy);
         }
         private void ImportFilmBorderFromPreview()
         {

@@ -14,7 +14,13 @@ namespace FilmGrainStudioPreview
         {
             BridgeEnvironmentSnapshot snapshot = CaptureBridgeEnvironmentSnapshot(out error);
             if (snapshot == null) return null;
-            var state = BridgeEnvironmentCore.Build(snapshot);
+            // AV1 renders without a border; the original selection is kept
+            // in the saved settings and restored when an eligible codec returns.
+            if(snapshot.Mode=="AV1"||snapshot.Mode=="SVT"||snapshot.NoReencode)
+                snapshot.FilmBorderMode=FilmBorderCatalogCore.Off;
+            SortedDictionary<string,string> state;
+            try {state=BridgeEnvironmentCore.Build(snapshot);}
+            catch(NotSupportedException ex){error=ex.Message;return null;}
             state["FG_AV1_COPY_FAST"]=config.Get("AV1_COPY_FAST");
             state["FG_AV1_COPY_FULL_VERIFY"]=config.Get("AV1_COPY_FULL_VERIFY");
             
@@ -25,7 +31,9 @@ namespace FilmGrainStudioPreview
         {
             BridgeEnvironmentSnapshot snapshot = CaptureNoReencodeEnvironmentSnapshot(out error);
             if (snapshot == null) return null;
-            return BridgeEnvironmentCore.Build(snapshot);
+            snapshot.FilmBorderMode=FilmBorderCatalogCore.Off;
+            try {return BridgeEnvironmentCore.Build(snapshot);}
+            catch(NotSupportedException ex){error=ex.Message;return null;}
         }
 
         private BridgeEnvironmentSnapshot CaptureBridgeEnvironmentSnapshot(out string error)
@@ -391,6 +399,7 @@ namespace FilmGrainStudioPreview
                 UpdateNoReencodeUi();UpdateSfeUi();UpdateMediaDrivenUi(GetBitrateMediaContext());UpdateGrainEnableUi();UpdateCinematicCropLabels();RefreshSubtitleButton();RefreshPreprocessButton();UpdateColorCorrectionUi();UpdateLutUi();lblLutStrength.Text=GetLutStrength().ToString(CultureInfo.InvariantCulture)+"%";
             } finally {restoringFileEditor=false;ResumeLayout(true);}
             SyncCodecPicker();LoadBitrateStateForCodec();UpdateBitrateDisplays();
+            UpdateFilmBorderButton();
         }
         private readonly HashSet<string> initializedFileSettings = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private void SaveEditingFile()

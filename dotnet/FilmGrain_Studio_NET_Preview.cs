@@ -1238,6 +1238,7 @@ namespace FilmGrainStudioPreview
                 UpdateMediaDrivenUi(GetSelectedMediaInfo());
                 UpdateBitrateDisplays();
                 UpdateHardwareDependentControls();LoadBitrateStateForCodec();UpdateBitrateDisplays();
+                UpdateFilmBorderButton();
             };
             cmbSpeed.SelectedIndexChanged += delegate { if(restoringFileEditor)return; UpdateSfeUi(); };
             cmbBitrate.TextChanged += delegate
@@ -5038,11 +5039,12 @@ namespace FilmGrainStudioPreview
             int previousCodec=cmbCodec.SelectedIndex;
             int nextCodec=copy?4:cpu?2:family==0?0:family==1?1:3;
             string nextCpu=family==0?"SVT":family==1?"X265":"X264";
-            if(previousCodec==nextCodec && (!cpu || CpuCodec()==nextCpu)) { SyncCodecPicker(); return; }
+            if(previousCodec==nextCodec && (!cpu || CpuCodec()==nextCpu)) { SyncCodecPicker(); UpdateFilmBorderButton(); return; }
             if(cpu)config.SaveValue("CPU_CODEC",nextCpu);
             cmbCodec.SelectedIndex=nextCodec;
             // A changed index already refreshed grain in SelectedIndexChanged. CPU-to-CPU keeps index 2.
             SyncCodecPicker();UpdateSpeedChoices();if(cmbCodec.SelectedIndex==previousCodec)UpdateGrainForCodec();LoadBitrateStateForCodec();UpdateBitrateDisplays();UpdateSfeUi();UpdateMediaDrivenUi(GetSelectedMediaInfo());
+            UpdateFilmBorderButton();
         }
         private void SyncCodecPicker()
         {
