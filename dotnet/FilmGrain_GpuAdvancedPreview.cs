@@ -681,16 +681,31 @@ namespace FilmGrainStudioPreview
                 try {
                     string mode=FilmBorderCatalogCore.Import(appRoot,picker.FileName,displayName,apertureWidth,apertureHeight);
                     borderPreviewPendingMode=mode;
+                    // Only a successful PNG import updates the remembered aperture.
+                    config.Save(new Dictionary<string,string> {
+                        {FilmBorderCatalogCore.ImportLastWidthKey,apertureWidth.ToString(CultureInfo.InvariantCulture)},
+                        {FilmBorderCatalogCore.ImportLastHeightKey,apertureHeight.ToString(CultureInfo.InvariantCulture)}
+                    });
                     OpenFilmBorderSettings();
                 } catch(Exception ex) {FgsMessageBox.Show(this,ex.Message,Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);OpenFilmBorderSettings();}
             }
         }
 
+        private static int ValidImportDialogAperture(int value,int nominal,int fallback)
+        {
+            return value>=nominal-FilmBorderCatalogCore.ImportApertureTolerance &&
+                   value<=nominal+FilmBorderCatalogCore.ImportApertureTolerance ? value : fallback;
+        }
+
         private bool PromptImportedFilmBorderName(string source,out string displayName,out int apertureWidth,out int apertureHeight)
         {
             displayName=null;
-            apertureWidth=FilmBorderCatalogCore.ImportApertureWidth;
-            apertureHeight=FilmBorderCatalogCore.ImportApertureHeight;
+            apertureWidth=ValidImportDialogAperture(
+                config.GetInt(FilmBorderCatalogCore.ImportLastWidthKey,FilmBorderCatalogCore.ImportDialogDefaultWidth),
+                FilmBorderCatalogCore.ImportApertureWidth,FilmBorderCatalogCore.ImportDialogDefaultWidth);
+            apertureHeight=ValidImportDialogAperture(
+                config.GetInt(FilmBorderCatalogCore.ImportLastHeightKey,FilmBorderCatalogCore.ImportDialogDefaultHeight),
+                FilmBorderCatalogCore.ImportApertureHeight,FilmBorderCatalogCore.ImportDialogDefaultHeight);
             string suggested=Path.GetFileNameWithoutExtension(source);
             if(suggested.Length>40)suggested=suggested.Substring(0,40);
             string acceptedName=null;
@@ -714,14 +729,14 @@ namespace FilmGrainStudioPreview
                 var width=new ThemeNumericUpDown {
                     Name="FILM_IMPORT_APERTURE_WIDTH",Location=new System.Drawing.Point(126,122),
                     Size=new System.Drawing.Size(100,27),Minimum=1630,Maximum=1730,
-                    Value=FilmBorderCatalogCore.ImportApertureWidth,Increment=2};
+                    Value=apertureWidth,Increment=2};
                 var height=new ThemeNumericUpDown {
                     Name="FILM_IMPORT_APERTURE_HEIGHT",Location=new System.Drawing.Point(379,122),
                     Size=new System.Drawing.Size(127,27),Minimum=698,Maximum=798,
-                    Value=FilmBorderCatalogCore.ImportApertureHeight,Increment=2};
+                    Value=apertureHeight,Increment=2};
                 var geometryHint=new ThemeLabel {
-                    Text=UiText("画窗居中；宽/高分别允许 ±50px。中心支持半透明调色与颗粒。",
-                        "Centered aperture: width/height ±50px; translucent effects allowed."),
+                    Text=UiText("画窗居中；宽1630-1730px、高698-798px；支持半透明效果。",
+                        "Centered: width 1630-1730px, height 698-798px; translucent effects allowed."),
                     Location=new System.Drawing.Point(18,162),
                     Size=new System.Drawing.Size(488,31),
                     ForeColor=selectedDarkTheme?UiTheme.Muted:System.Drawing.SystemColors.GrayText};

@@ -221,6 +221,10 @@ namespace FilmGrainStudioPreview
         // Built-in Dark/Classic are unchanged.
         internal const int ImportWidth=1920, ImportHeight=1080;
         internal const int ImportApertureWidth=1680, ImportApertureHeight=748;
+        // New-import dialog preference only; existing PNG metadata and built-in apertures remain unchanged.
+        internal const int ImportDialogDefaultWidth=1650, ImportDialogDefaultHeight=720;
+        internal const string ImportLastWidthKey="FILM_BORDER_IMPORT_LAST_WIDTH";
+        internal const string ImportLastHeightKey="FILM_BORDER_IMPORT_LAST_HEIGHT";
         internal const int ImportApertureTolerance=50;
         internal const int MaxImportBytes=32*1024*1024;
         private static string AperturePath(string png) {return Path.ChangeExtension(png,".aperture");}

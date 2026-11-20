@@ -78,6 +78,10 @@ jobs:
         shell: powershell
         run: |
           & .\dotnet\BuildTools\Test_FilmBorderImportSpec.ps1
+      - name: Verify saved import aperture defaults and configuration persistence
+        shell: powershell
+        run: |
+          & .\dotnet\BuildTools\Test_FilmBorderImportSizeMemory.ps1
       - name: Verify GPU border graphs and input mapping
         shell: powershell
         run: |

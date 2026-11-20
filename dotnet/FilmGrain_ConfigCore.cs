@@ -26,7 +26,7 @@ namespace FilmGrainStudioPreview
             new KeyValuePair<string, string[]>("Advanced.EncoderAQ", new[] { "HEVC_SPATIAL_AQ", "HEVC_TEMPORAL_AQ", "H264_SPATIAL_AQ", "H264_TEMPORAL_AQ" }),
             new KeyValuePair<string, string[]>("AV1Bake", new[] { "BAKE_ENCODER", "BAKE_GPU_DECODE", "BAKE_AUTO_BITRATE", "BAKE_BITRATE", "BAKE_HEVC_PRESET", "BAKE_H264_PRESET", "BAKE_HEVC_SFE", "BAKE_HEVC_RATE_CONTROL", "BAKE_HEVC_CQ", "BAKE_H264_RATE_CONTROL", "BAKE_H264_CQ", "BAKE_X265_RATE_CONTROL", "BAKE_X265_CRF", "BAKE_X264_RATE_CONTROL", "BAKE_X264_CRF" }),
             new KeyValuePair<string, string[]>("Paths", new string[] { "NVENC_DIR", "FFMPEG_DIR", "FRUC_FFMPEG_SAME_AS_MAIN", "FRUC_FFMPEG_PATH", "GRAV1SYNTH", "GRAIN_ROOT", "LUT_ROOT", "TEMP_MODE", "TEMP_CUSTOM_DIR", "OUTPUT_MODE", "OUTPUT_CUSTOM_DIR" }),
-            new KeyValuePair<string, string[]>("General", new string[] { "LANGUAGE", "UI_THEME", "MAIN_WINDOW", "PREPROCESS_WINDOW", "SETUP_VERSION", "NETWORK_PROXY_MODE", "NETWORK_PROXY_URL", "LOG_ENTRY_LIMIT", "GRAIN_ENABLED", "AV1_GRAIN_STRENGTH", "AV1_COPY_FAST", "AV1_COPY_FULL_VERIFY", "OUTPUT_PREVIEW_AUTO_OPEN" }),
+            new KeyValuePair<string, string[]>("General", new string[] { "LANGUAGE", "UI_THEME", "MAIN_WINDOW", "PREPROCESS_WINDOW", "SETUP_VERSION", "NETWORK_PROXY_MODE", "NETWORK_PROXY_URL", "LOG_ENTRY_LIMIT", FilmBorderCatalogCore.ImportLastWidthKey, FilmBorderCatalogCore.ImportLastHeightKey, "GRAIN_ENABLED", "AV1_GRAIN_STRENGTH", "AV1_COPY_FAST", "AV1_COPY_FULL_VERIFY", "OUTPUT_PREVIEW_AUTO_OPEN" }),
             new KeyValuePair<string, string[]>("LUTGallery", new string[] { "SMART_FILTER_ENABLED", "LUT_GALLERY_SIZE", "LUT_GALLERY_CLIENT_SIZE", "LUT_GALLERY_FIXED" }),
             new KeyValuePair<string, string[]>("Advanced.RateControl", new[] { "NVENC_AV1_RATE_CONTROL", "NVENC_AV1_CQ", "NVENC_HEVC_RATE_CONTROL", "NVENC_HEVC_CQ", "NVENC_H264_RATE_CONTROL", "NVENC_H264_CQ", "NVENC_AV1_CQ_LIMIT_ENABLED", "NVENC_AV1_CQ_MAXRATE", "NVENC_HEVC_CQ_LIMIT_ENABLED", "NVENC_HEVC_CQ_MAXRATE", "NVENC_H264_CQ_LIMIT_ENABLED", "NVENC_H264_CQ_MAXRATE", "NVENC_AV1_CQ_AUTO", "NVENC_HEVC_CQ_AUTO", "NVENC_H264_CQ_AUTO" }),
             new KeyValuePair<string, string[]>("Advanced.Encoding", new string[] { "GPU_DECODE", "CPU_CODEC", "CPU_SVT_TUNING", "CPU_SVT_GRAIN_TUNE", "CPU_X265_GRAIN_TUNE", "X264_GRAIN_TUNE", "CPU_SVT_PRESET", "CPU_X265_PRESET", "CPU_X265_THREADED_ME", "CPU_SVT_RATE_CONTROL", "CPU_SVT_CQ", "CPU_SVT_CQ_AUTO", "CPU_X265_RATE_CONTROL", "CPU_X265_CQ", "CPU_X265_CQ_AUTO", "H264_HIGH10", "X264_RATE_MODE", "X264_PRESET", "NVENC_SPATIAL_AQ", "NVENC_TEMPORAL_AQ", "AUDIO_MODE", "AUDIO_BITRATE", "AV1_MULTIPASS", "HEVC_MULTIPASS", "H264_MULTIPASS", "HEVC_BFRAMES", "H264_BFRAMES", "HEVC_BREF_MODE", "H264_BREF_MODE", "HEVC_LOOKAHEAD", "H264_LOOKAHEAD" }),
@@ -206,6 +206,8 @@ defaults["CPU_X265_CQ_AUTO"] = "false";
             defaults["CINEMATIC_NO_CROP"] = "0";
             defaults["COLOR_PREVIEW_LARGE_UI"] = "false";
             defaults["FILM_BORDER_MODE"] = "OFF";
+            defaults[FilmBorderCatalogCore.ImportLastWidthKey] = FilmBorderCatalogCore.ImportDialogDefaultWidth.ToString(CultureInfo.InvariantCulture);
+            defaults[FilmBorderCatalogCore.ImportLastHeightKey] = FilmBorderCatalogCore.ImportDialogDefaultHeight.ToString(CultureInfo.InvariantCulture);
             defaults[FilmBorderMotionCore.AmpKey] = "1";
             defaults[FilmBorderMotionCore.SpeedKey] = "1";
             defaults[FilmBorderMotionCore.FrequencyKey] = "1";
