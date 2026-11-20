@@ -386,6 +386,25 @@ static LRESULT CALLBACK border_combo_proc(HWND combo, UINT message, WPARAM wpara
         paint_border_combo(combo,(HDC)wparam);
         return 0;
     }
+    if(message==WM_ERASEBKGND)return 1;
+    if(message==WM_NCPAINT) {
+        LRESULT result=CallWindowProcW(s_original_border_combo_proc,combo,message,wparam,lparam);
+        HDC dc=GetWindowDC(combo);
+        if(dc) {
+            RECT r;GetWindowRect(combo,&r);
+            r.right-=r.left;r.bottom-=r.top;r.left=0;r.top=0;
+            HBRUSH edge=CreateSolidBrush(RGB(76,80,84));
+            FrameRect(dc,&r,edge);
+            DeleteObject(edge);
+            ReleaseDC(combo,dc);
+        }
+        return result;
+    }
+    if(message==WM_SETFOCUS || message==WM_KILLFOCUS) {
+        LRESULT result=CallWindowProcW(s_original_border_combo_proc,combo,message,wparam,lparam);
+        RedrawWindow(combo,NULL,NULL,RDW_FRAME|RDW_INVALIDATE|RDW_UPDATENOW);
+        return result;
+    }
     return CallWindowProcW(s_original_border_combo_proc,combo,message,wparam,lparam);
 }
 /* Border names are catalog entries, not a fixed three-state enum.
@@ -1305,6 +1324,13 @@ static bool upload_border_texture(void)
     return okay;
 }
 
+static bool border_has_classic_geometry(void)
+{
+    if (s_border_settings && s_border_combo &&
+        s_border_selection>=0 && s_border_selection<s_border_choices_count)
+        return !strncmp(s_border_choices[s_border_selection].mode,"CLASSIC_",8);
+    return s_initial_border_mode && !wcsncmp(s_initial_border_mode,L"CLASSIC_",8);
+}
 static bool compose_film_border(void)
 {
     pl_dispatch_reset_frame(s_border_dispatch);
@@ -1312,6 +1338,10 @@ static bool compose_film_border(void)
     struct fgs_film_border_geometry geometry =
         fgs_film_border_geometry_adjusted(s_width,s_height,s_frame_seconds,s_border_weave,
             s_motion_amp,s_motion_speed,s_motion_frequency);
+    if (border_has_classic_geometry()) {
+        geometry.aperture_height=((s_height*FGS_CLASSIC_APERTURE_HEIGHT_1080+540)/1080)&~1;
+        geometry.aperture_y=(s_height-geometry.aperture_height)/2;
+    }
     const float frame[] = {(float)s_width,(float)s_height};
     const float aperture[] = {(float)geometry.aperture_width,(float)geometry.aperture_height};
     const float inset[] = {(float)geometry.aperture_x,(float)geometry.aperture_y};
@@ -1873,7 +1903,16 @@ static int audit_film_border(void)
         const size_t middle=(height/2*width+width/2)*4;
         if (okay) okay=rgba[0]<12 && rgba[1]<12 && rgba[2]<12 &&
             rgba[middle]>160 && rgba[middle+1]>160 && rgba[middle+2]>160;
-        if (!okay) fprintf(stderr,"Film border pixel audit failed: corner/center check\n");
+        if (okay) {
+            s_initial_border_mode=L"CLASSIC_STATIC";
+            okay=render_film_border(s_image,&output,&pl_render_default_params) &&
+                 pl_tex_download(gpu,&(struct pl_tex_transfer_params){.tex=target,.ptr=rgba});
+            size_t top=(5*width+width/2)*4;
+            if (okay)okay=rgba[top]<12 && rgba[top+1]<12 && rgba[top+2]<12 &&
+                          rgba[middle]>160 && rgba[middle+1]>160 && rgba[middle+2]>160;
+            s_initial_border_mode=NULL;
+        }
+        if (!okay) fprintf(stderr,"Film border pixel audit failed: dark/classic geometry or source aperture\n");
     }
     pl_tex_destroy(gpu,&target);
     destroy_gpu();
@@ -2125,7 +2164,7 @@ int wmain(int argc, wchar_t **argv)
         if(theme) {
             typedef HRESULT (WINAPI *SetWindowThemeFn)(HWND,LPCWSTR,LPCWSTR);
             SetWindowThemeFn set_theme=(SetWindowThemeFn)GetProcAddress(theme,"SetWindowTheme");
-            if(set_theme)set_theme(s_border_combo,L"DarkMode_CFD",NULL);
+            if(set_theme)set_theme(s_border_combo,L"",L"");
             FreeLibrary(theme);
         }
         for(int i=0;i<s_border_choices_count;i++)

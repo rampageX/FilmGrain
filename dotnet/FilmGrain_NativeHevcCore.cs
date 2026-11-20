@@ -1555,6 +1555,7 @@ namespace FilmGrainStudioPreview
         {
             internal string Path;
             internal bool Dynamic;
+            internal bool Classic;
             internal string MoveX=FilmBorderMotionCore.MoveX,MoveY=FilmBorderMotionCore.MoveY;
             internal string HdrTransfer = "";
             internal string GpuRaw;
@@ -1589,7 +1590,7 @@ namespace FilmGrainStudioPreview
             double amp=FilmBorderMotionCore.Parse(Read(state,"FG_FILM_BORDER_AMP"),0,3);
             double speed=FilmBorderMotionCore.Parse(Read(state,"FG_FILM_BORDER_SPEED"),0.25,3);
             double frequency=FilmBorderMotionCore.Parse(Read(state,"FG_FILM_BORDER_FREQUENCY"),0.25,3);
-            plan=new Plan{Path=chosen.PngPath,Dynamic=chosen.Weave,HdrTransfer=hdrPreserve?media.ColorTransfer:"",
+            plan=new Plan{Path=chosen.PngPath,Dynamic=chosen.Weave,Classic=chosen.StyleId=="CLASSIC",HdrTransfer=hdrPreserve?media.ColorTransfer:"",
                 GpuRaw=chosen.RawPath,
                 MoveX=FilmBorderMotionCore.Expression(true,amp,speed,frequency),
                 MoveY=FilmBorderMotionCore.Expression(false,amp,speed,frequency)};
@@ -1636,7 +1637,7 @@ namespace FilmGrainStudioPreview
             int at=original.LastIndexOf("[vout]",StringComparison.Ordinal);
             if(at<0) throw new InvalidOperationException("Existing filter graph has no final [vout] label.");
             int apertureWidth=EvenDimension(((long)width*1680+960)/1920);
-            int apertureHeight=EvenDimension(((long)height*990+540)/1080);
+            int apertureHeight=EvenDimension(((long)height*(plan.Classic?FilmBorderCatalogCore.ClassicApertureHeight1080:990)+540)/1080);
             if(apertureWidth>width)apertureWidth=width;
             if(apertureHeight>height)apertureHeight=height;
             int x=(width-apertureWidth)/2,y=(height-apertureHeight)/2;
@@ -1654,7 +1655,7 @@ namespace FilmGrainStudioPreview
                 // R3 moved the entire composed frame over a black projection gate.
                 // The overlay on generated black must end when the actual clip ends.
                 graph+=";color=c=black:s="+N(width)+"x"+N(height)+":r="+fps+"[fgsfilm_black]";
-                graph+=";[fgsfilm_black][fgsfilm_joined]overlay=x='"+MoveX+"':y='"+MoveY+
+                graph+=";[fgsfilm_black][fgsfilm_joined]overlay=x='"+plan.MoveX+"':y='"+plan.MoveY+
                        "':shortest=1:eval=frame:format=auto,setsar=1,format="+outputFormat + RestoreColorTags(media) + "[vout]";
             }
             else graph+=";[fgsfilm_joined]setsar=1,format="+outputFormat+"[vout]";
@@ -1679,7 +1680,7 @@ namespace FilmGrainStudioPreview
             {
                 int w=plan.GpuWidth, h=plan.GpuHeight;
                 int apertureW=EvenDimension(((long)w*1680+960)/1920);
-                int apertureH=EvenDimension(((long)h*990+540)/1080);
+                int apertureH=EvenDimension(((long)h*(plan.Classic?FilmBorderCatalogCore.ClassicApertureHeight1080:990)+540)/1080);
                 apertureW=Math.Min(apertureW,w); apertureH=Math.Min(apertureH,h);
                 double scale=Math.Max((double)apertureW/w,(double)apertureH/h);
                 double cropLeft=(w-apertureW/scale)/2.0, cropTop=(h-apertureH/scale)/2.0;

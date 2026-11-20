@@ -1,5 +1,6 @@
 #ifndef FGS_FILM_BORDER_GEOMETRY_H
 #define FGS_FILM_BORDER_GEOMETRY_H
+#define FGS_CLASSIC_APERTURE_HEIGHT_1080 748
 
 #include <stdbool.h>
 #include <math.h>

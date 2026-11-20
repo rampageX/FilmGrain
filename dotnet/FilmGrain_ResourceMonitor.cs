@@ -272,6 +272,8 @@ namespace FilmGrainStudioPreview {
         readonly Stopwatch animationClock = Stopwatch.StartNew();
         readonly ResourceBarTransition cpuBar = new ResourceBarTransition(), gpuBar = new ResourceBarTransition();
         ResourceSampler sampler;ResourceSample sample;Form owner;
+        readonly Rectangle[] titleHitRegions=new Rectangle[4];
+        int activeTitle=-1;
         public bool DarkTheme {get;set;}
         internal ResourceMonitorPanel(string memoryLabel,string videoLabel){
             this.memoryLabel=memoryLabel;this.videoLabel=videoLabel;
@@ -290,32 +292,61 @@ namespace FilmGrainStudioPreview {
                 cpuBar.SetTarget(latest.Cpu,now);
                 gpuBar.SetTarget(latest.Gpu,now);
                 if (Visible && !sampler.Slow && (cpuBar.IsMoving(now) || gpuBar.IsMoving(now))) animation.Start();
-                sample=latest;bool zh=memoryLabel=="内存";
-                string help=zh?
-                    "CPU：系统总占用（优先使用任务管理器 Utility 口径）；内存：系统物理内存已用 / 总量。\n"+
-                    "监控 GPU："+latest.GpuName+"；CUDA 设备 0；PCI "+latest.Bus+"；LUID "+latest.Luid+"\n"+
-                    "GPU 来源："+latest.GpuSource+"；最忙引擎："+latest.BusiestEngine+"\n"+
-                    "Windows 口径：同一物理引擎各进程占用合计，取最忙引擎；不相加不同引擎。\n"+
-                    "GPU* 表示 NVML 回退，与 nvidia-smi 接近，不等于 Windows 最忙引擎。\n"+
-                    "显存：NVML 专用显存，不含共享内存；WDDM 保留量可能造成差异。\n"+
-                    "Vulkan / 自动编码设备可能不同；这里明确监控 CUDA 设备 0。\n约每秒采样；最小化约 5 秒；不可用显示 —。":
-                    "CPU: system total (Task Manager Utility preferred); RAM: physical used / total.\nGPU: "+latest.GpuName+" | CUDA 0 | PCI "+latest.Bus+" | LUID "+latest.Luid+
-                    "\nSource: "+latest.GpuSource+" | Busiest: "+latest.BusiestEngine+
-                    "\nWindows: sum processes per physical engine, then take busiest engine. GPU* = NVML fallback (nvidia-smi metric)."+
-                    "\nVRAM: dedicated NVML memory, no shared memory. Vulkan/automatic encoder device may differ. ~1s sampling, minimized ~5s.";
-                tip.SetToolTip(this,help+(string.IsNullOrEmpty(latest.Error)?"":"\n"+latest.Error));Invalidate();
+                sample=latest;
+                Invalidate();
             };
+        }
+        private string HintForTitle(int index)
+        {
+            bool zh=memoryLabel=="内存";
+            var reading=sample??new ResourceSample();
+            switch(index) {
+                case 0: return zh?
+                    "CPU：系统总占用，优先采用任务管理器 Utility 口径。约每秒采样，最小化后约 5 秒。":
+                    "CPU: system-wide utilization (Task Manager Utility preferred). ~1s sampling; ~5s minimized.";
+                case 1:
+                    string device="GPU: "+reading.GpuName+" | CUDA 0 | PCI "+reading.Bus+" | LUID "+reading.Luid;
+                    string source=zh?"\n来源：":"\nSource: ";
+                    string engine=zh?"；最忙引擎：":"; busiest engine: ";
+                    string explanation=zh?
+                        "\nWindows：按物理引擎合计进程用量，取最忙引擎；GPU* 为 NVML 回退值，类似 nvidia-smi。":
+                        "\nWindows: per-engine total, taking the busiest engine; GPU* means NVML fallback (like nvidia-smi).";
+                    return device+source+reading.GpuSource+engine+reading.BusiestEngine+explanation+
+                        (string.IsNullOrEmpty(reading.Error)?"":"\n"+reading.Error);
+                case 2: return zh?
+                    "内存：系统物理内存已用 / 总量，不是 FGS 单独占用。":
+                    "RAM: physical memory used / total, not FGS process usage.";
+                case 3: return zh?
+                    "显存：NVML 专用显存已用 / 总量，不含共享内存；WDDM 保留量可能造成偏差。":
+                    "VRAM: NVML dedicated video memory used / total; excludes shared RAM. WDDM reservations may differ.";
+                default: return "";
+            }
+        }
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            base.OnMouseMove(e);
+            int hit=-1;
+            for(int i=0;i<titleHitRegions.Length;i++)if(titleHitRegions[i].Contains(e.Location)){hit=i;break;}
+            if(hit==activeTitle)return;
+            tip.Hide(this);
+            activeTitle=hit;
+            if(hit>=0)tip.Show(HintForTitle(hit),this,e.X+12,e.Y+14,8000);
+        }
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            tip.Hide(this);activeTitle=-1;
+            base.OnMouseLeave(e);
         }
         protected override void OnHandleCreated(EventArgs e){base.OnHandleCreated(e);if(owner==null){owner=FindForm();if(owner!=null)owner.Shown+=Start;}}
         void Start(object sender,EventArgs e){if(sampler==null){sampler=new ResourceSampler();pulse.Start();}}
         protected override void Dispose(bool disposing){if(disposing){if(owner!=null)owner.Shown-=Start;pulse.Stop();pulse.Dispose();animation.Stop();animation.Dispose();if(sampler!=null)sampler.Dispose();tip.Dispose();}base.Dispose(disposing);}
         protected override void OnPaint(PaintEventArgs e){
             long now = animationClock.ElapsedMilliseconds;
-            ResourceMonitorPainter.Draw(e.Graphics,ClientRectangle,Font,DarkTheme,BackColor,DarkTheme?UiTheme.TextColor:ForeColor,sample,memoryLabel,videoLabel,cpuBar.ValueAt(now),gpuBar.ValueAt(now));
+            ResourceMonitorPainter.Draw(e.Graphics,ClientRectangle,Font,DarkTheme,BackColor,DarkTheme?UiTheme.TextColor:ForeColor,sample,memoryLabel,videoLabel,cpuBar.ValueAt(now),gpuBar.ValueAt(now),titleHitRegions);
         }
     }
     internal static class ResourceMonitorPainter {
-        internal static void Draw(Graphics graphics,Rectangle bounds,Font font,bool dark,Color background,Color foreground,ResourceSample sample,string memoryLabel,string videoLabel,double cpuFill,double gpuFill){
+        internal static void Draw(Graphics graphics,Rectangle bounds,Font font,bool dark,Color background,Color foreground,ResourceSample sample,string memoryLabel,string videoLabel,double cpuFill,double gpuFill,Rectangle[] titleHitRegions=null){
             graphics.Clear(background);float scale=graphics.DpiX/96f;
             int row=bounds.Height/4;if(row<1)return;
             var s=sample??new ResourceSample();
@@ -336,6 +367,8 @@ namespace FilmGrainStudioPreview {
                 if(height<1)return;
                 for(int i=0;i<4;i++){
                     int y=bounds.Top+i*row+(row-height)/2;int width=Math.Max(0,bounds.Width-left);
+                    if(titleHitRegions!=null && titleHitRegions.Length>=4)
+                        titleHitRegions[i]=new Rectangle(bounds.Left,y,Math.Max(0,left-gap),height);
                     Rectangle bar=new Rectangle(bounds.Left+left,y,width,height);
                     graphics.FillRectangle(track,bar);
                     if(values[i]>=0)graphics.FillRectangle(fill,bar.X,bar.Y,(int)Math.Round(width*Math.Min(100,Math.Max(0,values[i]))/100),bar.Height);

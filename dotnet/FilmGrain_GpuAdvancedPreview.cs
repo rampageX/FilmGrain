@@ -127,11 +127,17 @@ namespace FilmGrainStudioPreview
             string hdrSignal = !media.IsHdr ? "" : media.ColorTransfer=="smpte2084" ? "pq" : "hlg";
             if (media.IsHdr && fullRange) hdrSignal += "-full";
             string borderMode = config.Get("FILM_BORDER_MODE");
-            bool borderRoute = media.IsHdr ? cmbCodec.SelectedIndex == 1 && !fullRange :
-                cmbCodec.SelectedIndex == 1 || cmbCodec.SelectedIndex == 3;
-            bool filmBorder = borderRoute &&
-                !chkInterpolation.Checked && (borderMode == "DARK_STATIC" || borderMode == "DARK_WEAVE");
-            string borderAsset = Path.Combine(appRoot,"Utils","_FilmBorders","cinema35_dark_1920x1080.png");
+            bool softwareBorder = cmbCodec.SelectedIndex == 2 &&
+                (CpuCodec() == "X265" || CpuCodec() == "X264");
+            bool borderRoute = media.IsHdr ? !fullRange &&
+                (cmbCodec.SelectedIndex == 1 || (softwareBorder && CpuCodec() == "X265")) :
+                cmbCodec.SelectedIndex == 1 || cmbCodec.SelectedIndex == 3 || softwareBorder;
+            FilmBorderChoice previewBorderChoice;string borderResolveError;
+            bool selectedBorder=FilmBorderCatalogCore.TryResolve(appRoot,borderMode,
+                out previewBorderChoice,out borderResolveError) &&
+                previewBorderChoice.Mode!=FilmBorderCatalogCore.Off;
+            bool filmBorder = borderRoute && !chkInterpolation.Checked && selectedBorder;
+            string borderAsset=filmBorder ? previewBorderChoice.PngPath : "";
             if (filmBorder && !File.Exists(borderAsset)) {
                 FgsMessageBox.Show(this,UiText("找不到胶片边框素材。","Film border asset is missing."));return;
             }
@@ -336,7 +342,11 @@ namespace FilmGrainStudioPreview
                         int borderRc = NativeLibraryTools.RunProcessEnvironment(ffmpeg,borderArgs,temporary,null,30000,CancellationToken.None,null);
                         if (borderRc != 0 || !File.Exists(borderRaw) || new FileInfo(borderRaw).Length != 1920L*1080*(media.IsHdr?8:4))
                             throw new InvalidDataException("Film border texture decode failed.");
-                        args.AddRange(new[]{"--film-border",borderRaw,"--film-weave",borderMode=="DARK_WEAVE"?"1":"0"});
+                        args.AddRange(new[]{"--film-border",borderRaw,"--film-border-mode",previewBorderChoice.Mode,
+                            "--film-weave",previewBorderChoice.Weave?"1":"0",
+                            "--film-motion-amp",FilmBorderMotionCore.Parse(config.Get(FilmBorderMotionCore.AmpKey),0,3).ToString("0.###",CultureInfo.InvariantCulture),
+                            "--film-motion-speed",FilmBorderMotionCore.Parse(config.Get(FilmBorderMotionCore.SpeedKey),0.25,3).ToString("0.###",CultureInfo.InvariantCulture),
+                            "--film-motion-frequency",FilmBorderMotionCore.Parse(config.Get(FilmBorderMotionCore.FrequencyKey),0.25,3).ToString("0.###",CultureInfo.InvariantCulture)});
                     }
                     if (plateCycle>0) args.AddRange(new[]{"--plate-cycle",plateCycle.ToString("0.#########",CultureInfo.InvariantCulture)});
                     // grav1synth advances AV1 grain seeds per output frame. Use the

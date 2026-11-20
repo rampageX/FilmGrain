@@ -23,6 +23,11 @@ namespace FilmGrainStudioPreview
         internal const string Off = "OFF";
         private const string Dark = "DARK";
         private const string Classic = "CLASSIC";
+        internal const int ClassicApertureHeight1080 = 748;
+        private const string ClassicArtRevision = "FGS_CLASSIC_PERFORATIONS_V1";
+        private static string ClassicRevisionPath(string appRoot) {
+            return Path.Combine(Root(appRoot),"fgs_classic_black_135.version");
+        }
         internal static string Root(string appRoot) { return Path.Combine(appRoot, "Utils", "_FilmBorders"); }
         private static string UserRoot(string appRoot) { return Path.Combine(Root(appRoot), "User"); }
         private static FilmBorderChoice Choice(string id, string label, string path, bool weave, bool user)
@@ -77,6 +82,35 @@ namespace FilmGrainStudioPreview
             }
             return new Font(FontFamily.GenericSansSerif,size,FontStyle.Bold,GraphicsUnit.Pixel);
         }
+        private static System.Drawing.Drawing2D.GraphicsPath RoundedPerforation(float x,float y,float w,float h,float radius)
+        {
+            var path=new System.Drawing.Drawing2D.GraphicsPath();
+            float d=2*radius;
+            path.AddArc(x,y,d,d,180,90);
+            path.AddArc(x+w-d,y,d,d,270,90);
+            path.AddArc(x+w-d,y+h-d,d,d,0,90);
+            path.AddArc(x,y+h-d,d,d,90,90);
+            path.CloseFigure();
+            return path;
+        }
+        private static void DrawPerforation(Graphics g,int x,int y)
+        {
+            // Opaque warm stock behind the sprocket aperture: like backlit 135 film.
+            // Draw at native texture resolution to keep the edge soft at any output size.
+            using(var shadow=new SolidBrush(Color.FromArgb(255,31,27,25)))
+            using(var rim=new SolidBrush(Color.FromArgb(255,135,132,124)))
+            using(var paper=new SolidBrush(Color.FromArgb(255,239,235,224)))
+            using(var innerEdge=new Pen(Color.FromArgb(145,109,106,99),1.7f))
+            using(var shadowPath=RoundedPerforation(x-5,y-5,100,78,12))
+            using(var rimPath=RoundedPerforation(x-2,y-2,94,72,10))
+            using(var cutout=RoundedPerforation(x,y,90,68,9))
+            {
+                g.FillPath(shadow,shadowPath);
+                g.FillPath(rim,rimPath);
+                g.FillPath(paper,cutout);
+                g.DrawPath(innerEdge,cutout);
+            }
+        }
         private static void GenerateClassic(string appRoot,string brand,string serial)
         {
             string png=Path.Combine(Root(appRoot),"fgs_classic_black_135.png");
@@ -95,26 +129,36 @@ namespace FilmGrainStudioPreview
                 g.CompositingMode=System.Drawing.Drawing2D.CompositingMode.SourceOver;
                 g.SmoothingMode=System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
                 g.TextRenderingHint=System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
-                g.FillRectangle(black,0,0,1920,116);
-                g.FillRectangle(black,0,980,1920,100);
-                g.FillRectangle(black,0,116,60,864);
-                g.FillRectangle(black,1860,116,60,864);
-                g.DrawString(brand,topFont,amber,new PointF(128,40),StringFormat.GenericTypographic);
-                g.DrawString(serial,smallFont,faint,new PointF(130,1010),StringFormat.GenericTypographic);
-                g.DrawString("35",smallFont,amber,new PointF(1750,1010),StringFormat.GenericTypographic);
-                g.DrawString("●",smallFont,amber,new PointF(1810,1010),StringFormat.GenericTypographic);
+                const int top=166;
+                const int bottom=914;
+                g.FillRectangle(black,0,0,1920,top);
+                g.FillRectangle(black,0,bottom,1920,1080-bottom);
+                g.FillRectangle(black,0,top,120,bottom-top);
+                g.FillRectangle(black,1800,top,120,bottom-top);
+                for(int i=0;i<8;i++) {
+                    int x=116+i*230;
+                    DrawPerforation(g,x,90);
+                    DrawPerforation(g,x,934);
+                }
+                g.DrawString(brand,topFont,amber,new PointF(128,29),StringFormat.GenericTypographic);
+                g.DrawString(serial,smallFont,faint,new PointF(130,1016),StringFormat.GenericTypographic);
+                g.DrawString("35",smallFont,amber,new PointF(1750,1016),StringFormat.GenericTypographic);
+                g.DrawString("●",smallFont,amber,new PointF(1810,1016),StringFormat.GenericTypographic);
                 img.Save(tmp,ImageFormat.Png);
             }
             if(File.Exists(png))File.Delete(png);
             File.Move(tmp,png);
             BuildRaw(png,raw);
+            File.WriteAllText(ClassicRevisionPath(appRoot),ClassicArtRevision,new UTF8Encoding(false));
         }
         private static void EnsureClassic(string appRoot)
         {
             string png=Path.Combine(Root(appRoot),"fgs_classic_black_135.png");
             string raw=Path.ChangeExtension(png,".raw");
             string text=ClassicTextPath(appRoot);
+            string revision=ClassicRevisionPath(appRoot);
             if(File.Exists(png) && File.Exists(raw) && new FileInfo(raw).Length==1920L*1080*4 &&
+                File.Exists(revision) && File.ReadAllText(revision,Encoding.UTF8).Trim()==ClassicArtRevision &&
                 (!File.Exists(text)||File.GetLastWriteTimeUtc(png)>=File.GetLastWriteTimeUtc(text)))return;
             string brand,serial;ReadClassicText(appRoot,out brand,out serial);
             GenerateClassic(appRoot,brand,serial);
