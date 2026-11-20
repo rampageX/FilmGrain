@@ -119,9 +119,10 @@ jobs:
           Copy-Item -LiteralPath 'Utils\_FilmBorders\cinema35_dark_1920x1080.png' -Destination $dark
           Copy-Item -LiteralPath 'Utils\_FilmBorders\cinema35_dark_1920x1080_rgba.raw' -Destination $dark
           Copy-Item -LiteralPath 'FGS_FilmBorder_UI_Source.zip' -Destination $stage
-          Compress-Archive -Path (Join-Path $stage '*') -DestinationPath 'FGS_FilmBorder_UI_Test_and_Source.zip' -CompressionLevel Optimal
+          $suffix = $env:GITHUB_SHA.Substring(0,8)
+          Compress-Archive -Path (Join-Path $stage '*') -DestinationPath ("FGS_FilmBorder_UI_" + $suffix + "_Test_and_Source.zip") -CompressionLevel Optimal
       - uses: actions/upload-artifact@v4
         with:
-          name: FGS-FilmBorder-UI-Test-and-Source
+          name: FGS-FilmBorder-UI-${{ github.sha }}-Test-and-Source
           if-no-files-found: error
-          path: FGS_FilmBorder_UI_Test_and_Source.zip
+          path: FGS_FilmBorder_UI_*_Test_and_Source.zip
