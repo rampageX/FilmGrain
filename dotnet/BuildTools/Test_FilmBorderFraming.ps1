@@ -56,9 +56,14 @@ Add-Type -TypeDefinition $wrapper -Language CSharp -ErrorAction Stop
 [FilmGrainStudioPreview.FilmBorderFramingAudit]::Run()
 Write-Host 'PASS Film Border FFmpeg framing core: neutral, 1.5x/2x/3x, anchors and clamps'
 
-$ffmpeg = Get-Command ffmpeg.exe -ErrorAction SilentlyContinue
-if ($ffmpeg) {
-    # Use named fields; PowerShell array nesting and PSObject wrapping are not relied on.
+if ([string]::IsNullOrWhiteSpace($env:FGS_MSYS2_ROOT)) { throw 'FGS_MSYS2_ROOT not supplied by Windows runner' }
+$bin = Join-Path $env:FGS_MSYS2_ROOT 'ucrt64\bin'
+$ffmpegExe = Join-Path $bin 'ffmpeg.exe'
+if (-not (Test-Path -LiteralPath $ffmpegExe)) { throw "UCRT64 FFmpeg is missing: $ffmpegExe" }
+$env:PATH = $bin + [IO.Path]::PathSeparator + $env:PATH
+& $ffmpegExe -hide_banner -version | Select-Object -First 1
+if ($LASTEXITCODE -ne 0) { throw 'FFmpeg dependency probe failed' }
+# Use named fields; PowerShell array nesting and PSObject wrapping are not relied on.
     $cases = @(
         [pscustomobject]@{W=1680;H=748;X=0.5;Y=0.5;Z=1.0}
         [pscustomobject]@{W=1680;H=748;X=0.5;Y=0.5;Z=1.5}
@@ -69,9 +74,8 @@ if ($ffmpeg) {
     foreach ($row in $cases) {
         $filter = [FilmGrainStudioPreview.FilmBorderFramingAudit]::Filter(
             [int]$row.W,[int]$row.H,[double]$row.X,[double]$row.Y,[double]$row.Z)
-        & $ffmpeg.Source -hide_banner -loglevel error -f lavfi -i 'testsrc2=s=1920x1080:r=1' -vf $filter -frames:v 1 -f null NUL
+        & $ffmpegExe -hide_banner -loglevel error -f lavfi -i 'testsrc2=s=1920x1080:r=1' -vf $filter -frames:v 1 -f null NUL
         if ($LASTEXITCODE -ne 0) { throw "FFmpeg framing filter failed: $filter" }
     }
     Write-Host 'PASS FFmpeg live filter graph: neutral, zoom, corners, custom apertures'
-}
-else { Write-Host 'SKIP live FFmpeg filter graph: ffmpeg.exe not installed on runner' }
+

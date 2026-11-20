@@ -21,6 +21,7 @@ jobs:
             mingw-w64-ucrt-x86_64-binutils
             mingw-w64-ucrt-x86_64-pkgconf
             mingw-w64-ucrt-x86_64-libplacebo
+            mingw-w64-ucrt-x86_64-ffmpeg
       - name: Restore accepted Dark 35mm artwork and verify both SHA256 values
         shell: powershell
         run: |
@@ -83,6 +84,8 @@ jobs:
           & .\dotnet\BuildTools\Test_S4_GpuBorder.ps1
       - name: Verify interactive border framing calculations and FFmpeg graph
         shell: powershell
+        env:
+          FGS_MSYS2_ROOT: ${{ steps.msys2.outputs.msys2-location }}
         run: |
           & .\dotnet\BuildTools\Test_FilmBorderFraming.ps1
       - name: Verify native mouse-anchor, zoom and no-gap framing mathematics
