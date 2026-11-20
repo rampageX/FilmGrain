@@ -14,6 +14,7 @@ namespace FilmGrainStudioPreview
     {
         internal string Mode, StyleId, Label, PngPath, RawPath;
         internal bool User, Weave;
+        internal int ApertureWidth1080, ApertureHeight1080;
     }
 
     // Style catalog is independent of the projection motion model. User designs
@@ -32,11 +33,15 @@ namespace FilmGrainStudioPreview
         private static string UserRoot(string appRoot) { return Path.Combine(Root(appRoot), "User"); }
         private static FilmBorderChoice Choice(string id, string label, string path, bool weave, bool user)
         {
+            int apertureWidth=ImportApertureWidth;
+            int apertureHeight=id==Dark?990:ImportApertureHeight;
+            if(user)ReadUserAperture(path,out apertureWidth,out apertureHeight);
             return new FilmBorderChoice { StyleId=id, Mode=id+(weave?"_WEAVE":"_STATIC"),
                 Label=label+(weave?" · 动态":" · 静态"), PngPath=path,
                 RawPath=id==Dark ? Path.Combine(Path.GetDirectoryName(path),
                     "cinema35_dark_1920x1080_rgba.raw") : Path.ChangeExtension(path,".raw"),
-                Weave=weave, User=user };
+                Weave=weave, User=user,
+                ApertureWidth1080=apertureWidth,ApertureHeight1080=apertureHeight };
         }
 
         // Genuine editable, original FGS classic-black optical print. No third-party
@@ -211,12 +216,31 @@ namespace FilmGrainStudioPreview
                 if(item.Mode==mode) {choice=item;return true;}
             reason="Unknown or missing film border style: "+mode;return false;
         }
-        // User-import v1.0: same aperture as FGS Classic Black. Built-ins are
-        // intentionally excluded from these constraints for compatibility.
+        // User-import v1.1: user-adjustable centered video aperture.
+        // Existing v1.0 user imports without .aperture metadata keep 1680x748.
+        // Built-in Dark/Classic are unchanged.
         internal const int ImportWidth=1920, ImportHeight=1080;
-        internal const int ImportApertureX=120, ImportApertureY=166;
         internal const int ImportApertureWidth=1680, ImportApertureHeight=748;
+        internal const int ImportApertureTolerance=50;
         internal const int MaxImportBytes=32*1024*1024;
+        private static string AperturePath(string png) {return Path.ChangeExtension(png,".aperture");}
+        internal static void ValidateAperture(int width,int height)
+        {
+            if(width<ImportApertureWidth-ImportApertureTolerance || width>ImportApertureWidth+ImportApertureTolerance ||
+               height<ImportApertureHeight-ImportApertureTolerance || height>ImportApertureHeight+ImportApertureTolerance)
+                throw new InvalidDataException("中心画窗宽必须在 1630–1730px，高必须在 698–798px。");
+        }
+        internal static void ReadUserAperture(string png,out int width,out int height)
+        {
+            width=ImportApertureWidth;height=ImportApertureHeight;
+            string metadata=AperturePath(png);
+            if(!File.Exists(metadata))return; // backwards compatibility for v1.0 imports
+            string[] parts=File.ReadAllText(metadata,Encoding.UTF8).Trim().Split('\t');
+            if(parts.Length!=2 || !int.TryParse(parts[0],NumberStyles.Integer,CultureInfo.InvariantCulture,out width) ||
+                !int.TryParse(parts[1],NumberStyles.Integer,CultureInfo.InvariantCulture,out height))
+                throw new InvalidDataException("用户边框的画窗尺寸记录损坏："+metadata);
+            ValidateAperture(width,height);
+        }
         private static readonly byte[] PngSignature={137,80,78,71,13,10,26,10};
 
         private static uint ReadPngUInt(BinaryReader reader)
@@ -277,11 +301,18 @@ namespace FilmGrainStudioPreview
                     throw new InvalidDataException("PNG 缺少图像数据、结束块，或存在多余内容。");
             }
         }
-        // Only the import entry point calls this validator; it must never
-        // rewrite a user-provided image or silently crop an invalid aperture.
+        // Preserve all RGBA pixels, including semi-transparent color overlays
+        // and film-grain layers over the video image. Reject only a practically
+        // fully opaque gate, so an opaque scan can never silently hide the movie.
         internal static void ValidatePng(string filename)
+        { ValidatePngWithAperture(filename,ImportApertureWidth,ImportApertureHeight); }
+
+        internal static void ValidatePngWithAperture(string filename,int apertureWidth,int apertureHeight)
         {
+            ValidateAperture(apertureWidth,apertureHeight);
             ValidatePngContainer(filename);
+            int x0=(ImportWidth-apertureWidth)/2;
+            int y0=(ImportHeight-apertureHeight)/2;
             try
             {
                 using(var source=new Bitmap(filename))
@@ -299,26 +330,27 @@ namespace FilmGrainStudioPreview
                     try
                     {
                         byte[] row=new byte[ImportWidth*4];
-                        int visible=0;
+                        int visibleBorder=0,opaqueCenter=0;
                         for(int y=0;y<ImportHeight;y++)
                         {
                             Marshal.Copy(IntPtr.Add(pixels.Scan0,y*pixels.Stride),row,0,row.Length);
                             for(int x=0;x<ImportWidth;x++)
                             {
-                                int alpha=row[x*4+3]; // BGRA memory: alpha is byte 3.
-                                bool aperture=x>=ImportApertureX &&
-                                    x<ImportApertureX+ImportApertureWidth &&
-                                    y>=ImportApertureY && y<ImportApertureY+ImportApertureHeight;
-                                if(aperture && alpha!=0)
-                                    throw new InvalidDataException(
-                                        "中心透明画窗必须完全透明 (Alpha=0)。不合格像素 x="+
-                                        x.ToString(CultureInfo.InvariantCulture)+", y="+
-                                        y.ToString(CultureInfo.InvariantCulture)+
-                                        ", Alpha="+alpha.ToString(CultureInfo.InvariantCulture)+"。");
-                                if(!aperture && alpha>=64)visible++;
+                                int alpha=row[x*4+3];
+                                bool inAperture=x>=x0 && x<x0+apertureWidth &&
+                                    y>=y0 && y<y0+apertureHeight;
+                                if(inAperture)
+                                {
+                                    if(alpha==255)opaqueCenter++;
+                                }
+                                else if(alpha>=64)visibleBorder++;
                             }
                         }
-                        if(visible<1024)
+                        // Allow fully opaque scratches, marks and corner detail,
+                        // but not a film overlay that hides essentially all source video.
+                        if(opaqueCenter > (long)apertureWidth*apertureHeight*95/100)
+                            throw new InvalidDataException("中心画窗超过95%完全不透明，视频会被遮挡；请保留半透明或透明区域。");
+                        if(visibleBorder<1024)
                             throw new InvalidDataException("边框区域可见像素不足（需至少 1024 个 Alpha≥64 的像素）。");
                     }
                     finally {normalized.UnlockBits(pixels);}
@@ -365,10 +397,14 @@ namespace FilmGrainStudioPreview
         }
 
         internal static string Import(string appRoot,string source,string displayName)
+        {return Import(appRoot,source,displayName,ImportApertureWidth,ImportApertureHeight);}
+
+        internal static string Import(string appRoot,string source,string displayName,int apertureWidth,int apertureHeight)
         {
             displayName=ValidateDisplayName(displayName);
+            ValidateAperture(apertureWidth,apertureHeight);
             if(!File.Exists(source))throw new FileNotFoundException("PNG 不存在",source);
-            ValidatePng(source);
+            ValidatePngWithAperture(source,apertureWidth,apertureHeight);
             string id=Guid.NewGuid().ToString("N").ToUpperInvariant();
             string folder=UserRoot(appRoot);
             Directory.CreateDirectory(folder);
@@ -378,9 +414,12 @@ namespace FilmGrainStudioPreview
                 File.Copy(source,path,false);
                 BuildRaw(path,raw);
                 File.WriteAllText(Path.ChangeExtension(path,".label"),displayName,new UTF8Encoding(false));
+                File.WriteAllText(AperturePath(path),
+                    apertureWidth.ToString(CultureInfo.InvariantCulture)+"\t"+
+                    apertureHeight.ToString(CultureInfo.InvariantCulture)+"\n",new UTF8Encoding(false));
                 return "USER_"+id+"_STATIC";
             } catch {
-                foreach(string f in new[]{path,raw,Path.ChangeExtension(path,".label")})
+                foreach(string f in new[]{path,raw,Path.ChangeExtension(path,".label"),AperturePath(path)})
                     try {if(File.Exists(f))File.Delete(f);}catch{}
                 throw;
             }
@@ -390,7 +429,7 @@ namespace FilmGrainStudioPreview
             FilmBorderChoice choice;string reason;
             if(!TryResolve(appRoot,mode,out choice,out reason) || !choice.User)
                 throw new InvalidOperationException("只能删除用户导入的边框，不能删除内置素材。");
-            foreach(string file in new[]{choice.PngPath,choice.RawPath,Path.ChangeExtension(choice.PngPath,".label")})
+            foreach(string file in new[]{choice.PngPath,choice.RawPath,Path.ChangeExtension(choice.PngPath,".label"),AperturePath(choice.PngPath)})
                 if(File.Exists(file))File.Delete(file);
         }
         internal static string CreatePreviewChoices(string appRoot,string ffmpeg,string temporary,
@@ -416,7 +455,9 @@ namespace FilmGrainStudioPreview
                         throw new InvalidDataException("边框纹理转换失败："+actual.Label);
                     cache.Add(actual.StyleId,raw);
                 }
-                lines.Add(choice.Mode+"\t"+choice.Label+"\t"+raw);
+                lines.Add(choice.Mode+"\t"+choice.Label+"\t"+raw+"\t"+
+                    actual.ApertureWidth1080.ToString(CultureInfo.InvariantCulture)+"\t"+
+                    actual.ApertureHeight1080.ToString(CultureInfo.InvariantCulture));
             }
             string output=Path.Combine(temporary,"border_choices.txt");
             File.WriteAllText(output,string.Join("\r\n",lines)+"\r\n",Encoding.Unicode);
