@@ -48,6 +48,11 @@ jobs:
         run: |
           & .\GpuAdvancedPreview\fgs_gpu_preview.exe --audit-film-border
           if ($LASTEXITCODE -ne 0) { throw "D3D11 border audit failed: $LASTEXITCODE" }
+      - name: Audit built-in, classic and imported border mode arguments
+        shell: powershell
+        run: |
+          & .\GpuAdvancedPreview\fgs_gpu_preview.exe --audit-border-modes
+          if ($LASTEXITCODE -ne 0) { throw "Native border mode argument audit failed: $LASTEXITCODE" }
       - name: Build and audit main application
         shell: cmd
         run: dotnet\build_NET_Preview.bat

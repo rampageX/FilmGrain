@@ -759,7 +759,10 @@ namespace FilmGrainStudioPreview
                     process.BeginOutputReadLine();process.BeginErrorReadLine();
                     process.WaitForExit();
                     if (process.ExitCode != 0) throw new InvalidOperationException("GPU 预览退出代码 "+process.ExitCode+"："+
-                        (log.Length>0?log.ToString():"无控制台输出，请检查 MSYS2 UCRT64 运行时 DLL 是否可加载。"));
+                        (log.Length>0?log.ToString():
+                            process.ExitCode==2?
+                                "原生预览参数校验失败（退出码 2）。请检查样式名称与输入参数。":
+                                "原生进程未输出诊断日志；请检查退出码及预览运行时依赖。"));
                 } finally {
                     lock (gpuPreviewProcessLock) { if (gpuPreviewProcess == process) gpuPreviewProcess = null; }
                 }
