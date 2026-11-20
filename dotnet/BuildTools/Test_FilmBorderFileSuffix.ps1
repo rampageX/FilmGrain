@@ -15,9 +15,9 @@ $cases=@(
     @('DARK', $true, '_FILM35D'),
     @('CLASSIC', $false, '_FILMCLASSIC35S'),
     @('CLASSIC', $true, '_FILMCLASSIC35D'),
-    @('USER_'+$guidA, $false, '_FILMUSER_'+$guidA+'_S'),
-    @('USER_'+$guidA, $true, '_FILMUSER_'+$guidA+'_D'),
-    @('USER_'+$guidB, $false, '_FILMUSER_'+$guidB+'_S')
+    @(('USER_'+$guidA), $false, ('_FILMUSER_'+$guidA+'_S')),
+    @(('USER_'+$guidA), $true, ('_FILMUSER_'+$guidA+'_D')),
+    @(('USER_'+$guidB), $false, ('_FILMUSER_'+$guidB+'_S'))
 )
 $seen=@{}
 foreach($case in $cases){
