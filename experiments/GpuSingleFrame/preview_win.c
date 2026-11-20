@@ -45,6 +45,7 @@ static int s_border_mode; /* legacy OFF/STATIC/WEAVE fallback */
 static const wchar_t *s_border_choices_file;
 static const wchar_t *s_initial_border_mode;
 static HWND s_border_combo;
+static WNDPROC s_original_border_combo_proc;
 static const char *s_border_action="APPLY";
 #define FGS_BORDER_MAX_CHOICES 48
 #define FGS_BORDER_COMBO_ID 301
@@ -323,6 +324,84 @@ static void border_choice_buttons(const RECT *client,RECT *import,RECT *remove,R
     *remove=(RECT){client->right-268,top,client->right-170,top+29};
     *edit=(RECT){client->right-160,top,client->right-13,top+29};
 }
+/* Paint the closed COMBOBOX ourselves: owner-draw only paints its list items,
+ * while Windows otherwise paints the collapsed field and arrow in light mode. */
+static void paint_border_combo(HWND combo, HDC dc)
+{
+    RECT rc;
+    GetClientRect(combo,&rc);
+    HBRUSH bg=CreateSolidBrush(RGB(27,28,30));
+    FillRect(dc,&rc,bg);
+    DeleteObject(bg);
+    HPEN outline=CreatePen(PS_SOLID,1,RGB(76,80,84));
+    HGDIOBJ oldpen=SelectObject(dc,outline);
+    HGDIOBJ oldbrush=SelectObject(dc,GetStockObject(NULL_BRUSH));
+    Rectangle(dc,rc.left,rc.top,rc.right,rc.bottom);
+    SelectObject(dc,oldbrush);
+    SelectObject(dc,oldpen);
+    DeleteObject(outline);
+
+    int arrow_x=rc.right-25;
+    HPEN separator=CreatePen(PS_SOLID,1,RGB(64,67,71));
+    oldpen=SelectObject(dc,separator);
+    MoveToEx(dc,arrow_x,rc.top+4,NULL);
+    LineTo(dc,arrow_x,rc.bottom-4);
+    SelectObject(dc,oldpen);
+    DeleteObject(separator);
+
+    if(s_border_selection>=0 && s_border_selection<s_border_choices_count) {
+        HFONT font=(HFONT)SendMessageW(combo,WM_GETFONT,0,0);
+        HGDIOBJ oldfont=font?SelectObject(dc,font):NULL;
+        RECT label=rc;
+        label.left+=9;
+        label.right=arrow_x-6;
+        SetBkMode(dc,TRANSPARENT);
+        SetTextColor(dc,RGB(233,236,239));
+        DrawTextW(dc,s_border_choices[s_border_selection].title,-1,&label,
+            DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+        if(font)SelectObject(dc,oldfont);
+    }
+    int cx=rc.right-13,cy=(rc.top+rc.bottom)/2+2;
+    POINT triangle[3]={{cx-5,cy-3},{cx+5,cy-3},{cx,cy+3}};
+    HPEN arrow_pen=CreatePen(PS_SOLID,1,RGB(204,210,214));
+    HBRUSH arrow_brush=CreateSolidBrush(RGB(204,210,214));
+    oldpen=SelectObject(dc,arrow_pen);
+    oldbrush=SelectObject(dc,arrow_brush);
+    Polygon(dc,triangle,3);
+    SelectObject(dc,oldbrush);
+    SelectObject(dc,oldpen);
+    DeleteObject(arrow_brush);
+    DeleteObject(arrow_pen);
+}
+static LRESULT CALLBACK border_combo_proc(HWND combo, UINT message, WPARAM wparam, LPARAM lparam)
+{
+    if(message==WM_PAINT) {
+        PAINTSTRUCT ps;
+        HDC dc=BeginPaint(combo,&ps);
+        paint_border_combo(combo,dc);
+        EndPaint(combo,&ps);
+        return 0;
+    }
+    if(message==WM_PRINTCLIENT) {
+        paint_border_combo(combo,(HDC)wparam);
+        return 0;
+    }
+    return CallWindowProcW(s_original_border_combo_proc,combo,message,wparam,lparam);
+}
+/* Border names are catalog entries, not a fixed three-state enum.
+ * The catalog validates the actual style after arguments are parsed. */
+static bool valid_border_mode_arg(const wchar_t *name)
+{
+    if(!wcscmp(name,L"OFF"))return true;
+    size_t count=wcslen(name);
+    if(count<8 || count>=96 || (wcscmp(name+count-7,L"_STATIC") &&
+       wcscmp(name+count-6,L"_WEAVE")))return false;
+    for(size_t i=0;i<count;i++)
+        if(!((name[i]>=L'A' && name[i]<=L'Z') ||
+             (name[i]>=L'0' && name[i]<=L'9') || name[i]==L'_'))return false;
+    return name[0]!=L'_';
+}
+
 static void border_combo_layout(const RECT *client)
 {
     if(!s_border_combo)return;
@@ -1553,6 +1632,7 @@ static LRESULT CALLBACK window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM
                 SendMessageW(s_border_combo,CB_SETCURSEL,s_border_selection,0);
                 MessageBoxW(window,L"GPU 边框纹理切换失败，保留原样式。",L"添加边框",MB_OK|MB_ICONERROR);
             }
+            InvalidateRect(s_border_combo,NULL,FALSE);
             return 0;
         }
         return DefWindowProcW(window,msg,wparam,lparam);
@@ -1575,7 +1655,10 @@ static LRESULT CALLBACK window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM
         return TRUE;
     }
     case WM_CTLCOLORLISTBOX:
-        if(s_border_combo && (HWND)lparam==s_border_combo && s_edit_brush) {
+        COMBOBOXINFO info={0};
+        info.cbSize=sizeof(info);
+        if(s_border_combo && s_edit_brush && GetComboBoxInfo(s_border_combo,&info) &&
+           (HWND)lparam==info.hwndList) {
             SetBkMode((HDC)wparam,TRANSPARENT);
             SetTextColor((HDC)wparam,RGB(235,237,240));
             SetBkColor((HDC)wparam,RGB(27,28,30));
@@ -1801,6 +1884,18 @@ int wmain(int argc, wchar_t **argv)
 {
     QueryPerformanceFrequency(&s_frequency);
     if (argc == 2 && !wcscmp(argv[1], L"--audit-film-border")) return audit_film_border();
+    if (argc == 2 && !wcscmp(argv[1], L"--audit-border-modes")) {
+        const wchar_t *valid[]={L"OFF",L"DARK_STATIC",L"DARK_WEAVE",L"CLASSIC_STATIC",
+            L"CLASSIC_WEAVE",L"USER_0123456789ABCDEF0123456789ABCDEF_STATIC",
+            L"USER_0123456789ABCDEF0123456789ABCDEF_WEAVE"};
+        const wchar_t *invalid[]={L"CLASSIC",L"DARK_SIDEWAYS",L"_STATIC",L"classic_weave"};
+        for(size_t i=0;i<sizeof(valid)/sizeof(valid[0]);i++)
+            if(!valid_border_mode_arg(valid[i]))return 9;
+        for(size_t i=0;i<sizeof(invalid)/sizeof(invalid[0]);i++)
+            if(valid_border_mode_arg(invalid[i]))return 9;
+        puts("PASS Film Border catalog mode argument validation");
+        return 0;
+    }
     double start = timer_ms();
     if (argc < 6) {
         fwprintf(stderr, L"Usage: %ls FRAME.yuv WIDTH HEIGHT FILMGRN1.tbl|- 8|10 [BENCH_COUNT] [MODEL_TIME_SEC] [LUT.cube] [--fps NUM/DEN --result FILE --grain 0..100 --lut 0..100 --grain-on 0|1 --lut-on 0|1 --video FILE --ffmpeg EXE --duration SECONDS --plate MOV --plate-frame YUV --plate-cycle SECONDS --source-color pq|hlg|pq-full|hlg-full --deinterlace auto|tff|bff]\n", argv[0]);
@@ -1860,8 +1955,9 @@ int wmain(int argc, wchar_t **argv)
             if(!wcscmp(value,L"OFF"))s_border_mode=0;
             else if(!wcscmp(value,L"DARK_STATIC"))s_border_mode=1;
             else if(!wcscmp(value,L"DARK_WEAVE"))s_border_mode=2;
-            else if(wcsncmp(value,L"USER_",5)!=0) return 2;
-            s_border_weave=s_border_mode==2;
+            else if(!valid_border_mode_arg(value))return 2;
+            s_border_weave=(wcslen(value)>=6 &&
+                !wcscmp(value+wcslen(value)-6,L"_WEAVE"));
             s_initial_border_mode=value;
         }
         else if (!wcscmp(key, L"--film-weave")) {if (!int_arg(value,0,1,&flag)) return 2;s_border_weave=flag!=0;}
@@ -2034,6 +2130,10 @@ int wmain(int argc, wchar_t **argv)
         for(int i=0;i<s_border_choices_count;i++)
             SendMessageW(s_border_combo,CB_ADDSTRING,0,(LPARAM)s_border_choices[i].title);
         SendMessageW(s_border_combo,CB_SETCURSEL,s_border_selection,0);
+        s_original_border_combo_proc=(WNDPROC)SetWindowLongPtrW(s_border_combo,GWLP_WNDPROC,
+                                                       (LONG_PTR)border_combo_proc);
+        if(!s_original_border_combo_proc){free(raw);free(plate_raw);DestroyWindow(s_window);return 5;}
+        InvalidateRect(s_border_combo,NULL,TRUE);
     }
     int view_height = client.bottom-panel_height();
     if (view_height < 1) view_height = 1;
