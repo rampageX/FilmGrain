@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -1197,8 +1197,6 @@ namespace FilmGrainStudioPreview
                 "独立 GPU 边框预览：关闭 / 静态 / 动态；点击应用后写入编码设置。",
                 "GPU border preview: Off / Static / Weave; apply to encoding."));
             t.Controls.Add(btnFilmBorder, 0, 12); t.SetColumnSpan(btnFilmBorder, 2);
-            UpdateFilmBorderButton();
-            UpdateFilmBorderButton();
             UpdateFilmBorderButton();
             var resourceMonitor = new ResourceMonitorPanel(UiText("内存", "RAM"), UiText("显存", "VRAM"));
             resourceMonitor.Font = UiFont(8f, FontStyle.Regular);

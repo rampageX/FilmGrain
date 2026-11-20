@@ -53,6 +53,11 @@ jobs:
         run: |
           & .\GpuAdvancedPreview\fgs_gpu_preview.exe --audit-border-modes
           if ($LASTEXITCODE -ne 0) { throw "Native border mode argument audit failed: $LASTEXITCODE" }
+      - name: Audit Film Border integration readiness (non-release)
+        shell: powershell
+        run: |
+          & .\dotnet\BuildTools\Test_FilmBorderIntegrationReadiness.ps1
+          if ($LASTEXITCODE -ne 0) { throw "Film border integration audit failed" }
       - name: Build and audit main application
         shell: cmd
         run: dotnet\build_NET_Preview.bat
