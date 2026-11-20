@@ -55,6 +55,7 @@ struct FgsBorderChoice {
     wchar_t raw_path[32768];
     bool user;
     bool weave;
+    int aperture_width,aperture_height; /* 1920x1080 coordinate system */
 };
 static struct FgsBorderChoice s_border_choices[FGS_BORDER_MAX_CHOICES];
 static int s_border_choices_count, s_border_selection;
@@ -291,7 +292,24 @@ static bool load_border_choices(const wchar_t *path, const wchar_t *initial_mode
                     if(second) {
                         *second++=0;
                         struct FgsBorderChoice *c=&s_border_choices[s_border_choices_count];
-                        bool valid=wcslen(line)>0 && wcslen(line)<sizeof(c->mode) &&
+                        // Catalog v1.1 appends centered aperture geometry:
+                        // mode<TAB>title<TAB>texture<TAB>width<TAB>height.
+                        wchar_t *third=wcschr(second,L'\t'),*fourth=NULL;
+                        int apertureW=1680,apertureH=wcsncmp(line,L"DARK_",5)==0?990:748;
+                        bool valid=third!=NULL;
+                        if(valid) {
+                            *third++=0;fourth=wcschr(third,L'\t');
+                            valid=fourth!=NULL;
+                        }
+                        if(valid) {
+                            *fourth++=0;
+                            wchar_t *endW=NULL,*endH=NULL;
+                            long aw=wcstol(third,&endW,10),ah=wcstol(fourth,&endH,10);
+                            valid=endW && !*endW && endH && !*endH &&
+                                aw>=2 && aw<=1920 && ah>=2 && ah<=1080;
+                            if(valid){apertureW=(int)aw;apertureH=(int)ah;}
+                        }
+                        valid=valid && wcslen(line)>0 && wcslen(line)<sizeof(c->mode) &&
                             wcslen(first)<sizeof(c->title)/sizeof(wchar_t) &&
                             wcslen(second)<sizeof(c->raw_path)/sizeof(wchar_t);
                         if(valid)for(const wchar_t *m=line;*m;m++)if(!((*m>=L'A'&&*m<=L'Z')||
@@ -302,6 +320,7 @@ static bool load_border_choices(const wchar_t *path, const wchar_t *initial_mode
                             wcscpy(c->raw_path,second);
                             c->weave=wcsstr(line,L"_WEAVE")!=NULL;
                             c->user=wcsncmp(line,L"USER_",5)==0;
+                            c->aperture_width=apertureW;c->aperture_height=apertureH;
                             if(initial_mode && !wcscmp(initial_mode,line))s_border_selection=s_border_choices_count;
                             s_border_choices_count++;
                         }
@@ -1341,10 +1360,18 @@ static bool compose_film_border(void)
     struct fgs_film_border_geometry geometry =
         fgs_film_border_geometry_adjusted(s_width,s_height,s_frame_seconds,s_border_weave,
             s_motion_amp,s_motion_speed,s_motion_frequency);
-    if (border_has_classic_geometry()) {
-        geometry.aperture_height=((s_height*FGS_CLASSIC_APERTURE_HEIGHT_1080+540)/1080)&~1;
-        geometry.aperture_y=(s_height-geometry.aperture_height)/2;
+    int apertureW=1680,apertureH=border_has_classic_geometry()?FGS_CLASSIC_APERTURE_HEIGHT_1080:990;
+    if(s_border_settings && s_border_combo &&
+       s_border_selection>=0 && s_border_selection<s_border_choices_count) {
+        apertureW=s_border_choices[s_border_selection].aperture_width;
+        apertureH=s_border_choices[s_border_selection].aperture_height;
     }
+    geometry.aperture_width=((s_width*apertureW+960)/1920)&~1;
+    geometry.aperture_height=((s_height*apertureH+540)/1080)&~1;
+    if(geometry.aperture_width>s_width)geometry.aperture_width=s_width&~1;
+    if(geometry.aperture_height>s_height)geometry.aperture_height=s_height&~1;
+    geometry.aperture_x=(s_width-geometry.aperture_width)/2;
+    geometry.aperture_y=(s_height-geometry.aperture_height)/2;
     const float frame[] = {(float)s_width,(float)s_height};
     const float aperture[] = {(float)geometry.aperture_width,(float)geometry.aperture_height};
     const float inset[] = {(float)geometry.aperture_x,(float)geometry.aperture_y};
