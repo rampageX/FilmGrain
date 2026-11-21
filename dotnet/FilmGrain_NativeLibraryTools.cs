@@ -44,8 +44,8 @@ namespace FilmGrainStudioPreview
                     UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true,
                     RedirectStandardError = true, WorkingDirectory = cwd, StandardOutputEncoding = new UTF8Encoding(false), StandardErrorEncoding = new UTF8Encoding(false) };
                 if(environment!=null)foreach(var pair in environment)process.StartInfo.EnvironmentVariables[pair.Key]=pair.Value;
-                process.OutputDataReceived += delegate(object sender, DataReceivedEventArgs e) { if (e.Data != null) log(e.Data); };
-                process.ErrorDataReceived += delegate(object sender, DataReceivedEventArgs e) { if (e.Data != null) log(e.Data); };
+                process.OutputDataReceived += delegate(object sender, DataReceivedEventArgs e) { if (e.Data != null && log != null) log(e.Data); };
+                process.ErrorDataReceived += delegate(object sender, DataReceivedEventArgs e) { if (e.Data != null && log != null) log(e.Data); };
                 if (!process.Start()) throw new IOException("无法启动 " + executable);
                 process.BeginOutputReadLine(); process.BeginErrorReadLine();
                 try

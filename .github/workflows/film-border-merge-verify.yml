@@ -7,6 +7,8 @@ on:
       - 'dotnet/FilmGrain_FilmBorderCatalog.cs'
       - 'dotnet/FilmGrain_GpuAdvancedPreview.cs'
       - 'dotnet/FilmGrain_NativeHevcCore.cs'
+      - 'dotnet/FilmGrain_NativeLibraryTools.cs'
+      - 'dotnet/BuildTools/Test_NullLogCallback.ps1'
       - 'experiments/GpuSingleFrame/preview_win.c'
       - 'dotnet/BuildTools/Test_HLG_GPU_L4Q6.ps1'
       - '.github/workflows/film-border-merge-verify.yml'
@@ -93,6 +95,18 @@ jobs:
           & $script -Exe $exe
           if (-not $?) { throw 'HLG/PQ graph regression failed.' }
 
+      - name: Verify null log callback never crashes FGS
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $script = Join-Path $env:GITHUB_WORKSPACE 'dotnet\BuildTools\Test_NullLogCallback.ps1'
+          $tokens = $null
+          $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile($script, [ref]$tokens, [ref]$errors)
+          if ($errors.Count -ne 0) { throw ('PowerShell parse error: ' + ($errors | Out-String)) }
+          & $script -Exe (Join-Path $env:FGS_MERGE_RUNTIME 'FilmGrain_Studio.exe')
+          if (-not $?) { throw 'Null logger regression failed.' }
+
       - name: Verify existing S4 GPU border regression
         shell: powershell
         run: |
@@ -121,3 +135,26 @@ jobs:
           } finally {
             $env:PATH = $previousPath
           }
+
+      - name: Prepare Q4M8 test EXE and matching complete source
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $deliver = Join-Path $env:RUNNER_TEMP 'FGS_Q4M8_Exe_and_Source'
+          [void](New-Item -ItemType Directory -Path $deliver -Force)
+          $exe = Join-Path $env:FGS_MERGE_RUNTIME 'FilmGrain_Studio.exe'
+          if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw 'Verified EXE missing.' }
+          Copy-Item -LiteralPath $exe -Destination (Join-Path $deliver 'FilmGrain_Studio.exe') -Force
+          $source = Join-Path $deliver 'FGS_Q4M8_Full_Source.zip'
+          & git -C $env:GITHUB_WORKSPACE archive --format=zip "--output=$source" HEAD
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $source -PathType Leaf)) { throw 'Matching full source ZIP creation failed.' }
+          'FGS_Q4M8_DELIVERY=' + $deliver | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host 'PASS: Q4M8 EXE and complete Git HEAD source are staged.'
+
+      - name: Upload Q4M8 verification package
+        uses: actions/upload-artifact@v4
+        with:
+          name: FGS_Q4M8_Test_and_Source
+          path: ${{ env.FGS_Q4M8_DELIVERY }}
+          if-no-files-found: error
+          retention-days: 14
