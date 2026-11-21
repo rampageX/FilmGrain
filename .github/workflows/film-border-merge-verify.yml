@@ -35,6 +35,17 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Parse PowerShell scripts before installing GPU toolchain
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($path in @('.github/release/build_release.ps1', '.github/release/release_layout.ps1', 'dotnet/BuildTools/Install_Bundled_FilmBorders.ps1', 'tests/archive/Test_FilmBorderIntegrationReadiness.ps1')) {
+            $tokens = $null; $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path -LiteralPath $path).Path, [ref]$tokens, [ref]$errors)
+            if ($errors.Count -ne 0) { throw ('PowerShell syntax error in ' + $path + ': ' + ($errors | Out-String)) }
+            Write-Host ('PASS: PowerShell syntax ' + $path)
+          }
+
       - name: Set up verified UCRT64 GPU toolchain
         id: msys2
         uses: msys2/setup-msys2@v2
