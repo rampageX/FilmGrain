@@ -392,7 +392,7 @@ namespace FilmGrainStudioPreview
                 if(directTableScale)Av1GrainStrengthCore.AttachTableScale(applyGrainStage,apply,Get(state,"FG_AV1_GRAIN_TABLE"),grainIvf+".scaled.tbl",grainPercent,request.TemporaryFiles);
                 if(directPresetScale)Av1GrainStrengthCore.AttachPresetScale(applyGrainStage,apply,grainIvf+".preset-scaled.tbl",grainPercent,request.TemporaryFiles);
                 var strengthStages=postScale?Av1GrainStrengthCore.Stages(grav1synth,tempRoot,delegate { return grainIvf; },strengthIvf,grainPercent,request.TemporaryFiles):new List<BridgeExecutionStage>();
-                if(postScale && Eq(state,"FG_AV1_GRAIN_MODE","ISO") && !info.IsHdr && !info.IsInterlaced && !interpolate && caps.Grav1synthVersion=="0.2.2" && Av1RouteOptimizationCore.Enabled())
+                if(postScale && Eq(state,"FG_AV1_GRAIN_MODE","ISO") && !info.IsHdr && !info.IsInterlaced && !interpolate && (caps.Grav1synthVersion=="0.2.2" || caps.Grav1synthVersion=="0.2.3") && Av1RouteOptimizationCore.Enabled())
                 {
                     directStages[directStages.Count-1].StageText+=" / ISO: provisional stage total until model check";
                     Av1IsoStrengthCore.Attach(applyGrainStage,strengthStages,ffmpeg,grav1synth,tempRoot,cleanIvf,grainIvf,strengthIvf,grainArgs.Split(new char[]{'\n'},StringSplitOptions.RemoveEmptyEntries),grainPercent,request.TemporaryFiles,null,delegate {

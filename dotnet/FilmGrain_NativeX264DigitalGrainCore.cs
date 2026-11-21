@@ -103,8 +103,8 @@ namespace FilmGrainStudioPreview
             string grav=config.Get("GRAV1SYNTH");
             if(!File.Exists(grav)){reason="grav1synth not found: "+grav;return false;}
             string version,error;
-            if(!SharedFrucCore.Run(grav,"--version",5000,out version,out error) || version.Trim()!="grav1synth 0.2.2") {
-                reason="SVT container grain route requires verified grav1synth 0.2.2: "+version+" "+error;return false;
+            if(!SharedFrucCore.Run(grav,"--version",5000,out version,out error) || (version.Trim()!="grav1synth 0.2.2" && version.Trim()!="grav1synth 0.2.3")) {
+                reason="SVT container grain route requires verified grav1synth 0.2.2 or 0.2.3: "+version+" "+error;return false;
             }
             var model=new List<string>();string tag;
             string mode=Get(state,"FG_AV1_GRAIN_MODE").ToUpperInvariant();
