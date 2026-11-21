@@ -1,0 +1,60 @@
+name: FGS Film Border Asset Bootstrap
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/film-border-bundle-bootstrap.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fgs-film-border-bundle-bootstrap
+  cancel-in-progress: false
+
+jobs:
+  bootstrap:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout master
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python for one-time verified asset import
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Obtain pinned v5.0.79 accepted Stable material
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $asset = 'FilmGrain_Studio_v5.0.79_Stable.zip'
+          gh release download v5.0.79 --repo $env:GITHUB_REPOSITORY --pattern $asset --dir $env:RUNNER_TEMP --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot obtain pinned Stable asset.' }
+          $source = Join-Path $env:RUNNER_TEMP $asset
+          $dest = 'Utils/_FilmBorders/FGS_Bundled_15.zip'
+          $manifest = 'Utils/_FilmBorders/FGS_Bundled_15.manifest.txt'
+          python '.github/release/bootstrap_film_borders.py' $source $dest $manifest
+          if ($LASTEXITCODE -ne 0) { throw '15-border asset bootstrap validation failed.' }
+
+      - name: Commit accepted resource archive to master
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- 'Utils/_FilmBorders/FGS_Bundled_15.zip' 'Utils/_FilmBorders/FGS_Bundled_15.manifest.txt'
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot stage verified resource archive.' }
+          $pending = @(git diff --cached --name-only)
+          if ($pending.Count -eq 0) { Write-Host 'PASS: resources already match committed master'; exit 0 }
+          git commit -m 'assets(film-border): pin 15 accepted RGBA frame resources and runtime cache'
+          if ($LASTEXITCODE -ne 0) { throw 'Resource commit failed.' }
+          git push origin HEAD:master
+          if ($LASTEXITCODE -ne 0) { throw 'Resource push failed; no force push attempted.' }
+          Write-Host 'PASS: 15 accepted frames are now committed on master'
