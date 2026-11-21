@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.0.79 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.80 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 <table>
   <tr>
@@ -166,7 +166,7 @@ FGSIM 在任务执行前以实际 shader 检查 GPU 输出像素，优先选择�
 
 ## 下载与包的区别
 
-从 [Releases](https://github.com/rampageX/FilmGrain/releases) 下载 `FilmGrain_Studio_v版本_Stable.zip`，解压后启动根目录的 EXE，首次运行按提示指定或安装依赖。对应 `.zip.sha256` 用于校验下载文件。
+从 [Releases](https://github.com/rampageX/FilmGrain/releases) 下载 `FilmGrain_Studio_v版本_Stable.zip`，解压后启动根目录的 EXE，首次运行按提示指定或安装依赖。下载文件的 SHA256 以 GitHub Release 提供的校验信息为准。
 
 Stable 不附带开发源码、Legacy 历史实现或项目截图，也不预装完整外部依赖环境；但已随包提供 `GpuAdvancedPreview/fgs_gpu_preview.exe` 及其 UCRT64 运行 DLL，无须用户安装 MSYS2。请将开发目录和日常运行副本分开；升级运行副本时保留个人配置及已安装依赖。
 
@@ -181,6 +181,8 @@ Source 与 Stable 来自同一次已提交源码归档，`SOURCE_BUILD_INFO.txt`
 自定义胶片框支持导入单张 **1920×1080、8-bit RGBA PNG**，视频画窗可使用符合规范的半透明叠加层，导入前进行逐像素校验。详细的制作尺寸、透明区域、文件要求和拒绝原因见 [FILM_BORDER_ASSET_SPEC.md](docs/film-border/FILM_BORDER_ASSET_SPEC.md)。自定义样式可以删除，运动效果由 FGS 独立提供，不需要两张素材。输出文件名后缀直接使用边框名称及 `_S`／`_D`，不追加 ID；在命名对话框拒绝重复名称。视频构图支持在画窗内拖动、缩放与 X/Y 精确定位，详见 [FILM_BORDER_FRAMING_SPEC.md](docs/film-border/FILM_BORDER_FRAMING_SPEC.md)。
 
 目前不支持 AV1 边框输出、边框与插帧组合、HDR 输入转 SDR 时的双 GPU 边框预览；这几项是后续扩展，不会因选择胶片样式而自动绕过。已支持的编码路线按照原有 HDR/SDR 色彩设置工作。开发/整合追踪见 [FILM_BORDER_INTEGRATION.md](docs/film-border/FILM_BORDER_INTEGRATION.md)。
+
+Stable 从 v5.0.80 起预装 **15 款胶片边框**（左右齿孔 9 款、上下齿孔 6 款），位于 `Utils/_FilmBorders/User`；其 PNG、RAW、名称和画窗数据均在 Windows 构建时进行 SHA256 完整性检查。HLG 边框采用两阶段 libplacebo 全 GPU 合成，PQ 继续使用原 GPU 路线，不额外依赖 NVEncC。
 
 Git 源码中 Dark 原始 RAW 以 `.raw.gz` 无损归档，Windows 构建前会自动恢复为逐字节一致的 `.raw`。运行时 ZIP 已包含 PNG 与展开后的 RAW，无需用户处理归档。
 

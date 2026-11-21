@@ -1,7 +1,7 @@
 Film Grain Studio - 文件与发布说明
 ================================
 
-当前产品版本：v5.0.79；构建 Stable。
+当前产品版本：v5.0.80；构建 Stable。
 
 正式运行入口：FilmGrain_Studio.exe。
 Stable.zip 为精简便携运行包，包含默认配置、Lang、必要 Utils 资源、颗粒表、LUT 参考图和 OpenSVPFlow 脚本／插件及第三方声明。
@@ -15,7 +15,7 @@ Legacy 为历史归档，不作为当前应用入口。运行资源保持原位�
 构建后根 EXE 与 dotnet\build\FilmGrain_Studio_NET_Preview.exe 必须一致，Stable 只附带根 EXE。
 正式发布：release.bat --dry-run <版本号>，通过后由维护者执行 release.bat <版本号>。
 正式 release.bat 调用统一构建核心，在当前开发目录生成 Stable、Source 及各自 SHA256，再原子推送源码分支与 Tag。
-Windows runner 重新构建双包，Release 页面仅自动上传 Stable 和对应 SHA256；Source 保留在工作流 Artifact 中。
+Windows runner 重新构建并验证 Stable 与 Source；Release 页面长期仅保留 Stable 和 GitHub 自动生成的两个源码下载。Release_and_Source 整合包临时保留到用户确认下载，不单独上传 Source 或 .sha256；Source 仍保留在工作流 Artifact 中。
 仓库同步保留完整项目，运行包精简不用于删除仓库源码。
 准备包或 Dry Run 成功不代表正式发布；提交、Tag 和远程发布由维护者执行。
 
