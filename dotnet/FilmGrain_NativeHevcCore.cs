@@ -661,6 +661,14 @@ namespace FilmGrainStudioPreview
                     if (filmBorder != null && !s4GpuBorder)
                         filter = FilmBorderEncodingCore.AppendFilter(filter,filmBorder,frame.ActiveWidth,frame.ActiveHeight,filmInputIndex,fps,info);
                     List<string> hevcArgs = BuildHevcArgs(encodeInput, grainInput, filter, output, preset, highMotion, bitrate, max, buf, fps, duration, plateMode, mkv, caps, state, hdrPreserve ? info : null, fruc, info, filmBorder);
+                    // Only patched FFmpeg builds accept the host-copy workaround; keep old binaries unchanged.
+                    if (s4GpuBorder && SupportsHostImageCopyOption(s4GpuFfmpeg))
+                    {
+                        int device = hevcArgs.IndexOf("-init_hw_device");
+                        if (device < 0 || device + 1 >= hevcArgs.Count)
+                            throw new InvalidOperationException("S4 GPU Vulkan device argument is missing.");
+                        hevcArgs[device + 1] += ",disable_host_image_copy=1";
+                    }
 
                     if (svp) {
                         ConvertToPipeInput(hevcArgs, encodeInput, mpegTsSvp && !preserveSvpTransportTimeline ? mpegTsVideoOffset : null);
@@ -1045,6 +1053,27 @@ namespace FilmGrainStudioPreview
         }
 
 
+
+        private static readonly Dictionary<string,bool> hostImageCopyOptionCache =
+            new Dictionary<string,bool>(StringComparer.OrdinalIgnoreCase);
+
+        private static bool SupportsHostImageCopyOption(string ffmpeg)
+        {
+            // Run only for S4 GPU borders; cache by executable stamp and selected GPU.
+            string key = HardwareCapabilityCore.ToolStamp(ffmpeg) + "|" + VulkanDevicePolicy.DeviceName;
+            bool supported;
+            lock (hostImageCopyOptionCache)
+                if (hostImageCopyOptionCache.TryGetValue(key, out supported)) return supported;
+
+            string output, reason;
+            string device = VulkanDevicePolicy.Spec("vk") + ",disable_multiplane=1,disable_host_image_copy=1";
+            supported = SharedFrucCore.Run(ffmpeg,
+                "-hide_banner -nostdin -loglevel error -init_hw_device " + Quote(device) +
+                " -f lavfi -i color=c=black:s=16x16:r=1 -frames:v 1 -f null NUL",
+                10000, out output, out reason);
+            lock (hostImageCopyOptionCache) hostImageCopyOptionCache[key] = supported;
+            return supported;
+        }
 
         internal static bool HasFrucFilter(string ffmpeg)
         {
