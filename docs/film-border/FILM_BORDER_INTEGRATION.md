@@ -8,7 +8,7 @@
 - 原版 **Dark 35mm**、**FGS Classic Black**（含齿孔、可编辑文字）及两款各自的画窗几何。**不得调整既有视觉、颜色、运动默认值**。
 - 静态/动态独立选择；幅度、速度、随机频率三个参数，默认均为 1；与编码设置一同保存。
 - 已接入的正式编码路径保持原样；不扩大 AV1、HDR→SDR 或插帧的支持范围。
-- 用户边框格式和机器校验见仓库根目录 [FILM_BORDER_ASSET_SPEC.md](FILM_BORDER_ASSET_SPEC.md)；用户导入款采用 1920×1080 RGBA8、固定透明画窗 1680×748。
+- 用户边框格式和机器校验见docs/film-border/ 目录 [FILM_BORDER_ASSET_SPEC.md](FILM_BORDER_ASSET_SPEC.md)；用户导入款采用 1920×1080 RGBA8、固定透明画窗 1680×748。
 
 ## 用户导入素材 v1.1：放宽画窗与 Alpha
 

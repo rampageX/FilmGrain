@@ -10,6 +10,13 @@ on:
       - 'experiments/GpuSingleFrame/preview_win.c'
       - 'dotnet/BuildTools/Test_HLG_GPU_L4Q6.ps1'
       - '.github/workflows/film-border-merge-verify.yml'
+      - '.github/release/build_release.ps1'
+      - '.github/release/release_layout.ps1'
+      - 'Utils/_FilmBorders/FGS_Bundled_15.zip'
+      - 'Utils/_FilmBorders/FGS_Bundled_15.manifest.txt'
+      - 'dotnet/BuildTools/Install_Bundled_FilmBorders.ps1'
+      - 'docs/film-border/**'
+      - 'README.md'
   workflow_dispatch:
 
 permissions:

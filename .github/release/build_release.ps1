@@ -554,6 +554,10 @@ function New-RuntimeStage {
             throw 'Dark 35mm original PNG must be 1920x1080.'
         }
     } finally { $image.Dispose() }
+    # Preinstall the accepted 15-frame collection from a committed, SHA256-pinned archive.
+    # This only touches the fresh runtime staging tree. Never copy a developer User folder.
+    & (Join-Path $Source 'dotnet\BuildTools\Install_Bundled_FilmBorders.ps1') -SourceRoot $Source -DestinationRoot $Destination
+    if (-not $?) { throw 'Preinstalled film-border verification failed.' }
     # Only sanitize the disposable runtime copy, never the developer defaults.
     $configPath = Join-Path $Destination 'FilmGrain_Config.default.ini'
     $config = [IO.File]::ReadAllText($configPath)
@@ -592,6 +596,187 @@ function Test-ZipContent {
         }
         foreach ($required in $filmLutFiles) {
             if ($entries -notcontains $required) { throw ('Required FilmLut asset missing from runtime ZIP: ' + $required) }
+        }
+        # A missing preinstalled border is a release-blocking error even if ZIP structure is valid.
+        $manifestPath = Join-Path $RepositoryRoot 'Utils\_FilmBorders\FGS_Bundled_15.manifest.txt'
+        Assert-File -Root $RepositoryRoot -RelativePath 'Utils\_FilmBorders\FGS_Bundled_15.manifest.txt'
+        $requiredBorderFiles = @(
+            Get-Content -LiteralPath $manifestPath |
+            Where-Object { $_ -match '^[0-9a-fA-F]{64}  [A-F0-9]{32}\.(?:png|raw|label|aperture)
+        foreach ($entry in $archive.Entries) {
+            if (-not $entry.Name) { continue }
+            $stream = $entry.Open()
+            try { $stream.CopyTo([IO.Stream]::Null) } finally { $stream.Dispose() }
+        }
+    } finally { $archive.Dispose() }
+}
+
+function New-ReleaseSourceArchive {
+    param([string]$CommittedArchive, [string]$Destination, [string]$Commit, [string]$ReleaseVersion, [string]$RuntimeExeHash)
+    $inputZip = [IO.Compression.ZipFile]::OpenRead($CommittedArchive)
+    $outputZip = $null
+    try {
+        $outputZip = [IO.Compression.ZipFile]::Open($Destination, [IO.Compression.ZipArchiveMode]::Create)
+        $expected = @()
+        foreach ($entry in $inputZip.Entries) {
+            if (-not $entry.Name) { continue }
+            $relative = $entry.FullName.Replace('\', '/')
+            if (Test-ExcludedSourcePath $relative) { continue }
+            if ($relative -eq 'SOURCE_BUILD_INFO.txt') { throw 'Reserved source build metadata already exists in committed source.' }
+            $target = $outputZip.CreateEntry($relative, [IO.Compression.CompressionLevel]::Optimal)
+            $target.LastWriteTime = $entry.LastWriteTime
+            $sourceStream = $entry.Open()
+            $targetStream = $target.Open()
+            try { $sourceStream.CopyTo($targetStream) } finally { $targetStream.Dispose(); $sourceStream.Dispose() }
+            $expected += $relative
+        }
+        foreach ($relative in @($RequiredPackageFiles) + @('release.bat', '.github/release/build_release.ps1', '.github/release/release_layout.ps1', '.github/workflows/release.yml')) {
+            if ($expected -notcontains $relative.Replace('\', '/')) { throw ('Source ZIP required entry missing: ' + $relative) }
+        }
+        $info = 'Version=v' + $ReleaseVersion + $CrLf + 'Commit=' + $Commit + $CrLf + 'RuntimeExecutableSHA256=' + $RuntimeExeHash + $CrLf + 'Source=committed HEAD used for the Stable build' + $CrLf
+        $metadata = $outputZip.CreateEntry('SOURCE_BUILD_INFO.txt')
+        $writer = New-Object IO.StreamWriter($metadata.Open(), $Utf8NoBom)
+        try { $writer.Write($info) } finally { $writer.Dispose() }
+        $outputZip.Dispose(); $outputZip = $null
+    } finally {
+        if ($outputZip) { $outputZip.Dispose() }
+        $inputZip.Dispose()
+    }
+    $check = [IO.Compression.ZipFile]::OpenRead($Destination)
+    try {
+        $actual = @($check.Entries | Where-Object { $_.Name } | ForEach-Object { $_.FullName.Replace('\', '/') })
+        if (@(Compare-Object (@($expected) + @('SOURCE_BUILD_INFO.txt')) $actual).Count) { throw 'Source ZIP entry set mismatch.' }
+        foreach ($entry in $check.Entries) {
+            if (-not $entry.Name) { continue }
+            $stream = $entry.Open()
+            try { $stream.CopyTo([IO.Stream]::Null) } finally { $stream.Dispose() }
+        }
+    } finally { $check.Dispose() }
+}
+
+$RepositoryRoot = Get-NormalizedFullPath -Path $RepositoryRoot
+if (-not (Test-Path -LiteralPath $RepositoryRoot -PathType Container)) {
+    throw "Repository root not found: $RepositoryRoot"
+}
+
+$gitTopPath = Get-NormalizedFullPath -Path (Get-ReleaseGitTopLevel -Root $RepositoryRoot)
+if (-not [string]::Equals($RepositoryRoot, $gitTopPath, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "RepositoryRoot must be the Git top-level directory: $gitTopPath"
+}
+
+Test-SourceLayout -Root $RepositoryRoot -ReleaseVersion $Version
+
+if ($ValidateOnly) {
+    Write-Host "[FGS] Shared release source validation passed for v$Version."
+    exit 0
+}
+
+$trackedSource = @(Get-ReleaseTrackedPaths -Root $RepositoryRoot)
+$badSource = @($trackedSource | Where-Object { Test-ForbiddenTrackedSourcePath $_ })
+if ($badSource.Count) { throw ('Local-only files tracked in release source: ' + ($badSource -join ', ')) }
+
+if (-not $OutputDirectory) {
+    $OutputDirectory = $RepositoryRoot
+}
+$OutputDirectory = Get-NormalizedFullPath -Path $OutputDirectory
+if (-not (Test-Path -LiteralPath $OutputDirectory -PathType Container)) {
+    New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
+}
+
+$name = "FilmGrain_Studio_v${Version}_Stable"
+$zipPath = Join-Path $OutputDirectory ($name + '.zip')
+$shaPath = $zipPath + '.sha256'
+$sourceZipPath = Join-Path $OutputDirectory ("FilmGrain_Studio_v${Version}_Source.zip")
+$sourceShaPath = $sourceZipPath + '.sha256'
+$sourceZipPending = Join-Path $env:TEMP ('FGS_SourceOutput_' + [guid]::NewGuid().ToString('N') + '.zip')
+$sourceCommit = (& git -C $RepositoryRoot rev-parse HEAD).Trim()
+if ($LASTEXITCODE -ne 0 -or $sourceCommit -notmatch '^[0-9a-f]{40,64}$') { throw 'Could not identify source HEAD.' }
+$stageRoot = Join-Path $env:TEMP ('FGS_Release_' + [guid]::NewGuid().ToString('N'))
+$runtimeRoot = Join-Path $env:TEMP ('FGS_Runtime_' + [guid]::NewGuid().ToString('N'))
+$sourceArchive = Join-Path $env:TEMP ('FGS_Source_' + [guid]::NewGuid().ToString('N') + '.zip')
+
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+try {
+    New-Item -ItemType Directory -Path $stageRoot -Force | Out-Null
+
+    & git -C $RepositoryRoot archive --format=zip "--output=$sourceArchive" HEAD
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $sourceArchive -PathType Leaf)) {
+        throw 'git archive failed.'
+    }
+
+    [System.IO.Compression.ZipFile]::ExtractToDirectory($sourceArchive, $stageRoot)
+    # The repo stores the accepted Dark RAW as a lossless gzip, not a PNG re-encode.
+    # The restoration validates exact original SHA256 and aborts if missing.
+    & (Join-Path $stageRoot 'dotnet\BuildTools\Restore_FilmBorderDarkAssets.ps1') -Root $stageRoot
+
+    # Validate the committed HEAD before any package-only exclusions are applied.
+    Test-SourceLayout -Root $stageRoot -ReleaseVersion $Version
+
+    Remove-PackageExclusions -StageRoot $stageRoot
+    Normalize-PackageTextFiles -StageRoot $stageRoot
+    Build-DotNetPreview -StageRoot $stageRoot -ReleaseVersion $Version
+    Build-GpuAdvancedPreview -StageRoot $stageRoot
+    Test-PackageContent -StageRoot $stageRoot -ReleaseVersion $Version
+    New-RuntimeStage -Source $stageRoot -Destination $runtimeRoot
+
+    if (Test-Path -LiteralPath $zipPath) {
+        Remove-Item -LiteralPath $zipPath -Force
+    }
+    if (Test-Path -LiteralPath $shaPath) {
+        Remove-Item -LiteralPath $shaPath -Force
+    }
+
+    [System.IO.Compression.ZipFile]::CreateFromDirectory(
+        $runtimeRoot,
+        $zipPath,
+        [System.IO.Compression.CompressionLevel]::Optimal,
+        $false
+    )
+
+    Test-ZipContent -ZipPath $zipPath
+
+    $hash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    [System.IO.File]::WriteAllText(
+        $shaPath,
+        ($hash + '  ' + [System.IO.Path]::GetFileName($zipPath) + $CrLf),
+        $Utf8NoBom
+    )
+
+    $runtimeExeHash = (Get-FileHash -LiteralPath (Join-Path $runtimeRoot 'FilmGrain_Studio.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
+    New-ReleaseSourceArchive -CommittedArchive $sourceArchive -Destination $sourceZipPending -Commit $sourceCommit -ReleaseVersion $Version -RuntimeExeHash $runtimeExeHash
+    $sourceHash = (Get-FileHash -LiteralPath $sourceZipPending -Algorithm SHA256).Hash.ToLowerInvariant()
+    Move-Item -LiteralPath $sourceZipPending -Destination $sourceZipPath -Force
+    [IO.File]::WriteAllText($sourceShaPath, ($sourceHash + '  ' + [IO.Path]::GetFileName($sourceZipPath) + $CrLf), $Utf8NoBom)
+    Write-Host "[FGS] Source ZIP    : $sourceZipPath"
+    Write-Host "[FGS] Source SHA256 : $sourceShaPath"
+    Write-Host "[FGS] Source commit : $sourceCommit"
+
+    Write-Host "[FGS] Shared release build passed."
+    Write-Host "[FGS] ZIP    : $zipPath"
+    Write-Host "[FGS] SHA256 : $shaPath"
+    Write-Host "[FGS] Digest : $hash"
+}
+finally {
+    if (Test-Path -LiteralPath $sourceZipPending) {
+        Remove-Item -LiteralPath $sourceZipPending -Force -ErrorAction SilentlyContinue
+    }
+    if (Test-Path -LiteralPath $runtimeRoot) {
+        Remove-Item -LiteralPath $runtimeRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    if (Test-Path -LiteralPath $stageRoot) {
+        Remove-Item -LiteralPath $stageRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    if (Test-Path -LiteralPath $sourceArchive) {
+        Remove-Item -LiteralPath $sourceArchive -Force -ErrorAction SilentlyContinue
+    }
+}
+ } |
+            ForEach-Object { 'Utils/_FilmBorders/User/' + ($_ -split '  ')[1] }
+        )
+        if ($requiredBorderFiles.Count -ne 60) { throw ('Expected 60 preinstalled border files; got ' + $requiredBorderFiles.Count) }
+        foreach ($relative in $requiredBorderFiles) {
+            if ($entries -notcontains $relative) { throw ('Stable ZIP is missing required film-border asset: ' + $relative) }
         }
         if (@($entries | Where-Object { $_ -match '^(dotnet|Legacy|images|benchmark|[.]github)/' }).Count) { throw 'Developer content found in runtime ZIP.' }
         foreach ($entry in $archive.Entries) {

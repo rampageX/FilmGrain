@@ -25,6 +25,12 @@ $RequiredPackageFiles = @(
     'dotnet\BuildTools\LICENSE_Mono.Cecil.txt',
     'dotnet\BuildTools\build_verified.py',
     'Utils\FGS.ico',
+    'Utils\_FilmBorders\FGS_Bundled_15.zip',
+    'Utils\_FilmBorders\FGS_Bundled_15.manifest.txt',
+    'dotnet\BuildTools\Install_Bundled_FilmBorders.ps1',
+    'docs\film-border\FILM_BORDER_ASSET_SPEC.md',
+    'docs\film-border\FILM_BORDER_FRAMING_SPEC.md',
+    'docs\film-border\FILM_BORDER_INTEGRATION.md',
     'Utils\_FilmGrainSimplified\FilmGrainSimplified.hook.template',
     'Lang\zh-CN.ini',
     'Lang\en-US.ini',
@@ -128,6 +134,7 @@ $RequiredPackageFiles = @(
 )
 $RequiredPackageDirectories = @(
     'images',
+    'docs/film-border',
     'dotnet',
     'dotnet/BuildTools',
     'experiments/GpuSingleFrame',
@@ -140,6 +147,7 @@ $RequiredPackageDirectories = @(
 )
 $ReleaseSourceItems = @(
     'AGENTS.md',
+    'docs/film-border',
     'images',
     'Lang',
     'Utils',

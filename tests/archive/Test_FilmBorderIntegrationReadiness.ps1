@@ -11,7 +11,7 @@ $config=Get-Content -LiteralPath (Join-Path $root 'FilmGrain_Config.default.ini'
 foreach($key in @('FILM_BORDER_MODE','FILM_BORDER_AMP','FILM_BORDER_SPEED','FILM_BORDER_FREQUENCY')) {
     if($config -notmatch "(?m)^$key=") { throw "Missing default configuration: $key" }
 }
-foreach($file in @('FILM_BORDER_ASSET_SPEC.md','FILM_BORDER_INTEGRATION.md')) {
+foreach($file in @('docs/film-border/FILM_BORDER_ASSET_SPEC.md','docs/film-border/FILM_BORDER_INTEGRATION.md')) {
     if(-not (Test-Path -LiteralPath (Join-Path $root $file))) { throw "Missing documentation: $file" }
 }
 $dir=Join-Path $root 'Utils\_FilmBorders'
