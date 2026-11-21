@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.0.81 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.82 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 <table>
   <tr>
@@ -180,6 +180,8 @@ Source 与 Stable 来自同一次已提交源码归档，`SOURCE_BUILD_INFO.txt`
 
 自定义胶片框支持导入单张 **1920×1080、8-bit RGBA PNG**，视频画窗可使用符合规范的半透明叠加层，导入前进行逐像素校验。详细的制作尺寸、透明区域、文件要求和拒绝原因见 [FILM_BORDER_ASSET_SPEC.md](docs/film-border/FILM_BORDER_ASSET_SPEC.md)。自定义样式可以删除，运动效果由 FGS 独立提供，不需要两张素材。输出文件名后缀直接使用边框名称及 `_S`／`_D`，不追加 ID；在命名对话框拒绝重复名称。视频构图支持在画窗内拖动、缩放与 X/Y 精确定位，详见 [FILM_BORDER_FRAMING_SPEC.md](docs/film-border/FILM_BORDER_FRAMING_SPEC.md)。
 
+**v5.0.82**：主 FFmpeg 正式接管 `fruc_vulkan` 的滤镜能力检查和 AV1／HEVC／H.264／CPU 执行；特殊版 FFmpeg 独立保留用于 SVT-AV1-HDR／新功能实验。采用 [FGS FFmpeg Windows x64 静态构建](https://github.com/rampageX/FFmpeg/releases)，Stable `9.1.git-FGS-*` 已在 RTX 4080 验收 PQ／HLG 边框、SVP／NVEncC AI 插帧组合及 AV1／SVT 路线。新版 FFmpeg 的 S4 GPU 边框仅在检测支持时使用 `disable_host_image_copy=1`，旧版保持原参数。SVT 参数颗粒接受 `grav1synth ≥ 0.2.2`（包含 v0.2.3 Full Range 修复）；独立特殊版 SVT-HDR 暂不能与主 FFmpeg FRUC 在同一 CPU 编码图组合。FFmpeg 和 grav1synth 仍为用户自行配置的外部程序。
+
 **v5.0.81**：HEVC NVENC 可将 OpenSVPFlow（GPU16／CPU10）或 NVEncC AI FrameGen 与胶片边框组合编码。支持已验证的 SDR BT.709 TV Limited、HDR PQ／HLG BT.2020 TV Limited，静态／动态边框、预装及自定义样式；插帧后由 Vulkan/libplacebo 合成并送往 CUDA/NVENC。HDR NVEncC AI 仍要求已验证的 10-bit 实验构建。PC Full Range 暂不支持，详见 [TODO](docs/todo/FGS_FGB02_Full_Range_TODO.md)。不满足格式或 GPU 管线要求时显示中文原因，任务运行中失败也显示警告，不自动改走 CPU 边框。AV1 边框、FRUC Vulkan＋边框、HDR→SDR 边框仍不开放。
 
 开发/整合追踪见 [FILM_BORDER_INTEGRATION.md](docs/film-border/FILM_BORDER_INTEGRATION.md)。
@@ -337,7 +339,7 @@ FilmGrain_Studio.exe "D:\Videos\sample.mp4"
 
 SVT 与 x265 的质量模式使用 CRF，不能把数值与 NVENC CQ 横向比较。默认 CRF 起点分别为 30 / 22，不保证视觉无损；自动 CRF 使用这两个起点。速度行右侧箭头打开当前实际编码方式的小窗（NVENC / SVT / x265 / x264），只保存该方式的高级选项。主界面“高级设置”保留完整七页，AV1 / HEVC / H264 各页均含对应硬件和软件选项。两种入口共用控件、配置键、默认值和校验；HDR 和插帧箭头分别打开当前功能的小窗，仅保存对应参数。
 
-SVT 要求主 FFmpeg 实际链接 SVT-AV1-HDR；执行前用短片检查 10bit、实际参数及 HDR 分支标识，失败时停止，不换编码器。当前未提供自动下载此特殊 FFmpeg 的功能，请在路径设置中指定自己的构建。使用自定义 FRUC FFmpeg 时，实际承担编码的这个程序也必须支持所选 CPU 编码器。检查结果按程序路径、大小、修改时间与参数缓存，浏览和应用预设不触发全面硬件检测。
+SVT-AV1-HDR 实验编码需特殊版 FFmpeg 中的对应编码器；使用独立特殊版路径时，FGS 执行前验证 10-bit、实际参数及 HDR 分支标识，不静默更换编码器。正式 FFmpeg 负责 FRUC Vulkan，特殊版只提供 SVT-HDR 与实验性功能；独立特殊版 SVT-HDR 暂不能与正式版 FRUC 共用单进程编码图。编码器能力检查按程序路径、大小、修改时间及参数缓存，浏览或应用预设不触发全面硬件检测。
 
 x265 Threaded ME 为实验开关，默认关闭。官方说明其要求至少 32 个逻辑处理器，且与 VBV 不兼容；本版仅允许 CRF 组合，条件不满足直接提示，不假装启用。高频 CPU / 4K 不保证加速；13600K / 5800H 不满足上述线程门槛。
 
@@ -883,9 +885,9 @@ HDR10 渲染选 CPU10 时，完整和快捷高级设置均自动取消并禁用�
 
 ### FRUC Vulkan
 
-FRUC 使用含 `fruc_vulkan` 滤镜的 FFmpeg 构建，可在配置中沿用主 FFmpeg 或指定独立程序；普通 FFmpeg 未包含此滤镜时不可使用。高级 → 插帧提供 perf（slow / medium / fast，默认 medium）和 grid（auto / 1 / 2 / 4 / 8，默认 auto）。
+FRUC Vulkan 固定使用配置中的主 FFmpeg（需实际提供 `fruc_vulkan` 滤镜），不再切换到特殊版程序。FFmpeg 9.1 Stable 已提供该滤镜，实际支持以能力检测为准。高级 → 插帧提供 perf（slow / medium / fast，默认 medium）和 grid（auto / 1 / 2 / 4 / 8，默认 auto）。
 
-常规硬件检测同时探测实际 FRUC FFmpeg 滤镜及 Vulkan 光流运行能力。不可用时下拉项置灰，选择后显示简明原因并恢复原选项；完整检测信息保留在诊断日志。状态栏显示红色叉，悬浮提示区分 FFmpeg 滤镜 / 版本限制、设备 / 驱动 / 网格限制及其他失败原因。能力检查必须针对当前设置；例如网格 8 而 support mask 为 0x7 时提示不支持，不能只因其他网格可用就放行。
+常规硬件检测针对主 FFmpeg 探测 `fruc_vulkan` 滤镜及 Vulkan 光流运行能力。不可用时下拉项置灰，选择后显示简明原因并恢复原选项；完整检测信息保留在诊断日志。状态栏显示红色叉，悬浮提示区分 FFmpeg 滤镜 / 版本限制、设备 / 驱动 / 网格限制及其他失败原因。能力检查必须针对当前设置；例如网格 8 而 support mask 为 0x7 时提示不支持，不能只因其他网格可用就放行。
 
 AV1、HEVC、x264、H.264 NVENC 的已覆盖逐行 SDR 路线接入共享 FRUC 预处理。时间轴按音视频共同起点归一并恢复视频相对延迟；AV1 封装使用实际 IVF 探测结果。不叠加额外输出 -r/CFR 去补齐延迟首帧。不同容器、VFR、负起点或剪辑源仍应按具体素材验证，未测组合不能推断为同步通过。
 
@@ -1429,7 +1431,7 @@ Tests_Shared/（仅本地测试；不提交、不进入正式 Stable ZIP）
 
 ```text
 NVIDIA Driver 617.14
-FFmpeg 9.0.2
+FFmpeg Stable 9.1.git-FGS (rampageX/FFmpeg Windows x64 static)
 ```
 
 默认 FFmpeg / FFprobe 目录：
@@ -1569,7 +1571,7 @@ SVT、x265、x264 的高级选项均提供 Grain 调优：自动（默认，随�
 
 ### CPU 依赖与高级入口
 
-主 FFmpeg 路径指向同时包含 ffmpeg.exe、ffprobe.exe 的目录；SVT 路线需编译了 SVT-AV1-HDR 的版本，普通 libsvtav1 不能仅凭编码器名称视为兼容。执行前进行短编码验证并缓存结果；不支持参数时停止。若指定了独立 FRUC FFmpeg，相关路线使用的该构建也必须支持所选 CPU 编码器。
+主 FFmpeg 路径指向同时包含 ffmpeg.exe、ffprobe.exe 的目录；FRUC Vulkan 始终在主 FFmpeg 检测和执行。SVT-AV1-HDR 的实验 CPU 路线可指定独立特殊版 FFmpeg；普通 libsvtav1 不因编码器同名而被误认为 SVT-HDR。相关参数在执行前经短编码验证并缓存，不支持则停止。独立特殊版 SVT-HDR 与主 FFmpeg FRUC 的单进程组合暂不支持。SVT 参数颗粒的外部 `grav1synth` 最低版本为 0.2.2。
 
 速度／质量旁的小箭头只显示当前实际编码方式的高级设置；原高级按钮保留 AV1 / HEVC / H264 / 插帧 / HDR / 音频 / 其它七页。两入口使用同一组参数；小窗恢复默认只影响当前方式，完整窗口恢复默认作用于当前页，确定后保存，取消不保存。
 
@@ -1598,7 +1600,7 @@ FGS 保留输入的音视频时间关系。非零起点、音频提前（包括 
 
 
 ### 特殊版 FFmpeg 能力检测
-FRUC 与 CPU SVT 共用特殊版 FFmpeg 路径。配置中的刷新按钮分别报告 fruc_vulkan 和 SVT-AV1-HDR；状态栏以 SVT-AV1 显示所需特殊构建的支持状态，悬停查看路径与依据，点击刷新能力。SVT 检测使用 64×64 单帧 10-bit、hbd-mds=1 / tune=6 微型编码，结果随工具签名缓存；不修改编码配置，不承诺 HDR 元数据保留。状态栏显示完整 FFmpeg 版本标识（含 git 后缀）。旧缓存首次使用会刷新一次，之后继续复用。
+主 FFmpeg 配置下显示 `fruc_vulkan` 能力，FRUC 状态栏检测及实际编码统一使用主 FFmpeg；特殊版 FFmpeg 仅显示 SVT-AV1-HDR 独立检测（保留实验入口）。SVT-HDR 检测采用 64×64 单帧 10-bit、hbd-mds=1 / tune=6 微型编码，结果随工具签名缓存；不修改编码配置。状态栏保留完整 FFmpeg 版本标识和原有定向刷新机制。
 
 ### 队列失败、续跑与重新处理
 高级 → 其它 → **跳过队列中失败的文件**：默认关闭；开启后，执行失败保留“失败”状态并继续下一项。该选项属于整个队列，在开始时固定，不跟随逐文件配置或预设变化；用户取消始终停止整个队列。存在失败时，最终结果仍报告失败，日志保留逐项结果。启动前的配置、媒体信息和空间检查仍须通过。
@@ -1614,7 +1616,7 @@ AV1 颗粒百分比处理兼容 grav1synth inspect 对无色度颗粒平面输�
 普通目录和最近使用中，点击星标仅更新收藏状态，保留目录、搜索、页码与当前卡片；在“我的最爱”取消收藏后仍停留当前页，末页为空时退到最后一个有效页。目录弹出列表与滚动条跟随深浅主题。
 
 
-收藏后星标显示黄色实心星，取消收藏恢复空心星。主界面右下角版本号可点击打开项目 GitHub 主页。配置页主 FFmpeg 与特殊版 FFmpeg 标签旁的 `[?]` 分别打开 Windows Stable 和 FRUC / SVT-AV1-HDR 推荐下载页面，悬停可查看网址。
+收藏后星标显示黄色实心星，取消收藏恢复空心星。主界面右下角版本号可点击打开项目 GitHub 主页。配置页主 FFmpeg 与特殊版 FFmpeg 标签旁的 `[?]` 分别打开原有 Windows Stable 下载页及 SVT-AV1-HDR 实验构建页面；FGS 自编版在 [rampageX/FFmpeg Releases](https://github.com/rampageX/FFmpeg/releases) 提供，悬停可查看网址。
 
 ### 任务栏处理进度
 

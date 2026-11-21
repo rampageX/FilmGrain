@@ -1,3 +1,10 @@
+## v5.0.82 — FFmpeg 9.1 稳定构建、FRUC 主版统一及 AV1 颗粒兼容（2026-11-22）
+
+- 支持基于官方 FFmpeg Stable `release/9.1` 的 FGS Windows x64 静态构建。GPU 边框使用 Vulkan/CUDA 互操作补丁时，仅对支持新设备选项的 FFmpeg 自动追加 `disable_host_image_copy=1`；旧 FFmpeg 不增加未知参数。RTX 4080 实测通过 PQ、HLG GPU 边框以及 SVP／NVEncC AI 与动态边框组合。
+- `fruc_vulkan` 统一由主 FFmpeg 提供：AV1、HEVC、H.264、CPU 路线与能力检测不再使用特殊版 FRUC。特殊版 FFmpeg 配置、SVT-AV1-HDR 试验编码器和独立 SVT-HDR 能力检测保留；独立 SVT-HDR 与主 FFmpeg FRUC 同时组合明确拒绝，不暗中切换执行程序。
+- SVT AV1 容器颗粒及 AV1 ISO 强度优化的 `grav1synth` 版本门槛统一为 **≥0.2.2**，修复 v0.2.3 被误判不兼容而中止预览的问题。版本无效或低于门槛仍明确拒绝。
+- 继续保留 v5.0.81 已验收的 S4 GPU 边框、PQ/HLG、SVP/AI、15 款内置边框和现有不支持组合限制；本版不打包 FFmpeg 或 grav1synth。
+
 ## v5.0.81 — FGB-02 插帧＋GPU 胶片边框及失败弹窗
 
 - HEVC NVENC 新增 OpenSVPFlow／NVEncC AI FrameGen 与胶片边框的正式组合管线；插帧视频先经 S4 Vulkan/libplacebo GPU 合成，再由 CUDA/NVENC 编码，原始音频沿用公共 PTS/同步逻辑。

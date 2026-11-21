@@ -1,8 +1,7 @@
-# Film Grain Studio v5.0.81
+# Film Grain Studio v5.0.82
 
-- FGB-02：HEVC NVENC 正式支持 OpenSVPFlow（SDR、PQ、HLG；HDR GPU16/CPU10）或 NVEncC AI FrameGen（SDR；PQ/HLG 使用已验证的 10-bit 实验版）与胶片边框组合。插帧后直接经过现有 S4 Vulkan/libplacebo GPU 合成，送 CUDA/NVENC，不新增大型中间文件或 CPU 回退。
-- 修复组合管线的视频、原始音频、Grain Plate、边框素材流编号；在 GPU 合成前规范插帧帧率，保留现有音视频时间轴、静态／动态运动、构图和预装 15 款边框。
-- SDR GPU 输出明确使用 BT.709 Limited；PQ 与 HLG 保留各自色彩及 GPU 合成路线，HLG 沿用两阶段 libplacebo。用户已实机验收 SDR／PQ／HLG × SVP／AI 六组组合。
-- 不支持的色彩或功能组合显示中文提示并附带原始错误；组合任务运行中失败会在结束时显示一次警告，日志仍保留详细信息。
-- PC Full Range 转换仍不开放，记录到 `docs/todo/FGS_FGB02_Full_Range_TODO.md`；不放开 AV1＋边框、FRUC Vulkan＋边框或 HDR→SDR＋边框。
-- 保留 v5.0.80 的全部 HDR 合成、GPU 预览和 15 款预装边框素材；正式构建恢复 `Stable` 标记，由 Windows runner 编译及校验。
+- **FFmpeg Stable 9.1 适配**：支持 rampageX/FFmpeg 官方源码静态构建及经 RTX 4080 验证的 `disable_host_image_copy=1` Vulkan/CUDA 兼容修复；旧版 FFmpeg 不传入新参数。
+- **FRUC Vulkan 正式归主版**：滤镜检测、能力刷新和 AV1／HEVC／H.264／CPU 路线统一使用主 FFmpeg。特殊版 FFmpeg 与 SVT-AV1-HDR 实验入口继续保留，SVT-HDR 单进程与独立主版 FRUC 不支持组合。
+- **grav1synth 版本兼容**：SVT 颗粒与 AV1 ISO 优化统一接受 `grav1synth >= 0.2.2`，包括修复 Full Range 的 0.2.3；不再使用精确版本白名单。
+- 已通过 Windows 正式包构建与现有 GPU/HDR/边框回归；用户已实测通过 Stable 9.1 下的 SDR/PQ/HLG、SVP/AI 与 SVT/AV1 路线。
+- 依赖 FFmpeg 与 grav1synth 仍需自行配置。本版保留预装 15 款边框和既有功能范围。
