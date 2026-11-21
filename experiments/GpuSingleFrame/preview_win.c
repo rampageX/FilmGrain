@@ -45,21 +45,29 @@ static bool s_border_settings;
 static int s_border_mode; /* legacy OFF/STATIC/WEAVE fallback */
 static const wchar_t *s_border_choices_file;
 static const wchar_t *s_initial_border_mode;
-static HWND s_border_combo;
-static WNDPROC s_original_border_combo_proc;
+static HWND s_border_list;
+static WNDPROC s_original_border_list_proc;
 static const char *s_border_action="APPLY";
 #define FGS_BORDER_MAX_CHOICES 48
-#define FGS_BORDER_COMBO_ID 301
+#define FGS_BORDER_LIST_ID 301
 struct FgsBorderChoice {
     char mode[96];
     wchar_t title[128];
     wchar_t raw_path[32768];
+    wchar_t thumbnail_path[32768];
     bool user;
     bool weave;
     int aperture_width,aperture_height; /* 1920x1080 coordinate system */
 };
 static struct FgsBorderChoice s_border_choices[FGS_BORDER_MAX_CHOICES];
 static int s_border_choices_count, s_border_selection;
+static int s_border_style_indices[FGS_BORDER_MAX_CHOICES],s_border_style_count;
+static HBITMAP s_border_thumb_bitmaps[FGS_BORDER_MAX_CHOICES];
+static int s_border_arrow_hover, s_border_arrow_pressed;
+static int s_border_wheel_delta;
+static bool s_border_arrow_tracking;
+enum { BORDER_SIDEBAR_WIDTH=164, BORDER_THUMB_W=128, BORDER_THUMB_H=72,
+       BORDER_LIST_ITEM_H=104, BORDER_LIST_TOP=54, BORDER_LIST_FOOT=53 };
 static double s_motion_amp=1,s_motion_speed=1,s_motion_frequency=1;
 static double s_focus_x=0.5,s_focus_y=0.5,s_focus_zoom=1.0;
 static bool s_compose_mode=false,s_focus_dragging=false;
@@ -182,7 +190,8 @@ static void restore_window_bounds(HWND window)
 
     RECT rect = bounds.normal;
     int width = rect.right-rect.left, height = rect.bottom-rect.top;
-    if (width < 820 || width > 16384 || height < 420 || height > 16384) return;
+    if (width < (s_border_settings?980:820) || width > 16384 ||
+        height < (s_border_settings?720+border_timeline_shift():420) || height > 16384) return;
     /* Monitor removal must not resurrect the window outside all displays. */
     HMONITOR monitor = MonitorFromRect(&rect,MONITOR_DEFAULTTONULL);
     MONITORINFO info = {0};
@@ -191,7 +200,8 @@ static void restore_window_bounds(HWND window)
     RECT work = info.rcWork;
     if (width > work.right-work.left) width = work.right-work.left;
     if (height > work.bottom-work.top) height = work.bottom-work.top;
-    if (width < 820 || height < 420) return;
+    if (width < (s_border_settings?980:820) ||
+        height < (s_border_settings?720+border_timeline_shift():420)) return;
     int x = rect.left, y = rect.top;
     if (x < work.left) x = work.left;
     if (y < work.top) y = work.top;
@@ -214,7 +224,7 @@ static bool write_result(void)
     if (!file) { free(temp); return false; }
     int rc;
     if (s_border_settings) {
-        const char *mode=s_border_combo && s_border_choices_count>0 ?
+        const char *mode=s_border_list && s_border_choices_count>0 ?
             s_border_choices[s_border_selection].mode :
             s_border_mode==2?"DARK_WEAVE":s_border_mode==1?"DARK_STATIC":"OFF";
         rc = fprintf(file, "{\"Version\":5,\"Action\":\"%s\",\"FilmBorderMode\":\"%s\",\"MotionAmplitude\":%.3f,\"MotionSpeed\":%.3f,\"MotionFrequency\":%.3f,\"FocusX\":%.10g,\"FocusY\":%.10g,\"Zoom\":%.10g}\n",
@@ -305,7 +315,7 @@ static bool load_border_choices(const wchar_t *path, const wchar_t *initial_mode
                         struct FgsBorderChoice *c=&s_border_choices[s_border_choices_count];
                         // Catalog v1.1 appends centered aperture geometry:
                         // mode<TAB>title<TAB>texture<TAB>width<TAB>height.
-                        wchar_t *third=wcschr(second,L'\t'),*fourth=NULL;
+                        wchar_t *third=wcschr(second,L'\t'),*fourth=NULL,*fifth=NULL;
                         int apertureW=1680,apertureH=wcsncmp(line,L"DARK_",5)==0?990:748;
                         bool valid=third!=NULL;
                         if(valid) {
@@ -314,6 +324,10 @@ static bool load_border_choices(const wchar_t *path, const wchar_t *initial_mode
                         }
                         if(valid) {
                             *fourth++=0;
+                            // v1.2 thumbnail path is an optional sixth column.
+                            // Split before parsing numeric height (older five-column files still work).
+                            fifth=wcschr(fourth,L'\t');
+                            if(fifth)*fifth++=0;
                             wchar_t *endW=NULL,*endH=NULL;
                             long aw=wcstol(third,&endW,10),ah=wcstol(fourth,&endH,10);
                             valid=endW && !*endW && endH && !*endH &&
@@ -322,13 +336,16 @@ static bool load_border_choices(const wchar_t *path, const wchar_t *initial_mode
                         }
                         valid=valid && wcslen(line)>0 && wcslen(line)<sizeof(c->mode) &&
                             wcslen(first)<sizeof(c->title)/sizeof(wchar_t) &&
-                            wcslen(second)<sizeof(c->raw_path)/sizeof(wchar_t);
+                            wcslen(second)<sizeof(c->raw_path)/sizeof(wchar_t) &&
+                            (!fifth || wcslen(fifth)<sizeof(c->thumbnail_path)/sizeof(wchar_t));
                         if(valid)for(const wchar_t *m=line;*m;m++)if(!((*m>=L'A'&&*m<=L'Z')||
                             (*m>=L'0'&&*m<=L'9')||*m==L'_'))valid=false;
                         if(valid) {
                             for(size_t j=0;j<wcslen(line);j++)c->mode[j]=(char)line[j];
                             wcscpy(c->title,first);
                             wcscpy(c->raw_path,second);
+                            if(fifth)wcscpy(c->thumbnail_path,fifth);
+                            else c->thumbnail_path[0]=0;
                             c->weave=wcsstr(line,L"_WEAVE")!=NULL;
                             c->user=wcsncmp(line,L"USER_",5)==0;
                             c->aperture_width=apertureW;c->aperture_height=apertureH;
@@ -344,98 +361,167 @@ static bool load_border_choices(const wchar_t *path, const wchar_t *initial_mode
         }
     }
     free(buffer);
-    return s_border_choices_count>=3 && !strcmp(s_border_choices[0].mode,"OFF");
+    if(s_border_choices_count<3 || strcmp(s_border_choices[0].mode,"OFF"))return false;
+    // Each style has a STATIC and WEAVE catalog entry; render only STATIC here.
+    for(int i=1;i<s_border_choices_count;i++) {
+        const char *mode=s_border_choices[i].mode;
+        size_t n=strlen(mode);
+        if(n>7 && !strcmp(mode+n-7,"_STATIC"))
+            s_border_style_indices[s_border_style_count++]=i;
+    }
+    return s_border_style_count>0;
 }
 
-static void border_choice_buttons(const RECT *client,RECT *import,RECT *remove,RECT *edit)
+static void border_choice_buttons(const RECT *client,RECT *import,RECT *remove,
+                                  RECT *edit,RECT *rebuild)
 {
     int top=client->bottom-panel_height()+(s_video_path?61:21)+border_timeline_shift();
+    *rebuild=(RECT){client->right-508,top,client->right-390,top+29};
     *import=(RECT){client->right-376,top,client->right-278,top+29};
     *remove=(RECT){client->right-268,top,client->right-170,top+29};
     *edit=(RECT){client->right-160,top,client->right-13,top+29};
 }
-/* Paint the closed COMBOBOX ourselves: owner-draw only paints its list items,
- * while Windows otherwise paints the collapsed field and arrow in light mode. */
-static void paint_border_combo(HWND combo, HDC dc)
+static void border_mode_buttons(const RECT *client,RECT *static_btn,RECT *weave_btn,RECT *off_btn)
 {
-    RECT rc;
-    GetClientRect(combo,&rc);
-    HBRUSH bg=CreateSolidBrush(RGB(27,28,30));
-    FillRect(dc,&rc,bg);
-    DeleteObject(bg);
-    HPEN outline=CreatePen(PS_SOLID,1,RGB(76,80,84));
-    HGDIOBJ oldpen=SelectObject(dc,outline);
-    HGDIOBJ oldbrush=SelectObject(dc,GetStockObject(NULL_BRUSH));
-    Rectangle(dc,rc.left,rc.top,rc.right,rc.bottom);
-    SelectObject(dc,oldbrush);
-    SelectObject(dc,oldpen);
-    DeleteObject(outline);
-
-    int arrow_x=rc.right-25;
-    HPEN separator=CreatePen(PS_SOLID,1,RGB(64,67,71));
-    oldpen=SelectObject(dc,separator);
-    MoveToEx(dc,arrow_x,rc.top+4,NULL);
-    LineTo(dc,arrow_x,rc.bottom-4);
-    SelectObject(dc,oldpen);
-    DeleteObject(separator);
-
-    if(s_border_selection>=0 && s_border_selection<s_border_choices_count) {
-        HFONT font=(HFONT)SendMessageW(combo,WM_GETFONT,0,0);
-        HGDIOBJ oldfont=font?SelectObject(dc,font):NULL;
-        RECT label=rc;
-        label.left+=9;
-        label.right=arrow_x-6;
-        SetBkMode(dc,TRANSPARENT);
-        SetTextColor(dc,RGB(233,236,239));
-        DrawTextW(dc,s_border_choices[s_border_selection].title,-1,&label,
-            DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
-        if(font)SelectObject(dc,oldfont);
-    }
-    int cx=rc.right-13,cy=(rc.top+rc.bottom)/2+2;
-    POINT triangle[3]={{cx-5,cy-3},{cx+5,cy-3},{cx,cy+3}};
-    HPEN arrow_pen=CreatePen(PS_SOLID,1,RGB(204,210,214));
-    HBRUSH arrow_brush=CreateSolidBrush(RGB(204,210,214));
-    oldpen=SelectObject(dc,arrow_pen);
-    oldbrush=SelectObject(dc,arrow_brush);
-    Polygon(dc,triangle,3);
-    SelectObject(dc,oldbrush);
-    SelectObject(dc,oldpen);
-    DeleteObject(arrow_brush);
-    DeleteObject(arrow_pen);
+    int top=client->bottom-panel_height()+(s_video_path?61:21)+border_timeline_shift();
+    *static_btn=(RECT){144,top,230,top+29};
+    *weave_btn=(RECT){238,top,324,top+29};
+    *off_btn=(RECT){332,top,402,top+29};
 }
-static LRESULT CALLBACK border_combo_proc(HWND combo, UINT message, WPARAM wparam, LPARAM lparam)
+static void border_sidebar_buttons(const RECT *client,RECT *up,RECT *down)
 {
-    if(message==WM_PAINT) {
-        PAINTSTRUCT ps;
-        HDC dc=BeginPaint(combo,&ps);
-        paint_border_combo(combo,dc);
-        EndPaint(combo,&ps);
-        return 0;
-    }
-    if(message==WM_PRINTCLIENT) {
-        paint_border_combo(combo,(HDC)wparam);
-        return 0;
-    }
-    if(message==WM_ERASEBKGND)return 1;
-    if(message==WM_NCPAINT) {
-        LRESULT result=CallWindowProcW(s_original_border_combo_proc,combo,message,wparam,lparam);
-        HDC dc=GetWindowDC(combo);
-        if(dc) {
-            RECT r;GetWindowRect(combo,&r);
-            r.right-=r.left;r.bottom-=r.top;r.left=0;r.top=0;
-            HBRUSH edge=CreateSolidBrush(RGB(76,80,84));
-            FrameRect(dc,&r,edge);
-            DeleteObject(edge);
-            ReleaseDC(combo,dc);
+    int view_height=client->bottom-panel_height();
+    *up=(RECT){12,12,BORDER_SIDEBAR_WIDTH-12,46};
+    *down=(RECT){12,view_height-45,BORDER_SIDEBAR_WIDTH-12,view_height-11};
+}
+static int border_sidebar_hit(const RECT *client,POINT pos)
+{
+    RECT up,down;border_sidebar_buttons(client,&up,&down);
+    return PtInRect(&up,pos)?-1:PtInRect(&down,pos)?1:0;
+}
+static void border_sidebar_redraw(void)
+{
+    if(!s_window)return;
+    RECT client;GetClientRect(s_window,&client);
+    RECT up,down;border_sidebar_buttons(&client,&up,&down);
+    InvalidateRect(s_window,&up,FALSE);
+    InvalidateRect(s_window,&down,FALSE);
+}
+/* Same window-proc subclassing pattern as the original dark combo: preserve
+ * Escape/Enter in the list without inventing a new control class. */
+static void border_list_scroll_lines(int lines);
+static LRESULT CALLBACK border_list_proc(HWND list,UINT message,WPARAM wparam,LPARAM lparam)
+{
+    if(message==WM_MOUSEWHEEL) {
+        // Scroll even though WS_VSCROLL is intentionally absent.
+        s_border_wheel_delta+=(short)GET_WHEEL_DELTA_WPARAM(wparam);
+        while(s_border_wheel_delta>=WHEEL_DELTA) {
+            border_list_scroll_lines(-3);
+            s_border_wheel_delta-=WHEEL_DELTA;
         }
-        return result;
+        while(s_border_wheel_delta<=-WHEEL_DELTA) {
+            border_list_scroll_lines(3);
+            s_border_wheel_delta+=WHEEL_DELTA;
+        }
+        return 0;
     }
-    if(message==WM_SETFOCUS || message==WM_KILLFOCUS) {
-        LRESULT result=CallWindowProcW(s_original_border_combo_proc,combo,message,wparam,lparam);
-        RedrawWindow(combo,NULL,NULL,RDW_FRAME|RDW_INVALIDATE|RDW_UPDATENOW);
-        return result;
+    if(message==WM_KEYDOWN && (wparam==VK_ESCAPE || wparam==VK_RETURN)) {
+        SetFocus(s_window);
+        return SendMessageW(s_window,message,wparam,lparam);
     }
-    return CallWindowProcW(s_original_border_combo_proc,combo,message,wparam,lparam);
+    return CallWindowProcW(s_original_border_list_proc,list,message,wparam,lparam);
+}
+static void border_list_layout(const RECT *client)
+{
+    if(!s_border_list)return;
+    int view_height=client->bottom-panel_height();
+    int h=view_height-BORDER_LIST_TOP-BORDER_LIST_FOOT;
+    if(h<1)h=1;
+    MoveWindow(s_border_list,8,BORDER_LIST_TOP,BORDER_SIDEBAR_WIDTH-16,h,TRUE);
+}
+static int border_style_to_choice(int style,bool weave)
+{
+    if(style<0 || style>=s_border_style_count)return 0;
+    int index=s_border_style_indices[style];
+    if(!weave)return index;
+    const char *base=s_border_choices[index].mode;
+    size_t n=strlen(base);
+    if(n<8)return index;
+    for(int i=1;i<s_border_choices_count;i++) {
+        const char *candidate=s_border_choices[i].mode;
+        if(strlen(candidate)==n-7+6 && !strncmp(base,candidate,n-7) &&
+           !strcmp(candidate+n-7,"_WEAVE"))return i;
+    }
+    return index;
+}
+static int border_choice_to_style(int choice)
+{
+    if(choice==0)return -1;
+    for(int i=0;i<s_border_style_count;i++)
+        if(choice==border_style_to_choice(i,false) || choice==border_style_to_choice(i,true))
+            return i;
+    return -1;
+}
+static void border_list_scroll_lines(int lines)
+{
+    if(!s_border_list || s_border_style_count<=0)return;
+    int top=(int)SendMessageW(s_border_list,LB_GETTOPINDEX,0,0);
+    if(top==LB_ERR)return;
+    int target=top+lines;
+    if(target<0)target=0;
+    if(target>=s_border_style_count)target=s_border_style_count-1;
+    SendMessageW(s_border_list,LB_SETTOPINDEX,target,0);
+}
+static void border_list_scroll(int direction)
+{
+    if(!s_border_list)return;
+    RECT rc;GetClientRect(s_border_list,&rc);
+    int visible=(rc.bottom-rc.top)/BORDER_LIST_ITEM_H;
+    int shift=visible>1?visible-1:1;
+    border_list_scroll_lines(direction<0?-shift:shift);
+}
+static void paint_border_sidebar(HDC dc,const RECT *client)
+{
+    if(!s_border_settings || !s_border_list)return;
+    RECT sidebar={0,0,BORDER_SIDEBAR_WIDTH,client->bottom-panel_height()};
+    HBRUSH bg=CreateSolidBrush(RGB(37,38,40));
+    FillRect(dc,&sidebar,bg);DeleteObject(bg);
+    RECT edge={BORDER_SIDEBAR_WIDTH-1,0,BORDER_SIDEBAR_WIDTH,sidebar.bottom};
+    HBRUSH border=CreateSolidBrush(RGB(64,66,71));FillRect(dc,&edge,border);
+    RECT up,down;border_sidebar_buttons(client,&up,&down);
+    HBRUSH normal=CreateSolidBrush(RGB(27,28,30));
+    HBRUSH hover=CreateSolidBrush(RGB(34,49,44));
+    HBRUSH pressed=CreateSolidBrush(RGB(0,101,79));
+    const RECT buttons[]={up,down};
+    for(int i=0;i<2;i++) {
+        int direction=i==0?-1:1;
+        bool active=s_border_arrow_hover==direction;
+        bool down_now=active && s_border_arrow_pressed==direction;
+        FillRect(dc,&buttons[i],down_now?pressed:active?hover:normal);
+        FrameRect(dc,&buttons[i],border);
+        // DPI-neutral GDI triangle instead of tiny text labels and a new control.
+        int cx=(buttons[i].left+buttons[i].right)/2;
+        int cy=(buttons[i].top+buttons[i].bottom)/2;
+        int half=(buttons[i].bottom-buttons[i].top)/4;
+        POINT tri[3];
+        if(direction<0) {
+            tri[0]=(POINT){cx,cy-half};
+            tri[1]=(POINT){cx-half,cy+half};
+            tri[2]=(POINT){cx+half,cy+half};
+        } else {
+            tri[0]=(POINT){cx-half,cy-half};
+            tri[1]=(POINT){cx+half,cy-half};
+            tri[2]=(POINT){cx,cy+half};
+        }
+        COLORREF color=down_now?RGB(190,255,225):active?RGB(0,204,151):RGB(235,237,240);
+        HBRUSH glyph=CreateSolidBrush(color);
+        HPEN pen=CreatePen(PS_SOLID,1,color);
+        HGDIOBJ oldbrush=SelectObject(dc,glyph),oldpen=SelectObject(dc,pen);
+        Polygon(dc,tri,3);
+        SelectObject(dc,oldpen);SelectObject(dc,oldbrush);
+        DeleteObject(pen);DeleteObject(glyph);
+    }
+    DeleteObject(normal);DeleteObject(hover);DeleteObject(pressed);DeleteObject(border);
 }
 /* Border names are catalog entries, not a fixed three-state enum.
  * The catalog validates the actual style after arguments are parsed. */
@@ -451,13 +537,6 @@ static bool valid_border_mode_arg(const wchar_t *name)
     return name[0]!=L'_';
 }
 
-static void border_combo_layout(const RECT *client)
-{
-    if(!s_border_combo)return;
-    int top=client->bottom-panel_height()+(s_video_path?61:21)+border_timeline_shift();
-    int right=client->right-394;
-    MoveWindow(s_border_combo,144,top,right-144,260,FALSE);
-}
 static bool border_choice_apply(int index,bool reload)
 {
     if(index<0 || index>=s_border_choices_count)return false;
@@ -477,7 +556,19 @@ static bool border_choice_apply(int index,bool reload)
         }
     }
     redraw_controls();
+    if(s_border_list) {
+        int style=border_choice_to_style(s_border_selection);
+        SendMessageW(s_border_list,LB_SETCURSEL,style<0?(WPARAM)-1:(WPARAM)style,0);
+        InvalidateRect(s_border_list,NULL,FALSE);
+    }
     return true;
+}
+static bool border_mode_apply(bool weave)
+{
+    if(!s_border_selection) {s_border_weave=weave;redraw_controls();return true;}
+    int style=border_choice_to_style(s_border_selection);
+    if(style<0)return false;
+    return border_choice_apply(border_style_to_choice(style,weave),false);
 }
 
 /* Original FGS 25/50/75/100% steps stay pre-baked. R4 adds a single reusable
@@ -821,7 +912,8 @@ static bool upload_pixel_noise(const unsigned char *raw, bool rgba)
 }
 
 /* A separate D3D11 child window keeps GDI slider painting completely outside
- * the GPU swapchain. No GDI-over-D3D overlays or repeated video uploads. */
+ * the GPU swapchain. Border-only view reserves a left GDI thumbnail sidebar.
+ * No GDI-over-D3D overlays or repeated video uploads. */
 static void track_bounds(RECT *client, int *left, int *right, int *top)
 {
     *left = 144;
@@ -993,28 +1085,44 @@ static void paint_sliders(HWND window)
                     s_duration_seconds>0?s_pending_seconds/s_duration_seconds:0.0,true,duration,true);
         y+=40;
     }
-    if (s_border_settings && s_border_combo) {
-        RECT import,remove,edit;
-        border_choice_buttons(&client,&import,&remove,&edit);
+    if (s_border_settings && s_border_list) {
+        RECT import,remove,edit,rebuild;
+        border_choice_buttons(&client,&import,&remove,&edit,&rebuild);
         RECT label={14,import.top,133,import.bottom};
         SetBkMode(dc,TRANSPARENT);
         SetTextColor(dc,RGB(235,237,240));
-        DrawTextW(dc,L"边框样式",-1,&label,DT_RIGHT|DT_VCENTER|DT_SINGLELINE);
+        DrawTextW(dc,L"边框模式",-1,&label,DT_RIGHT|DT_VCENTER|DT_SINGLELINE);
+        RECT static_btn,weave_btn,off_btn;
+        border_mode_buttons(&client,&static_btn,&weave_btn,&off_btn);
         HBRUSH normal=CreateSolidBrush(RGB(27,28,30));
         HBRUSH disabled=CreateSolidBrush(RGB(47,48,50));
+        HBRUSH selected=CreateSolidBrush(RGB(0,111,85));
+        HBRUSH edge=CreateSolidBrush(RGB(64,66,71));
+        FillRect(dc,&static_btn,s_border_selection && !s_border_weave?selected:normal);
+        FillRect(dc,&weave_btn,s_border_selection && s_border_weave?selected:normal);
+        FillRect(dc,&off_btn,!s_border_selection?selected:normal);
+        FrameRect(dc,&static_btn,edge);FrameRect(dc,&weave_btn,edge);FrameRect(dc,&off_btn,edge);
+        SetTextColor(dc,RGB(235,237,240));
+        DrawTextW(dc,L"静态",-1,&static_btn,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+        DrawTextW(dc,L"动态",-1,&weave_btn,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+        DrawTextW(dc,L"关闭",-1,&off_btn,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+        FillRect(dc,&rebuild,normal);
         FillRect(dc,&import,normal);
         bool can_delete=s_border_selection>=0 && s_border_selection<s_border_choices_count &&
             s_border_choices[s_border_selection].user;
         FillRect(dc,&remove,can_delete?normal:disabled);
         bool classic=!strncmp(s_border_choices[s_border_selection].mode,"CLASSIC_",8);
         FillRect(dc,&edit,classic?normal:disabled);
+        FrameRect(dc,&rebuild,edge);FrameRect(dc,&import,edge);
+        FrameRect(dc,&remove,edge);FrameRect(dc,&edit,edge);
         SetTextColor(dc,RGB(235,237,240));
+        DrawTextW(dc,L"重建缩略图",-1,&rebuild,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
         DrawTextW(dc,L"导入...",-1,&import,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
         SetTextColor(dc,can_delete?RGB(235,237,240):RGB(135,139,143));
         DrawTextW(dc,L"删除",-1,&remove,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
         SetTextColor(dc,classic?RGB(235,237,240):RGB(135,139,143));
         DrawTextW(dc,L"编辑边印文字",-1,&edit,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
-        DeleteObject(normal);DeleteObject(disabled);
+        DeleteObject(normal);DeleteObject(disabled);DeleteObject(selected);DeleteObject(edge);
         wchar_t motion_value[40];
         swprintf(motion_value,40,L"%.2f x",s_motion_amp);
         draw_slider(dc,&client,panel.top+130+border_timeline_shift(),L"晃动幅度",s_motion_amp/3.,true,motion_value,false);
@@ -1108,6 +1216,7 @@ static void paint_sliders(HWND window)
         SelectObject(memory,old_bitmap);DeleteObject(bitmap);
     }
     if (memory) DeleteDC(memory);
+    if(s_border_settings && s_border_list)paint_border_sidebar(target,&client);
     EndPaint(window, &ps);
 }
 
@@ -1455,8 +1564,9 @@ static bool upload_border_texture(void)
         .type=PL_FMT_UNORM, .width=1920, .height=1080,
         .pixel_stride=stride, .row_stride=1920*stride, .pixels=rgba,
     };
-    const int sizes[4] = {component_bits,component_bits,component_bits,component_bits};
-    const int shifts[4] = {0,component_bits,2*component_bits,3*component_bits};
+    // libplacebo may normalize these component descriptors in place.
+    int sizes[4] = {component_bits,component_bits,component_bits,component_bits};
+    int shifts[4] = {0,component_bits,2*component_bits,3*component_bits};
     pl_plane_data_from_comps(&data, sizes, shifts);
     bool okay = pl_upload_plane(s_device->gpu, &plane, &s_border_texture, &data);
     free(rgba);
@@ -1465,7 +1575,7 @@ static bool upload_border_texture(void)
 
 static bool border_has_classic_geometry(void)
 {
-    if (s_border_settings && s_border_combo &&
+    if (s_border_settings && s_border_list &&
         s_border_selection>=0 && s_border_selection<s_border_choices_count)
         return !strncmp(s_border_choices[s_border_selection].mode,"CLASSIC_",8) ||
                s_border_choices[s_border_selection].user;
@@ -1478,7 +1588,7 @@ static void border_aperture(int *width,int *height)
     int w=s_preview_aperture_width?s_preview_aperture_width:1680;
     int h=s_preview_aperture_height?s_preview_aperture_height:
           (border_has_classic_geometry()?FGS_CLASSIC_APERTURE_HEIGHT_1080:990);
-    if(s_border_settings && s_border_combo &&
+    if(s_border_settings && s_border_list &&
        s_border_selection>=0 && s_border_selection<s_border_choices_count) {
         w=s_border_choices[s_border_selection].aperture_width;
         h=s_border_choices[s_border_selection].aperture_height;
@@ -1492,7 +1602,7 @@ static void border_aperture(int *width,int *height)
 /* Translate a cursor position from the fitted D3D11 child into aperture UVs. */
 static bool focus_view_point(HWND view,int mouse_x,int mouse_y,double *u,double *v)
 {
-    if(!s_border_settings || !s_compose_mode || !s_border_combo ||
+    if(!s_border_settings || !s_compose_mode || !s_border_list ||
        !strcmp(s_border_choices[s_border_selection].mode,"OFF"))return false;
     RECT client;GetClientRect(view,&client);
     if(!s_width||!s_height||!client.right||!client.bottom)return false;
@@ -1657,7 +1767,7 @@ static double render_once(bool report)
         if (s_display_grain) {params.hooks=pixel_hooks;params.num_hooks=1;}
     }
     bool border_visible=s_border_path && (!s_border_settings ||
-        (s_border_combo ? strcmp(s_border_choices[s_border_selection].mode,"OFF")!=0 : s_border_mode!=0));
+        (s_border_list ? strcmp(s_border_choices[s_border_selection].mode,"OFF")!=0 : s_border_mode!=0));
     bool okay = border_visible ? render_film_border(source,&target,&params) :
         pl_render_image(s_renderer,&source,&target,&params);
     if (!okay || !pl_swapchain_submit_frame(s_swapchain)) {
@@ -1678,7 +1788,7 @@ static double render_once(bool report)
     else swprintf(grain_label,40,L"%ls %d%%",s_plate_mode?L"Plate":L"Grain",s_display_grain?s_strength:0);
     if(s_border_settings)
         swprintf(title,256,L"FGS 添加边框 | %ls | %ls | %.2f ms",
-            s_border_combo?s_border_choices[s_border_selection].title:
+            s_border_list?s_border_choices[s_border_selection].title:
                 s_border_mode==2?L"动态":s_border_mode==1?L"静态":L"关闭",
             s_pixel_view?L"1:1":L"Fit",delta);
     else swprintf(title, 256, L"FGS GPU Preview%ls%ls | %ls | %ls | LUT %d%% | %.2f ms | G / L / ESC",
@@ -1814,7 +1924,28 @@ static LRESULT CALLBACK window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM
             }
             if (PtInRect(&cancel,point)) {DestroyWindow(window);return 0;}
         }
-        if(s_border_settings && s_border_combo) {
+        if(s_border_settings && s_border_list) {
+            int arrow=border_sidebar_hit(&client,point);
+            if(arrow) {
+                s_border_arrow_hover=arrow;
+                s_border_arrow_pressed=arrow;
+                SetCapture(window);
+                border_sidebar_redraw();
+                UpdateWindow(window); // Draw the depressed state before mouse release.
+                return 0;
+            }
+            RECT static_btn,weave_btn,off_btn;
+            border_mode_buttons(&client,&static_btn,&weave_btn,&off_btn);
+            if(PtInRect(&static_btn,point) || PtInRect(&weave_btn,point)) {
+                if(!border_mode_apply(PtInRect(&weave_btn,point)))
+                    MessageBoxW(window,L"切换边框模式失败。",L"添加边框",MB_OK|MB_ICONERROR);
+                return 0;
+            }
+            if(PtInRect(&off_btn,point)) {
+                if(!border_choice_apply(0,true))
+                    MessageBoxW(window,L"关闭边框时恢复默认纹理失败，保留原样式。",L"添加边框",MB_OK|MB_ICONERROR);
+                return 0;
+            }
             RECT compose,reset;focus_buttons(&client,&compose,&reset);
             if(PtInRect(&compose,point)) {
                 s_compose_mode=!s_compose_mode;
@@ -1832,7 +1963,16 @@ static LRESULT CALLBACK window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM
                 s_focus_x=s_focus_y=0.5;s_focus_zoom=1;
                 sync_focus_edits();redraw_controls();return 0;
             }
-            RECT import,remove,edit;border_choice_buttons(&client,&import,&remove,&edit);
+            RECT import,remove,edit,rebuild;
+            border_choice_buttons(&client,&import,&remove,&edit,&rebuild);
+            if(PtInRect(&rebuild,point)) {
+                if(MessageBoxW(window,L"重新生成所有胶片边框缩略图？\n原始边框和编码设置不会修改。",
+                   L"FGS 添加边框",MB_YESNO|MB_ICONQUESTION)==IDYES) {
+                    s_border_action="REBUILD";
+                    if(write_result())DestroyWindow(window);
+                }
+                return 0;
+            }
             if(PtInRect(&import,point)) {
                 s_border_action="IMPORT";
                 if(write_result())DestroyWindow(window);
@@ -1872,7 +2012,7 @@ static LRESULT CALLBACK window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM
         int row = y >= top+8 && y < top+128 ? (y-top-8)/40 : -1;
         int border_shift=border_timeline_shift();
         int kind = s_border_settings ?
-                   (s_border_combo ? (y>=top+116+border_shift && y<top+146+border_shift ? 5 :
+                   (s_border_list ? (y>=top+116+border_shift && y<top+146+border_shift ? 5 :
                                      y>=top+156+border_shift && y<top+186+border_shift ? 6 :
                                      y>=top+196+border_shift && y<top+226+border_shift ? 7 :
                                      y>=top+281+border_shift && y<top+309+border_shift ? 8 :
@@ -1888,10 +2028,41 @@ static LRESULT CALLBACK window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM
         return 0;
     }
     case WM_MOUSEMOVE:
+        if(s_border_settings && s_border_list) {
+            RECT client;GetClientRect(window,&client);
+            POINT point={(short)LOWORD(lparam),(short)HIWORD(lparam)};
+            int hover=border_sidebar_hit(&client,point);
+            if(hover!=s_border_arrow_hover) {
+                s_border_arrow_hover=hover;
+                border_sidebar_redraw();
+            }
+            if(!s_border_arrow_tracking) {
+                TRACKMOUSEEVENT track={sizeof(track),TME_LEAVE,window,0};
+                if(TrackMouseEvent(&track))s_border_arrow_tracking=true;
+            }
+        }
         if (s_drag_kind && GetCapture() == window && (wparam & MK_LBUTTON))
             change_slider(s_drag_kind, (short)LOWORD(lparam));
         return 0;
+    case WM_MOUSELEAVE:
+        s_border_arrow_tracking=false;
+        if(s_border_arrow_hover) {
+            s_border_arrow_hover=0;
+            border_sidebar_redraw();
+        }
+        return 0;
     case WM_LBUTTONUP:
+        if(s_border_arrow_pressed) {
+            int pressed=s_border_arrow_pressed;
+            RECT client;GetClientRect(window,&client);
+            POINT point={(short)LOWORD(lparam),(short)HIWORD(lparam)};
+            bool clicked=border_sidebar_hit(&client,point)==pressed;
+            s_border_arrow_pressed=0;
+            if(GetCapture()==window)ReleaseCapture();
+            if(clicked)border_list_scroll(pressed);
+            border_sidebar_redraw();
+            return 0;
+        }
         if (s_drag_kind) {
             int kind=s_drag_kind;
             change_slider(s_drag_kind, (short)LOWORD(lparam));
@@ -1902,56 +2073,102 @@ static LRESULT CALLBACK window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM
         return 0;
     case WM_CAPTURECHANGED:
         s_drag_kind = 0;
+        if(s_border_arrow_pressed) {
+            s_border_arrow_pressed=0;
+            border_sidebar_redraw();
+        }
         return 0;
+    case WM_MOUSEWHEEL:
+        if(s_border_settings && s_border_list) {
+            POINT point={(short)LOWORD(lparam),(short)HIWORD(lparam)};
+            ScreenToClient(window,&point);
+            RECT client;GetClientRect(window,&client);
+            if(point.x>=0 && point.x<BORDER_SIDEBAR_WIDTH &&
+               point.y>=0 && point.y<client.bottom-panel_height()) {
+                s_border_wheel_delta+=(short)GET_WHEEL_DELTA_WPARAM(wparam);
+                while(s_border_wheel_delta>=WHEEL_DELTA) {
+                    border_list_scroll_lines(-3);s_border_wheel_delta-=WHEEL_DELTA;
+                }
+                while(s_border_wheel_delta<=-WHEEL_DELTA) {
+                    border_list_scroll_lines(3);s_border_wheel_delta+=WHEEL_DELTA;
+                }
+                return 0;
+            }
+        }
+        return DefWindowProcW(window,msg,wparam,lparam);
     case WM_COMMAND:
         if(s_border_settings && HIWORD(wparam)==EN_KILLFOCUS &&
            ((HWND)lparam==s_focus_x_edit || (HWND)lparam==s_focus_y_edit)) {
             commit_focus_edit((HWND)lparam);return 0;
         }
-        if(s_border_combo && (HWND)lparam==s_border_combo && HIWORD(wparam)==CBN_SELCHANGE) {
-            int index=(int)SendMessageW(s_border_combo,CB_GETCURSEL,0,0);
-            if(!border_choice_apply(index,true)) {
-                SendMessageW(s_border_combo,CB_SETCURSEL,s_border_selection,0);
+        if(s_border_list && (HWND)lparam==s_border_list && HIWORD(wparam)==LBN_SELCHANGE) {
+            int style=(int)SendMessageW(s_border_list,LB_GETCURSEL,0,0);
+            if(style>=0 && style<s_border_style_count &&
+                !border_choice_apply(border_style_to_choice(style,s_border_weave),true)) {
+                int previous=border_choice_to_style(s_border_selection);
+                SendMessageW(s_border_list,LB_SETCURSEL,
+                    previous<0?(WPARAM)-1:(WPARAM)previous,0);
                 MessageBoxW(window,L"GPU 边框纹理切换失败，保留原样式。",L"添加边框",MB_OK|MB_ICONERROR);
             }
-            InvalidateRect(s_border_combo,NULL,FALSE);
             return 0;
         }
         return DefWindowProcW(window,msg,wparam,lparam);
     case WM_MEASUREITEM: {
         MEASUREITEMSTRUCT *m=(MEASUREITEMSTRUCT *)lparam;
-        if(m->CtlID==FGS_BORDER_COMBO_ID){m->itemHeight=25;return TRUE;}
+        if(m->CtlID==FGS_BORDER_LIST_ID){m->itemHeight=BORDER_LIST_ITEM_H;return TRUE;}
         return DefWindowProcW(window,msg,wparam,lparam);
     }
     case WM_DRAWITEM: {
         DRAWITEMSTRUCT *d=(DRAWITEMSTRUCT *)lparam;
-        if(d->CtlID!=FGS_BORDER_COMBO_ID)return DefWindowProcW(window,msg,wparam,lparam);
-        HBRUSH brush=CreateSolidBrush((d->itemState&ODS_SELECTED)?RGB(48,80,73):RGB(27,28,30));
-        FillRect(d->hDC,&d->rcItem,brush);DeleteObject(brush);
-        if(d->itemID!=(UINT)-1 && d->itemID<(UINT)s_border_choices_count) {
-            RECT text=d->rcItem;text.left+=9;
+        if(d->CtlID!=FGS_BORDER_LIST_ID)return DefWindowProcW(window,msg,wparam,lparam);
+        HBRUSH bg=CreateSolidBrush((d->itemState&ODS_SELECTED)?RGB(48,80,73):RGB(27,28,30));
+        FillRect(d->hDC,&d->rcItem,bg);DeleteObject(bg);
+        if(d->itemID!=(UINT)-1 && d->itemID<(UINT)s_border_style_count) {
+            int index=s_border_style_indices[d->itemID];
+            int x=d->rcItem.left+(d->rcItem.right-d->rcItem.left-BORDER_THUMB_W)/2;
+            int y=d->rcItem.top+3;
+            RECT thumb={x,y,x+BORDER_THUMB_W,y+BORDER_THUMB_H};
+            HBRUSH placeholder=CreateSolidBrush(RGB(88,92,96));
+            FillRect(d->hDC,&thumb,placeholder);DeleteObject(placeholder);
+            HBITMAP bmp=s_border_thumb_bitmaps[d->itemID];
+            if(bmp) {
+                HDC source=CreateCompatibleDC(d->hDC);
+                if(source) {
+                    HGDIOBJ previous=SelectObject(source,bmp);
+                    BitBlt(d->hDC,x,y,BORDER_THUMB_W,BORDER_THUMB_H,source,0,0,SRCCOPY);
+                    SelectObject(source,previous);DeleteDC(source);
+                }
+            }
+            HPEN stroke=CreatePen(PS_SOLID,1,(d->itemState&ODS_SELECTED)?
+                RGB(0,186,139):RGB(76,80,84));
+            HGDIOBJ oldpen=SelectObject(d->hDC,stroke);
+            HGDIOBJ oldbrush=SelectObject(d->hDC,GetStockObject(NULL_BRUSH));
+            Rectangle(d->hDC,x,y,x+BORDER_THUMB_W,y+BORDER_THUMB_H);
+            SelectObject(d->hDC,oldbrush);SelectObject(d->hDC,oldpen);DeleteObject(stroke);
+            wchar_t title[128];wcscpy(title,s_border_choices[index].title);
+            wchar_t *suffix=wcsstr(title,L" · 静态");if(suffix)*suffix=0;
+            RECT label={d->rcItem.left+4,y+BORDER_THUMB_H+3,
+                        d->rcItem.right-4,d->rcItem.bottom-2};
+            HFONT font=s_panel_font;
+            HGDIOBJ oldfont=font?SelectObject(d->hDC,font):NULL;
             SetBkMode(d->hDC,TRANSPARENT);SetTextColor(d->hDC,RGB(235,237,240));
-            DrawTextW(d->hDC,s_border_choices[d->itemID].title,-1,&text,
-                DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+            DrawTextW(d->hDC,title,-1,&label,DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+            if(font)SelectObject(d->hDC,oldfont);
         }
         return TRUE;
     }
-    case WM_CTLCOLORLISTBOX: {
-        COMBOBOXINFO info={0};
-        info.cbSize=sizeof(info);
-        if(s_border_combo && s_edit_brush && GetComboBoxInfo(s_border_combo,&info) &&
-           (HWND)lparam==info.hwndList) {
+    case WM_CTLCOLORLISTBOX:
+        if(s_border_list && (HWND)lparam==s_border_list && s_edit_brush) {
             SetBkMode((HDC)wparam,TRANSPARENT);
             SetTextColor((HDC)wparam,RGB(235,237,240));
             SetBkColor((HDC)wparam,RGB(27,28,30));
             return (LRESULT)s_edit_brush;
         }
         return DefWindowProcW(window,msg,wparam,lparam);
-    }
     case WM_GETMINMAXINFO: {
         MINMAXINFO *limits = (MINMAXINFO *)lparam;
-        limits->ptMinTrackSize.x = 820;
-        limits->ptMinTrackSize.y = s_border_settings?610+border_timeline_shift():420;
+        limits->ptMinTrackSize.x = s_border_settings?980:820;
+        limits->ptMinTrackSize.y = s_border_settings?720+border_timeline_shift():420;
         return 0;
     }
     case WM_CTLCOLOREDIT:
@@ -1973,7 +2190,7 @@ static LRESULT CALLBACK window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM
             else MessageBoxW(window, L"无法写入调整结果。", L"FGS GPU 预览", MB_ICONERROR|MB_OK);
             return 0;
         }
-        if(s_border_settings && !s_border_combo && (wparam=='B'||wparam==VK_LEFT||wparam==VK_RIGHT)) {
+        if(s_border_settings && !s_border_list && (wparam=='B'||wparam==VK_LEFT||wparam==VK_RIGHT)) {
             int step=wparam==VK_LEFT?-1:1;
             s_border_mode=(s_border_mode+step+3)%3;
             s_border_weave=s_border_mode==2;
@@ -2012,8 +2229,9 @@ static LRESULT CALLBACK window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM
         RECT client; GetClientRect(window, &client);
         int view_height = client.bottom-panel_height();
         if (view_height < 1) view_height = 1;
-        if (s_view) MoveWindow(s_view, 0, 0, client.right, view_height, TRUE);
-        if(s_border_combo)border_combo_layout(&client);
+        if (s_view) MoveWindow(s_view,s_border_settings?BORDER_SIDEBAR_WIDTH:0,0,
+            client.right-(s_border_settings?BORDER_SIDEBAR_WIDTH:0),view_height,TRUE);
+        if(s_border_list)border_list_layout(&client);
         if(s_border_settings)focus_edit_layout(&client);
         if (s_time_edit) {
             RECT edit,random_btn,seek_btn;
@@ -2026,6 +2244,10 @@ static LRESULT CALLBACK window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM
         return 0;
     }
     case WM_DESTROY:
+        for(int i=0;i<s_border_style_count;i++)
+            if(s_border_thumb_bitmaps[i]) {
+                DeleteObject(s_border_thumb_bitmaps[i]);s_border_thumb_bitmaps[i]=NULL;
+            }
         if (s_window_shown) save_window_bounds(window);
         PostQuitMessage(0);
         return 0;
@@ -2216,10 +2438,10 @@ static int audit_border_framing(void)
     s_border_settings=true;
     s_video_path=L"a.mkv";
     if(panel_height()!=BORDER_PANEL_HEIGHT+BORDER_TIMELINE_SHIFT)return 16;
-    RECT client={0,0,1280,960},time_edit,random_btn,seek_btn,import_btn,remove_btn,edit_btn;
+    RECT client={0,0,1280,960},time_edit,random_btn,seek_btn,import_btn,remove_btn,edit_btn,rebuild_btn;
     int hint_left;
     bottom_frame_controls(&client,&time_edit,&random_btn,&seek_btn,&hint_left);
-    border_choice_buttons(&client,&import_btn,&remove_btn,&edit_btn);
+    border_choice_buttons(&client,&import_btn,&remove_btn,&edit_btn,&rebuild_btn);
     int panel_top=client.bottom-panel_height();
     if(time_edit.top<panel_top+66 || random_btn.top<panel_top+66 ||
        seek_btn.bottom>=import_btn.top || time_edit.left+seek_btn.right!=client.right)
@@ -2229,9 +2451,43 @@ static int audit_border_framing(void)
     return 0;
 }
 
+/* CPU-only gallery contract audit; no libplacebo device or Windows UI required. */
+static int audit_border_thumbnails(void)
+{
+    const char *modes[]={"OFF","DARK_STATIC","DARK_WEAVE",
+        "CLASSIC_STATIC","CLASSIC_WEAVE",
+        "USER_0123456789ABCDEF0123456789ABCDEF_STATIC",
+        "USER_0123456789ABCDEF0123456789ABCDEF_WEAVE"};
+    s_border_choices_count=7;s_border_style_count=3;
+    for(int i=0;i<7;i++)strcpy(s_border_choices[i].mode,modes[i]);
+    s_border_style_indices[0]=1;s_border_style_indices[1]=3;s_border_style_indices[2]=5;
+    for(int style=0;style<3;style++)for(int dynamic=0;dynamic<=1;dynamic++) {
+        int index=border_style_to_choice(style,dynamic!=0);
+        if(index!=1+style*2+dynamic || border_choice_to_style(index)!=style)return 81;
+    }
+    if(border_choice_to_style(0)!=-1)return 82;
+    RECT client={0,0,1280,960},import,remove,edit,rebuild,stat,weave,off,up,down;
+    s_border_settings=true;s_video_path=L"test.mkv";
+    border_choice_buttons(&client,&import,&remove,&edit,&rebuild);
+    border_mode_buttons(&client,&stat,&weave,&off);
+    border_sidebar_buttons(&client,&up,&down);
+    POINT up_point={(up.left+up.right)/2,(up.top+up.bottom)/2};
+    POINT down_point={(down.left+down.right)/2,(down.top+down.bottom)/2};
+    if(border_sidebar_hit(&client,up_point)!=-1 ||
+       border_sidebar_hit(&client,down_point)!=1)return 84;
+    if(!(off.right<rebuild.left && rebuild.right<import.left &&
+         import.right<remove.left && remove.right<edit.left &&
+         up.bottom<BORDER_LIST_TOP && down.top>up.bottom &&
+         down.bottom<=client.bottom-panel_height()))return 83;
+    s_border_settings=false;s_video_path=NULL;
+    puts("PASS Film Border gallery: 3 styles / 6 modes, OFF, toolbar, sidebar arrows");
+    return 0;
+}
+
 int wmain(int argc, wchar_t **argv)
 {
     QueryPerformanceFrequency(&s_frequency);
+    if (argc == 2 && !wcscmp(argv[1], L"--audit-border-thumbnails")) return audit_border_thumbnails();
     if (argc == 2 && !wcscmp(argv[1], L"--audit-border-framing")) return audit_border_framing();
     if (argc == 2 && !wcscmp(argv[1], L"--audit-film-border")) return audit_film_border();
     if (argc == 2 && !wcscmp(argv[1], L"--audit-border-modes")) {
@@ -2458,7 +2714,8 @@ int wmain(int argc, wchar_t **argv)
     s_window = CreateWindowExW(0, wc.lpszClassName, s_border_settings?L"FGS 添加边框":L"FGS GPU Preview",
                 WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,
                 CW_USEDEFAULT, CW_USEDEFAULT,
-                s_width < 1280 ? (s_width+32 < 820 ? 820 : s_width+32) : 1280,
+                s_width < 1280 ? (s_width+32 < (s_border_settings?980:820) ?
+                    (s_border_settings?980:820) : s_width+32) : 1280,
                 s_height < 720 ? s_height+panel_height()+58 : 880+border_timeline_shift(),
                 NULL, NULL, instance, NULL);
     if (!s_window) {free(raw);free(plate_raw);return 5;}
@@ -2479,27 +2736,29 @@ int wmain(int argc, wchar_t **argv)
         s_original_edit_proc=(WNDPROC)SetWindowLongPtrW(s_time_edit,GWLP_WNDPROC,(LONG_PTR)frame_edit_proc);
         update_frame_time_text(s_frame_seconds);
     }
-    if(s_border_settings && s_border_choices_count) {
-        s_border_combo=CreateWindowExW(0,L"COMBOBOX",L"",
-            WS_CHILD|WS_VISIBLE|WS_TABSTOP|WS_VSCROLL|CBS_DROPDOWNLIST|CBS_OWNERDRAWFIXED|CBS_HASSTRINGS,
-            144,client.bottom-panel_height()+(s_video_path?61:21)+border_timeline_shift(),
-            client.right-414,260,s_window,(HMENU)(INT_PTR)FGS_BORDER_COMBO_ID,instance,NULL);
-        if(!s_border_combo){free(raw);free(plate_raw);DestroyWindow(s_window);return 5;}
-        if(s_panel_font)SendMessageW(s_border_combo,WM_SETFONT,(WPARAM)s_panel_font,TRUE);
-        HMODULE theme=LoadLibraryW(L"uxtheme.dll");
-        if(theme) {
-            typedef HRESULT (WINAPI *SetWindowThemeFn)(HWND,LPCWSTR,LPCWSTR);
-            SetWindowThemeFn set_theme=(SetWindowThemeFn)GetProcAddress(theme,"SetWindowTheme");
-            if(set_theme)set_theme(s_border_combo,L"",L"");
-            FreeLibrary(theme);
+    if(s_border_settings && s_border_style_count) {
+        int list_height=client.bottom-panel_height()-BORDER_LIST_TOP-BORDER_LIST_FOOT;
+        if(list_height<1)list_height=1;
+        s_border_list=CreateWindowExW(0,L"LISTBOX",L"",
+            WS_CHILD|WS_VISIBLE|WS_TABSTOP|
+            LBS_NOTIFY|LBS_OWNERDRAWFIXED|LBS_HASSTRINGS|LBS_NOINTEGRALHEIGHT,
+            8,BORDER_LIST_TOP,BORDER_SIDEBAR_WIDTH-16,list_height,
+            s_window,(HMENU)(INT_PTR)FGS_BORDER_LIST_ID,instance,NULL);
+        if(!s_border_list){free(raw);free(plate_raw);DestroyWindow(s_window);return 5;}
+        if(s_panel_font)SendMessageW(s_border_list,WM_SETFONT,(WPARAM)s_panel_font,TRUE);
+        for(int i=0;i<s_border_style_count;i++) {
+            const struct FgsBorderChoice *c=&s_border_choices[s_border_style_indices[i]];
+            SendMessageW(s_border_list,LB_ADDSTRING,0,(LPARAM)c->title);
+            if(c->thumbnail_path[0])
+                s_border_thumb_bitmaps[i]=(HBITMAP)LoadImageW(NULL,c->thumbnail_path,
+                    IMAGE_BITMAP,0,0,LR_LOADFROMFILE|LR_CREATEDIBSECTION);
         }
-        for(int i=0;i<s_border_choices_count;i++)
-            SendMessageW(s_border_combo,CB_ADDSTRING,0,(LPARAM)s_border_choices[i].title);
-        SendMessageW(s_border_combo,CB_SETCURSEL,s_border_selection,0);
-        s_original_border_combo_proc=(WNDPROC)SetWindowLongPtrW(s_border_combo,GWLP_WNDPROC,
-                                                       (LONG_PTR)border_combo_proc);
-        if(!s_original_border_combo_proc){free(raw);free(plate_raw);DestroyWindow(s_window);return 5;}
-        InvalidateRect(s_border_combo,NULL,TRUE);
+        int chosen=border_choice_to_style(s_border_selection);
+        SendMessageW(s_border_list,LB_SETCURSEL,chosen<0?(WPARAM)-1:(WPARAM)chosen,0);
+        if(chosen>=0)SendMessageW(s_border_list,LB_SETTOPINDEX,chosen,0);
+        s_original_border_list_proc=(WNDPROC)SetWindowLongPtrW(s_border_list,GWLP_WNDPROC,
+            (LONG_PTR)border_list_proc);
+        if(!s_original_border_list_proc){free(raw);free(plate_raw);DestroyWindow(s_window);return 5;}
     }
     if(s_border_settings && s_border_choices_count) {
         RECT label_x,edit_x,label_y,edit_y;
@@ -2523,7 +2782,8 @@ int wmain(int argc, wchar_t **argv)
     if (view_height < 1) view_height = 1;
     s_view = CreateWindowExW(0, view_class.lpszClassName, NULL,
                 WS_CHILD|WS_VISIBLE|WS_CLIPSIBLINGS,
-                0, 0, client.right, view_height,
+                s_border_settings?BORDER_SIDEBAR_WIDTH:0, 0,
+                client.right-(s_border_settings?BORDER_SIDEBAR_WIDTH:0), view_height,
                 s_window, NULL, instance, NULL);
     if (!s_view) {free(raw);free(plate_raw);DestroyWindow(s_window);return 5;}
 

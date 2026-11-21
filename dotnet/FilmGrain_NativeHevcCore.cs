@@ -1734,6 +1734,15 @@ namespace FilmGrainStudioPreview
             if (plan == null || plan.GpuRaw == null || plan.HdrTransfer == "")
                 throw new InvalidOperationException("S4 GPU border called outside its validated route.");
             string moveX = plan.Dynamic ? plan.MoveX : "0", moveY = plan.Dynamic ? plan.MoveY : "0";
+            // HLG GPU output: compose into PQ first, then let a second GPU libplacebo
+            // convert the actual pixels back to HLG before CUDA/NVENC. PQ is unchanged.
+            bool splitHlg = plan.HdrTransfer == "arib-std-b67";
+            string gpuComposeTransfer = splitHlg ? "smpte2084" : plan.HdrTransfer;
+            string gpuHlgFinish = splitHlg
+                ? ",libplacebo=inputs=1:w="+N(plan.GpuWidth)+":h="+N(plan.GpuHeight)+
+                  ":format=p010le:colorspace=bt2020nc:color_primaries=bt2020:"+
+                  "color_trc=arib-std-b67:range=limited:tonemapping=clip:peak_detect=false:dithering=none"
+                : "";
             // For no-grain graphs, clock the still texture with the video.  The
             // off-screen overlay keeps every RGBA pixel intact and ends at video EOF.
             string texture = "["+N(plan.GpuInputIndex)+":v:0]format=rgba";
@@ -1759,7 +1768,7 @@ namespace FilmGrainStudioPreview
                 if (right<=left || bottom<=top) throw new InvalidOperationException("GPU film border has no visible picture area.");
                 Func<double,string> f=delegate(double value) { return value.ToString("0.##########",CultureInfo.InvariantCulture); };
                 string kernelDynamic = "libplacebo=inputs=2:w="+N(w)+":h="+N(h)+":format=p010le:"+
-                    "colorspace=bt2020nc:color_primaries=bt2020:color_trc="+plan.HdrTransfer+":range=limited"+
+                    "colorspace=bt2020nc:color_primaries=bt2020:color_trc="+gpuComposeTransfer+":range=limited"+
                     ":crop_x='if(eq(idx,0),"+f(left)+",0)'"+
                     ":crop_y='if(eq(idx,0),"+f(top)+",0)'"+
                     ":crop_w='if(eq(idx,0),"+f(right-left)+",iw)'"+
@@ -1769,12 +1778,12 @@ namespace FilmGrainStudioPreview
                     ":pos_x='if(eq(idx,0),"+f((w-apertureW)/2+(left-cropLeft)*scale)+",0)+("+moveX+")'"+
                     ":pos_y='if(eq(idx,0),"+f((h-apertureH)/2+(top-cropTop)*scale)+",0)+("+moveY+")'"+
                     ":upscaler=ewa_lanczos:downscaler=ewa_lanczos:tonemapping=clip:peak_detect=false:dithering=none:fillcolor=black";
-                return graph+";"+input+";[fgsfilm_gpu_video][fgsfilm_gpu_png]"+kernelDynamic+
+                return graph+";"+input+";[fgsfilm_gpu_video][fgsfilm_gpu_png]"+kernelDynamic+gpuHlgFinish+
                     ",hwupload=derive_device=cuda,setparams=range=limited:color_primaries=bt2020:"+
                     "color_trc="+plan.HdrTransfer+":colorspace=bt2020nc[vout]";
             }
             string kernel = "libplacebo=inputs=2:w=3840:h=2160:format=p010le:"+
-                            "colorspace=bt2020nc:color_primaries=bt2020:color_trc=" + plan.HdrTransfer + ":range=limited";
+                            "colorspace=bt2020nc:color_primaries=bt2020:color_trc=" + gpuComposeTransfer + ":range=limited";
             kernel += ":crop_x='if(eq(idx,0),87.2727272727,0)'"+
                       ":crop_y='if(eq(idx,0),276,0)'"+
                       ":crop_w='if(eq(idx,0),3665.4545454545,iw)'"+
@@ -1785,7 +1794,7 @@ namespace FilmGrainStudioPreview
                       ":pos_y='if(eq(idx,0),343,0)+(" + moveY + ")'"+
                       ":upscaler=ewa_lanczos:downscaler=ewa_lanczos:"+
                       "tonemapping=clip:peak_detect=false:dithering=none:fillcolor=black";
-            return graph + ";" + input + ";[fgsfilm_gpu_video][fgsfilm_gpu_png]" + kernel +
+            return graph + ";" + input + ";[fgsfilm_gpu_video][fgsfilm_gpu_png]" + kernel + gpuHlgFinish +
                 ",hwupload=derive_device=cuda,setparams=range=limited:color_primaries=bt2020:"+
                 "color_trc=" + plan.HdrTransfer + ":colorspace=bt2020nc[vout]";
         }

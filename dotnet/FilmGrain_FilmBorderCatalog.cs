@@ -519,6 +519,54 @@ namespace FilmGrainStudioPreview
             foreach(string file in new[]{choice.PngPath,choice.RawPath,Path.ChangeExtension(choice.PngPath,".label"),AperturePath(choice.PngPath)})
                 if(File.Exists(file))File.Delete(file);
         }
+        // Reuse LUT Gallery's persistent, timestamp-checked thumbnail approach.
+        // The native preview uses Windows' existing owner-draw LISTBOX and LoadImageW,
+        // so the thumbnails are cached as opaque BMPs (not PNG/GDI+ dependencies).
+        private const int BorderThumbWidth=128,BorderThumbHeight=72;
+        private static string ThumbnailRoot(string appRoot)
+        { return Path.Combine(Root(appRoot),"_Thumbnails_v1_128x72"); }
+
+        internal static void RebuildPreviewThumbnails(string appRoot)
+        {
+            string folder=ThumbnailRoot(appRoot);
+            if(!Directory.Exists(folder))return;
+            // Delete only the generated BMP cache, never original film frames or User data.
+            foreach(string path in Directory.GetFiles(folder,"*.bmp",SearchOption.TopDirectoryOnly))
+                File.Delete(path);
+        }
+
+        private static string EnsurePreviewThumbnail(string appRoot,FilmBorderChoice choice)
+        {
+            string folder=ThumbnailRoot(appRoot);
+            string thumb=Path.Combine(folder,choice.StyleId+".bmp");
+            try {
+                if(File.Exists(thumb) && new FileInfo(thumb).Length>54 &&
+                   File.GetLastWriteTimeUtc(thumb)>=File.GetLastWriteTimeUtc(choice.PngPath))
+                    return thumb;
+                Directory.CreateDirectory(folder);
+                string temporary=thumb+".tmp_"+Guid.NewGuid().ToString("N");
+                try {
+                    using(var original=new Bitmap(choice.PngPath))
+                    using(var small=new Bitmap(BorderThumbWidth,BorderThumbHeight,PixelFormat.Format24bppRgb))
+                    using(var g=Graphics.FromImage(small)) {
+                        // Light neutral background reveals transparent sprocket holes.
+                        // Keep the actual PNG texture/colors; do not add synthetic grading.
+                        g.Clear(Color.FromArgb(93,97,102));
+                        g.InterpolationMode=System.Drawing.Drawing2D.InterpolationMode.HighQualityBilinear;
+                        g.DrawImage(original,new Rectangle(0,0,BorderThumbWidth,BorderThumbHeight),
+                            0,0,original.Width,original.Height,GraphicsUnit.Pixel);
+                        small.Save(temporary,ImageFormat.Bmp);
+                    }
+                    if(File.Exists(thumb))File.Delete(thumb);
+                    File.Move(temporary,thumb);
+                } finally {if(File.Exists(temporary))File.Delete(temporary);}
+                return thumb;
+            } catch(IOException) {return "";}
+              catch(UnauthorizedAccessException) {return "";}
+              catch(ArgumentException) {return "";}
+              catch(OutOfMemoryException) {return "";}
+        }
+
         internal static string CreatePreviewChoices(string appRoot,string ffmpeg,string temporary,
             bool hdr,string transfer,CancellationToken token)
         {
@@ -542,9 +590,12 @@ namespace FilmGrainStudioPreview
                         throw new InvalidDataException("边框纹理转换失败："+actual.Label);
                     cache.Add(actual.StyleId,raw);
                 }
+                // Share one BMP thumbnail for the STATIC/WEAVE entries of each style.
+                // This also handles a newly imported border when the dialog reopens.
+                string thumb=EnsurePreviewThumbnail(appRoot,actual);
                 lines.Add(choice.Mode+"\t"+choice.Label+"\t"+raw+"\t"+
                     actual.ApertureWidth1080.ToString(CultureInfo.InvariantCulture)+"\t"+
-                    actual.ApertureHeight1080.ToString(CultureInfo.InvariantCulture));
+                    actual.ApertureHeight1080.ToString(CultureInfo.InvariantCulture)+"\t"+thumb);
             }
             string output=Path.Combine(temporary,"border_choices.txt");
             File.WriteAllText(output,string.Join("\r\n",lines)+"\r\n",Encoding.Unicode);

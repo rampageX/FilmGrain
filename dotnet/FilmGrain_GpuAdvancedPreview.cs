@@ -604,13 +604,23 @@ namespace FilmGrainStudioPreview
                             AppendLog("[Film Border] "+error+Environment.NewLine);
                             FgsMessageBox.Show(this,error,Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);
                         } else if(selected!=null) {
-                            if(action=="IMPORT" || action=="DELETE" || action=="EDIT") {
+                            if(action=="IMPORT" || action=="DELETE" || action=="EDIT" || action=="REBUILD") {
                                 borderPreviewAmp=resultAmp;
                                 borderPreviewSpeed=resultSpeed;
                                 borderPreviewFrequency=resultFrequency;
                                  borderPreviewFocusX=resultFocusX;
                                  borderPreviewFocusY=resultFocusY;
                                  borderPreviewZoom=resultZoom;
+                             }
+                             if(action=="REBUILD") {
+                                try {
+                                    FilmBorderCatalogCore.RebuildPreviewThumbnails(appRoot);
+                                    borderPreviewPendingMode=selected;
+                                    OpenFilmBorderSettings();
+                                } catch(Exception ex) {
+                                    FgsMessageBox.Show(this,ex.Message,Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);
+                                }
+                                return;
                              }
                              if(action=="EDIT") {
                                 borderPreviewPendingMode=selected;

@@ -1,0 +1,105 @@
+name: FGS Film Border Merge Verification
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'dotnet/FilmGrain_FilmBorderCatalog.cs'
+      - 'dotnet/FilmGrain_GpuAdvancedPreview.cs'
+      - 'dotnet/FilmGrain_NativeHevcCore.cs'
+      - 'experiments/GpuSingleFrame/preview_win.c'
+      - 'dotnet/BuildTools/Test_HLG_GPU_L4Q6.ps1'
+      - '.github/workflows/film-border-merge-verify.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fgs-border-merge-verify-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout merged master
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up verified UCRT64 GPU toolchain
+        id: msys2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          release: false
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-binutils
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-libplacebo
+
+      - name: Build full FGS runtime without publishing
+        shell: powershell
+        env:
+          FGS_MSYS2_ROOT: ${{ steps.msys2.outputs.msys2-location }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = (Get-Content -LiteralPath '.github\release\version.txt' -Raw).Trim()
+          $out = Join-Path $env:RUNNER_TEMP 'FGS_Border_Merge_Validation'
+          New-Item -ItemType Directory -Path $out -Force | Out-Null
+          & '.\.github\release\build_release.ps1' -RepositoryRoot $env:GITHUB_WORKSPACE -Version $version -OutputDirectory $out
+          if (-not $?) { throw 'FGS Windows build failed.' }
+          $zip = Join-Path $out ('FilmGrain_Studio_v' + $version + '_Stable.zip')
+          if (-not (Test-Path -LiteralPath $zip -PathType Leaf)) { throw 'Runtime ZIP missing.' }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $runtime = Join-Path $env:RUNNER_TEMP 'FGS_Border_Merge_Runtime'
+          [IO.Compression.ZipFile]::ExtractToDirectory($zip,$runtime)
+          $exe = Join-Path $runtime 'FilmGrain_Studio.exe'
+          if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw 'Built GUI EXE missing.' }
+          'FGS_MERGE_RUNTIME=' + $runtime | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host 'PASS: Windows full build and staging'
+
+      - name: Verify GPU HLG and PQ graph generation
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $script = Join-Path $env:GITHUB_WORKSPACE 'dotnet\BuildTools\Test_HLG_GPU_L4Q6.ps1'
+          $tokens = $null
+          $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile($script,[ref]$tokens,[ref]$errors)
+          if ($errors.Count -ne 0) { throw ('PowerShell parse error: ' + ($errors | Out-String)) }
+          $exe = Join-Path $env:FGS_MERGE_RUNTIME 'FilmGrain_Studio.exe'
+          & $script -Exe $exe
+          if (-not $?) { throw 'HLG/PQ graph regression failed.' }
+
+      - name: Verify existing S4 GPU border regression
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Copy-Item -LiteralPath (Join-Path $env:FGS_MERGE_RUNTIME 'FilmGrain_Studio.exe') -Destination (Join-Path $env:GITHUB_WORKSPACE 'FilmGrain_Studio.exe') -Force
+          & '.\dotnet\BuildTools\Test_S4_GpuBorder.ps1'
+          if (-not $?) { throw 'Existing GPU border regression failed.' }
+
+      - name: Verify native UI modes, framing and thumbnails
+        shell: powershell
+        env:
+          FGS_MSYS2_ROOT: ${{ steps.msys2.outputs.msys2-location }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = Join-Path $env:FGS_MERGE_RUNTIME 'GpuAdvancedPreview\fgs_gpu_preview.exe'
+          if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw 'Native preview EXE missing.' }
+          $previousPath = $env:PATH
+          try {
+            $env:PATH = (Join-Path $env:FGS_MSYS2_ROOT 'ucrt64\bin') + [IO.Path]::PathSeparator + $previousPath
+            foreach ($mode in @('--audit-border-modes','--audit-border-framing','--audit-border-thumbnails')) {
+              & $exe $mode
+              $code = $LASTEXITCODE
+              if ($code -ne 0) { throw ('Native regression failed: ' + $mode + '; exit=' + $code) }
+              Write-Host ('PASS: ' + $mode)
+            }
+          } finally {
+            $env:PATH = $previousPath
+          }
