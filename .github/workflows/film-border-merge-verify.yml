@@ -7,6 +7,8 @@ on:
       - 'dotnet/FilmGrain_FilmBorderCatalog.cs'
       - 'dotnet/FilmGrain_GpuAdvancedPreview.cs'
       - 'dotnet/FilmGrain_NativeHevcCore.cs'
+      - 'dotnet/FilmGrain_NativeAv1Core.cs'
+      - 'dotnet/FilmGrain_NativeX264DigitalGrainCore.cs'
       - 'dotnet/FilmGrain_NativeLibraryTools.cs'
       - 'dotnet/BuildTools/Test_NullLogCallback.ps1'
       - 'experiments/GpuSingleFrame/preview_win.c'
@@ -154,7 +156,7 @@ jobs:
       - name: Upload Q4M8 verification package
         uses: actions/upload-artifact@v4
         with:
-          name: FGS_Q4M8_Test_and_Source
+          name: FGS_GravMin022_Test_and_Source_${{ github.sha }}
           path: ${{ env.FGS_Q4M8_DELIVERY }}
           if-no-files-found: error
           retention-days: 14
