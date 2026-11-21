@@ -37,6 +37,7 @@ namespace FilmGrainStudioPreview
         public string FfmpegPath { get; set; }
         public string Grav1synthPath { get; set; }
         public string FrucFfmpegPath { get; set; }
+        public string SpecialFfmpegPath { get; set; }
         public string FrucPerf { get; set; }
         public string FrucGrid { get; set; }
         public bool ForceDetection { get; set; }
@@ -177,7 +178,7 @@ namespace FilmGrainStudioPreview
             return b.ToString();
         }
         internal static string FrucKey(HardwareCapabilityRequest r)
-        { return ToolBundleStamp(r.FrucFfmpegPath) + "|" + r.FrucPerf + "|" + r.FrucGrid + "|vulkan-selected-gpu-v1|grid-policy-largest-v1|svt-hdr-probe-v1"; }
+        { return ToolBundleStamp(r.FrucFfmpegPath) + "|" + r.FrucPerf + "|" + r.FrucGrid + "|vulkan-selected-gpu-v1|grid-policy-largest-v1|svt-hdr-probe-v2|" + ToolBundleStamp(r.SpecialFfmpegPath); }
         internal static string RequestKey(HardwareCapabilityRequest r) { return NativeKey(r) + "|FRUC|" + FrucKey(r); }
         private static HardwareCapabilitySnapshot Copy(HardwareCapabilitySnapshot s)
         { return s.Clone(); }
@@ -402,7 +403,7 @@ namespace FilmGrainStudioPreview
                             if (scope == CapabilityRefresh.Fruc)
                                 FrucCapabilityDetection.DetectFruc(request,result,CaptureRawProbe);
                             else
-                                SvtHdrCapabilityDetection.Detect(request.FrucFfmpegPath,result,CaptureRawProbe,true);
+                                SvtHdrCapabilityDetection.Detect(request.SpecialFfmpegPath,result,CaptureRawProbe,true);
                         }
                         if (cancelRequested || key != RefreshKey(request,scope)) result = null;
                         else if (scope == CapabilityRefresh.Svp && nativeCached != null && nativeKey != null &&
@@ -444,7 +445,7 @@ namespace FilmGrainStudioPreview
         {
             if (scope == CapabilityRefresh.Svp) return NativeKey(request);
             if (scope == CapabilityRefresh.Fruc) return FrucKey(request);
-            return ToolBundleStamp(request.FrucFfmpegPath);
+            return ToolBundleStamp(request.SpecialFfmpegPath);
         }
 
         public void Cancel()
@@ -740,7 +741,7 @@ namespace FilmGrainStudioPreview
 
         internal static void Detect(HardwareCapabilityRequest request, HardwareCapabilitySnapshot snapshot, SharedFrucCore.ProbeRunner runner = null)
         {
-            SvtHdrCapabilityDetection.Detect(request.FrucFfmpegPath,snapshot,runner,request.ForceDetection);
+            SvtHdrCapabilityDetection.Detect(request.SpecialFfmpegPath,snapshot,runner,request.ForceDetection);
             DetectFruc(request,snapshot,runner);
         }
 

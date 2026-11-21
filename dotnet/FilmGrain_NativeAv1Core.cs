@@ -172,7 +172,7 @@ namespace FilmGrainStudioPreview
                 (Eq(state, "FG_SPEED", "FAST") || (!Eq(state, "FG_SPEED", "STANDARD") && !Eq(state, "FG_SPEED", "UHQ")))))
             { reason = "requested AV1 SFE mode is not supported by current speed, GPU, or grav1synth capabilities"; return false; }
             if (svp && !NvencInterpolationCore.Enabled(state) && !SharedSvpCore.TryDependencies(appRoot, out reason)) return false;
-            string frucFfmpeg = Get(state, "FG_FRUC_USE_MAIN_FFMPEG") == "0" ? Get(state, "FG_FRUC_FFMPEG_PATH") : ffmpeg;
+            string frucFfmpeg = ffmpeg; // FRUC Vulkan always uses the main FFmpeg.
             if(preprocessing.Length>0 && !PreprocessingCore.TryCheckTool(ffmpeg,out reason))return false;
             if(resize.Enabled && !ResizeCore.TryCheckTool(ffmpeg,resize,out reason))return false;
             string frucPerf = Get(state, "FG_FRUC_PERF").ToLowerInvariant();

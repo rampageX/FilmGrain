@@ -2947,7 +2947,8 @@ namespace FilmGrainStudioPreview
             request.Grav1synthPath = config.Get("GRAV1SYNTH");
             request.NvencQueryPath = Application.ExecutablePath;
             request.ForceDetection = false;
-            request.FrucFfmpegPath = config.FrucUsesMainFfmpeg() ? ffmpeg : config.Get("FRUC_FFMPEG_PATH");
+            request.FrucFfmpegPath = ffmpeg;
+            request.SpecialFfmpegPath = config.FrucUsesMainFfmpeg() ? ffmpeg : config.Get("FRUC_FFMPEG_PATH");
             request.FrucPerf = config.Get("FRUC_PERF").ToLowerInvariant();
             request.FrucGrid = config.Get("FRUC_GRID").ToLowerInvariant();
 
@@ -3050,7 +3051,7 @@ namespace FilmGrainStudioPreview
                     UpdateFrucAvailabilityUi();
                     UpdateFrucStatus();
                     UpdateSvtHdrStatus();
-                    if(caps!=null)AppendDiagnosticLog("[Hardware SVT-HDR] available="+caps.SvtHdrAvailable+" path="+caps.FrucFfmpegPath+" reason="+caps.SvtHdrReason+Environment.NewLine);
+                    if(caps!=null)AppendDiagnosticLog("[Hardware SVT-HDR] available="+caps.SvtHdrAvailable+" path="+CreateHardwareRequest().SpecialFfmpegPath+" reason="+caps.SvtHdrReason+Environment.NewLine);
                     if (caps != null) AppendDiagnosticLog("[Hardware FRUC] available=" + caps.FrucAvailable + " kind=" + caps.FrucFailureKind + " path=" + caps.FrucFfmpegPath + " reason=" + caps.FrucReason + Environment.NewLine);
                     if (btnStart != null && (bridgeTaskCoordinator == null || !bridgeTaskCoordinator.IsActive)) btnStart.Enabled = hardwareCapsReady;
                     StartupTiming.Mark("hardware.applied", "ready=" + hardwareCapsReady + " native=" + hardwareCapabilityCore.NativeRuns + " fruc=" + hardwareCapabilityCore.FrucRuns + " children=" + hardwareCapabilityCore.ChildProcesses);
@@ -3127,7 +3128,7 @@ namespace FilmGrainStudioPreview
             if (hardwareCaps == null || !hardwareCaps.SvtHdrReady) return;
             SetCapabilityStatus("SVT-HDR",hardwareCaps.SvtHdrAvailable);
             if (statusCapabilities.ContainsKey("SVT-HDR"))
-                statusCapabilities["SVT-HDR"].ToolTipText = "SVT-AV1-HDR · " + CreateHardwareRequest().FrucFfmpegPath + "\r\n" + hardwareCaps.SvtHdrReason;
+                statusCapabilities["SVT-HDR"].ToolTipText = "SVT-AV1-HDR · " + CreateHardwareRequest().SpecialFfmpegPath + "\r\n" + hardwareCaps.SvtHdrReason;
         }
 
         private void ApplyHardwareCapabilities()
@@ -3151,7 +3152,7 @@ namespace FilmGrainStudioPreview
             SetCapabilityStatus("HEVC", hardwareCaps.HevcAvailable);
             SetCapabilityStatus("H.264",hardwareCaps.H264Available);
             SetCapabilityStatus("SVT-HDR",hardwareCaps.SvtHdrAvailable);
-            if(statusCapabilities.ContainsKey("SVT-HDR"))statusCapabilities["SVT-HDR"].ToolTipText="SVT-AV1-HDR · "+hardwareCaps.FrucFfmpegPath+"\r\n"+hardwareCaps.SvtHdrReason;
+            if(statusCapabilities.ContainsKey("SVT-HDR"))statusCapabilities["SVT-HDR"].ToolTipText="SVT-AV1-HDR · "+CreateHardwareRequest().SpecialFfmpegPath+"\r\n"+hardwareCaps.SvtHdrReason;
             UpdateSvpStatus(hardwareCaps);
             UpdateFrucAvailabilityUi(); UpdateFrucStatus(); UpdateNvencStatus();
 

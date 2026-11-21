@@ -198,12 +198,6 @@ namespace FilmGrainStudioPreview
 
             string ffprobe = Path.Combine(GetFfmpegDir(appRoot), "ffprobe.exe");
 
-            if (fruc && Get(state, "FG_FRUC_USE_MAIN_FFMPEG") == "0" && string.IsNullOrWhiteSpace(Get(state, "FG_FRUC_FFMPEG_PATH")))
-
-            { reason = "custom FRUC FFmpeg directory is empty"; return false; }
-
-            if (fruc && !string.IsNullOrWhiteSpace(Get(state, "FG_FRUC_FFMPEG_PATH"))) ffmpeg = Get(state, "FG_FRUC_FFMPEG_PATH");
-
             NvencRateControlCore.RequireSupport(ffmpeg,state);
             if (!File.Exists(ffmpeg)) { reason = "ffmpeg.exe not found: " + ffmpeg; return false; }
             string zscaleHelp;

@@ -504,7 +504,7 @@ namespace FilmGrainStudioPreview
                 table.Controls.Add(ConfigLabelWithWebLink(lang.T("config.ffmpeg_dir"),StableFfmpegDownloadUrl,UiText("推荐下载：Windows 稳定版","Recommended download: Windows Stable"),dlg), 0, 0);
                 table.Controls.Add(txtFfmpeg, 1, 0); table.Controls.Add(btnFfmpeg, 2, 0); table.Controls.Add(refreshFfmpeg, 3, 0);
                 table.Controls.Add(statusFfmpeg, 1, 1); table.SetColumnSpan(statusFfmpeg, 3);
-                table.Controls.Add(ConfigLabelWithWebLink(UiText("特殊版 FFmpeg","Special FFmpeg"),SpecialFfmpegDownloadUrl,UiText("推荐下载：FRUC / SVT-AV1-HDR 特别版","Recommended download: FRUC / SVT-AV1-HDR"),dlg), 0, 2);
+                table.Controls.Add(ConfigLabelWithWebLink(UiText("特殊版 FFmpeg","Special FFmpeg"),SpecialFfmpegDownloadUrl,UiText("可选：SVT-AV1-HDR 与实验性功能","Optional: SVT-AV1-HDR and experiments"),dlg), 0, 2);
                 table.Controls.Add(frucPanel, 1, 2); table.Controls.Add(btnFruc, 2, 2); table.Controls.Add(refreshFruc, 3, 2);
                 table.Controls.Add(statusFruc, 1, 3); table.SetColumnSpan(statusFruc, 3);
                 table.Controls.Add(ConfigLabelWithWebLink("grav1synth","https://github.com/rampageX/grav1synth",UiText("grav1synth 项目主页","grav1synth project homepage"),dlg), 0, 4);
@@ -629,7 +629,9 @@ namespace FilmGrainStudioPreview
                     bool ffOk, fpOk;
                     string ff = GetToolVersion(Path.Combine(dir, "ffmpeg.exe"), "-version", out ffOk);
                     string fp = GetToolVersion(Path.Combine(dir, "ffprobe.exe"), "-version", out fpOk);
-                    statusFfmpeg.Text = "ffmpeg.exe   " + (ffOk ? "✔ " : "✘ ") + ff + Environment.NewLine + "ffprobe.exe  " + (fpOk ? "✔ " : "✘ ") + fp;
+                    bool frucFilter = ffOk && NativeHevcCore.HasFrucFilter(Path.Combine(dir, "ffmpeg.exe"));
+                    statusFfmpeg.Text = "ffmpeg.exe   " + (ffOk ? "✔ " : "✘ ") + ff + Environment.NewLine +
+                        "ffprobe.exe  " + (fpOk ? "✔ " : "✘ ") + fp + "    fruc_vulkan " + (frucFilter ? "✔" : "✘");
                 };
                 Action<bool> updateFruc = delegate(bool force)
                 {
@@ -637,11 +639,10 @@ namespace FilmGrainStudioPreview
                     statusFruc.Text = lang.T("config.detect.ffmpeg"); Application.DoEvents();
                     bool ok;
                     string version = GetToolVersion(ff, "-version", out ok);
-                    bool filter = ok && NativeHevcCore.HasFrucFilter(ff);
                     var svt=new HardwareCapabilitySnapshot();SvtHdrCapabilityDetection.Detect(ff,svt,null,force);
                     configTip.SetToolTip(statusFruc,svt.SvtHdrReason);
                     statusFruc.Text = "ffmpeg.exe  " + (ok ? "✔ " : "✘ ") + version +
-                        Environment.NewLine+"fruc_vulkan " + (filter ? "✔" : "✘")+"    SVT-AV1-HDR "+(svt.SvtHdrAvailable?"✔":"✘");
+                        Environment.NewLine+"SVT-AV1-HDR "+(svt.SvtHdrAvailable?"✔":"✘");
                 };
                 Action updateGrav = delegate
                 {
@@ -736,11 +737,6 @@ namespace FilmGrainStudioPreview
                         if (!Directory.Exists(frucDir) || !File.Exists(frucExe))
                         {
                             FgsMessageBox.Show(dlg, LF("config.ffmpeg_exe_missing", "ffmpeg.exe", frucDir), lang.T("config.path_title"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                            return;
-                        }
-                        if (!NativeHevcCore.HasFrucFilter(frucExe))
-                        {
-                            FgsMessageBox.Show(dlg, UiText("选定的 ffmpeg.exe 不包含 fruc_vulkan 滤镜。", "The selected ffmpeg.exe does not provide fruc_vulkan."), lang.T("config.path_title"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
                             return;
                         }
                     }

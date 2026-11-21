@@ -272,9 +272,10 @@ namespace FilmGrainStudioPreview
 
             string ffmpeg = Path.Combine(GetFfmpegDir(appRoot), "ffmpeg.exe");
             string ffprobe = Path.Combine(GetFfmpegDir(appRoot), "ffprobe.exe");
-            if (fruc && Get(state, "FG_FRUC_USE_MAIN_FFMPEG") == "0" && string.IsNullOrWhiteSpace(Get(state, "FG_FRUC_FFMPEG_PATH")))
-            { reason = "custom FRUC FFmpeg directory is empty"; return false; }
-            if (fruc && !string.IsNullOrWhiteSpace(Get(state, "FG_FRUC_FFMPEG_PATH"))) ffmpeg = Get(state, "FG_FRUC_FFMPEG_PATH");
+            // FRUC always uses the main FFmpeg. The legacy CPU SVT special binary cannot
+            // execute main-FFmpeg FRUC in the same single-process encode graph.
+            if (fruc && Eq(state,"FG_MODE","SVT") && Get(state,"FG_FRUC_USE_MAIN_FFMPEG")=="0")
+            { reason="SVT-AV1-HDR 独立特殊版暂不能与正式版 FRUC Vulkan 共用编码图；请关闭 FRUC，或让特殊版使用正式 FFmpeg。 / Separate SVT-AV1-HDR and main-FFmpeg FRUC cannot run in one CPU encode graph."; return false; }
             if(Eq(state,"FG_MODE","SVT") && Get(state,"FG_FRUC_USE_MAIN_FFMPEG")=="0") {
                 string selected=Get(state,"FG_FRUC_FFMPEG_PATH");
                 if(string.IsNullOrWhiteSpace(selected)){reason="SVT special FFmpeg path is empty";return false;}
