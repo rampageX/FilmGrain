@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.0.80 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.81 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 <table>
   <tr>
@@ -180,7 +180,9 @@ Source 与 Stable 来自同一次已提交源码归档，`SOURCE_BUILD_INFO.txt`
 
 自定义胶片框支持导入单张 **1920×1080、8-bit RGBA PNG**，视频画窗可使用符合规范的半透明叠加层，导入前进行逐像素校验。详细的制作尺寸、透明区域、文件要求和拒绝原因见 [FILM_BORDER_ASSET_SPEC.md](docs/film-border/FILM_BORDER_ASSET_SPEC.md)。自定义样式可以删除，运动效果由 FGS 独立提供，不需要两张素材。输出文件名后缀直接使用边框名称及 `_S`／`_D`，不追加 ID；在命名对话框拒绝重复名称。视频构图支持在画窗内拖动、缩放与 X/Y 精确定位，详见 [FILM_BORDER_FRAMING_SPEC.md](docs/film-border/FILM_BORDER_FRAMING_SPEC.md)。
 
-目前不支持 AV1 边框输出、边框与插帧组合、HDR 输入转 SDR 时的双 GPU 边框预览；这几项是后续扩展，不会因选择胶片样式而自动绕过。已支持的编码路线按照原有 HDR/SDR 色彩设置工作。开发/整合追踪见 [FILM_BORDER_INTEGRATION.md](docs/film-border/FILM_BORDER_INTEGRATION.md)。
+**v5.0.81**：HEVC NVENC 可将 OpenSVPFlow（GPU16／CPU10）或 NVEncC AI FrameGen 与胶片边框组合编码。支持已验证的 SDR BT.709 TV Limited、HDR PQ／HLG BT.2020 TV Limited，静态／动态边框、预装及自定义样式；插帧后由 Vulkan/libplacebo 合成并送往 CUDA/NVENC。HDR NVEncC AI 仍要求已验证的 10-bit 实验构建。PC Full Range 暂不支持，详见 [TODO](docs/todo/FGS_FGB02_Full_Range_TODO.md)。不满足格式或 GPU 管线要求时显示中文原因，任务运行中失败也显示警告，不自动改走 CPU 边框。AV1 边框、FRUC Vulkan＋边框、HDR→SDR 边框仍不开放。
+
+开发/整合追踪见 [FILM_BORDER_INTEGRATION.md](docs/film-border/FILM_BORDER_INTEGRATION.md)。
 
 Stable 从 v5.0.80 起预装 **15 款胶片边框**（左右齿孔 9 款、上下齿孔 6 款），位于 `Utils/_FilmBorders/User`；其 PNG、RAW、名称和画窗数据均在 Windows 构建时进行 SHA256 完整性检查。HLG 边框采用两阶段 libplacebo 全 GPU 合成，PQ 继续使用原 GPU 路线，不额外依赖 NVEncC。
 

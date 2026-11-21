@@ -135,6 +135,7 @@ $RequiredPackageFiles = @(
 $RequiredPackageDirectories = @(
     'images',
     'docs/film-border',
+    'docs/todo',
     'dotnet',
     'dotnet/BuildTools',
     'experiments/GpuSingleFrame',
@@ -148,6 +149,7 @@ $RequiredPackageDirectories = @(
 $ReleaseSourceItems = @(
     'AGENTS.md',
     'docs/film-border',
+    'docs/todo',
     'images',
     'Lang',
     'Utils',

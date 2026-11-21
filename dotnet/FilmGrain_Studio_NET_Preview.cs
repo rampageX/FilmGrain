@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -107,8 +107,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.80";
-        internal const string FileReleaseVersion = "5.0.80.0";
+        internal const string ReleaseVersion = "5.0.81";
+        internal const string FileReleaseVersion = "5.0.81.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -3388,6 +3388,7 @@ namespace FilmGrainStudioPreview
         {
             if (preparingQueue || bridgeTaskCoordinator == null || bridgeTaskCoordinator.IsActive) return;
             preparingQueue = true;
+            System.Threading.Interlocked.Exchange(ref fgb02RuntimeFailure, null);
             queueHistory = new QueueCompletionHistory(chkQueueHistory != null && chkQueueHistory.Checked, independentFiles);
             lock (queueClockSync) { queueClock.Restart(); queueClockStatus = ""; }
             UpdateQueueElapsedLabel();
@@ -3478,7 +3479,7 @@ namespace FilmGrainStudioPreview
             {
                 ShowExistingOutputNotice(FindExistingOutputPath(nativeReason));
                 AppendTaskLog("[Native boundary] stopped: "+nativeReason+Environment.NewLine);
-                FgsMessageBox.Show(this,nativeReason,Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);
+                FgsMessageBox.Show(this,Fgb02FriendlyReason(nativeReason),Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);
                 return;
             }
             if(noReencode)state["FG_MODE"]="AV1";
@@ -3625,7 +3626,7 @@ namespace FilmGrainStudioPreview
                 ShowExistingOutputNotice(FindExistingOutputPath(ex.Message));
                 AppendTaskLog("[Queue] preparation/start failed: " + ex + Environment.NewLine);
                 if (lblRunStage != null) lblRunStage.Text = UiText("队列未启动", "Queue not started");
-                FgsMessageBox.Show(this, ex.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                FgsMessageBox.Show(this, Fgb02FriendlyReason(ex.Message), Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
 
@@ -3709,6 +3710,57 @@ namespace FilmGrainStudioPreview
                 });
             }
             catch (InvalidOperationException) { }
+        }
+
+        // One warning at the end of a failed combined run. Preparation failures still use the existing modal path.
+        private string fgb02RuntimeFailure;
+        private static string Fgb02Option(IDictionary<string,string> state, string key)
+        {
+            string value;
+            return state != null && state.TryGetValue(key,out value) ? (value ?? "") : "";
+        }
+        private static bool IsFgb02CombinedTask(BridgeTaskRequest task)
+        {
+            IDictionary<string,string> s = task == null || task.ExecutionRequest == null ? null : task.ExecutionRequest.Environment;
+            string engine=Fgb02Option(s,"FG_INTERPOLATION_ENGINE");
+            string border=Fgb02Option(s,"FG_FILM_BORDER_MODE");
+            return string.Equals(Fgb02Option(s,"FG_MODE"),"HEVC",StringComparison.OrdinalIgnoreCase) &&
+                Fgb02Option(s,"FG_SVP_INTERPOLATE")=="1" &&
+                border.Length>0 && !string.Equals(border,"OFF",StringComparison.OrdinalIgnoreCase) &&
+                (engine.Length==0 || string.Equals(engine,"SVP",StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(engine,"NVENC_AI",StringComparison.OrdinalIgnoreCase));
+        }
+        private void CaptureFgb02RuntimeFailure(BridgeTaskRequest task, BridgeExecutionResult result)
+        {
+            if (result==null || result.Cancelled || (result.Exception==null && result.ExitCode==0) ||
+                !IsFgb02CombinedTask(task)) return;
+            string path=task.ExecutionRequest.InputFiles!=null && task.ExecutionRequest.InputFiles.Count>0
+                ? Path.GetFileName(task.ExecutionRequest.InputFiles[0]) : "";
+            string detail=result.Exception!=null ? result.Exception.Message :
+                "exit_code="+result.ExitCode.ToString(CultureInfo.InvariantCulture);
+            string text="插帧＋胶片边框编码失败 / Interpolation + film border failed"+
+                Environment.NewLine+path+Environment.NewLine+detail+Environment.NewLine+
+                "请查看任务日志；不会自动改变位深、色彩范围或改走 CPU 边框。 / See task log; no automatic format or CPU fallback.";
+            System.Threading.Interlocked.CompareExchange(ref fgb02RuntimeFailure,text,null);
+        }
+        private static string Fgb02FriendlyReason(string reason)
+        {
+            if (string.IsNullOrEmpty(reason)) return reason;
+            string message="";
+            if (reason.Contains("FGB-02 SDR GPU film border currently requires"))
+                message="当前视频的 SDR 色彩标记或范围不受 FGB-02 GPU 组合支持。\n只支持 BT.709 TV Limited；PC Full Range 已列入 TODO，不会自动转换范围。";
+            else if (reason.Contains("HDR film border requires limited-range"))
+                message="当前 HDR 视频不满足胶片边框要求的 BT.2020 PQ/HLG、TV Limited 色彩格式。\nPC Full Range 已列入 TODO，不自动转换范围；可先关闭胶片边框。";
+            else if (reason.Contains("HDR VFG experimental path requires"))
+                message="当前 HDR 素材不符合 NVEncC AI 实验路线的 10-bit BT.2020 PQ/HLG TV Limited 要求。\nPC Full Range 暂不支持，请改用符合要求的片源或关闭 AI 插帧。";
+            else if (reason.Contains("FGB-02 requires S4 Vulkan/CUDA GPU compositing"))
+                message="当前设置不能使用插帧＋GPU 胶片边框。\n请检查编码器、反交错、缩放、LUT、调色、字幕及颗粒组合；不会自动回退 CPU 边框。";
+            else if (reason.Contains("S2 film border with interpolation is not yet validated"))
+                message="该编码器或插帧引擎尚不支持与胶片边框同时使用。\n请选择已验证的 HEVC NVENC＋SVP／NVEncC AI 组合，或单独使用其中一项。";
+            else if (reason.Contains("HDR film border currently requires keeping HDR"))
+                message="当前 HDR 转 SDR 设置暂不支持与胶片边框同时使用。\n请使用 HDR 保留路线，或关闭边框。";
+            return message.Length==0 ? reason : message.Replace("\n",Environment.NewLine)+
+                Environment.NewLine+Environment.NewLine+"[Detail] "+reason;
         }
 
         private readonly object runUiSync=new object();
@@ -3908,6 +3960,7 @@ namespace FilmGrainStudioPreview
 
         private void OnBridgeExecutionCompleted(object sender, BridgeExecutionCompletedEventArgs e)
         {
+            string fgb02Popup = System.Threading.Interlocked.Exchange(ref fgb02RuntimeFailure, null);
             TimeSpan queueElapsed;
             lock (queueClockSync) {
                 queueClock.Stop(); queueElapsed = queueClock.Elapsed;
@@ -3956,6 +4009,11 @@ namespace FilmGrainStudioPreview
                         if (lblRunStage != null) lblRunStage.Text = UiText("处理失败", "Failed") + " (exit " + e.Result.ExitCode.ToString(CultureInfo.InvariantCulture) + ")";
                     }
 
+                    if (!e.Result.Cancelled && (e.Result.Exception != null || e.Result.ExitCode != 0) &&
+                        !string.IsNullOrEmpty(fgb02Popup))
+                        FgsMessageBox.Show(this, fgb02Popup,
+                            UiText("插帧＋胶片边框处理失败", "Interpolation + film border failed"),
+                            MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     if (hardwareRefreshQueued) BeginHardwareDetection();
                     StartQueuedRefresh();
                     if (history != null && history.Enabled && !e.Result.Cancelled && detailedRecord.Length > 0) ShowQueueCompletionRecord(detailedRecord);

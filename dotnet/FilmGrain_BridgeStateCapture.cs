@@ -554,6 +554,7 @@ namespace FilmGrainStudioPreview
         }
         private void OnQueueItemCompleted(object sender,BridgeTaskItemCompletedEventArgs e)
         {
+            if(e != null) CaptureFgb02RuntimeFailure(e.Task,e.Result);
             QueueCompletionHistory history = queueHistory;
             if (history != null) history.Completed(e.Task, e.Result);
             if(IsDisposed||Disposing||!IsHandleCreated)return;

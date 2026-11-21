@@ -1,3 +1,11 @@
+## v5.0.81 — FGB-02 插帧＋GPU 胶片边框及失败弹窗
+
+- HEVC NVENC 新增 OpenSVPFlow／NVEncC AI FrameGen 与胶片边框的正式组合管线；插帧视频先经 S4 Vulkan/libplacebo GPU 合成，再由 CUDA/NVENC 编码，原始音频沿用公共 PTS/同步逻辑。
+- 修正插帧后素材流重编号、GPU 之前的目标帧率及色彩标记；支持已验收的 SDR BT.709、PQ HDR10 与 HLG（均 TV Limited），静态／动态边框、自定义构图及 15 款素材。HLG 保留原有两阶段 GPU 转换。
+- 任务准备失败显示明确中文原因及原始错误，运行中组合失败每轮一次提示。无 GPU 支持不静默切换 CPU 路线。
+- PC Full Range 继续保护性拒绝并转入 `docs/todo/` 追踪；不解除 AV1、FRUC Vulkan 或 HDR→SDR 边框限制。
+- 编码器、预览和独立插帧／独立边框的已验收路径不重构。
+
 ## v5.0.80 — GPU HLG 胶片边框修复及 15 款预装边框
 
 - HLG HDR10-bit 胶片边框改用两阶段 Vulkan/libplacebo 全 GPU 合成：先在 GPU 合成，再转换为 HLG P010 并直通 CUDA/NVENC；修复原 HLG GPU 路线输出绿色块的问题。静态／动态边框与构图功能均保留，不增加 NVEncC 依赖，也不使用 CPU `zscale`／`hwdownload`。

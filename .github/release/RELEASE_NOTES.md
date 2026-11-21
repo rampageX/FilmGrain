@@ -1,10 +1,8 @@
-# Film Grain Studio v5.0.80
+# Film Grain Studio v5.0.81
 
-- HLG HDR10-bit 胶片边框改用两阶段 Vulkan/libplacebo 全 GPU 合成：先在 GPU 合成，再转换为 HLG P010 并直通 CUDA/NVENC；修复原 HLG GPU 路线输出绿色块的问题。静态／动态边框与构图功能均保留，不增加 NVEncC 依赖，也不使用 CPU `zscale`／`hwdownload`。
-- PQ HDR 保留已验证的单阶段 GPU 路线，不改既有编码、色彩和 HDR 信令逻辑。
-- 胶片边框预览采用已验收的缩略图图库和暗黑导航交互，保留现有静态／动态切换、滚轮缩放、拖动与 X/Y 构图操作。
-- 正式 Stable 首次预装 15 款已验收的 1920×1080 RGBA 胶片边框（9 款左右齿孔、6 款上下齿孔）。每款含 PNG、RAW、名称及画窗元数据，共 60 个文件；Windows 构建以固定清单逐文件校验 SHA256，并检查 Stable ZIP 不缺项。
-- 15 款边框来自固定源包，打包到运行目录 `Utils/_FilmBorders/User`；不使用开发者个人 User 目录作为发布源。两款原内置边框和旧用户导入记录继续兼容。
-- 三份胶片边框设计文档移至 `docs/film-border/`，根目录保持整洁；新增项目根目录 `AGENTS.md` 作为开发、测试和发布约定。
-- 维持 AV1 边框、边框与插帧、HDR→SDR 边框等现有不支持组合的限制；本版不纳入 Windows HDR/MPO 拖动问题的实验代码。
-
+- FGB-02：HEVC NVENC 正式支持 OpenSVPFlow（SDR、PQ、HLG；HDR GPU16/CPU10）或 NVEncC AI FrameGen（SDR；PQ/HLG 使用已验证的 10-bit 实验版）与胶片边框组合。插帧后直接经过现有 S4 Vulkan/libplacebo GPU 合成，送 CUDA/NVENC，不新增大型中间文件或 CPU 回退。
+- 修复组合管线的视频、原始音频、Grain Plate、边框素材流编号；在 GPU 合成前规范插帧帧率，保留现有音视频时间轴、静态／动态运动、构图和预装 15 款边框。
+- SDR GPU 输出明确使用 BT.709 Limited；PQ 与 HLG 保留各自色彩及 GPU 合成路线，HLG 沿用两阶段 libplacebo。用户已实机验收 SDR／PQ／HLG × SVP／AI 六组组合。
+- 不支持的色彩或功能组合显示中文提示并附带原始错误；组合任务运行中失败会在结束时显示一次警告，日志仍保留详细信息。
+- PC Full Range 转换仍不开放，记录到 `docs/todo/FGS_FGB02_Full_Range_TODO.md`；不放开 AV1＋边框、FRUC Vulkan＋边框或 HDR→SDR＋边框。
+- 保留 v5.0.80 的全部 HDR 合成、GPU 预览和 15 款预装边框素材；正式构建恢复 `Stable` 标记，由 Windows runner 编译及校验。

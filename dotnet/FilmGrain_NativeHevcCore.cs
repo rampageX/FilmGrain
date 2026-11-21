@@ -82,7 +82,9 @@ namespace FilmGrainStudioPreview
             bool hdrToSdr = HdrColorProcessingCore.NvencToSdr(info,state);
             bool hdrPreserve = info.IsHdr && !hdrToSdr;
             FilmBorderEncodingCore.Plan filmBorder;
-            if (!FilmBorderEncodingCore.TryCreate(appRoot,info,state,interpolate,hdrPreserve,out filmBorder,out reason)) return false;
+            // FGB-02 opt-in is confined to HEVC NVENC SVP/NVEncC; all other encoder routes keep their guard.
+            if (!FilmBorderEncodingCore.TryCreate(appRoot,info,state,interpolate,hdrPreserve,out filmBorder,out reason,interpolate && svp && !h264 &&
+                (!NvencInterpolationCore.Enabled(state) || Eq(state,"FG_INTERPOLATION_ENGINE","NVENC_AI")))) return false;
             if(h264&&hdrPreserve){reason="H.264 NVENC 本线输出 8bit；HDR 源请选 HDR→SDR，不能保留 HDR10。 / H.264 8-bit output requires HDR to SDR.";return false;}
 
             string tonemap = Get(state, "FG_TONEMAP_ALGO").ToLowerInvariant();
@@ -383,12 +385,21 @@ namespace FilmGrainStudioPreview
                 // Experimental route is deliberately narrower than the UI's general border mode.
                 // No match means the validated CPU graph is used unchanged.
                 bool s4GpuRequested = Environment.GetEnvironmentVariable("FGS_S4_GPU_BORDER") != "0";
+                bool fgb02 = interpolate && svp && !h264 && filmBorder != null &&
+                    (!NvencInterpolationCore.Enabled(state) || Eq(state,"FG_INTERPOLATION_ENGINE","NVENC_AI"));
+                // The FGB-02 SDR GPU path is BT.709 limited range only; never relabel explicit BT.601/PC material.
+                if (fgb02 && !info.IsHdr &&
+                    ((!string.IsNullOrEmpty(info.ColorPrimaries) && info.ColorPrimaries != "bt709" && info.ColorPrimaries != "unknown") ||
+                     (!string.IsNullOrEmpty(info.ColorTransfer) && info.ColorTransfer != "bt709" && info.ColorTransfer != "unknown") ||
+                     (!string.IsNullOrEmpty(info.ColorSpace) && info.ColorSpace != "bt709" && info.ColorSpace != "unknown") ||
+                     info.ColorRange == "pc"))
+                { reason = "FGB-02 SDR GPU film border currently requires BT.709 limited-range input."; return false; }
                 bool s4Gpu4k30 = info.Width == 3840 && info.Height == 2160 &&
                     frame.ActiveWidth == 3840 && frame.ActiveHeight == 2160 &&
                     frame.ContentX == 0 && frame.ContentY == 276 && frame.ContentWidth == 3840 && frame.ContentHeight == 1608 &&
                     Math.Abs(ParseFps(fps) - 30.0) < 0.001;
                 bool s4GpuBorder = s4GpuRequested && filmBorder != null &&
-                    filmBorder.HdrTransfer != "" && hdrPreserve && !h264 && !interpolate &&
+                    (hdrPreserve || (fgb02 && !info.IsHdr)) && !h264 && (!interpolate || fgb02) &&
                     (!grainEnabled || plateMode) && durationSeconds > 0.0 && !info.IsInterlaced && !resize.Enabled &&
                     frame.ActiveWidth == info.Width && frame.ActiveHeight == info.Height &&
                     info.Width >= 32 && info.Height >= 32 && info.Width <= 16384 && info.Height <= 16384 &&
@@ -396,15 +407,23 @@ namespace FilmGrainStudioPreview
                     string.IsNullOrEmpty(preprocessing) && string.IsNullOrEmpty(colorFilter) &&
                     string.IsNullOrEmpty(lutCompatName) && string.IsNullOrEmpty(subtitleFilter) &&
                     pixelPercent == 100;
+                // Never silently use the CPU border when the explicitly requested combined GPU path is unavailable.
+                if (fgb02 && !s4GpuBorder)
+                { reason = "FGB-02 requires S4 Vulkan/CUDA GPU compositing: progressive HEVC, no resize/LUT/CC/subtitles/preprocess/FGSIM, and no grain or Grain Plate only."; return false; }
+                int filmInputIndex = plateMode ? (svp ? 3 : 2) : (svp ? 2 : 1);
+                string fgb02Signal = fgb02 ? "setparams=range=limited:color_primaries=" + (hdrPreserve ? "bt2020" : "bt709") +
+                    ":color_trc=" + (hdrPreserve ? info.ColorTransfer : "bt709") +
+                    ":colorspace=" + (hdrPreserve ? "bt2020nc" : "bt709") + "," : "";
                 if (s4GpuBorder)
                 {
                     string raw = filmBorder.GpuRaw;
                     if (!File.Exists(raw) || new FileInfo(raw).Length != 1920L*1080*4)
                     { reason = "S4 GPU film border requires verified 1920x1080 RGBA texture: " + raw; return false; }
                     filmBorder.GpuRaw = raw;
-                    filmBorder.GpuInputIndex = plateMode ? 2 : 1;
+                    filmBorder.GpuInputIndex = filmInputIndex;
                     filmBorder.GpuClockGated = !grainEnabled;
-                    filmBorder.GpuUseLegacy4k = s4Gpu4k30 && !filmBorder.User &&
+                    filmBorder.GpuSdr = fgb02 && !hdrPreserve;
+                    filmBorder.GpuUseLegacy4k = s4Gpu4k30 && !interpolate && !filmBorder.User &&
                         FilmBorderFramingCore.Neutral(filmBorder.FocusX,filmBorder.FocusY,filmBorder.Zoom);
                     filmBorder.GpuWidth = info.Width; filmBorder.GpuHeight = info.Height;
                     filmBorder.GpuContentX = frame.ContentX; filmBorder.GpuContentY = frame.ContentY;
@@ -424,7 +443,7 @@ namespace FilmGrainStudioPreview
                     if (s4GpuBorder)
                         filter = FilmBorderEncodingCore.AppendGpuFilter(
                             "[0:v:0]" + deinterlaceFilter + fpsFilter + (s4Gpu4k30 ? "fps=30," : "fps=" + fps + ",") +
-                            "format=p010le,setpts=PTS-STARTPTS,split[fgsfilm_gpu_src][fgsfilm_clock_src];" +
+                            "format=p010le," + fgb02Signal + "setpts=PTS-STARTPTS,split[fgsfilm_gpu_src][fgsfilm_clock_src];" +
                             "[fgsfilm_gpu_src]hwupload[fgsfilm_gpu_video]", filmBorder);
                     else
                         filter = SharedGrainCore.BuildWithoutGrain(deinterlaceFilter + fpsFilter + colorFilter,
@@ -435,7 +454,7 @@ namespace FilmGrainStudioPreview
 
                 {
 
-                    string grain = "[1:v:0]fps=" + fps + ",format=p010le,setpts=PTS-STARTPTS,hwupload" + (grainScale ? ",scale_vulkan=w=" + processingWidth.ToString(CultureInfo.InvariantCulture) + ":h=" + processingHeight.ToString(CultureInfo.InvariantCulture) + ":scaler=bilinear" : "") + "[grainvk]";
+                    string grain = "[" + (fgb02 ? "2" : "1") + ":v:0]fps=" + fps + ",format=p010le,setpts=PTS-STARTPTS,hwupload" + (grainScale ? ",scale_vulkan=w=" + processingWidth.ToString(CultureInfo.InvariantCulture) + ":h=" + processingHeight.ToString(CultureInfo.InvariantCulture) + ":scaler=bilinear" : "") + "[grainvk]";
 
                     string baseFilter;
 
@@ -445,7 +464,7 @@ namespace FilmGrainStudioPreview
 
                     else
 
-                        baseFilter = "[0:v:0]" + deinterlaceFilter + fpsFilter + (s4GpuBorder ? (s4Gpu4k30 ? "fps=30," : "fps=" + fps + ",") : "") + colorFilter + "format=p010le,setpts=PTS-STARTPTS,hwupload[basevk]";
+                        baseFilter = "[0:v:0]" + deinterlaceFilter + fpsFilter + (s4GpuBorder ? (s4Gpu4k30 && !interpolate ? "fps=30," : "fps=" + fps + ",") : "") + colorFilter + "format=p010le," + fgb02Signal + "setpts=PTS-STARTPTS,hwupload[basevk]";
 
                     if (s4GpuBorder)
                         filter = FilmBorderEncodingCore.AppendGpuFilter(
@@ -640,19 +659,20 @@ namespace FilmGrainStudioPreview
                 }
 
                     if (filmBorder != null && !s4GpuBorder)
-                        filter = FilmBorderEncodingCore.AppendFilter(filter,filmBorder,frame.ActiveWidth,frame.ActiveHeight,plateMode ? 2 : 1,fps,info);
+                        filter = FilmBorderEncodingCore.AppendFilter(filter,filmBorder,frame.ActiveWidth,frame.ActiveHeight,filmInputIndex,fps,info);
                     List<string> hevcArgs = BuildHevcArgs(encodeInput, grainInput, filter, output, preset, highMotion, bitrate, max, buf, fps, duration, plateMode, mkv, caps, state, hdrPreserve ? info : null, fruc, info, filmBorder);
 
                     if (svp) {
                         ConvertToPipeInput(hevcArgs, encodeInput, mpegTsSvp && !preserveSvpTransportTimeline ? mpegTsVideoOffset : null);
-                        if(!NvencInterpolationCore.Enabled(state))SharedInterpolationEncodeCore.NormalizeRenderedCadence(hevcArgs,fps);
+                        // FGB-02 clocks the interpolated frames before Vulkan upload; do not append software fps after CUDA.
+                        if(!NvencInterpolationCore.Enabled(state) && !s4GpuBorder)SharedInterpolationEncodeCore.NormalizeRenderedCadence(hevcArgs,fps);
                         hevcArgs.InsertRange(hevcArgs.Count-1,new[]{"-enc_time_base:v",fps.Contains("/")?fps.Split('/')[1]+"/"+fps.Split('/')[0]:"1/"+fps});
                     }
 
                         string mainStageText = h264?"H.264 NVENC final encode":"HEVC final encode";
 
                         BridgeExecutionStage mainStage = MakeStage(s4GpuBorder ? s4GpuFfmpeg : ffmpeg, workingDirectory, hevcArgs, durationSeconds, (needsHdrWorkfile || needsFieldWorkfile ? 2 : 1), totalStages, mainStageText);
-                        if (s4GpuBorder) mainStage.StageText += " / S4 Vulkan-libplacebo-CUDA experimental border / verified FFmpeg / software decode";
+                        if (s4GpuBorder) mainStage.StageText += (fgb02 ? " / FGB-02 interpolation then " : " / ") + "S4 Vulkan-libplacebo-CUDA GPU film border / software decode";
 
                         if (svp) SharedSvpCore.AttachProducer(mainStage, vspipe, vpy, svpPlugins, encodeInput, state, fps);
                         if (svp && hdrToSdr) SharedHdrPreprocessCore.AttachPipeTimeline(mainStage,ffprobe,encodeInput,info,hevcArgs,input);
@@ -994,6 +1014,11 @@ namespace FilmGrainStudioPreview
                 a.Add("-colorspace"); a.Add(HdrSpace(hdrInfo));
 
             }
+
+            // FGB-02 SDR frames leave Vulkan as P010 Main10; signal BT.709 explicitly.
+            if (filmBorder != null && filmBorder.GpuSdr)
+            { a.Add("-color_range"); a.Add("tv"); a.Add("-color_primaries"); a.Add("bt709");
+              a.Add("-color_trc"); a.Add("bt709"); a.Add("-colorspace"); a.Add("bt709"); }
 
             // fruc_vulkan already emits frames with the requested target rate and timestamps.
 
@@ -1591,6 +1616,7 @@ namespace FilmGrainStudioPreview
             internal string FileSuffix = "";
             internal string MoveX=FilmBorderMotionCore.MoveX,MoveY=FilmBorderMotionCore.MoveY;
             internal string HdrTransfer = "";
+            internal bool GpuSdr;
             internal string GpuRaw;
             internal bool GpuUseLegacy4k;
             internal bool GpuClockGated;
@@ -1623,7 +1649,7 @@ namespace FilmGrainStudioPreview
         }
 
         internal static bool TryCreate(string appRoot,MediaProbeInfo media,IDictionary<string,string> state,
-            bool interpolating,bool hdrPreserve,out Plan plan,out string reason)
+            bool interpolating,bool hdrPreserve,out Plan plan,out string reason,bool allowInterpolatedGpu=false)
         {
             plan=null;reason="";
             string value=Read(state,"FG_FILM_BORDER_MODE").Trim().ToUpperInvariant();
@@ -1641,7 +1667,7 @@ namespace FilmGrainStudioPreview
                 ((media.ColorTransfer!="smpte2084" && media.ColorTransfer!="arib-std-b67") ||
                  media.ColorPrimaries!="bt2020" || media.ColorSpace!="bt2020nc" || media.ColorRange!="tv"))
             { reason="HDR film border requires limited-range BT.2020 PQ or HLG."; return false; }
-            if(interpolating)
+            if(interpolating && !allowInterpolatedGpu)
             {reason="S2 film border with interpolation is not yet validated (S3/S4).";return false;}
             double amp=FilmBorderMotionCore.Parse(Read(state,"FG_FILM_BORDER_AMP"),0,3);
             double speed=FilmBorderMotionCore.Parse(Read(state,"FG_FILM_BORDER_SPEED"),0.25,3);
@@ -1731,13 +1757,16 @@ namespace FilmGrainStudioPreview
 
         internal static string AppendGpuFilter(string graph,Plan plan)
         {
-            if (plan == null || plan.GpuRaw == null || plan.HdrTransfer == "")
+            if (plan == null || plan.GpuRaw == null || (plan.HdrTransfer == "" && !plan.GpuSdr))
                 throw new InvalidOperationException("S4 GPU border called outside its validated route.");
             string moveX = plan.Dynamic ? plan.MoveX : "0", moveY = plan.Dynamic ? plan.MoveY : "0";
             // HLG GPU output: compose into PQ first, then let a second GPU libplacebo
             // convert the actual pixels back to HLG before CUDA/NVENC. PQ is unchanged.
             bool splitHlg = plan.HdrTransfer == "arib-std-b67";
-            string gpuComposeTransfer = splitHlg ? "smpte2084" : plan.HdrTransfer;
+            string gpuComposeTransfer = plan.GpuSdr ? "bt709" : splitHlg ? "smpte2084" : plan.HdrTransfer;
+            string gpuOutputTransfer = plan.GpuSdr ? "bt709" : plan.HdrTransfer;
+            string gpuColorSpace = plan.GpuSdr ? "bt709" : "bt2020nc";
+            string gpuPrimaries = plan.GpuSdr ? "bt709" : "bt2020";
             string gpuHlgFinish = splitHlg
                 ? ",libplacebo=inputs=1:w="+N(plan.GpuWidth)+":h="+N(plan.GpuHeight)+
                   ":format=p010le:colorspace=bt2020nc:color_primaries=bt2020:"+
@@ -1768,7 +1797,7 @@ namespace FilmGrainStudioPreview
                 if (right<=left || bottom<=top) throw new InvalidOperationException("GPU film border has no visible picture area.");
                 Func<double,string> f=delegate(double value) { return value.ToString("0.##########",CultureInfo.InvariantCulture); };
                 string kernelDynamic = "libplacebo=inputs=2:w="+N(w)+":h="+N(h)+":format=p010le:"+
-                    "colorspace=bt2020nc:color_primaries=bt2020:color_trc="+gpuComposeTransfer+":range=limited"+
+                    "colorspace="+gpuColorSpace+":color_primaries="+gpuPrimaries+":color_trc="+gpuComposeTransfer+":range=limited"+
                     ":crop_x='if(eq(idx,0),"+f(left)+",0)'"+
                     ":crop_y='if(eq(idx,0),"+f(top)+",0)'"+
                     ":crop_w='if(eq(idx,0),"+f(right-left)+",iw)'"+
@@ -1779,8 +1808,8 @@ namespace FilmGrainStudioPreview
                     ":pos_y='if(eq(idx,0),"+f((h-apertureH)/2+(top-cropTop)*scale)+",0)+("+moveY+")'"+
                     ":upscaler=ewa_lanczos:downscaler=ewa_lanczos:tonemapping=clip:peak_detect=false:dithering=none:fillcolor=black";
                 return graph+";"+input+";[fgsfilm_gpu_video][fgsfilm_gpu_png]"+kernelDynamic+gpuHlgFinish+
-                    ",hwupload=derive_device=cuda,setparams=range=limited:color_primaries=bt2020:"+
-                    "color_trc="+plan.HdrTransfer+":colorspace=bt2020nc[vout]";
+                    ",hwupload=derive_device=cuda,setparams=range=limited:color_primaries="+gpuPrimaries+":"+
+                    "color_trc="+gpuOutputTransfer+":colorspace="+gpuColorSpace+"[vout]";
             }
             string kernel = "libplacebo=inputs=2:w=3840:h=2160:format=p010le:"+
                             "colorspace=bt2020nc:color_primaries=bt2020:color_trc=" + gpuComposeTransfer + ":range=limited";
