@@ -3833,8 +3833,17 @@ namespace FilmGrainStudioPreview
             if(bridgeTaskCoordinator==null||bridgeTaskCoordinator.State!=BridgeTaskState.Running)return;
                     if (stage != null && stage.HasStage && lblRunStage != null)
                     {
-                        lblRunStage.Text = (activeRunNativeBackend ? "Native .NET " + (string.IsNullOrWhiteSpace(activeRunCodecName) ? "" : activeRunCodecName + " · ") : "") +
-                            UiText("阶段 ", "Stage ") + stage.StageCurrent.ToString(CultureInfo.InvariantCulture) + "/" + stage.StageTotal.ToString(CultureInfo.InvariantCulture) + " · " + stage.StageText;
+                        bool cpuAlert = stage.StageText.StartsWith(CpuRouteStageAlertCore.Marker, StringComparison.Ordinal);
+                        lblRunStage.ForeColor = cpuAlert ? Color.FromArgb(191, 99, 18) : SystemColors.ControlText;
+                        string stagePrefix = UiText("阶段 ", "Stage ") + stage.StageCurrent.ToString(CultureInfo.InvariantCulture) + "/" + stage.StageTotal.ToString(CultureInfo.InvariantCulture);
+                        string alertText = cpuAlert ? stage.StageText.Substring(CpuRouteStageAlertCore.Marker.Length) : "";
+                        int alertEnd = alertText.IndexOf(" · ", StringComparison.Ordinal);
+                        string alertReason = alertEnd < 0 ? alertText : alertText.Substring(0, alertEnd);
+                        string alertStage = alertEnd < 0 ? "" : alertText.Substring(alertEnd + 3);
+                        lblRunStage.Text = cpuAlert
+                            ? "⚠ CPU · " + alertReason + " · " + stagePrefix + (alertStage.Length == 0 ? "" : " · " + alertStage)
+                            : (activeRunNativeBackend ? "Native .NET " + (string.IsNullOrWhiteSpace(activeRunCodecName) ? "" : activeRunCodecName + " · ") : "") +
+                              stagePrefix + " · " + stage.StageText;
                         if(encodingMonitor!=null)encodingMonitor.SetStage(stage.StageText);
                     }
 
@@ -4004,6 +4013,7 @@ namespace FilmGrainStudioPreview
                         progressRun.Value = (!e.Result.Cancelled && e.Result.Exception == null && e.Result.ExitCode == 0) ? progressRun.Maximum : 0;
                     }
 
+                    if (lblRunStage != null) lblRunStage.ForeColor = SystemColors.ControlText;
                     if (e.Result.Cancelled)
                     {
                         if (lblRunStage != null) lblRunStage.Text = UiText("任务已取消", "Task cancelled");

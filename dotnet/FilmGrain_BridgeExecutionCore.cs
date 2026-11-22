@@ -57,6 +57,44 @@ namespace FilmGrainStudioPreview
         }
     }
 
+    // Build a warning from the selected runtime route, not from the presence of any CPU encoder.
+    // Ordinary x264/x265/SVT software encoding and successful hardware decoding are not fallbacks.
+    internal static class CpuRouteStageAlertCore
+    {
+        internal const string Marker = "[CPU警示] ";
+
+        internal static string Describe(BridgeExecutionRequest request, BridgeExecutionStage stage, string preparationNotice)
+        {
+            var warnings = new List<string>();
+            string notice = request == null ? "" : (request.ExecutionNotice ?? "");
+            if (notice.IndexOf("[S4 GPU border unavailable", StringComparison.Ordinal) >= 0)
+                warnings.Add("边框回退 CPU");
+            if (notice.IndexOf("[HWD] requested=on effective=software", StringComparison.Ordinal) >= 0)
+                warnings.Add("硬解回退软解");
+            if (!string.IsNullOrEmpty(preparationNotice) &&
+                preparationNotice.IndexOf("[HDR preprocess] CPU fallback:", StringComparison.Ordinal) >= 0)
+                warnings.Add("HDR 色调 CPU 回退");
+
+            // Hardware encoder + hwdownload is an actual GPU-to-CPU filter transition.
+            // It may be deliberate, so report it separately rather than calling it a fallback.
+            string arguments = stage == null ? "" : (stage.DirectArguments ?? "");
+            if (arguments.IndexOf("hwdownload", StringComparison.Ordinal) >= 0)
+            {
+                var tokens = HardwareDecodeCore.SplitArguments(arguments);
+                bool nvenc = false, download = false;
+                for (int i = 0; i + 1 < tokens.Count; i++)
+                {
+                    if (tokens[i] == "-c:v")
+                        nvenc = tokens[i + 1] == "hevc_nvenc" || tokens[i + 1] == "h264_nvenc" || tokens[i + 1] == "av1_nvenc";
+                    if ((tokens[i] == "-filter_complex" || tokens[i] == "-vf") && tokens[i + 1].Contains("hwdownload"))
+                        download = true;
+                }
+                if (nvenc && download) warnings.Add("GPU→CPU 滤镜");
+            }
+            return string.Join(" / ", warnings.ToArray());
+        }
+    }
+
     internal sealed class BridgeExecutionStage
     {
         public Func<string> BeforeRunPreparation { get; set; }
@@ -331,11 +369,13 @@ namespace FilmGrainStudioPreview
                             RaiseLog(BridgeLogStream.System, stage.PrepareWithCancellation(delegate { return cancelRequested; }));
                             if (cancelRequested) break;
                         }
+                        string preparationNotice = "";
                         if (stage.BeforeRunPreparation != null)
                         {
                             RaiseProgress(new BridgeProgressEventArgs(false, 0, false, "", "", "", true,
                                 stage.StageCurrent, stage.StageTotal, stage.StageText + " / shared timeline preparation"));
-                            RaiseLog(BridgeLogStream.System, stage.BeforeRunPreparation());
+                            preparationNotice = stage.BeforeRunPreparation();
+                            RaiseLog(BridgeLogStream.System, preparationNotice);
                             if (cancelRequested) break;
                         }
                         if (stage.ShouldRun != null && !stage.ShouldRun()) continue;
@@ -350,6 +390,9 @@ namespace FilmGrainStudioPreview
                         }
                         if(stage.PreparedObserver!=null)stage.PreparedObserver();
                         if(cancelRequested)break;
+                        string cpuRouteWarning = CpuRouteStageAlertCore.Describe(request, stage, preparationNotice);
+                        if (cpuRouteWarning.Length > 0 && !stage.StageText.StartsWith(CpuRouteStageAlertCore.Marker, StringComparison.Ordinal))
+                            stage.StageText = CpuRouteStageAlertCore.Marker + cpuRouteWarning + " · " + stage.StageText;
                         PrepareStageProgress(stage);
                         string stageMode;
                         string stagePrefix = request.Environment != null && request.Environment.TryGetValue("FG_MODE", out stageMode) ? stageMode + " step " : "Native step ";

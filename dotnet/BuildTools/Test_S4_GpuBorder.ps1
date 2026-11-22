@@ -118,3 +118,29 @@ Write-Host 'PASS: GPU border input index and 1080p/4K/720p geometry'
 Write-Host 'PASS: static and dynamic GPU border movement'
 Write-Host 'PASS: no-grain encoder input ordering and finite duration'
 Write-Host 'PASS: no-grain texture ends with source clock; Grain Plate path unchanged'
+
+# CPU route warning audit: actual fallbacks versus ordinary software encoding.
+$alertType = $assembly.GetType('FilmGrainStudioPreview.CpuRouteStageAlertCore', $true)
+$describe = $alertType.GetMethod('Describe', $flags)
+$requestType = $assembly.GetType('FilmGrainStudioPreview.BridgeExecutionRequest', $true)
+$stageType = $assembly.GetType('FilmGrainStudioPreview.BridgeExecutionStage', $true)
+function Get-CpuWarning([string]$notice, [string]$arguments, [string]$preparation) {
+    $request = [Activator]::CreateInstance($requestType, $true)
+    $stage = [Activator]::CreateInstance($stageType, $true)
+    $requestType.GetProperty('ExecutionNotice').SetValue($request, $notice, $null)
+    $stageType.GetProperty('DirectArguments').SetValue($stage, $arguments, $null)
+    return [string]$describe.Invoke($null, @($request, $stage, $preparation))
+}
+function Assert-CpuWarning([string]$actual, [string]$expected) {
+    if ($actual -ne $expected) { throw ('CPU stage warning mismatch: expected=[' + $expected + '] actual=[' + $actual + ']') }
+}
+Assert-CpuWarning (Get-CpuWarning '' '-filter_complex blend_vulkan=overlay,libplacebo=inputs=2,hwupload=derive_device=cuda -c:v hevc_nvenc' '') ''
+Assert-CpuWarning (Get-CpuWarning '[HWD] requested=on effective=FFmpeg/cuda verified=first-frame; CPU-frame filter pipeline retained' '-c:v hevc_nvenc' '') ''
+Assert-CpuWarning (Get-CpuWarning '[S4 GPU border unavailable for this configuration: validated CPU border retained.]' '-c:v hevc_nvenc' '') '边框回退 CPU'
+Assert-CpuWarning (Get-CpuWarning '[HWD] requested=on effective=software fallback=probe failed' '-c:v hevc_nvenc' '') '硬解回退软解'
+Assert-CpuWarning (Get-CpuWarning '' '-c:v hevc_nvenc' '[HDR preprocess] CPU fallback: selected algorithm=mobius') 'HDR 色调 CPU 回退'
+Assert-CpuWarning (Get-CpuWarning '' '-filter_complex hwupload,blend_vulkan,hwdownload,format=p010le,scale=1920:1080 -c:v h264_nvenc' '') 'GPU→CPU 滤镜'
+Assert-CpuWarning (Get-CpuWarning '' '-filter_complex hwupload,blend_vulkan,hwdownload,format=p010le -c:v libx265' '') ''
+Assert-CpuWarning (Get-CpuWarning '[NVEncC] software decode explicitly selected; no engine fallback' '-c:v hevc_nvenc' '') ''
+Assert-CpuWarning (Get-CpuWarning '[S4 GPU border unavailable for this configuration: validated CPU border retained.]' '-filter_complex blend_vulkan,hwdownload,scale=1920:1080 -c:v hevc_nvenc' '') '边框回退 CPU / GPU→CPU 滤镜'
+Write-Host 'PASS: CPU route stage warnings cover actual fallbacks, GPU->CPU transfers and ignore intentional software encoding'
