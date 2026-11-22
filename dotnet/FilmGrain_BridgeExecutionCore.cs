@@ -57,40 +57,54 @@ namespace FilmGrainStudioPreview
         }
     }
 
-    // Build a warning from the selected runtime route, not from the presence of any CPU encoder.
-    // Ordinary x264/x265/SVT software encoding and successful hardware decoding are not fallbacks.
+    // Only flag high-cost paths that the selected runtime graph actually executes.
+    // A single software film border, a normal hwdownload, or optional software decode
+    // alone do not predict a significant FPS regression.
     internal static class CpuRouteStageAlertCore
     {
         internal const string Marker = "[CPU警示] ";
 
         internal static string Describe(BridgeExecutionRequest request, BridgeExecutionStage stage, string preparationNotice)
         {
-            var warnings = new List<string>();
-            string notice = request == null ? "" : (request.ExecutionNotice ?? "");
-            if (notice.IndexOf("[S4 GPU border unavailable", StringComparison.Ordinal) >= 0)
-                warnings.Add("边框回退 CPU");
-            if (notice.IndexOf("[HWD] requested=on effective=software", StringComparison.Ordinal) >= 0)
-                warnings.Add("硬解回退软解");
-            if (!string.IsNullOrEmpty(preparationNotice) &&
-                preparationNotice.IndexOf("[HDR preprocess] CPU fallback:", StringComparison.Ordinal) >= 0)
-                warnings.Add("HDR 色调 CPU 回退");
-
-            // Hardware encoder + hwdownload is an actual GPU-to-CPU filter transition.
-            // It may be deliberate, so report it separately rather than calling it a fallback.
-            string arguments = stage == null ? "" : (stage.DirectArguments ?? "");
-            if (arguments.IndexOf("hwdownload", StringComparison.Ordinal) >= 0)
+            if (stage == null) return "";
+            string arguments = stage.DirectArguments ?? "";
+            string producer = stage.PipeProducerArguments ?? "";
+            string filter = "";
+            var tokens = HardwareDecodeCore.SplitArguments(arguments);
+            for (int i = 0; i + 1 < tokens.Count; i++)
             {
-                var tokens = HardwareDecodeCore.SplitArguments(arguments);
-                bool nvenc = false, download = false;
-                for (int i = 0; i + 1 < tokens.Count; i++)
-                {
-                    if (tokens[i] == "-c:v")
-                        nvenc = tokens[i + 1] == "hevc_nvenc" || tokens[i + 1] == "h264_nvenc" || tokens[i + 1] == "av1_nvenc";
-                    if ((tokens[i] == "-filter_complex" || tokens[i] == "-vf") && tokens[i + 1].Contains("hwdownload"))
-                        download = true;
-                }
-                if (nvenc && download) warnings.Add("GPU→CPU 滤镜");
+                if (tokens[i] == "-filter_complex" || tokens[i] == "-vf" || tokens[i] == "-filter:v" || tokens[i] == "-filter:v:0")
+                    filter += ";" + tokens[i + 1];
             }
+
+            var warnings = new List<string>();
+            bool cpuBorder = filter.IndexOf("[fgsfilm_canvas]", StringComparison.Ordinal) >= 0;
+            bool gpuToCpu = filter.IndexOf("hwdownload", StringComparison.Ordinal) >= 0;
+            bool gpuGrain = filter.IndexOf("blend_vulkan=", StringComparison.Ordinal) >= 0 ||
+                filter.IndexOf("custom_shader_path=", StringComparison.Ordinal) >= 0;
+            bool digitalGrain = filter.IndexOf("noise=c0s=100", StringComparison.Ordinal) >= 0 &&
+                filter.IndexOf("deflate=", StringComparison.Ordinal) >= 0;
+
+            // Proven severe regression: Vulkan grain + software border used to drop 160+ to 15 FPS.
+            if (cpuBorder && gpuToCpu && gpuGrain)
+                warnings.Add("GPU 颗粒→CPU 边框（高开销）");
+            else if (cpuBorder && digitalGrain)
+                warnings.Add("数字颗粒＋CPU 边框（高开销）");
+
+            // CPU full-frame operations are independently expensive on HD/4K video.
+            // Match the actual filter, not a stale fallback notice or requested option.
+            if (filter.IndexOf("bilateral=sigmaS=", StringComparison.Ordinal) >= 0)
+                warnings.Add("CPU Bilateral 滤波（高开销）");
+            if (filter.IndexOf("tonemap=tonemap=", StringComparison.Ordinal) >= 0 &&
+                filter.IndexOf("format=gbrpf32le", StringComparison.Ordinal) >= 0)
+                warnings.Add("HDR CPU 色调映射（高开销）");
+
+            // OpenSVPFlow CPU10 is a deliberate renderer selection, not a silent fallback.
+            // Warn about its CPU frame-render cost without claiming GPU failed.
+            if (producer.IndexOf("hdr10=1", StringComparison.OrdinalIgnoreCase) >= 0 &&
+                producer.IndexOf("hdr_backend=CPU10", StringComparison.OrdinalIgnoreCase) >= 0)
+                warnings.Add("OpenSVP HDR CPU10（高开销）");
+
             return string.Join(" / ", warnings.ToArray());
         }
     }

@@ -119,28 +119,43 @@ Write-Host 'PASS: static and dynamic GPU border movement'
 Write-Host 'PASS: no-grain encoder input ordering and finite duration'
 Write-Host 'PASS: no-grain texture ends with source clock; Grain Plate path unchanged'
 
-# CPU route warning audit: actual fallbacks versus ordinary software encoding.
+# Performance alert policy: match actual expensive graph combinations, not generic fallback flags.
 $alertType = $assembly.GetType('FilmGrainStudioPreview.CpuRouteStageAlertCore', $true)
 $describe = $alertType.GetMethod('Describe', $flags)
 $requestType = $assembly.GetType('FilmGrainStudioPreview.BridgeExecutionRequest', $true)
 $stageType = $assembly.GetType('FilmGrainStudioPreview.BridgeExecutionStage', $true)
-function Get-CpuWarning([string]$notice, [string]$arguments, [string]$preparation) {
+function Get-CpuWarning([string]$notice, [string]$arguments, [string]$preparation, [string]$producer = '') {
     $request = [Activator]::CreateInstance($requestType, $true)
     $stage = [Activator]::CreateInstance($stageType, $true)
     $requestType.GetProperty('ExecutionNotice').SetValue($request, $notice, $null)
     $stageType.GetProperty('DirectArguments').SetValue($stage, $arguments, $null)
+    $stageType.GetProperty('PipeProducerArguments').SetValue($stage, $producer, $null)
     return [string]$describe.Invoke($null, @($request, $stage, $preparation))
 }
 function Assert-CpuWarning([string]$actual, [string]$expected) {
-    if ($actual -ne $expected) { throw ('CPU stage warning mismatch: expected=[' + $expected + '] actual=[' + $actual + ']') }
+    if ($actual -ne $expected) { throw ('CPU performance warning mismatch: expected=[' + $expected + '] actual=[' + $actual + ']') }
 }
-Assert-CpuWarning (Get-CpuWarning '' '-filter_complex blend_vulkan=overlay,libplacebo=inputs=2,hwupload=derive_device=cuda -c:v hevc_nvenc' '') ''
-Assert-CpuWarning (Get-CpuWarning '[HWD] requested=on effective=FFmpeg/cuda verified=first-frame; CPU-frame filter pipeline retained' '-c:v hevc_nvenc' '') ''
-Assert-CpuWarning (Get-CpuWarning '[S4 GPU border unavailable for this configuration: validated CPU border retained.]' '-c:v hevc_nvenc' '') '边框回退 CPU'
-Assert-CpuWarning (Get-CpuWarning '[HWD] requested=on effective=software fallback=probe failed' '-c:v hevc_nvenc' '') '硬解回退软解'
-Assert-CpuWarning (Get-CpuWarning '' '-c:v hevc_nvenc' '[HDR preprocess] CPU fallback: selected algorithm=mobius') 'HDR 色调 CPU 回退'
-Assert-CpuWarning (Get-CpuWarning '' '-filter_complex hwupload,blend_vulkan,hwdownload,format=p010le,scale=1920:1080 -c:v h264_nvenc' '') 'GPU→CPU 滤镜'
-Assert-CpuWarning (Get-CpuWarning '' '-filter_complex hwupload,blend_vulkan,hwdownload,format=p010le -c:v libx265' '') ''
-Assert-CpuWarning (Get-CpuWarning '[NVEncC] software decode explicitly selected; no engine fallback' '-c:v hevc_nvenc' '') ''
-Assert-CpuWarning (Get-CpuWarning '[S4 GPU border unavailable for this configuration: validated CPU border retained.]' '-filter_complex blend_vulkan,hwdownload,scale=1920:1080 -c:v hevc_nvenc' '') '边框回退 CPU / GPU→CPU 滤镜'
-Write-Host 'PASS: CPU route stage warnings cover actual fallbacks, GPU->CPU transfers and ignore intentional software encoding'
+$cpuBorder='[fgsfilm_src]scale=1882:804,crop=1882:804,pad=1920:1080[fgsfilm_canvas];[fgsfilm_canvas][fgsfilm_png]overlay=shortest=1[fgsfilm_joined]'
+$plateFilter='[basevk][grainvk]blend_vulkan=all_mode=overlay,hwdownload,format=p010le[fgsfilm_src];'+$cpuBorder
+$fgsimFilter='[fgsimbase]hwupload,libplacebo=custom_shader_path=grain.hook,hwdownload[fgsfilm_src];'+$cpuBorder
+$digitalFilter='[seed]noise=c0s=100,deflate=threshold0=15,dilation=threshold0=10[n];'+$cpuBorder
+$plateOnly='[basevk][grainvk]blend_vulkan=all_mode=overlay,hwdownload,format=p010le[vout]'
+$gpuBorder='[basevk][grainvk]blend_vulkan=all_mode=overlay[fgsfilm_gpu_video];[fgsfilm_gpu_video][fgsfilm_gpu_png]libplacebo=inputs=2,hwupload=derive_device=cuda[vout]'
+Assert-CpuWarning (Get-CpuWarning '[S4 GPU border unavailable for this configuration: validated CPU border retained.]' ('-filter_complex "'+$cpuBorder+'" -c:v hevc_nvenc') '') ''
+Assert-CpuWarning (Get-CpuWarning '[HWD] requested=on effective=software fallback=probe failed' ('-filter_complex "'+$cpuBorder+'" -c:v hevc_nvenc') '') ''
+Assert-CpuWarning (Get-CpuWarning '[HWD] requested=on effective=software reason=S4 GPU border: use verified software decode before Vulkan->CUDA' ('-filter_complex "'+$gpuBorder+'" -c:v hevc_nvenc') '') ''
+Assert-CpuWarning (Get-CpuWarning '' ('-filter_complex "'+$plateOnly+'" -c:v hevc_nvenc') '') ''
+Assert-CpuWarning (Get-CpuWarning '' ('-filter_complex "'+$gpuBorder+'" -c:v hevc_nvenc') '') ''
+Assert-CpuWarning (Get-CpuWarning '[S4 GPU border unavailable for this configuration: validated CPU border retained.]' ('-filter_complex "'+$plateFilter+'" -c:v hevc_nvenc') '') 'GPU 颗粒→CPU 边框（高开销）'
+Assert-CpuWarning (Get-CpuWarning '' ('-filter_complex "'+$plateFilter+'" -c:v h264_nvenc') '') 'GPU 颗粒→CPU 边框（高开销）'
+Assert-CpuWarning (Get-CpuWarning '' ('-filter_complex "'+$fgsimFilter+'" -c:v hevc_nvenc') '') 'GPU 颗粒→CPU 边框（高开销）'
+Assert-CpuWarning (Get-CpuWarning '' ('-filter_complex "'+$digitalFilter+'" -c:v hevc_nvenc') '') '数字颗粒＋CPU 边框（高开销）'
+Assert-CpuWarning (Get-CpuWarning '' ('-filter_complex "[0:v]bilateral=sigmaS=3:sigmaR=0.05:planes=1[vout]" -c:v hevc_nvenc') '') 'CPU Bilateral 滤波（高开销）'
+Assert-CpuWarning (Get-CpuWarning '' ('-vf "zscale=rin=tv,format=gbrpf32le,tonemap=tonemap=hable,zscale=p=bt709" -c:v hevc_nvenc') '[HDR preprocess] CPU fallback: GPU capability check failed') 'HDR CPU 色调映射（高开销）'
+Assert-CpuWarning (Get-CpuWarning '' ('-vf "format=p010le,hwupload,libplacebo=tonemapping=hable,hwdownload,format=p010le" -c:v hevc_nvenc') '') ''
+Assert-CpuWarning (Get-CpuWarning '[HDR preprocess] CPU fallback: GPU capability check failed' ('-vf "format=p010le,hwupload,libplacebo=tonemapping=hable" -c:v hevc_nvenc') '') ''
+Assert-CpuWarning (Get-CpuWarning '' '-c:v ffv1' '' '--arg hdr10=1 --arg hdr_backend=CPU10') 'OpenSVP HDR CPU10（高开销）'
+Assert-CpuWarning (Get-CpuWarning '' '-c:v ffv1' '' '--arg hdr10=1 --arg hdr_backend=GPU16') ''
+Assert-CpuWarning (Get-CpuWarning '' '-c:v libx265' '' '') ''
+Assert-CpuWarning (Get-CpuWarning '[Native .NET] OpenSVPFlow 已绕过' '-c:v hevc_nvenc' '') ''
+Write-Host 'PASS: high-FPS-cost warnings detect cross-device border, CPU bilateral/HDR and SVP CPU10 without false CPU fallback warnings'
