@@ -405,7 +405,7 @@ namespace FilmGrainStudioPreview
                     info.Width >= 32 && info.Height >= 32 && info.Width <= 16384 && info.Height <= 16384 &&
                     info.Width % 2 == 0 && info.Height % 2 == 0 && ParseFps(fps) > 0 &&
                     string.IsNullOrEmpty(preprocessing) && string.IsNullOrEmpty(colorFilter) &&
-                    string.IsNullOrEmpty(lutCompatName) && string.IsNullOrEmpty(subtitleFilter) &&
+                    (string.IsNullOrEmpty(lutCompatName) || s4SdrPlate) && string.IsNullOrEmpty(subtitleFilter) &&
                     pixelPercent == 100;
                 // Never silently use the CPU border when the explicitly requested combined GPU path is unavailable.
                 if (fgb02 && !s4GpuBorder)
@@ -461,7 +461,9 @@ namespace FilmGrainStudioPreview
 
                     if (!string.IsNullOrEmpty(lutCompatName))
 
-                        baseFilter = "[0:v:0]" + deinterlaceFilter + fpsFilter + colorFilter + "format=gbrp16le,setpts=PTS-STARTPTS,split=2[lutorig][lutsrc];[lutsrc]lut3d=file='" + EscapeFilterPath(lutCompatName) + "':interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=" + lutOpacity + ",format=p010le,hwupload[basevk]";
+                        baseFilter = s4GpuBorder && s4SdrPlate
+                            ? BuildSdrPlateLutGpuBaseFilter(deinterlaceFilter, fpsFilter, colorFilter, lutCompatName, lutOpacity, fps, fgb02Signal)
+                            : "[0:v:0]" + deinterlaceFilter + fpsFilter + colorFilter + "format=gbrp16le,setpts=PTS-STARTPTS,split=2[lutorig][lutsrc];[lutsrc]lut3d=file='" + EscapeFilterPath(lutCompatName) + "':interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=" + lutOpacity + ",format=p010le,hwupload[basevk]";
 
                     else
 
@@ -929,6 +931,19 @@ namespace FilmGrainStudioPreview
 
             catch (Exception ex) { return "HDR signaling probe failed: " + ex.Message; }
 
+        }
+
+        // The existing CPU LUT applies before Vulkan Grain Plate blending. Keep the
+        // same LUT algorithm/opacity but normalize cadence and SDR tags before upload
+        // so S4 can complete the film border without downloading the blended frame.
+        internal static string BuildSdrPlateLutGpuBaseFilter(string deinterlaceFilter, string fpsFilter,
+            string colorFilter, string lutName, string opacity, string fps, string colorSignal)
+        {
+            return "[0:v:0]" + deinterlaceFilter + fpsFilter + "fps=" + fps + "," + colorFilter +
+                "format=gbrp16le,setpts=PTS-STARTPTS,split=2[lutorig][lutsrc];[lutsrc]lut3d=file='" +
+                EscapeFilterPath(lutName) + "':interp=tetrahedral[lutgraded];[lutgraded][lutorig]" +
+                "blend=all_mode=normal:all_opacity=" + opacity + ",format=p010le," +
+                colorSignal + "hwupload[basevk]";
         }
 
         private static List<string> BuildHevcArgs(string input, string grainInput, string filter, string output, string preset, bool highMotion, long bitrate, long max, long buf, string fps, string duration, bool plateMode, bool mkv, HardwareCapabilitySnapshot caps, IDictionary<string,string> state, MediaProbeInfo hdrInfo, bool fruc, MediaProbeInfo audioInfo, FilmBorderEncodingCore.Plan filmBorder)

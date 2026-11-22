@@ -159,3 +159,38 @@ Assert-CpuWarning (Get-CpuWarning '' '-c:v ffv1' '' '--arg hdr10=1 --arg hdr_bac
 Assert-CpuWarning (Get-CpuWarning '' '-c:v libx265' '' '') ''
 Assert-CpuWarning (Get-CpuWarning '[Native .NET] OpenSVPFlow 已绕过' '-c:v hevc_nvenc' '') ''
 Write-Host 'PASS: high-FPS-cost warnings detect cross-device border, CPU bilateral/HDR and SVP CPU10 without false CPU fallback warnings'
+
+# SDR BT.709 Grain Plate + LUT + border must retain the Vulkan->CUDA compositor.
+# Verify the production LUT prefix builder, not a separately invented filter graph.
+$nativeSource = [IO.File]::ReadAllText((Join-Path $PSScriptRoot '..\FilmGrain_NativeHevcCore.cs'))
+if (-not $nativeSource.Contains('(string.IsNullOrEmpty(lutCompatName) || s4SdrPlate)')) {
+    throw 'SDR Grain Plate LUT is still excluded from S4 GPU border eligibility.'
+}
+if (-not $nativeSource.Contains('baseFilter = s4GpuBorder && s4SdrPlate')) {
+    throw 'S4 LUT prefix is not selected only for the SDR Grain Plate GPU route.'
+}
+$plateLutBuilder = $nativeType.GetMethod('BuildSdrPlateLutGpuBaseFilter', $flags)
+if ($null -eq $plateLutBuilder) { throw 'SDR Grain Plate GPU LUT builder not found.' }
+$bt709Signal = 'setparams=range=limited:color_primaries=bt709:color_trc=bt709:colorspace=bt709,'
+$lutBase = [string]$plateLutBuilder.Invoke($null, @('', '', '', 'test.cube', '0.45', '24000/1001', $bt709Signal))
+foreach($part in @('fps=24000/1001,', 'format=gbrp16le', "lut3d=file='test.cube':interp=tetrahedral", 'blend=all_mode=normal:all_opacity=0.45', 'format=p010le', $bt709Signal, 'hwupload[basevk]')) {
+    Assert-Contains $lutBase $part
+}
+if($lutBase.IndexOf('lut3d=', [StringComparison]::Ordinal) -gt $lutBase.IndexOf('hwupload[basevk]', [StringComparison]::Ordinal)) {
+    throw 'LUT must execute before Vulkan upload and scan-grain blending.'
+}
+$lutBorder = [Activator]::CreateInstance($planType, $true)
+foreach($kv in @{GpuRaw='texture.raw';HdrTransfer='';GpuSdr=$true;GpuH264=$false;GpuWidth=1920;GpuHeight=1080;GpuContentWidth=1920;GpuContentHeight=1080;GpuInputIndex=2;GpuClockGated=$false;Dynamic=$true}.GetEnumerator()){
+    $planType.GetField($kv.Key, $fields).SetValue($lutBorder, $kv.Value)
+}
+$lutAndGrain = $lutBase + ';[1:v:0]fps=24000/1001,format=p010le,setpts=PTS-STARTPTS,hwupload[grainvk];[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=0.80[fgsfilm_gpu_video]'
+$lutGpuGraph = [string]$method.Invoke($null, @($lutAndGrain, $lutBorder))
+foreach($part in @('lut3d=', 'blend_vulkan=', 'libplacebo=inputs=2:', 'hwupload=derive_device=cuda', '[vout]')) {
+    Assert-Contains $lutGpuGraph $part
+}
+if($lutGpuGraph.Contains('hwdownload')) { throw 'Grain Plate + LUT + border must not download frames after Vulkan blending.' }
+$planType.GetField('GpuH264',$fields).SetValue($lutBorder,$true)
+$lutH264 = [string]$method.Invoke($null, @($lutAndGrain, $lutBorder))
+Assert-Contains $lutH264 'scale_cuda=format=nv12'
+if($lutH264.Contains('hwdownload')) { throw 'H264 Grain Plate + LUT + border must not download frames to CPU.' }
+Write-Host 'PASS: SDR Grain Plate + LUT + film border uses the original LUT then Vulkan/libplacebo/CUDA for HEVC and H264'
