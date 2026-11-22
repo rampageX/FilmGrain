@@ -194,3 +194,23 @@ $lutH264 = [string]$method.Invoke($null, @($lutAndGrain, $lutBorder))
 Assert-Contains $lutH264 'scale_cuda=format=nv12'
 if($lutH264.Contains('hwdownload')) { throw 'H264 Grain Plate + LUT + border must not download frames to CPU.' }
 Write-Host 'PASS: SDR Grain Plate + LUT + film border uses the original LUT then Vulkan/libplacebo/CUDA for HEVC and H264'
+
+# SDR CPU color correction must be completed before GPU upload, not block GPU border.
+$hevcSource = [IO.File]::ReadAllText((Join-Path $PSScriptRoot '..\FilmGrain_NativeHevcCore.cs'))
+if (-not $hevcSource.Contains('(string.IsNullOrEmpty(colorFilter) || s4SdrPlate)')) {
+    throw 'SDR Grain Plate color correction still disables S4 GPU film border.'
+}
+if (-not $hevcSource.Contains('string.IsNullOrEmpty(preprocessing) && (string.IsNullOrEmpty(colorFilter) || s4SdrPlate)')) {
+    throw 'CPU bilateral must remain excluded from the S4 acceleration gate.'
+}
+if (-not $hevcSource.Contains('string.IsNullOrEmpty(subtitleFilter)')) {
+    throw 'Subtitle ordering protection must remain in the S4 gate.'
+}
+$gradedPrefix = [string]$plateLutBuilder.Invoke($null, @('', '', 'eq=contrast=1.05:gamma=1.1,', 'test.cube', '1.00', '24000/1001', $bt709Signal))
+foreach($item in @('eq=contrast=1.05:gamma=1.1,', 'format=gbrp16le', 'lut3d=file=', 'hwupload[basevk]')) {
+    Assert-Contains $gradedPrefix $item
+}
+if ($gradedPrefix.IndexOf('eq=contrast=', [StringComparison]::Ordinal) -gt $gradedPrefix.IndexOf('lut3d=', [StringComparison]::Ordinal)) {
+    throw 'SDR color correction must remain before LUT and scanned grain.'
+}
+Write-Host 'PASS: SDR color correction, LUT, Grain Plate and border preserve CPU-before-GPU effect order'

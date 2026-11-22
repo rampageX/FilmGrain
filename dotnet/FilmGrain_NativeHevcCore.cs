@@ -404,7 +404,7 @@ namespace FilmGrainStudioPreview
                     frame.ActiveWidth == info.Width && frame.ActiveHeight == info.Height &&
                     info.Width >= 32 && info.Height >= 32 && info.Width <= 16384 && info.Height <= 16384 &&
                     info.Width % 2 == 0 && info.Height % 2 == 0 && ParseFps(fps) > 0 &&
-                    string.IsNullOrEmpty(preprocessing) && string.IsNullOrEmpty(colorFilter) &&
+                    string.IsNullOrEmpty(preprocessing) && (string.IsNullOrEmpty(colorFilter) || s4SdrPlate) &&
                     (string.IsNullOrEmpty(lutCompatName) || s4SdrPlate) && string.IsNullOrEmpty(subtitleFilter) &&
                     pixelPercent == 100;
                 // Never silently use the CPU border when the explicitly requested combined GPU path is unavailable.
