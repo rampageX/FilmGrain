@@ -392,8 +392,14 @@ namespace FilmGrainStudioPreview
                     frame.ActiveWidth == 3840 && frame.ActiveHeight == 2160 &&
                     frame.ContentX == 0 && frame.ContentY == 276 && frame.ContentWidth == 3840 && frame.ContentHeight == 1608 &&
                     Math.Abs(ParseFps(fps) - 30.0) < 0.001;
+                bool s4SdrPlate = plateMode && !interpolate && !info.IsHdr && !hdrToSdr &&
+                    (string.IsNullOrEmpty(info.ColorPrimaries) || info.ColorPrimaries == "bt709" || info.ColorPrimaries == "unknown") &&
+                    (string.IsNullOrEmpty(info.ColorTransfer) || info.ColorTransfer == "bt709" || info.ColorTransfer == "unknown") &&
+                    (string.IsNullOrEmpty(info.ColorSpace) || info.ColorSpace == "bt709" || info.ColorSpace == "unknown") &&
+                    (string.IsNullOrEmpty(info.ColorRange) || info.ColorRange == "tv" || info.ColorRange == "unknown");
                 bool s4GpuBorder = s4GpuRequested && filmBorder != null &&
-                    (hdrPreserve || (fgb02 && !info.IsHdr)) && !h264 && (!interpolate || fgb02) &&
+                    (hdrPreserve || (fgb02 && !info.IsHdr) || s4SdrPlate) &&
+                    (!h264 || s4SdrPlate) && (!interpolate || fgb02) &&
                     (!grainEnabled || plateMode) && durationSeconds > 0.0 && !info.IsInterlaced && !resize.Enabled &&
                     frame.ActiveWidth == info.Width && frame.ActiveHeight == info.Height &&
                     info.Width >= 32 && info.Height >= 32 && info.Width <= 16384 && info.Height <= 16384 &&
@@ -405,7 +411,7 @@ namespace FilmGrainStudioPreview
                 if (fgb02 && !s4GpuBorder)
                 { reason = "FGB-02 requires S4 Vulkan/CUDA GPU compositing: progressive HEVC, no resize/LUT/CC/subtitles/preprocess/FGSIM, and no grain or Grain Plate only."; return false; }
                 int filmInputIndex = plateMode ? (svp ? 3 : 2) : (svp ? 2 : 1);
-                string fgb02Signal = fgb02 ? "setparams=range=limited:color_primaries=" + (hdrPreserve ? "bt2020" : "bt709") +
+                string fgb02Signal = (fgb02 || s4SdrPlate) ? "setparams=range=limited:color_primaries=" + (hdrPreserve ? "bt2020" : "bt709") +
                     ":color_trc=" + (hdrPreserve ? info.ColorTransfer : "bt709") +
                     ":colorspace=" + (hdrPreserve ? "bt2020nc" : "bt709") + "," : "";
                 if (s4GpuBorder)
@@ -416,8 +422,9 @@ namespace FilmGrainStudioPreview
                     filmBorder.GpuRaw = raw;
                     filmBorder.GpuInputIndex = filmInputIndex;
                     filmBorder.GpuClockGated = !grainEnabled;
-                    filmBorder.GpuSdr = fgb02 && !hdrPreserve;
-                    filmBorder.GpuUseLegacy4k = s4Gpu4k30 && !interpolate && !filmBorder.User &&
+                    filmBorder.GpuSdr = (fgb02 && !hdrPreserve) || s4SdrPlate;
+                    filmBorder.GpuH264 = s4SdrPlate && h264;
+                    filmBorder.GpuUseLegacy4k = hdrPreserve && s4Gpu4k30 && !interpolate && !filmBorder.User &&
                         FilmBorderFramingCore.Neutral(filmBorder.FocusX,filmBorder.FocusY,filmBorder.Zoom);
                     filmBorder.GpuWidth = info.Width; filmBorder.GpuHeight = info.Height;
                     filmBorder.GpuContentX = frame.ContentX; filmBorder.GpuContentY = frame.ContentY;
@@ -929,7 +936,7 @@ namespace FilmGrainStudioPreview
         {
 
             bool h264=Eq(state,"FG_MODE","H264");
-            if(h264)filter=filter.Replace("[vout]",",format=yuv420p[vout]");
+            if(h264 && (filmBorder == null || !filmBorder.GpuH264))filter=filter.Replace("[vout]",",format=yuv420p[vout]");
             List<string> a = new List<string>{"-hide_banner","-stats","-progress","pipe:2","-stats_period","0.5","-y"};
 
             if (plateMode || filter.Contains("libplacebo=") || filter.Contains("fruc_vulkan=")) { a.Add("-init_hw_device"); a.Add(VulkanDevicePolicy.Spec("vk") + (filmBorder != null && filmBorder.GpuRaw != null ? ",disable_multiplane=1" : "")); a.Add("-filter_hw_device"); a.Add("vk"); }
@@ -1640,6 +1647,7 @@ namespace FilmGrainStudioPreview
             internal string MoveX=FilmBorderMotionCore.MoveX,MoveY=FilmBorderMotionCore.MoveY;
             internal string HdrTransfer = "";
             internal bool GpuSdr;
+            internal bool GpuH264;
             internal string GpuRaw;
             internal bool GpuUseLegacy4k;
             internal bool GpuClockGated;
@@ -1790,6 +1798,7 @@ namespace FilmGrainStudioPreview
             string gpuOutputTransfer = plan.GpuSdr ? "bt709" : plan.HdrTransfer;
             string gpuColorSpace = plan.GpuSdr ? "bt709" : "bt2020nc";
             string gpuPrimaries = plan.GpuSdr ? "bt709" : "bt2020";
+            string gpuCudaFormat = plan.GpuH264 ? ",scale_cuda=format=nv12" : "";
             string gpuHlgFinish = splitHlg
                 ? ",libplacebo=inputs=1:w="+N(plan.GpuWidth)+":h="+N(plan.GpuHeight)+
                   ":format=p010le:colorspace=bt2020nc:color_primaries=bt2020:"+
@@ -1831,7 +1840,7 @@ namespace FilmGrainStudioPreview
                     ":pos_y='if(eq(idx,0),"+f((h-apertureH)/2+(top-cropTop)*scale)+",0)+("+moveY+")'"+
                     ":upscaler=ewa_lanczos:downscaler=ewa_lanczos:tonemapping=clip:peak_detect=false:dithering=none:fillcolor=black";
                 return graph+";"+input+";[fgsfilm_gpu_video][fgsfilm_gpu_png]"+kernelDynamic+gpuHlgFinish+
-                    ",hwupload=derive_device=cuda,setparams=range=limited:color_primaries="+gpuPrimaries+":"+
+                    ",hwupload=derive_device=cuda"+gpuCudaFormat+",setparams=range=limited:color_primaries="+gpuPrimaries+":"+
                     "color_trc="+gpuOutputTransfer+":colorspace="+gpuColorSpace+"[vout]";
             }
             string kernel = "libplacebo=inputs=2:w=3840:h=2160:format=p010le:"+
