@@ -164,7 +164,8 @@ namespace FilmGrainStudioPreview
         Dictionary<string,NativeLutClassification> classes=new Dictionary<string,NativeLutClassification>();
         HashSet<string> favorites=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         readonly TextBox search=new ThemeTextBox{Width=220};
-        readonly ComboBox folders=new ThemeComboBox{ThemePopupScrollbars=true,Width=250,DropDownStyle=ComboBoxStyle.DropDownList};
+        readonly ComboBox folders=new ThemeComboBox{ThemePopupScrollbars=true,Width=500,DropDownStyle=ComboBoxStyle.DropDownList};
+        readonly ToolTip foldersTip=new ThemeToolTip();
         readonly ComboBox pages=new ThemeComboBox{Width=90,DropDownStyle=ComboBoxStyle.DropDownList};
         readonly FlowLayoutPanel cards=new FlowLayoutPanel{Dock=DockStyle.Fill,AutoScroll=true,WrapContents=true};
         readonly Label status=new ThemeLabel{Dock=DockStyle.Fill,AutoEllipsis=true,TextAlign=ContentAlignment.MiddleLeft};
@@ -204,7 +205,7 @@ namespace FilmGrainStudioPreview
             bottom.Controls.Add(change);bottom.Controls.Add(update);bottom.Controls.Add(use);bottom.Controls.Add(none);
             previous.Click+=delegate{TurnPage(-1);};next.Click+=delegate{TurnPage(1);};
             pages.SelectedIndexChanged+=delegate{if(!updating&&pages.SelectedIndex>=0){wheelDirection=0;wheelRemainder=0;page=pages.SelectedIndex;selected=null;RenderPage();}};
-            search.TextChanged+=delegate{if(!updating)Filter();};folders.SelectedIndexChanged+=delegate{if(!updating)Filter();};
+            search.TextChanged+=delegate{if(!updating)Filter();};folders.SelectedIndexChanged+=delegate{foldersTip.SetToolTip(folders,Convert.ToString(folders.SelectedItem));if(!updating)Filter();};
             use.Click+=delegate{Commit(selected);};none.Click+=delegate{DisabledLut=true;DialogResult=DialogResult.OK;Close();};
             smart.Click+=delegate {
                 try {var cfg=new FgsConfig(appRoot,null);cfg.SaveValue("SMART_FILTER_ENABLED",smartEnabled?"false":"true");smartEnabled=!smartEnabled;UpdateSmart();Filter();}
@@ -310,6 +311,9 @@ namespace FilmGrainStudioPreview
                 var dirs=new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
                 foreach(var e in all) {string d=Path.GetDirectoryName(e.Relative);while(!string.IsNullOrEmpty(d)){dirs.Add(d);d=Path.GetDirectoryName(d);}}
                 folders.Items.Clear();folders.Items.Add("全部文件夹");foreach(string d in dirs)folders.Items.Add(d);
+                int dropWidth=folders.Width;
+                foreach(string d in dirs)dropWidth=Math.Max(dropWidth,TextRenderer.MeasureText(d,folders.Font).Width+SystemInformation.VerticalScrollBarWidth+24);
+                folders.DropDownWidth=Math.Min(dropWidth,Math.Max(folders.Width,Screen.FromControl(this).WorkingArea.Width-32));
                 folders.SelectedIndex=current!=null&&folders.Items.Contains(current)?folders.Items.IndexOf(current):0;
             } catch(Exception ex){FgsMessageBox.Show(this,"图库读取失败："+ex.Message,Text,MessageBoxButtons.OK,MessageBoxIcon.Error);}
             finally{updating=false;Filter();}
@@ -469,7 +473,7 @@ namespace FilmGrainStudioPreview
             });ClearCards();Reload();
         }
         protected override void Dispose(bool disposing){
-            if(disposing){closingGallery=true;fixedSpaceTimer.Dispose();}
+            if(disposing){closingGallery=true;fixedSpaceTimer.Dispose();foldersTip.Dispose();}
             if(disposing) {
                 RemoveWheelFilter();
                 ClearCards();favoriteStar.Dispose();

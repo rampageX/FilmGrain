@@ -77,6 +77,8 @@ namespace FilmGrainStudioPreview
             var result=new Dictionary<string,NativeLutClassification>(StringComparer.OrdinalIgnoreCase);
             foreach(var e in entries) {
                 string header=Header(e.LutPath),probe=e.Relative+"\n"+header; var lines=header.Split('\n');
+                // Input-transform metadata describes the source pipeline, not necessarily a technical LUT.
+                string technicalProbe=Regex.Replace(probe,@"(?im)^[ \t]*#[^\r\n]*\binput[ \t]+transform[ \t]*:[ \t]*(?:enabled|disabled)[ \t]*$","");
                 var reasons=new List<string>(); int score=0;
                 var input=lines.Where(x=>Match(x,@"^\s*#?\s*(?:input|input color ?space|input[_ -]?colorspace|source|source color ?space|source[_ -]?colorspace)\s*[:=]")).ToArray();
                 var output=lines.Where(x=>Match(x,@"^\s*#?\s*(?:output|output color ?space|output[_ -]?colorspace|target|target color ?space|destination|destination color ?space)\s*[:=]")).ToArray();
@@ -92,11 +94,11 @@ namespace FilmGrainStudioPreview
                     if(conversion)break;
                 }
                 if(conversion) {score+=9;reasons.Add("Recognized color-space conversion pair");}
-                if(Match(probe,Technical)) {score+=6;reasons.Add("Utility/technical/transform marker");}
+                if(Match(technicalProbe,Technical)) {score+=6;reasons.Add("Utility/technical/transform marker");}
                 if(Match(probe,Operation)) {score+=7;reasons.Add("Technical range/tone/gamut operation marker");}
                 var family=Family(e); bool multi=family.Success&&groups[FamilyKey(e,family)].Count>=3;
                 if(multi) reasons.Add("Multi-input creative family: "+family.Groups["family"].Value+" / "+groups[FamilyKey(e,family)].Count+" variants");
-                bool creative=Match(probe,Creative); if(creative)reasons.Add("Creative/look marker");
+                bool creative=Match(Regex.Replace(probe,@"[._-]"," "),Creative)||Match(header,@"(?im)^[ \t]*#[ \t]*Film[ \t]+Profile[ \t]*:[ \t]*[^\s#-]"); if(creative)reasons.Add("Creative/look marker");
                 string type=multi || creative&&score>=6 ? "Combined" : score>=6 ? "Technical" : creative ? "Creative" : "Keep";
                 if(reasons.Count==0)reasons.Add("No strong technical evidence");
                 result[e.LutPath]=new NativeLutClassification {Type=type,Score=score,Reason=string.Join("; ",reasons.ToArray())};

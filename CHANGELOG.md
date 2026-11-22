@@ -1,3 +1,9 @@
+## v5.0.83 — LUT 图库文件夹交互及智能过滤修正（2026-11-22）
+
+- 文件夹下拉框由 250px 加宽至 500px；下拉列表按最长名称自动扩展（不超出屏幕），鼠标悬停显示完整已选文件夹路径。
+- 修复 Dehancer 胶片 LUT 文件头 `Rec.709 input transform: enabled` 被技术关键词 `transform` 误判过滤的问题。支持 `Film Profile` 胶片标记识别，并修复下划线分隔的 `Kodak_2383` / `Teal_Orange` 创意词匹配。
+- 保留 `Technical` / `Creative` / `Combined` 判定及技术 LUT 隐藏规则；Rec709→LogC、Utility Transform、Gamut Map 等技术用例继续识别为 Technical。9 项回归测试覆盖创意、技术与 Combined。
+- 沿用图库已有暗黑主题、预览缓存、用户收藏／最近使用、双入口及窗口记忆，不变更视频编码核心.
 ## v5.0.82 — FFmpeg 9.1 稳定构建、FRUC 主版统一及 AV1 颗粒兼容（2026-11-22）
 
 - 支持基于官方 FFmpeg Stable `release/9.1` 的 FGS Windows x64 静态构建。GPU 边框使用 Vulkan/CUDA 互操作补丁时，仅对支持新设备选项的 FFmpeg 自动追加 `disable_host_image_copy=1`；旧 FFmpeg 不增加未知参数。RTX 4080 实测通过 PQ、HLG GPU 边框以及 SVP／NVEncC AI 与动态边框组合。
