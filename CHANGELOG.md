@@ -1,3 +1,11 @@
+## v5.0.85 — SDR 多效果组合保持 GPU 边框快速通道（2026-11-23）
+
+- 修复 SDR BT.709 TV Limited 的扫描 Grain Plate＋胶片边框叠加 LUT／色彩纠正时，S4 GPU 通道被 `lutCompatName` 或 `colorFilter` 条件错误排除、退回 CPU 边框合成的问题。
+- 保留原有色彩纠正→3D LUT（含强度与混合透明度）→扫描颗粒→边框顺序；由 GPU 上传前的 CPU 色彩/LUT 滤镜直接进入 Vulkan 颗粒混合和 libplacebo 边框，再经 CUDA/NVENC 编码。HEVC 保持 P010；H.264 仍在 CUDA 中转换为 NV12。
+- 修复仅放开非插帧、逐行 SDR BT.709 TV Limited Grain Plate 组合；HDR PQ/HLG、Resize/剪裁、字幕烧录、FGSIM、数字颗粒等其它路线保持原保护条件，后续单独研究。
+- 用户已确认 L8Q3W7 测试版通过；Windows CI 编译及正反例测试通过，包括 S4 GPU 边框、PQ/HLG 图、Native UI 构图、缩略图和多效果组合滤镜顺序。
+- 待研究的三项 GPU 组合在 `docs/film-border/FGS_GPU_COMBINATION_FALLBACK_AUDIT.md` 跟踪。
+
 ## v5.0.84 — 扫描颗粒＋边框 GPU 加速及 CPU 性能警示（2026-11-23）
 
 - SDR BT.709 TV Limited 的 HEVC/H.264 NVENC＋扫描 Grain Plate＋胶片边框改走既有 Vulkan 颗粒合成、libplacebo 边框及 CUDA/NVENC 直通；去除组合路径中的 `hwdownload` 和 CPU 边框叠加。H.264 在 CUDA 内转 NV12，HDR HEVC PQ/HLG S4 GPU 路线及已验证动态边框参数保持不变。

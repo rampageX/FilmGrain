@@ -2,10 +2,10 @@
 
 ## 适用基线
 
-- 正式发布：v5.0.84，Git commit `6e417650daf8e6f78d5d0a537534d56c5d4d4a14`。
-- 测试源码从正式版本继续开发；保留 `v5.0.84` tag，不覆盖 Release。
+- 最新验收基线：v5.0.85，开发源码提交 `a8325aa9f3e0b2b813dbbfbc75d0681bca097368`；正式发布构建应保持该已验收业务逻辑。
+- v5.0.84 正式版本与 L8Q3W7 测试版的差异仅为此轮已验收的 SDR 组合 GPU 选路；v5.0.84 tag 保留。
 - 核心：`dotnet/FilmGrain_NativeHevcCore.cs` 的 `s4GpuBorder` 选路及 `FilmBorderEncodingCore.AppendGpuFilter`。
-- 实机已验收：SDR Grain Plate + 边框，RTX 4080 1080p 约 15→142 fps；原有 LUT+Grain Plate+边框在三效果叠加时用户报告 FPS 急降。**新增组合补丁未完成 RTX 4080 验收。**
+- 实机已验收：SDR Grain Plate + 边框，RTX 4080 1080p 约 15→142 fps；L8Q3W7 新增 LUT/色彩纠正＋扫描颗粒＋边框组合，用户反馈测试 OK。
 
 ## 确认的无谓 CPU 边框回退
 
@@ -35,4 +35,4 @@
 
 - Windows CI 编译和 S4 图回归可验证新 LUT 前缀、BT.709 标记、色彩纠正先于 LUT、GPU 边框中没有 `hwdownload`、H.264 NV12。
 - 无 NVIDIA GPU 的 Windows runner 不能替代 RTX 4080 的最终画面、速度及音画同步验收。
-- 用户次日同源素材测试：LUT + Grain Plate + 边框；再选测色彩纠正 + LUT + Grain Plate + 边框。检查 `S4 Vulkan-libplacebo-CUDA GPU film border` 和 FPS。
+- LUT＋扫描颗粒＋边框与色彩纠正＋LUT＋扫描颗粒＋边框已随 L8Q3W7 验收。后续优先研究 HDR PQ/HLG、Resize/剪裁、字幕烧录三个新的 GPU 选路限制；必须保留既有色彩／画幅／字幕时序约束。

@@ -1,7 +1,6 @@
-# Film Grain Studio v5.0.84
+# Film Grain Studio v5.0.85
 
-- **扫描颗粒＋胶片边框 GPU 加速**：SDR BT.709 TV Limited 的 HEVC/H.264 NVENC 与 Grain Plate、静态或动态边框组合，复用 Vulkan 颗粒合成、libplacebo GPU 边框及 CUDA/NVENC 直通，避免旧 CPU 边框路径中的 GPU→CPU 下载与软件叠加。H.264 仍输出 NV12 8-bit，PQ/HLG HEVC 的既有 S4 GPU 合成路径保持不变。
-- **实机性能验证**：RTX 4080、1080p 扫描颗粒＋动态边框组合，由约 15 fps 恢复至约 142 fps；单独 SDR 边框仍约 150+ fps。
-- **任务阶段性能提示**：现有阶段栏对经滤镜图确认的高开销路线使用橙色提示：Vulkan/FGSIM 颗粒＋CPU 边框、数字颗粒＋CPU 边框、CPU Bilateral、HDR 软件色调映射和 OpenSVPFlow HDR CPU10。单独 SDR 边框、正常 CPU 编码、普通软解、普通 hwdownload 不误报严重性能回退。
-- **MP4 Faststart 可选**：右键“开始编码”切换网页播放优化，默认关闭并记忆。开启后仅对 MP4 成品追加 `-movflags +faststart`；关闭时避免大文件无谓的 moov 前移，MKV 和中间文件不受影响。
-- **验收与构建**：用户已确认 P6R2W4 运行效果；Windows 构建、PQ/HLG GPU 图、S4 边框、CPU 性能警示、Native UI 构图及缩略图回归测试通过。维持现有 FFmpeg/FRUC、音画时序与颗粒算法。
+- **SDR 多效果 GPU 快速通道修复**：HEVC/H.264 NVENC 的 BT.709 TV Limited 扫描 Grain Plate 与胶片边框组合，在新增 LUT、色彩纠正或同时开启两项时继续使用 S4 Vulkan/libplacebo→CUDA/NVENC，不再因前置 CPU 滤镜而无谓退回 CPU 边框。
+- **保持效果算法与顺序**：原有色彩纠正→3D LUT（含强度与混合透明度）→扫描颗粒→静态／动态边框的顺序不变；H.264 继续在 CUDA 内转 NV12，HEVC 维持 P010。未更改 PQ/HLG、插帧、字幕、缩放或其它尚未验证的组合保护条件。
+- **验收**：用户已确认 L8Q3W7 测试版正常。Windows CI 完整编译、SDR LUT/色彩纠正＋Grain Plate＋S4 边框图回归、PQ/HLG GPU 图、S4 现有路线及 Native UI 构图／缩略图回归通过。
+- **性能后续研究**：HDR PQ/HLG＋LUT/色彩纠正＋扫描颗粒＋边框、SDR Grain Plate＋Resize/剪裁＋边框、Grain Plate＋字幕烧录＋边框继续保留既有保护条件；记录于 `docs/film-border/FGS_GPU_COMBINATION_FALLBACK_AUDIT.md`，本版不擅自放开。

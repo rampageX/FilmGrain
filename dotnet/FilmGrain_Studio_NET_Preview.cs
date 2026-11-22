@@ -107,8 +107,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.84";
-        internal const string FileReleaseVersion = "5.0.84.0";
+        internal const string ReleaseVersion = "5.0.85";
+        internal const string FileReleaseVersion = "5.0.85.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
