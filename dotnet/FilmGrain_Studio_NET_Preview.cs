@@ -2095,6 +2095,17 @@ namespace FilmGrainStudioPreview
             encodePreviewPanel.Controls.AddRange(new Control[] { chkEncodePreview, previewStartLabel, txtPreviewStart, durationLabel, numPreviewDuration, secondsLabel });
             chkEncodePreview.CheckedChanged += delegate { txtPreviewStart.Enabled = numPreviewDuration.Enabled = chkEncodePreview.Checked; };
             lutToolTip.SetToolTip(chkEncodePreview, UiText("先按关键帧无损裁剪，再用当前设置编码预览。实际起点和时长允许偏差。", "Stream-copy a keyframe clip, then encode with current settings. Start and duration may differ."));
+                        var startMenu = new ContextMenuStrip();
+            var mp4Faststart = new ToolStripMenuItem(UiText("MP4 网页播放优化 (faststart)", "MP4 web playback optimization (faststart)"));
+            mp4Faststart.ToolTipText = UiText("仅 MP4：将 moov 索引移至文件开头，便于网页渐进播放；大文件会增加封装读写时间。", "MP4 only: move moov to the beginning for progressive web playback; adds file I/O for large outputs.");
+            startMenu.Items.Add(mp4Faststart);
+            startMenu.Opening += delegate { mp4Faststart.Checked = config.GetBool("MP4_FASTSTART"); };
+            mp4Faststart.Click += delegate {
+                try { config.SaveValue("MP4_FASTSTART",config.GetBool("MP4_FASTSTART") ? "false" : "true"); }
+                catch(Exception ex) { FgsMessageBox.Show(this,ex.Message); }
+            };
+            btnStart.ContextMenuStrip = startMenu;
+            btnStart.Disposed += delegate { startMenu.Dispose(); };
             btnStart.Click += delegate { StartBridgeExecution(); };
             btnCancelTask.Click += delegate { CancelBridgeExecution(); };
             footer.Resize += delegate

@@ -1034,7 +1034,7 @@ namespace FilmGrainStudioPreview
 
             if (mkv) { a.Add("-c:a"); a.Add("copy"); a.Add("-c:s"); a.Add("copy"); a.Add("-c:t"); a.Add("copy"); }
 
-            else { a.Add("-c:a"); a.Add("aac"); a.Add("-b:a"); a.Add("256k"); if(!h264){a.Add("-tag:v"); a.Add("hvc1");} a.Add("-movflags"); a.Add("+faststart"); }
+            else { a.Add("-c:a"); a.Add("aac"); a.Add("-b:a"); a.Add("256k"); if(!h264){a.Add("-tag:v"); a.Add("hvc1");} Mp4FaststartCore.Add(a,state); }
 
             NvencRateControlCore.Apply(a,state);
             NvencMultipassCore.Apply(a,state,h264?"H264":"HEVC",caps);

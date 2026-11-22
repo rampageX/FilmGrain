@@ -165,7 +165,7 @@ namespace FilmGrainStudioPreview
                     "-map","0:v:0","-map","1:a?"};
                 if(Eq(state,"FG_CONTAINER","MKV"))mux.AddRange(new[]{"-map","1:s?","-map","1:t?"});
                 mux.AddRange(new[]{"-map_metadata","1","-map_chapters","1","-c","copy"});
-                if(Eq(state,"FG_CONTAINER","MP4"))mux.AddRange(new[]{"-movflags","+faststart"});
+                if(Eq(state,"FG_CONTAINER","MP4"))Mp4FaststartCore.Add(mux,state);
                 mux.Add(output);
                 var finalize=MakeStage(request.ToolPath,job,mux,request.ProgressDurationSeconds,0,0,"SVT final container / stream copy, audio from clean encode");
                 finalize.BeforeRunPreparation=delegate {
@@ -695,7 +695,7 @@ namespace FilmGrainStudioPreview
             if (finalOutput)
             {
                 if (mkv) { a.Add("-c:a"); a.Add("copy"); a.Add("-c:s"); a.Add("copy"); a.Add("-c:t"); a.Add("copy"); }
-                else { a.Add("-c:a"); a.Add("aac"); a.Add("-b:a"); a.Add("256k"); a.Add("-movflags"); a.Add("+faststart"); }
+                else { a.Add("-c:a"); a.Add("aac"); a.Add("-b:a"); a.Add("256k"); Mp4FaststartCore.Add(a,audioState); }
                 a.Add(output);
             }
             else { a.Add("-f"); a.Add("null"); a.Add("NUL"); }

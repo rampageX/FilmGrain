@@ -333,7 +333,7 @@ namespace FilmGrainStudioPreview
             Add(remux, "-map_metadata", "1", "-map_chapters", "1", "-c:v", "copy");
             if (hdrPreserve) Add(remux, "-color_range", HdrRange(info), "-color_primaries", HdrPrimaries(info), "-color_trc", info.ColorTransfer, "-colorspace", HdrSpace(info));
             else if (hdrToSdr) Add(remux, "-color_range", "tv", "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709");
-            if (container == "MP4") Add(remux, "-c:a", "aac", "-b:a", "256k", "-movflags", "+faststart");
+            if (container == "MP4") { Add(remux, "-c:a", "aac", "-b:a", "256k"); Mp4FaststartCore.Add(remux,state); }
             else Add(remux, "-c", "copy");
             Add(remux, output);
             AudioOutputCore.Apply(remux,state,info,container=="MKV",false,false);
@@ -1012,7 +1012,9 @@ namespace FilmGrainStudioPreview
                 else a.AddRange(new[]{"-b:v",bitrate+"k","-maxrate",(bitrate*3)+"k","-bufsize",(bitrate*6)+"k"});
             }
             if(encoder=="X265"&&!IsCq(state))a.AddRange(new[]{"-maxrate",(bitrate*3)+"k","-bufsize",(bitrate*6)+"k"});
-            a.AddRange(new[]{"-c:a","aac","-b:a","256k","-ac","2","-ar","48000","-movflags","+faststart",output});
+            a.AddRange(new[]{"-c:a","aac","-b:a","256k","-ac","2","-ar","48000"});
+            Mp4FaststartCore.Add(a,state);
+            a.Add(output);
             AudioOutputCore.Apply(a,state,info,false,true,true);
             return SharedHdrPreprocessCore.BuildBakeTimeline(a,false);
         }
@@ -1242,7 +1244,7 @@ namespace FilmGrainStudioPreview
             args.AddRange(new[]{"-map_metadata","0","-map_chapters","0"});
             // Never copy remux's global -c copy over av1_nvenc.
             if(mkv)args.AddRange(new[]{"-c:a","copy","-c:s","copy","-c:t","copy","-c:d","copy"});
-            else args.AddRange(new[]{"-c:a","aac","-b:a","256k","-movflags","+faststart"});
+            else { args.AddRange(new[]{"-c:a","aac","-b:a","256k"}); Mp4FaststartCore.Add(args,state); }
             args.AddRange(new[]{"-enc_time_base:v",Clock(info.AvgFrameRate),output});
             AudioOutputCore.Apply(args,state,info,mkv,false,false);
             return args;

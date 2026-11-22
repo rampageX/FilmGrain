@@ -296,6 +296,7 @@ namespace FilmGrainStudioPreview
             snapshot.TempCustomDir = config.Get("TEMP_CUSTOM_DIR");
             snapshot.OutputMode = config.Get("OUTPUT_MODE");
             snapshot.OutputCustomDir = config.Get("OUTPUT_CUSTOM_DIR");
+            snapshot.Mp4Faststart = config.GetBool("MP4_FASTSTART");
             snapshot.Subtitle = subtitleState.Copy();
         }
     }

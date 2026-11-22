@@ -84,7 +84,7 @@ namespace FilmGrainStudioPreview
             if (mkv) remux.AddRange(new string[] { "-map", "1:s?", "-map", "1:t?", "-map", "1:d?" });
             remux.AddRange(new string[] { "-map_metadata", "1", "-map_chapters", "1", "-c:v", "copy" });
             if (mkv) remux.AddRange(new string[] { "-c", "copy" });
-            else remux.AddRange(new string[] { "-c:a", "aac", "-b:a", "256k", "-movflags", "+faststart" });
+            else { remux.AddRange(new string[] { "-c:a", "aac", "-b:a", "256k" }); Mp4FaststartCore.Add(remux,state); }
             remux.Add(output);
             AudioOutputCore.Apply(remux,state,info,mkv,false,false);
 

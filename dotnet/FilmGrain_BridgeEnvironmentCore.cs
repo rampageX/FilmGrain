@@ -21,6 +21,7 @@ namespace FilmGrainStudioPreview
         public string OutputMode = "";
         public string OutputCustomDir = "";
         public string Container = "MP4";
+        public bool Mp4Faststart;
 
         public string Mode = "";
         public string GpuDecode="false";
@@ -163,6 +164,7 @@ namespace FilmGrainStudioPreview
             state["FG_CPU_SVT_GRAIN_TUNE"]=snapshot.CpuSvtGrainTune;state["FG_CPU_X265_GRAIN_TUNE"]=snapshot.CpuX265GrainTune;state["FG_X264_GRAIN_TUNE"]=snapshot.X264GrainTune;
             state["FG_CPU_SVT_PRESET"]=snapshot.CpuSvtPreset;state["FG_CPU_X265_PRESET"]=snapshot.CpuX265Preset;state["FG_CPU_X265_THREADED_ME"]=snapshot.CpuX265ThreadedMe;
             state["FG_CONTAINER"] = snapshot.Container;
+            state["FG_MP4_FASTSTART"] = snapshot.Mp4Faststart ? "1" : "0";
             state["FG_AUDIO_MODE"] = snapshot.AudioMode;
             state["FG_AUDIO_BITRATE"] = snapshot.AudioBitrate;
             state["FG_AV1_MULTIPASS"] = snapshot.Av1Multipass;
@@ -333,6 +335,7 @@ namespace FilmGrainStudioPreview
             state["FG_OUTPUT_CUSTOM_DIR"] = snapshot.OutputCustomDir;
             state["FG_OUTPUT_SPACE_CONFIRMED"] = "1";
             state["FG_CONTAINER"] = snapshot.Container;
+            state["FG_MP4_FASTSTART"] = snapshot.Mp4Faststart ? "1" : "0";
             state["FG_AUDIO_MODE"] = snapshot.AudioMode;
             state["FG_AUDIO_BITRATE"] = snapshot.AudioBitrate;
             state["FG_AV1_MULTIPASS"] = snapshot.Av1Multipass;
@@ -366,6 +369,24 @@ namespace FilmGrainStudioPreview
             if (tag.Length == 0) tag = "SCAN";
             if (tag.Length > 48) tag = tag.Substring(0, 48).TrimEnd('_');
             return tag;
+        }
+    }
+
+    // Global MP4 mux option, copied into the execution snapshot before each task.
+    // Only call on MP4 output paths; MKV and intermediate files must not be modified.
+    internal static class Mp4FaststartCore
+    {
+        internal static bool Enabled(IDictionary<string,string> state)
+        {
+            string value;
+            return state != null && state.TryGetValue("FG_MP4_FASTSTART",out value) &&
+                (value == "1" || string.Equals(value,"true",StringComparison.OrdinalIgnoreCase));
+        }
+        internal static void Add(ICollection<string> arguments,IDictionary<string,string> state)
+        {
+            if (!Enabled(state)) return;
+            arguments.Add("-movflags");
+            arguments.Add("+faststart");
         }
     }
     internal static class SharedGrainCore
