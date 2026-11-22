@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.0.83 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.84 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 <table>
   <tr>
@@ -175,6 +175,9 @@ Stable 不附带开发源码、Legacy 历史实现或项目截图，也不预装
 Source 与 Stable 来自同一次已提交源码归档，`SOURCE_BUILD_INFO.txt` 记录源码 commit 和对应运行 EXE 的 SHA256。当前磁盘状态的 `Working_Source_日期时间.zip` 用于开发交接，按导出规则包含未提交修改和新文件，不会自动上传为 Release 附件。
 
 ## 胶片边框（Film Border）
+
+**v5.0.84**：SDR BT.709 TV Limited 的 HEVC/H.264 NVENC 在组合扫描 Grain Plate 与胶片边框时，优先使用 Vulkan/libplacebo→CUDA GPU 合成，避免重复把整帧下载到 CPU 做边框叠加；RTX 4080、1080p 实测组合由约 15 fps 恢复至约 142 fps。HDR HEVC 的 PQ/HLG S4 GPU 路线继续保留。任务日志上方的阶段文字仅对实际执行的高开销 CPU 组合标橙色（如 GPU 颗粒＋CPU 边框、HDR 软件色调映射、CPU Bilateral 或 SVP HDR CPU10），不将单独 SDR 边框或普通 CPU 编码误报为严重回退。
+
 
 编码区的「添加边框」可在独立的 GPU 预览窗口中选择 **Dark 35mm** 或 **FGS Classic Black**，设置静态/动态胶片效果。动态效果可调整晃动幅度、速度及随机频率；默认 1.0。Classic Black 支持修改左上边印与底部编号；内置款不能删除。
 

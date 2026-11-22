@@ -1,4 +1,11 @@
-## 待发布 — MP4 Faststart 改为可选（2026-11-22）
+## v5.0.84 — 扫描颗粒＋边框 GPU 加速及 CPU 性能警示（2026-11-23）
+
+- SDR BT.709 TV Limited 的 HEVC/H.264 NVENC＋扫描 Grain Plate＋胶片边框改走既有 Vulkan 颗粒合成、libplacebo 边框及 CUDA/NVENC 直通；去除组合路径中的 `hwdownload` 和 CPU 边框叠加。H.264 在 CUDA 内转 NV12，HDR HEVC PQ/HLG S4 GPU 路线及已验证动态边框参数保持不变。
+- RTX 4080 1080p 扫描颗粒＋动态边框组合实测由约 15 fps 恢复至约 142 fps；用户确认效果。单独边框约 150+ fps 的 CPU 合成不再误报严重回退。
+- 任务日志上方阶段栏增加高开销 CPU 路线橙色提示，匹配实际 FFmpeg 滤镜图与 OpenSVPFlow 后端：GPU 颗粒后 CPU 边框、数字颗粒＋CPU 边框、CPU Bilateral、HDR 软件色调映射、HDR SVP CPU10。普通 CPU 编码、单独 SDR 边框、普通硬解回退及单一 `hwdownload` 不触发高风险提示。
+- Windows CI 增加上述性能提示正反例回归；已通过完整编译、PQ/HLG、S4 GPU 边框、Native UI 构图/缩略图及 CPU 性能警示检查。
+
+
 
 - 主界面“开始编码”按钮右键菜单新增 MP4 Faststart（网页播放优化）开关，默认关闭并记忆；不是独立文件预设，不修改视频画质或其它编码参数。
 - AV1／HEVC／H.264 NVENC、SVT-AV1／x265／x264 CPU、AV1 不重编码颗粒替换及 AV1 烘焙的 MP4 输出共用同一执行状态开关。关闭时不再自动追加 `-movflags +faststart`；开启时仅在 MP4 成品封装追加，不影响 MKV 和中间文件。

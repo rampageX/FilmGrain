@@ -1,15 +1,15 @@
 Film Grain Studio formal stable baseline
 
 Baseline:
-v5.0.83
+v5.0.84
 Supersedes:
-v5.0.82
+v5.0.83
 
 GitHub Release asset:
-FilmGrain_Studio_v5.0.83_Stable.zip
+FilmGrain_Studio_v5.0.84_Stable.zip
 
 Local source archive and workflow artifact:
-FilmGrain_Studio_v5.0.83_Source.zip
+FilmGrain_Studio_v5.0.84_Source.zip
 
 External VFG HDR dependency: validated 6d387a31 experimental NVEncC64.exe is user-selected; it is not bundled.
 FGS detects the 10-bit HDR VFG build signature in the selected NVEncC64.exe. No marker file is required or bundled.
