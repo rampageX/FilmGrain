@@ -143,6 +143,9 @@ jobs:
           } elseif ($version -eq '5.0.92') {
             $ref = 'heads/test/r05-workspace-preflight'
             $expected = '260d1fca32313c088890a5a20b9b872e34286426'
+          } elseif ($version -eq '5.0.93') {
+            $ref = 'heads/test/r07-hable-probe'
+            $expected = '56056608eefe7e1188f1a7f66ee078cab85fb2a7'
           } else { exit 0 }
           $sha = gh api "repos/$env:GITHUB_REPOSITORY/git/ref/$ref" --jq '.object.sha'
           if ($LASTEXITCODE -ne 0) { throw 'Accepted test branch verification failed.' }
