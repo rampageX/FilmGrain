@@ -3501,29 +3501,24 @@ namespace FilmGrainStudioPreview
                 if (log != null) AppendTaskLog("[Runner] input preflight: exists=1 path=\"" + inputPath + "\"" + Environment.NewLine);
             }
 
+            MediaProbeInfo info = GetBitrateMediaContext();
+            double outputFps = GetRecommendedOutputFps(info);
+            BridgeTaskRequest taskRequest = BridgeRequestPreparationCore.CreateTask(prepared, outputFps);
             WorkspacePreflightIssue workspaceIssue;
-            if (!WorkspacePreflightCore.Check(prepared.InputFiles,
-                noReencode ? "AV1" : (cmbCodec.SelectedIndex == 0 ? "AV1" : cmbCodec.SelectedIndex == 1 ? "HEVC" : cmbCodec.SelectedIndex == 3 ? "H264" : "X264"),
-                noReencode, config.Get("TEMP_MODE"), config.Get("TEMP_CUSTOM_DIR"),
-                config.Get("OUTPUT_MODE"), config.Get("OUTPUT_CUSTOM_DIR"), mediaProbeCache,
-                delegate(WorkspaceSpaceWarning warning)
+            if (!WorkspacePreflightCore.CheckPlanned(inputs, new List<BridgeTaskRequest>{taskRequest},
+                mediaProbeCache, delegate(WorkspaceSpaceWarning warning)
                 {
                     string message = LF(warning.IsOutput ? "warning.output_space" : "warning.temp_space",
                         warning.Path, FormatWorkspaceBytes(warning.Available), FormatWorkspaceBytes(warning.Required), FormatWorkspaceBytes(warning.Reserve));
                     return FgsMessageBox.Show(this, message, Text, MessageBoxButtons.YesNo, MessageBoxIcon.Warning,
                         MessageBoxDefaultButton.Button2) == DialogResult.Yes;
-                }, !noReencode && state["FG_MODE"] == "AV1" && state["FG_SVP_INTERPOLATE"] == "1",
-                !noReencode ? state["FG_INTERPOLATION_TARGET_FPS"] : "", input => BypassesQueuedInterpolation(input,state), out workspaceIssue))
+                }, out workspaceIssue))
             {
                 if (workspaceIssue != null)
                     FgsMessageBox.Show(this, LF(workspaceIssue.Key, workspaceIssue.Path, workspaceIssue.Detail), Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
                 BridgeExecutionCore.CleanupTemporaryFiles(prepared.ExecutionRequest);
                 return;
             }
-
-            MediaProbeInfo info = GetBitrateMediaContext();
-            double outputFps = GetRecommendedOutputFps(info);
-            BridgeTaskRequest taskRequest = BridgeRequestPreparationCore.CreateTask(prepared, outputFps);
             taskRequest.NativeBackend = true;
             activeRunNativeBackend = true;
             string runCodecMode;
@@ -3581,26 +3576,12 @@ namespace FilmGrainStudioPreview
             try
             {
                 WorkspacePreflightIssue issue;
-                if (fileStates == null && !WorkspacePreflightCore.Check(inputs, noReencode ? "AV1" : capturedState["FG_MODE"], noReencode,
-                    config.Get("TEMP_MODE"), config.Get("TEMP_CUSTOM_DIR"), config.Get("OUTPUT_MODE"), config.Get("OUTPUT_CUSTOM_DIR"),
-                    mediaProbeCache, delegate(WorkspaceSpaceWarning warning)
-                    {
-                        return FgsMessageBox.Show(this, LF(warning.IsOutput ? "warning.output_space" : "warning.temp_space",
-                            warning.Path, FormatWorkspaceBytes(warning.Available), FormatWorkspaceBytes(warning.Required), FormatWorkspaceBytes(warning.Reserve)),
-                            Text, MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) == DialogResult.Yes;
-                    }, !noReencode && capturedState["FG_MODE"] == "AV1" && capturedState["FG_SVP_INTERPOLATE"] == "1",
-                    !noReencode ? capturedState["FG_INTERPOLATION_TARGET_FPS"] : "", input => BypassesQueuedInterpolation(input,capturedState), out issue))
-                    throw new InvalidOperationException(issue == null ? "Queue workspace check was declined." : LF(issue.Key, issue.Path, issue.Detail));
                 foreach (string input in inputs)
                 {
                     prepared = null;
                     if(fileStates!=null) {
                         capturedState=new SortedDictionary<string,string>(fileStates[input],StringComparer.OrdinalIgnoreCase);
                         noReencode=capturedState["FG_QUEUE_NO_REENCODE"]=="1";
-                        if(!WorkspacePreflightCore.Check(new List<string>{input},noReencode?"AV1":capturedState["FG_MODE"],noReencode,
-                            config.Get("TEMP_MODE"),config.Get("TEMP_CUSTOM_DIR"),config.Get("OUTPUT_MODE"),config.Get("OUTPUT_CUSTOM_DIR"),mediaProbeCache,
-                            delegate(WorkspaceSpaceWarning warning) {return FgsMessageBox.Show(this,LF(warning.IsOutput?"warning.output_space":"warning.temp_space",warning.Path,FormatWorkspaceBytes(warning.Available),FormatWorkspaceBytes(warning.Required),FormatWorkspaceBytes(warning.Reserve)),Text,MessageBoxButtons.YesNo,MessageBoxIcon.Warning,MessageBoxDefaultButton.Button2)==DialogResult.Yes;},
-                            !noReencode&&capturedState["FG_MODE"]=="AV1"&&capturedState["FG_SVP_INTERPOLATE"]=="1",!noReencode?capturedState["FG_INTERPOLATION_TARGET_FPS"]:"",path => BypassesQueuedInterpolation(path,capturedState),out issue))throw new InvalidOperationException(issue==null?"Workspace check declined":LF(issue.Key,issue.Path,issue.Detail));
                     }
                     foreach(var pair in capturedState)AppendTaskDiagnosticLog("[Queue snapshot] input="+input+" "+pair.Key+"="+pair.Value+Environment.NewLine);
                     string targetDir = capturedState["FG_OUTPUT_MODE"] == "CUSTOM" ? capturedState["FG_OUTPUT_CUSTOM_DIR"] : Path.GetDirectoryName(input);
@@ -3624,6 +3605,16 @@ namespace FilmGrainStudioPreview
                     prepared = null;
                     AppendTaskLog("[Queue] prepared " + tasks.Count + "/" + inputs.Count + " backend=Native" + " input=" + input + Environment.NewLine);
                 }
+                // Prepared requests are frozen; one plan-aware check covers both
+                // shared and independently-configured queue entries before launch.
+                if (!WorkspacePreflightCore.CheckPlanned(inputs, tasks, mediaProbeCache,
+                    delegate(WorkspaceSpaceWarning warning)
+                    {
+                        return FgsMessageBox.Show(this, LF(warning.IsOutput ? "warning.output_space" : "warning.temp_space",
+                            warning.Path, FormatWorkspaceBytes(warning.Available), FormatWorkspaceBytes(warning.Required), FormatWorkspaceBytes(warning.Reserve)),
+                            Text, MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) == DialogResult.Yes;
+                    }, out issue))
+                    throw new InvalidOperationException(issue == null ? "Queue workspace check was declined." : LF(issue.Key, issue.Path, issue.Detail));
                 submittedQueueFiles.Clear();foreach(string input in inputs)submittedQueueFiles.Add(input);
                 bridgeTaskCoordinator.SkipFailedFiles=config.GetBool("QUEUE_SKIP_FAILED");
                 AppendTaskLog("[Queue] skip_failed="+bridgeTaskCoordinator.SkipFailedFiles+" (frozen at start)"+Environment.NewLine);
