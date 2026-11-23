@@ -30,13 +30,16 @@ public static class FgsR01Audit
             "fractional field delay must match original FFV1/MKV clock");
         foreach (var order in new [] { "tt", "bb", "tb", "bt" })
         {
-            var media = Media(mediaType, order, order == "tt" || order == "tb" ? "bb" : "tt");
+            var media = Media(mediaType, order, order);
             var graph = (string)inline.Invoke(null, new object[] {media, "60000/1001"});
             string parity = order == "tt" || order == "tb" ? "tff" : "bff";
             Require(graph.Contains("bwdif_vulkan=mode=send_field:parity=" + parity + ":deint=all"), "field parity changed for " + order);
             Require(graph.Contains("setfield=prog,"), "progressive field marker missing");
             Require(!graph.Contains("hwdownload") && !graph.Contains("hwupload_cuda"), "direct GPU path must retain Vulkan frames");
             Require(graph.Contains("hwupload,bwdif_vulkan"), "GPU filter order changed");
+            var mismatched = Media(mediaType, order, order == "tt" || order == "tb" ? "bb" : "tt");
+            var mismatchGraph = (string)inline.Invoke(null, new object[] {mismatched, "60000/1001"});
+            Require(mismatchGraph.Contains("parity=auto"), "conflicting stream/container field tags must retain auto parity");
             Require(graph.Contains("settb=1001/60000,setpts=PTS-STARTPTS,settb=1/1000"),
                 "legacy fractional field/mux clock quantization missing");
         }
