@@ -197,10 +197,10 @@ Write-Host 'PASS: SDR Grain Plate + LUT + film border uses the original LUT then
 
 # SDR CPU color correction must be completed before GPU upload, not block GPU border.
 $hevcSource = [IO.File]::ReadAllText((Join-Path $PSScriptRoot '..\FilmGrain_NativeHevcCore.cs'))
-if (-not $hevcSource.Contains('(string.IsNullOrEmpty(colorFilter) || s4SdrPlate)')) {
+if (-not $hevcSource.Contains('(string.IsNullOrEmpty(colorFilter) || s4SdrPlate || s4HdrGrade)')) {
     throw 'SDR Grain Plate color correction still disables S4 GPU film border.'
 }
-if (-not $hevcSource.Contains('string.IsNullOrEmpty(preprocessing) && (string.IsNullOrEmpty(colorFilter) || s4SdrPlate)')) {
+if (-not $hevcSource.Contains('string.IsNullOrEmpty(preprocessing) && (string.IsNullOrEmpty(colorFilter) || s4SdrPlate || s4HdrGrade)')) {
     throw 'CPU bilateral must remain excluded from the S4 acceleration gate.'
 }
 if (-not $hevcSource.Contains('string.IsNullOrEmpty(subtitleFilter)')) {
@@ -214,3 +214,40 @@ if ($gradedPrefix.IndexOf('eq=contrast=', [StringComparison]::Ordinal) -gt $grad
     throw 'SDR color correction must remain before LUT and scanned grain.'
 }
 Write-Host 'PASS: SDR color correction, LUT, Grain Plate and border preserve CPU-before-GPU effect order'
+
+# Cropping without Resize keeps the plate at source size. The border samples
+# the cropped rectangle in source coordinates and composes at output size.
+$geometry = $core.GetMethod('ConfigureGpuGeometry', $flags)
+$frameType = $assembly.GetType('FilmGrainStudioPreview.CinematicFramePlan', $true)
+function Make-GeometryGraph([int]$w,[int]$h,[int]$x,[int]$y,[string]$frameFilter,[bool]$crop,[bool]$isH264) {
+    $frame = [Activator]::CreateInstance($frameType,$true)
+    $plan = [Activator]::CreateInstance($planType,$true)
+    $frameValues = @{ ActiveWidth=$w; ActiveHeight=$h; ContentX=$x; ContentY=$y; ContentWidth=$w; ContentHeight=$h; Filter=$frameFilter }
+    foreach ($entry in $frameValues.GetEnumerator()) { $frameType.GetField($entry.Key,$fields).SetValue($frame,$entry.Value) }
+    $planValues = @{ GpuRaw='texture.raw'; GpuSdr=$true; GpuH264=$isH264; GpuInputIndex=2 }
+    foreach ($entry in $planValues.GetEnumerator()) { $planType.GetField($entry.Key,$fields).SetValue($plan,$entry.Value) }
+    [void]$geometry.Invoke($null,@($plan,$frame,$true,$crop))
+    return [string]$method.Invoke($null,@('[0:v:0]hwupload[fgsfilm_gpu_video]',$plan))
+}
+
+$sourceCrop = Make-GeometryGraph 1280 720 48 12 ',crop=w=1280:h=720:x=48:y=12:exact=1' $true $false
+$scaledCrop = Make-GeometryGraph 1280 720 48 12 '' $false $false
+foreach ($g in @($sourceCrop,$scaledCrop)) {
+    Assert-Contains $g 'libplacebo=inputs=2:w=1280:h=720:format=p010le'
+    Assert-Contains $g ',setsar=1,hwupload=derive_device=cuda'
+    if ($g.Contains('hwdownload')) { throw 'Resized/cropped geometry must remain resident during film border composition.' }
+}
+$cropPattern = "crop_x='if\(eq\(idx,0\),([0-9.]+),0\)':crop_y='if\(eq\(idx,0\),([0-9.]+),0\)'"
+$sourcePosition = [regex]::Match($sourceCrop,$cropPattern)
+$outputPosition = [regex]::Match($scaledCrop,$cropPattern)
+if (-not $sourcePosition.Success -or -not $outputPosition.Success) { throw 'Could not read source and output crop coordinates.' }
+$culture = [Globalization.CultureInfo]::InvariantCulture
+$dx = [double]::Parse($sourcePosition.Groups[1].Value,$culture) - [double]::Parse($outputPosition.Groups[1].Value,$culture)
+$dy = [double]::Parse($sourcePosition.Groups[2].Value,$culture) - [double]::Parse($outputPosition.Groups[2].Value,$culture)
+if ([Math]::Abs($dx-48) -gt 1e-8 -or [Math]::Abs($dy-12) -gt 1e-8) {
+    throw 'Crop offsets must be applied exactly once and only in source coordinates.'
+}
+$vertical = Make-GeometryGraph 406 720 0 0 '' $false $true
+Assert-Contains $vertical 'libplacebo=inputs=2:w=406:h=720:format=p010le'
+Assert-Contains $vertical 'hwupload=derive_device=cuda,scale_cuda=format=nv12'
+Write-Host 'PASS: source crop offsets, resized output canvas and vertical H264 geometry'
