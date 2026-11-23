@@ -1,0 +1,56 @@
+name: FGS R04a OpenSVPFlow AV1 Windows verification
+
+on:
+  push:
+    branches:
+      - test/r04a-svp-av1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: windows-2022
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact candidate commit
+        uses: actions/checkout@v4
+      - name: Validate R04a and R03 PowerShell syntax
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($path in @('dotnet\BuildTools\Test_R04a_SvpAv1.ps1', 'dotnet\BuildTools\Test_R03_Av1Fruc.ps1')) {
+            $tokens = $null
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path -LiteralPath $path).Path, [ref]$tokens, [ref]$errors)
+            if ($errors.Count -ne 0) { throw ('PowerShell parser errors for ' + $path + ': ' + ($errors | Out-String)) }
+          }
+          Write-Host 'PASS R04a/R03 PowerShell syntax'
+      - name: Build verified .NET Framework 4.8 executable
+        shell: cmd
+        run: call dotnet\build_NET_Preview.bat
+      - name: Run R04a, R03, R02, R01 and HDR contracts
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = Join-Path $env:GITHUB_WORKSPACE 'FilmGrain_Studio.exe'
+          foreach ($test in @(
+            '.\dotnet\BuildTools\Test_R04a_SvpAv1.ps1',
+            '.\dotnet\BuildTools\Test_R03_Av1Fruc.ps1',
+            '.\dotnet\BuildTools\Test_R02_BilateralS4.ps1',
+            '.\dotnet\BuildTools\Test_R01_InlinePlate.ps1',
+            '.\dotnet\BuildTools\Test_HLG_GPU_L4Q6.ps1',
+            '.\dotnet\BuildTools\Test_NullLogCallback.ps1'
+          )) {
+            & $test -Exe $exe
+            if (-not $?) { throw ('Regression failed: ' + $test) }
+          }
+          Write-Host ('R04a Windows EXE SHA256: ' + (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash)
+      - name: Upload candidate EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: FGS_R04a_SvpAV1_D6B42C_EXE
+          path: FilmGrain_Studio.exe
+          if-no-files-found: error
+          retention-days: 14
