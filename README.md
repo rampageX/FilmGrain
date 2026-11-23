@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.0.91 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.92 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 <table>
   <tr>
@@ -208,6 +208,8 @@ Git 源码中 Dark 原始 RAW 以 `.raw.gz` 无损归档，Windows 构建前会�
 默认关闭，启用默认值为 `sigmaS=3 / sigmaR=0.05 / planes=1`。sigmaS 控制空间范围（0–512），sigmaR 控制像素差异容忍度（0–1），planes 为通道位掩码（0–15；1=Y、2=U、4=V、6=UV、7=YUV，0=不处理）。数值越强不代表画质越好，建议先比较默认值。
 
 CPU 双边滤波位于现有反交错、HDR 转换和插帧之后，调色/LUT及新增颗粒之前；以 `yuv420p10le` 进入滤镜，输出像素格式由原编码路线决定。原有部分 SDR 插帧、FGSIM 和数字颗粒路线的 8-bit 边界不因此升级为 10-bit。硬件解码保留原策略，CPU 滤镜可能降低速度。
+
+v5.0.92 起，**工作空间预检**依据实际执行计划识别需要生成的整片 FFV1 工作文件：FRUC Vulkan、OpenSVPFlow Y4M 和 NVEncC AI NUT 等 AV1 直连路径不再因“AV1＋插帧”被额外预留整片 FFV1；NVEncC FRUC 等仍需 FFV1 的回退路径继续按实际计划收费。保留输出、颗粒/预览缓存、安全保留量与多文件队列临时峰值/输出累计量。上游 OpenSVPFlow HDR 59.94→60、NVEncC FRUC raw EOF 异常不在 R05 改动范围。
 
 v5.0.91 起，**AV1 NVENC＋NVEncC AI** 在既有 SDR/PQ/HLG 及 10-bit HDR 合同允许时，将 NVEncC 输出的 NUT 原始帧直接送入 AV1 编码，不再生成整片 FFV1 临时文件；保留 IVF、可选 grav1synth、音频 remux、起点补偿和原有 MDCV/CLLI 规则。NVEncC FRUC 与其它保护性回退不变。
 

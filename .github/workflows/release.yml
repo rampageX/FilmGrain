@@ -140,6 +140,9 @@ jobs:
           } elseif ($version -eq '5.0.91') {
             $ref = 'heads/test/r04b-nvenc-ai-av1'
             $expected = 'a419423b1e312239186394aa1abce3d127a71fed'
+          } elseif ($version -eq '5.0.92') {
+            $ref = 'heads/test/r05-workspace-preflight'
+            $expected = '260d1fca32313c088890a5a20b9b872e34286426'
           } else { exit 0 }
           $sha = gh api "repos/$env:GITHUB_REPOSITORY/git/ref/$ref" --jq '.object.sha'
           if ($LASTEXITCODE -ne 0) { throw 'Accepted test branch verification failed.' }
