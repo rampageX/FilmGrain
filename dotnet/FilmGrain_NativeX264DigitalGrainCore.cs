@@ -480,7 +480,8 @@ namespace FilmGrainStudioPreview
                 string encodeInput = input;
                 List<BridgeExecutionStage> stages = new List<BridgeExecutionStage>();
                 // Multiple analysis/final passes share one conversion instead of repeating HDR work per pass.
-                bool mergedHdr=SharedHdrPreprocessCore.CanMergeEncode(hdrToSdr,interpolate,info.IsInterlaced) && passMode=="VBR1";
+                bool mergedFields = passMode=="VBR1" && SharedHdrPreprocessCore.CanMergeFieldEncode(fieldWorkfile,interpolate,grainEnabled,filmBorder!=null);
+                bool mergedHdr=mergedFields || (SharedHdrPreprocessCore.CanMergeEncode(hdrToSdr,interpolate,info.IsInterlaced) && passMode=="VBR1");
                 bool hdrWorkfile=hdrToSdr && !mergedHdr && !mergeFrucHdr;
                 int stageOffset = (hdrWorkfile || separateDeint ? 1 : 0)+(shareInterpolation?1:0);
                 int stageTotal = stageOffset + (passMode == "VBR1" ? 1 : passMode == "3PASS" ? 3 : 2);
@@ -542,7 +543,7 @@ namespace FilmGrainStudioPreview
                         else if (transportSvp || NvencInterpolationCore.Enabled(state)) SharedPipeTimelineCore.AttachTransportSource(stages[i],ffprobe,encodeInput,info,stages[i].OriginalArguments);
                     }
 
-                if(fieldWorkfile || separateDeint || hdrOffSdr)
+                if((fieldWorkfile && !mergedFields) || separateDeint || hdrOffSdr)
                     for(int i=stageOffset;i<stages.Count;i++)
                         SharedHdrPreprocessCore.AttachFieldTimeline(stages[i],ffprobe,encodeInput,info,hdrToSdr,!hdrOffSdr);
                 if(inlineVulkanPlate)
@@ -563,7 +564,7 @@ namespace FilmGrainStudioPreview
                         SharedHdrPreprocessCore.AttachMergedFruc(stages[i],input,info,tonemap,gpuName);
                 else if(mergedHdr)
                     for(int i=stageOffset;i<stages.Count;i++)
-                        SharedHdrPreprocessCore.AttachMergedEncode(stages[i],ffprobe,input,info,tonemap,gpuName);
+                        SharedHdrPreprocessCore.AttachMergedEncode(stages[i],ffprobe,input,info,tonemap,gpuName,fieldFilter:mergedFields?fieldFilter:"");
                 else if(hdrWorkfile && !interpolate && !info.IsInterlaced)
                     for(int i=stageOffset;i<stages.Count;i++)
                         SharedHdrPreprocessCore.AttachSharedWorkfileEncode(stages[i],ffprobe,encodeInput,gpuName);

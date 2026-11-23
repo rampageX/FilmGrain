@@ -250,20 +250,34 @@ namespace FilmGrainStudioPreview
                 return "[HDR shared workfile encode] conversion reused; no repeated HDR filtering; source_common="+Number(time.CommonOrigin)+" video_delay="+Number(time.VideoDelay);
             };
         }
+        internal static bool CanMergeFieldEncode(bool fieldWorkfile, bool interpolate, bool pixelGrain, bool filmBorder)
+        {
+            // Grain shaders and looping inputs are sensitive to the old Matroska frame queue.
+            return fieldWorkfile && !interpolate && !pixelGrain && !filmBorder;
+        }
+
         internal static void AttachMergedEncode(BridgeExecutionStage stage,string ffprobe,string input,
-            MediaProbeInfo info,string tonemap,string gpuName,bool videoOnly=false,bool sourceCadence=true)
+            MediaProbeInfo info,string tonemap,string gpuName,bool videoOnly=false,bool sourceCadence=true,string fieldFilter="")
         {
             if(stage.BeforeRunPreparation!=null)throw new InvalidOperationException("Merged encode preparation already attached");
             var frozen=new List<string>(stage.OriginalArguments);
-            var cpu=BuildToSdr(input,"unused-inline-hdr.mkv",info,tonemap,false);
+            var cpu=BuildToSdr(input,"unused-inline-hdr.mkv",info,tonemap,false,fieldFilter);
             string device=VulkanDevicePolicy.DeviceName;
             stage.BeforeRunPreparation=delegate {
                 string notice;
                 var selected=SelectAutomatic(stage.ToolPath,cpu,tonemap,out notice,device);
                 var time=SharedFrucCore.ProbeTimeline(ffprobe,input);
                 var merged=MergeEncodeArguments(frozen,selected,videoOnly,time.CommonOrigin,time.VideoDelay,device,sourceCadence);
+                if (fieldFilter.Length > 0 && !videoOnly)
+                {
+                    int duration = merged.IndexOf("-t");
+                    double seconds;
+                    if (duration >= 0 && double.TryParse(merged[duration + 1], NumberStyles.Float, CultureInfo.InvariantCulture, out seconds))
+                        merged[duration + 1] = Number(seconds + time.VideoDelay);
+                }
                 stage.DirectArguments=SharedFrucCore.JoinArguments(merged);
-                return "[HDR merged encode] conversion / color / LUT / grain / encode; no HDR workfile.\n"+notice+
+                return (fieldFilter.Length == 0 ? "[HDR merged encode] conversion / color / LUT / grain / encode; no HDR workfile."
+                    : "[R08a] bob deinterlace before HDR to SDR; no HDR workfile.")+"\n"+notice+
                     "\n[HDR merged timeline] video_only="+videoOnly+" source_common="+Number(time.CommonOrigin)+" video_delay="+Number(time.VideoDelay);
             };
         }

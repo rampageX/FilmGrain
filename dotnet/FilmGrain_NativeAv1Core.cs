@@ -196,6 +196,14 @@ namespace FilmGrainStudioPreview
                 (hdrPreserve
                     ? Get(state,"FG_NVENC_VFG_HDR10")=="1" && NvencInterpolationCore.Hdr10Eligible(info,state)
                     : !info.IsHdr && Get(state,"FG_NVENC_VFG_HDR10")!="1");
+            // These producers still require the seekable SDR input. Bypass only the second,
+            // video-only FFV1 stage when the downstream graph has no temporal pixel grain.
+            if (CanPipeConvertedSdr(svp, hdrToSdr, info.IsInterlaced, grainEnabled && !metadataGrain,
+                Get(state,"FG_SVP_HDR10")=="1" || Get(state,"FG_NVENC_VFG_HDR10")=="1"))
+            {
+                directSvp = !NvencInterpolationCore.Enabled(state);
+                directNvencAi = Eq(state,"FG_INTERPOLATION_ENGINE","NVENC_AI");
+            }
             if (interpolate && !directFruc && !directSvp && !directNvencAi)
             {
                 string encoderHelp;
@@ -235,7 +243,8 @@ namespace FilmGrainStudioPreview
             string job = "__FGS_AV1_NATIVE_" + Guid.NewGuid().ToString("N");
             string cleanIvf = Path.Combine(tempRoot, job + "_clean.ivf");
             string grainIvf = Path.Combine(tempRoot, job + "_grain.ivf");
-            bool mergedHdr=SharedHdrPreprocessCore.CanMergeEncode(hdrToSdr,interpolate,info.IsInterlaced);
+            bool mergedFields=SharedHdrPreprocessCore.CanMergeFieldEncode(fieldWorkfile,interpolate,grainEnabled && !metadataGrain,false);
+            bool mergedHdr=mergedFields || SharedHdrPreprocessCore.CanMergeEncode(hdrToSdr,interpolate,info.IsInterlaced);
             // A separate FRUC-only tool must not acquire HDR filter dependencies from the main FFmpeg.
             bool mergedFrucHdr=hdrToSdr&&fruc&&!info.IsInterlaced&&
                 string.Equals(Path.GetFullPath(frucFfmpeg),Path.GetFullPath(ffmpeg),StringComparison.OrdinalIgnoreCase);
@@ -292,6 +301,8 @@ namespace FilmGrainStudioPreview
             if (interpolate) Add(encode, "-copyts");
             if (directSvp || directNvencAi) Add(encode, "-f", "yuv4mpegpipe");
             Add(encode, "-i", encodeInput);
+            if (hdrToSdr && (directSvp || directNvencAi))
+                filterGraph = ConvertedSdrPipeGraph(filterGraph);
             if (!string.IsNullOrWhiteSpace(filterGraph)) Add(encode, "-filter_complex", filterGraph, "-map", "[vout]");
             else Add(encode, "-map", "0:v:0");
             Add(encode, "-an", "-sn", "-dn", "-c:v", "av1_nvenc", "-gpu", "0", "-pix_fmt", "p010le",
@@ -437,8 +448,7 @@ namespace FilmGrainStudioPreview
             } else if(directSvp) {
                 // Same producer and AV1 filters as the old FFV1 path, without the
                 // intermediate encode/decode. IVF, grain synthesis and mux are unchanged.
-                if(preStages!=0)throw new InvalidOperationException("AV1 OpenSVPFlow direct stage layout changed");
-                var stage=directStages[0];
+                var stage=directStages[preStages];
                 string svpDir=Path.Combine(appRoot,"_OpenSVPFlow");
                 SharedSvpCore.AttachProducer(stage,Path.Combine(svpDir,".venv","Scripts","vspipe.exe"),
                     Path.Combine(svpDir,"FilmGrain_OpenSVPFlow.vpy"),Path.Combine(svpDir,"Plugins"),frucInput,state,fpsText);
@@ -448,8 +458,7 @@ namespace FilmGrainStudioPreview
                 // NVEncC's existing producer adapter switches the demuxer to NUT,
                 // zeroes only the local origin and restores PQ/HLG setparams.
                 // Keep the original IVF/grain/remux timeline adjustment unchanged.
-                if(preStages!=0)throw new InvalidOperationException("AV1 NVEncC AI direct stage layout changed");
-                var stage=directStages[0];
+                var stage=directStages[preStages];
                 NvencInterpolationCore.AttachProducer(stage,frucInput,state,fpsText);
                 stage.StageText+=" / NVEncC AI direct NUT, no FFV1";
                 request.ExecutionNotice="[AV1 route] NVEncC AI NUT direct to AV1; no FFV1; IVF/grain/remux retained; original final A/V clock adapter retained.";
@@ -470,11 +479,17 @@ namespace FilmGrainStudioPreview
                 request.ExecutionNotice="[AV1 encode route] IVF encode/container stages retained; direct-output/FRUC eligibility not met. Grain metadata optimization is selected independently.";
             }
 
+            if (hdrToSdr && (directSvp || directNvencAi))
+            {
+                SharedHdrPreprocessCore.AttachValidation(directStages[preStages],ffprobe,hdrWorkfile,info);
+                directStages[preStages].StageText+=" / R08b SDR workfile to producer to AV1";
+            }
+
             if(mergedHdr) {
-                SharedHdrPreprocessCore.AttachMergedEncode(directStages[preStages],ffprobe,input,info,tonemap,caps.GpuName,true,Eq(state,"FG_FPS_MODE","SOURCE"));
+                SharedHdrPreprocessCore.AttachMergedEncode(directStages[preStages],ffprobe,input,info,tonemap,caps.GpuName,true,!mergedFields && Eq(state,"FG_FPS_MODE","SOURCE"),mergedFields?fieldFilter:"");
                 directStages[preStages].StageText+=" / HDR merged";
             }
-            if(fieldWorkfile || separateDeint || hdrOffSdr)SharedHdrPreprocessCore.AttachFieldValidation(directStages[preStages],ffprobe,hdrWorkfile,info,hdrToSdr,!hdrOffSdr);
+            if((fieldWorkfile && !mergedFields) || separateDeint || hdrOffSdr)SharedHdrPreprocessCore.AttachFieldValidation(directStages[preStages],ffprobe,hdrWorkfile,info,hdrToSdr,!hdrOffSdr);
             // IVF and grain synthesis own a local video clock; always restore the original A/V clock once.
             foreach (BridgeExecutionStage stage in directStages)
                     if (stage.StageText.StartsWith("AV1 container remux", StringComparison.Ordinal))
@@ -490,6 +505,20 @@ namespace FilmGrainStudioPreview
             HdrColorProcessingCore.Notice(request,info,state,hdrPreserve);
             prepared = new BridgePreparedExecution(request, false, ffmpeg, new List<string> { input });
             return true;
+        }
+
+        internal static bool CanPipeConvertedSdr(bool svp, bool hdrToSdr, bool interlaced, bool pixelGrain, bool producerHdr)
+        {
+            return svp && hdrToSdr && !interlaced && !pixelGrain && !producerHdr;
+        }
+
+        internal static string ConvertedSdrPipeGraph(string graph)
+        {
+            const string source = "[0:v:0]";
+            if (!graph.StartsWith(source, StringComparison.Ordinal))
+                throw new InvalidOperationException("HDR to SDR producer graph must begin with the pipe video.");
+            return source+"format=yuv420p,settb=expr=1/1000,setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709,"
+                +graph.Substring(source.Length);
         }
 
         private static string BuildFilterGraph(MediaProbeInfo info, CinematicFramePlan frame, IDictionary<string,string> state,

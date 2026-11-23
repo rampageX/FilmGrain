@@ -643,7 +643,8 @@ namespace FilmGrainStudioPreview
 
                 string encodeInput = input;
 
-                bool mergedHdr = SharedHdrPreprocessCore.CanMergeEncode(hdrToSdr,interpolate,info.IsInterlaced);
+                bool mergedFields = SharedHdrPreprocessCore.CanMergeFieldEncode(fieldWorkfile,interpolate,grainEnabled,filmBorder!=null);
+                bool mergedHdr = mergedFields || SharedHdrPreprocessCore.CanMergeEncode(hdrToSdr,interpolate,info.IsInterlaced);
                 bool mergedFrucHdr=hdrToSdr&&fruc&&!info.IsInterlaced;
                 bool needsHdrWorkfile = hdrToSdr && !mergedHdr && !mergedFrucHdr ;
 
@@ -698,7 +699,7 @@ namespace FilmGrainStudioPreview
                         if (svp && hdrToSdr) SharedHdrPreprocessCore.AttachPipeTimeline(mainStage,ffprobe,encodeInput,info,hevcArgs,input);
                         else if (preserveSvpTransportTimeline || NvencInterpolationCore.Enabled(state)) SharedPipeTimelineCore.AttachTransportSource(mainStage,ffprobe,encodeInput,info,hevcArgs);
 
-                        if(fieldWorkfile || separateDeint || hdrOffSdr)SharedHdrPreprocessCore.AttachFieldTimeline(mainStage,ffprobe,encodeInput,info,hdrToSdr,!hdrOffSdr);
+                        if((fieldWorkfile && !mergedFields) || separateDeint || hdrOffSdr)SharedHdrPreprocessCore.AttachFieldTimeline(mainStage,ffprobe,encodeInput,info,hdrToSdr,!hdrOffSdr);
                         if(inlineVulkanPlate) {
                             SharedHdrPreprocessCore.AttachInlineFieldTimeline(mainStage,ffprobe,input,fps);
                             mainStage.StageText += " / inline Vulkan BWDIF + Plate (no FFV1)";
@@ -709,7 +710,8 @@ namespace FilmGrainStudioPreview
                         else if (mergedHdr)
                         {
                             mainStage.StageText = (h264?"H.264":"HEVC")+"：HDR 合并 / 调色 / LUT / 颗粒 / 编码";
-                            if(!grainEnabled && !resize.Enabled)SharedHdrPreprocessCore.AttachMergedHevc(mainStage,ffprobe,input,info,tonemap,caps.GpuName);
+                            if(mergedFields)SharedHdrPreprocessCore.AttachMergedEncode(mainStage,ffprobe,input,info,tonemap,caps.GpuName,fieldFilter:fieldFilter);
+                            else if(!grainEnabled && !resize.Enabled)SharedHdrPreprocessCore.AttachMergedHevc(mainStage,ffprobe,input,info,tonemap,caps.GpuName);
                             else SharedHdrPreprocessCore.AttachMergedEncode(mainStage,ffprobe,input,info,tonemap,caps.GpuName);
                         }
                         else if(needsHdrWorkfile && !interpolate && !info.IsInterlaced)
