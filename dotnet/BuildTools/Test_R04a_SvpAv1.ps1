@@ -32,7 +32,7 @@ public static class FgsR04aAudit
         Require(source.Contains("Stage(grav1synth") && source.Contains("Av1GrainStrengthCore.Stages"), "AV1 metadata grain stages removed");
         Require(source.Contains("SharedFrucCore.TryPreflight10(frucFfmpeg"), "R03 P010 preflight changed");
         Require(!source.Contains("if (svp && !directSvp && NvencInterpolationCore.Enabled(state))"), "NVEncC producer was modified");
-        Require(r03Source.Contains("if (interpolate && !directFruc && !directSvp) request.TemporaryFiles.Add(frucWorkfile);"), "R03 regression assertion stale");
+        Require(File.ReadAllText(r03Source).Contains("if (interpolate && !directFruc && !directSvp) request.TemporaryFiles.Add(frucWorkfile);"), "R03 regression assertion stale");
         object stage = Activator.CreateInstance(stageType, true);
         var state = new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
         state["FG_INTERPOLATION_ENGINE"] = "SVP";
