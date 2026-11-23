@@ -1,0 +1,58 @@
+name: FGS R04b NVEncC AI AV1 Windows verification
+
+on:
+  push:
+    branches:
+      - test/r04b-nvenc-ai-av1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: windows-2022
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact candidate commit
+        uses: actions/checkout@v4
+      - name: Check PowerShell syntax and BOM
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($path in @('dotnet\BuildTools\Test_R04b_NvencAiAv1.ps1','dotnet\BuildTools\Test_R04a_SvpAv1.ps1','dotnet\BuildTools\Test_R03_Av1Fruc.ps1')) {
+            $tokens = $null
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path -LiteralPath $path).Path, [ref]$tokens, [ref]$errors)
+            if ($errors.Count -ne 0) { throw ('PowerShell syntax failure: ' + $path + ': ' + ($errors | Out-String)) }
+            $bytes=[System.IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $path).Path)
+            if ($bytes.Length -lt 3 -or $bytes[0] -ne 239 -or $bytes[1] -ne 187 -or $bytes[2] -ne 191) { throw ('PS1 UTF-8 BOM missing: ' + $path) }
+          }
+      - name: Build verified .NET Framework 4.8 executable
+        shell: cmd
+        run: call dotnet\build_NET_Preview.bat
+      - name: R04b and earlier regressions
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $exe=Join-Path $env:GITHUB_WORKSPACE 'FilmGrain_Studio.exe'
+          foreach ($test in @(
+            '.\dotnet\BuildTools\Test_R04b_NvencAiAv1.ps1',
+            '.\dotnet\BuildTools\Test_R04a_SvpAv1.ps1',
+            '.\dotnet\BuildTools\Test_R03_Av1Fruc.ps1',
+            '.\dotnet\BuildTools\Test_R02_BilateralS4.ps1',
+            '.\dotnet\BuildTools\Test_R01_InlinePlate.ps1',
+            '.\dotnet\BuildTools\Test_HLG_GPU_L4Q6.ps1',
+            '.\dotnet\BuildTools\Test_NullLogCallback.ps1'
+          )) {
+            & $test -Exe $exe
+            if (-not $?) { throw ('Regression failed: ' + $test) }
+          }
+          Write-Host ('R04b candidate EXE SHA256: ' + (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash)
+      - name: Upload test EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: FGS_R04b_NVEncCAI_M7Q4X8_EXE
+          path: FilmGrain_Studio.exe
+          if-no-files-found: error
+          retention-days: 14

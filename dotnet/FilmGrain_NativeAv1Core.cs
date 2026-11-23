@@ -189,7 +189,14 @@ namespace FilmGrainStudioPreview
             // and require its 8/10-bit producer contract to match the source color policy.
             bool directSvp=svp && !NvencInterpolationCore.Enabled(state) && !hdrToSdr &&
                 hdrPreserve==(Get(state,"FG_SVP_HDR10")=="1");
-            if (interpolate && !directFruc && !directSvp)
+            // NVEncC AI emits timestamped raw NUT. Accept only its already validated
+            // SDR 8-bit or HDR BT.2020 PQ/HLG 10-bit contract; keep NVEncC FRUC legacy.
+            bool directNvencAi=svp && NvencInterpolationCore.Enabled(state) &&
+                Eq(state,"FG_INTERPOLATION_ENGINE","NVENC_AI") && !hdrToSdr &&
+                (hdrPreserve
+                    ? Get(state,"FG_NVENC_VFG_HDR10")=="1" && NvencInterpolationCore.Hdr10Eligible(info,state)
+                    : !info.IsHdr && Get(state,"FG_NVENC_VFG_HDR10")!="1");
+            if (interpolate && !directFruc && !directSvp && !directNvencAi)
             {
                 string encoderHelp;
                 if (!SharedFrucCore.Run(fruc ? frucFfmpeg : ffmpeg, "-hide_banner -h encoder=ffv1", 5000, out encoderHelp, out reason)) return false;
@@ -236,7 +243,7 @@ namespace FilmGrainStudioPreview
             string hdrWorkfile = needsHdrWorkfile || separateDeint ? Path.Combine(tempRoot, job + (hdrToSdr ? "_hdr2sdr.mkv" : "_fields.mkv")) : "";
             string frucInput = needsHdrWorkfile || separateDeint ? hdrWorkfile : input;
             string frucWorkfile = interpolate ? Path.Combine(tempRoot, job + (fruc ? "_fruc.mkv" : "_svp.mkv")) : "";
-            string encodeInput = directSvp ? "pipe:0" : interpolate && !directFruc ? frucWorkfile : frucInput;
+            string encodeInput = (directSvp || directNvencAi) ? "pipe:0" : interpolate && !directFruc ? frucWorkfile : frucInput;
 
             string preset = Eq(state, "FG_SPEED", "STANDARD") ? "p7" : Eq(state, "FG_SPEED", "UHQ") ? "p4" : "p5";
             string tune = Eq(state, "FG_SPEED", "UHQ") ? "uhq" : "hq";
@@ -283,7 +290,7 @@ namespace FilmGrainStudioPreview
             Add(encode, "-hide_banner", "-stats", "-progress", "pipe:2", "-stats_period", "0.5", "-y");
             if (directFruc || resize.Enabled || fgsimGrain || (bwdifVulkan && !fieldWorkfile && !separateDeint)) Add(encode, "-init_hw_device", VulkanDevicePolicy.Spec("vk"), "-filter_hw_device", "vk");
             if (interpolate) Add(encode, "-copyts");
-            if (directSvp) Add(encode, "-f", "yuv4mpegpipe");
+            if (directSvp || directNvencAi) Add(encode, "-f", "yuv4mpegpipe");
             Add(encode, "-i", encodeInput);
             if (!string.IsNullOrWhiteSpace(filterGraph)) Add(encode, "-filter_complex", filterGraph, "-map", "[vout]");
             else Add(encode, "-map", "0:v:0");
@@ -362,14 +369,14 @@ namespace FilmGrainStudioPreview
             
             request.TemporaryFiles = metadataGrain ? new List<string> { cleanIvf, grainIvf } : new List<string> { cleanIvf };
             if (needsHdrWorkfile || separateDeint) request.TemporaryFiles.Add(hdrWorkfile);
-            if (interpolate && !directFruc && !directSvp) request.TemporaryFiles.Add(frucWorkfile);
+            if (interpolate && !directFruc && !directSvp && !directNvencAi) request.TemporaryFiles.Add(frucWorkfile);
             if (hdrPreserve) request.PostRunValidation = delegate { return VerifyHdrOutput(ffprobe, output, info); };
             if (!string.IsNullOrEmpty(lutCompatPath)) request.TemporaryFiles.Add(lutCompatPath);
             if (!string.IsNullOrEmpty(subtitleAss)) request.TemporaryFiles.Add(subtitleAss);
             if (!string.IsNullOrEmpty(subtitleFilterPath)&&subtitleFilterPath!=subtitleAss) request.TemporaryFiles.Add(subtitleFilterPath);
             request.ProgressDurationSeconds = ParseDuration(info.Duration);
             double duration = request.ProgressDurationSeconds;
-            int preStages = (needsHdrWorkfile || separateDeint ? 1 : 0) + (interpolate && !directFruc && !directSvp ? 1 : 0);
+            int preStages = (needsHdrWorkfile || separateDeint ? 1 : 0) + (interpolate && !directFruc && !directSvp && !directNvencAi ? 1 : 0);
             int encodeStages = metadataGrain ? 3 : 2;
             
             int totalStages = preStages + encodeStages;
@@ -385,7 +392,7 @@ namespace FilmGrainStudioPreview
                 if(mergedFrucHdr)SharedHdrPreprocessCore.AttachMergedFruc(preprocess,input,info,tonemap,caps.GpuName);
                 directStages.Add(preprocess);
             }
-            if (svp && !directSvp)
+            if (svp && !directSvp && !directNvencAi)
             {
                 BridgeExecutionStage svpStage=SharedSvpCore.CreateVideoPreprocess(appRoot,ffmpeg,ffprobe,frucInput,frucWorkfile,
                     tempRoot,fpsText,state,duration,hdrToSdr?2:1,totalStages);
@@ -437,6 +444,15 @@ namespace FilmGrainStudioPreview
                     Path.Combine(svpDir,"FilmGrain_OpenSVPFlow.vpy"),Path.Combine(svpDir,"Plugins"),frucInput,state,fpsText);
                 stage.StageText+=" / OpenSVPFlow direct Y4M, no FFV1";
                 request.ExecutionNotice="[AV1 route] OpenSVPFlow Y4M direct to AV1; no FFV1; IVF/grain/remux retained; original final A/V clock adapter retained.";
+            } else if(directNvencAi) {
+                // NVEncC's existing producer adapter switches the demuxer to NUT,
+                // zeroes only the local origin and restores PQ/HLG setparams.
+                // Keep the original IVF/grain/remux timeline adjustment unchanged.
+                if(preStages!=0)throw new InvalidOperationException("AV1 NVEncC AI direct stage layout changed");
+                var stage=directStages[0];
+                NvencInterpolationCore.AttachProducer(stage,frucInput,state,fpsText);
+                stage.StageText+=" / NVEncC AI direct NUT, no FFV1";
+                request.ExecutionNotice="[AV1 route] NVEncC AI NUT direct to AV1; no FFV1; IVF/grain/remux retained; original final A/V clock adapter retained.";
             } else if(directFruc) {
                 var stage=directStages[0];
                 var direct=new List<string>(encode);int graph=direct.IndexOf("-filter_complex");
