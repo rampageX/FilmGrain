@@ -179,9 +179,11 @@ namespace FilmGrainStudioPreview
             string frucGrid = Get(state, "FG_FRUC_GRID").ToLowerInvariant();
             if (fruc && !SharedFrucCore.TryPreflight(frucFfmpeg, frucPerf, frucGrid, out reason)) return false;
             if (fruc && hdrPreserve && !SharedFrucCore.TryPreflight10(frucFfmpeg, frucPerf, frucGrid, out reason)) return false;
-            bool simpleRoute=Av1RouteOptimizationCore.SimpleSource(input,info,state,sfeEngines);
+            bool simpleRoute=!interpolate && Av1RouteOptimizationCore.SimpleSource(input,info,state,sfeEngines);
             bool directOutput=simpleRoute && !interpolate && !grainEnabled;
-            bool directFruc=simpleRoute && fruc && !grainEnabled &&
+            // Encoding through FRUC is independent of SimpleSource's MOV/direct-container proof.
+            // Pixel-grain and unverified post-effects still use the original FFV1 path.
+            bool directFruc=fruc && Av1RouteOptimizationCore.FrucEncodeSource(info,state,sfeEngines,hdrToSdr,grainEnabled && !metadataGrain) &&
                 string.Equals(Path.GetFullPath(frucFfmpeg),Path.GetFullPath(ffmpeg),StringComparison.OrdinalIgnoreCase);
             if (interpolate && !directFruc)
             {
@@ -423,14 +425,16 @@ namespace FilmGrainStudioPreview
             } else if(directFruc) {
                 var stage=directStages[0];
                 var direct=new List<string>(encode);int graph=direct.IndexOf("-filter_complex");
-                // Reproduce the old SDR FFV1/MKV boundary: 8-bit 4:2:0 and millisecond time base.
-                // This pilot does not change the existing FRUC precision policy.
-                direct[graph+1]=direct[graph+1].Replace("[0:v:0]","[0:v:0]"+SharedFrucCore.InputFilter(fpsText,frucPerf,frucGrid,false)+"format=yuv420p,settb=expr=1/1000,");
+                // Preserve the old FFV1/MKV boundary: SDR 8-bit or HDR P010-validated
+                // 10-bit 4:2:0, followed by the original millisecond time base.
+                string frucFormat=hdrPreserve?"yuv420p10le":"yuv420p";
+                direct[graph+1]=direct[graph+1].Replace("[0:v:0]","[0:v:0]"+SharedFrucCore.InputFilter(fpsText,frucPerf,frucGrid,hdrPreserve)+"format="+frucFormat+",settb=expr=1/1000,");
                 stage.OriginalArguments=new List<string>(direct);stage.DirectArguments=SharedFrucCore.JoinArguments(direct);
                 stage.FrucArguments=new List<string>(direct);stage.FrucProbePath=ffprobe;
                 stage.StageText+=" / FRUC direct, no FFV1";
                 request.PixelGrainEncodeArguments=direct;
                 request.ExecutionNotice="[AV1 route] FRUC direct to AV1; no FFV1; IVF/remux retained; pixel effects disabled on this route.";
+                if(hdrPreserve)request.ExecutionNotice+=Environment.NewLine+SharedFrucCore.HdrNotice;
             } else if(Av1RouteOptimizationCore.Enabled()) {
                 request.ExecutionNotice="[AV1 encode route] IVF encode/container stages retained; direct-output/FRUC eligibility not met. Grain metadata optimization is selected independently.";
             }
@@ -1216,6 +1220,18 @@ namespace FilmGrainStudioPreview
         internal static bool Enabled()
         { return Environment.GetEnvironmentVariable("FGS_AV1_ROUTES_LEGACY") != "1"; }
         static string Get(IDictionary<string,string> s,string k) {string v;return s.TryGetValue(k,out v)?v:"";}
+        // This only decides whether FRUC can feed the existing IVF encoder in one FFmpeg
+        // process. It never grants permission to bypass IVF, metadata grain or final remux.
+        internal static bool FrucEncodeSource(MediaProbeInfo info,IDictionary<string,string> state,int sfe,bool hdrToSdr,bool pixelGrain)
+        {
+            if(!Enabled() || info==null || state==null || info.IsInterlaced || sfe!=0 || hdrToSdr || pixelGrain ||
+                PreprocessingCore.Enabled(state) || ResizeCore.Enabled(state) ||
+                Get(state,"FG_COLOR_ENABLED")=="1" || !string.IsNullOrWhiteSpace(Get(state,"FG_LUT_PATH")) ||
+                Get(state,"FG_CINEMATIC_FRAME")=="1" || Get(state,"FG_SUBTITLE")=="1")return false;
+            // No MOV/MP4 timing-table condition or SOURCE FPS condition: FRUC already has
+            // its own input-local clock, and remux independently restores A/V origins.
+            return true;
+        }
         internal static bool SimpleSource(string input,MediaProbeInfo info,IDictionary<string,string> state,int sfe)
         {
             if(!Enabled() || info==null || info.IsHdr || info.IsInterlaced || sfe!=0 ||
