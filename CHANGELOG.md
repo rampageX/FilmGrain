@@ -1,3 +1,10 @@
+## v5.0.90 — AV1 NVENC＋OpenSVPFlow Y4M 直连移除整片 FFV1 中转（2026-11-23）
+
+- R04a：OpenSVPFlow 的 Y4M 帧直接通过管道输入 AV1 NVENC，省去原完整 FFV1/MKV 工作文件的编码、写盘和重读。编码阶段仍输出 IVF，沿用原 grav1synth 颗粒、音轨 remux、帧率归一化及 A/V 起点补偿。
+- 直连只对原 OpenSVPFlow 插帧器启用，禁止 HDR→SDR 或 Y4M 输出位深与 HDR Preserve 合同不匹配的场景；NVEncC AI/FRUC 和其它保护性回退维持旧路径，R04b/c 与 R05 未修改。
+- Windows 2022 R04a CI #45136177066 success：Framework API 2996/2996、R04a 管道/分数时间轴与 R01–R03、HDR、回调回归。RTX 4080 实机 SDR 1080p、PQ HDR10 4K、HLG 4K＋Classic35 参数颗粒三项皆 exit=0，用户确认画面及音画同步正常；三项队列 64.884 秒。
+- 当前无 v5.0.89 旧路同参数整任务耗时、CPU/GPU 峰值及工作空间峰值，也未独立实测真实 HDR10 MDCV/CLLI 或非零时钟偏移专门片源，不宣称提速百分比。
+
 ## v5.0.89 — AV1 NVENC＋FRUC Vulkan 直连编码解除不必要容器回退（2026-11-23）
 
 - R03：AV1 NVENC＋FRUC Vulkan 的编码直连资格与 `SimpleSource` 最终容器直出资格分离；符合保护条件时，MP4（含 B 帧）与 MKV 输入无需生成整片 FFV1 中转，保持原 IVF 编码及最终 remux／参数颗粒路径。

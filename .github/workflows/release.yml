@@ -134,6 +134,9 @@ jobs:
           } elseif ($version -eq '5.0.89') {
             $ref = 'heads/test/r03-av1-fruc'
             $expected = '107a9b08cd97e20a58879009b02c4982aeb33353'
+          } elseif ($version -eq '5.0.90') {
+            $ref = 'heads/test/r04a-svp-av1'
+            $expected = 'b23de2002837c68aa5dfc57d217944886771630b'
           } else { exit 0 }
           $sha = gh api "repos/$env:GITHUB_REPOSITORY/git/ref/$ref" --jq '.object.sha'
           if ($LASTEXITCODE -ne 0) { throw 'Accepted test branch verification failed.' }
