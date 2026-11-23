@@ -6,6 +6,12 @@ namespace FilmGrainStudioPreview
 {
     internal static class SharedHdrPreprocessCore
     {
+        private static readonly string[] LosslessHevcOptions =
+        {
+            "-c:v","hevc_nvenc","-profile:v","main10","-pix_fmt","p010le",
+            "-preset","p4","-tune","lossless","-fps_mode","passthrough"
+        };
+
         internal static List<string> BuildToSdr(string input,string output,MediaProbeInfo info,string tonemap,bool retainStreams,string deinterlaceFilter = "")
         {
             string range=string.Equals(info.ColorRange,"pc",StringComparison.OrdinalIgnoreCase)?"pc":"tv";
@@ -17,14 +23,15 @@ namespace FilmGrainStudioPreview
             if(retainStreams)args.AddRange(new[]{"-map","0:a?","-map","0:s?","-map","0:t?","-map_metadata","0","-map_chapters","0"});
             AddDeinterlaceDevice(args,deinterlaceFilter);
             args.AddRange(new[]{"-vf",filter});if(!retainStreams)args.AddRange(new[]{"-an","-sn","-dn"});
-            args.AddRange(new[]{"-c:v","hevc_nvenc","-profile:v","main10","-pix_fmt","p010le","-preset","p4","-tune","lossless","-fps_mode","passthrough","-color_range","tv","-color_primaries","bt709","-color_trc","bt709","-colorspace","bt709"});
+            args.AddRange(LosslessHevcOptions);
+            args.AddRange(new[]{"-color_range","tv","-color_primaries","bt709","-color_trc","bt709","-colorspace","bt709"});
             if(retainStreams)args.AddRange(new[]{"-c:a","copy","-c:s","copy","-c:t","copy"});
             args.Add(output);return args;
         }
 
-        // GPU default is resolved immediately before execution, never while merely planning.
+        // Only standalone HDR workfile stages use this attachment. Resolve both capabilities at execution.
         // The original CPU command remains intact for unsupported devices/builds/algorithms.
-        internal static void AttachAutomatic(BridgeExecutionStage stage,string tonemap)
+        internal static void AttachAutomatic(BridgeExecutionStage stage,string tonemap,SharedFrucCore.ProbeRunner runner = null)
         {
             if(stage==null)throw new ArgumentNullException("stage");
             var cpu=new List<string>(stage.OriginalArguments);
@@ -32,11 +39,25 @@ namespace FilmGrainStudioPreview
             stage.BeforeRunPreparation=delegate {
                 string prior=previous==null?"":previous();
                 string notice;
-                var selected=SelectAutomatic(stage.ToolPath,cpu,tonemap,out notice);
+                string encoderNotice=CheckLosslessHevc(stage.ToolPath,runner);
+                var selected=SelectAutomatic(stage.ToolPath,cpu,tonemap,out notice,runner:runner);
                 stage.DirectArguments=SharedFrucCore.JoinArguments(selected);
-                return (string.IsNullOrEmpty(prior)?"":prior+"\n")+notice;
+                return (string.IsNullOrEmpty(prior)?"":prior+"\n")+encoderNotice+"\n"+notice;
             };
         }
+        private static string CheckLosslessHevc(string ffmpeg,SharedFrucCore.ProbeRunner runner)
+        {
+            var probe=new List<string>{"-hide_banner","-nostdin","-loglevel","error",
+                "-f","lavfi","-i","color=c=black:s=128x128:r=30,format=p010le","-frames:v","3"};
+            probe.AddRange(LosslessHevcOptions);
+            probe.AddRange(new[]{"-f","null","-"});
+            if(runner==null)runner=SharedFrucCore.Run;
+            string output,reason;
+            if(!runner(ffmpeg,SharedFrucCore.JoinArguments(probe),30000,out output,out reason))
+                throw new InvalidOperationException("[HDR preprocess] HDR-to-SDR workfile requires HEVC NVENC Main10 lossless. Encoder probe failed.\n"+reason);
+            return "[HDR preprocess] HEVC NVENC Main10 lossless workfile encoder check passed.";
+        }
+
         internal static List<string> BuildGpuArguments(IList<string> cpu,string vulkanDevice = null)
         {
             var args=new List<string>(cpu);
@@ -67,8 +88,8 @@ namespace FilmGrainStudioPreview
             foreach(string option in new[]{"-init_hw_device","-filter_hw_device"})
                 for(int i=0;i+1<gpu.Count;i++)if(gpu[i]==option)probe.AddRange(new[]{option,gpu[i+1]});
             probe.AddRange(new[]{"-i",gpu[gpu.IndexOf("-i")+1],"-map","0:v:0","-vf",gpu[gpu.IndexOf("-vf")+1],
-                "-frames:v","3","-an","-sn","-dn","-c:v","hevc_nvenc","-profile:v","main10","-pix_fmt","p010le",
-                "-preset","p4","-tune","lossless","-fps_mode","passthrough","-f","null","-"});
+                "-frames:v","3","-an","-sn","-dn","-c:v","wrapped_avframe",
+                "-fps_mode","passthrough","-f","null","-"});
             string output,reason;
             if(runner==null)runner=SharedFrucCore.Run;
             bool supported=runner(ffmpeg,SharedFrucCore.JoinArguments(probe),30000,out output,out reason);
@@ -81,7 +102,7 @@ namespace FilmGrainStudioPreview
             }
             if(supported&&!software)
             {
-                notice="[HDR preprocess] GPU Vulkan/libplacebo Hable / peak_detect=1 / gamut_mode=clip / contrast_recovery=0; actual source/filter/NVENC capability check passed.";
+                notice="[HDR preprocess] GPU Vulkan/libplacebo Hable / peak_detect=1 / gamut_mode=clip / contrast_recovery=0; actual source/Vulkan filter check passed.";
                 return gpu;
             }
             string detail=software?"software Vulkan selected":reason;
