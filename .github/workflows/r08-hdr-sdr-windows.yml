@@ -74,17 +74,27 @@ jobs:
           ('ExecutableSHA256=' + $hash) | Add-Content -LiteralPath 'R08_CI_PROOF.txt' -Encoding Ascii
           ('Status=Windows CI only; R08 not accepted or released') | Add-Content -LiteralPath 'R08_CI_PROOF.txt' -Encoding Ascii
 
-          git archive --format=zip --output=FGS_R08_J7P4_Full_Source.zip HEAD
+          git archive --format=zip --output=FGS_R08_L8T2_Full_Source.zip HEAD
           if ($LASTEXITCODE -ne 0) { throw 'Source archive failed' }
-          Copy-Item -LiteralPath $exe -Destination 'FilmGrain_Studio_R08_J7P4.exe'
+          Copy-Item -LiteralPath $exe -Destination 'FilmGrain_Studio_R08_L8T2.exe'
 
       - name: Upload test EXE and matching source
         uses: actions/upload-artifact@v4
         with:
-          name: FGS_R08_J7P4_Test_and_Source
+          name: FGS_R08_L8T2_Test_and_Source
           path: |
-            FilmGrain_Studio_R08_J7P4.exe
-            FGS_R08_J7P4_Full_Source.zip
+            FilmGrain_Studio_R08_L8T2.exe
+            FGS_R08_L8T2_Full_Source.zip
             R08_CI_PROOF.txt
           if-no-files-found: error
           retention-days: 14
+
+  r08-software:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install FFmpeg for software media comparisons
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Check field and interpolation transport boundaries
+        run: python3 tests/r08/verify_software.py
