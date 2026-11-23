@@ -48,8 +48,8 @@ public static class FgsR04bAudit
             attach.Invoke(null,new object[]{stage,"C:\\Input\\clip & test.mkv",state,"60000/1001"});
             string producer=(string)Prop(stageType,stage,"PipeProducerArguments");
             Must(producer.Contains("--vpp-nvvfx-framegen") && producer.Contains("multiplier=2"),"AI factor changed");
-            Must(producer.Contains("--output-format nut") && producer.Contains("-c raw") && producer.Contains("--avsync vfr"),"NUT raw/VFR producer contract changed");
-            Must(producer.Contains("--output-depth "+(transfer.Length>0?"10":"8")),"Producer HDR depth changed");
+            Must(producer.Contains("\"--output-format\" \"nut\"") && producer.Contains("\"-c\" \"raw\"") && producer.Contains("\"--avsync\" \"vfr\""),"NUT raw/VFR producer contract changed");
+            Must(producer.Contains("\"--output-depth\" \""+(transfer.Length>0?"10":"8")+"\""),"Producer HDR depth changed");
             Action callback=(Action)Prop(stageType,stage,"PreparedObserver");
             Must(callback!=null,"NVEncC NUT demux callback missing");
             callback();
