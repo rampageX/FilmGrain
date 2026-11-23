@@ -1,3 +1,11 @@
+## v5.0.88 — CPU Bilateral＋SDR Grain Plate 保留 GPU S4 胶片边框（2026-11-23）
+
+- R02：仅在无插帧、逐行 SDR、真实扫描 Grain Plate、原已允许 GPU S4 的条件下，允许与原构造精确一致的 CPU Bilateral 前处理；其它前处理仍受原 S4 保护性门槛限制。
+- 保留原 Bilateral 的 10-bit 软件滤镜及 sigmaS/sigmaR/planes 参数、相对 LUT／调色／颗粒顺序；后续颗粒在 Vulkan blend_vulkan 混合，边框由 libplacebo 合成后经 CUDA/NVENC 编码。HEVC Main10 与 H.264 High 保持原输出格式、Alpha／尺寸／时间轴合同。
+- Windows 2022 R02 CI #45121702403 通过：Framework API 2996/2996、32 组选路断言、已有 S4 静态／动态／Alpha 画幅、R01 PTS／场序、HLG/PQ 及回调回归；软件中间段对照 8/8，每组 6 帧一致。
+- T600 带 AAC 素材，HEVC/H.264 NVENC × Bilateral 开/关 × 静/动态边框真实任务 8/8 exit_code=0，均生成包含音轨的成品，用户确认“目测都正常”。完整队列时间（Bilateral 开/关）：HEVC 静态 9.752/7.069 秒、动态 8.750/6.971 秒；H.264 静态 9.010/7.075 秒、动态 17.503/7.183 秒。无第二次软件边框／hwdownload。
+- 本轮未取得 v5.0.87 旧路径同参数整任务耗时、CPU/GPU 峰值、工作空间峰值及独立音画同步量测；不计算或推定优化提速百分比。HDR、FGSIM、其它 Bilateral 组合仍沿用保护性限制。
+
 ## v5.0.87 — BWDIF Vulkan＋扫描 Grain Plate 移除整片 FFV1 中转（2026-11-23）
 
 - R01：HEVC/H.264 NVENC 与共用 CPU 编码扫描路径中，非 HDR→SDR、无插帧的 BWDIF Vulkan＋真实扫描 Grain Plate 复用同一 Vulkan 滤镜图进行逐场反交错及颗粒合成，不再先写整片 `__FGS_FIELDS_*.mkv` CPU FFV1 再读取。

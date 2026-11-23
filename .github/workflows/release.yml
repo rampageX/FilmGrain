@@ -128,6 +128,9 @@ jobs:
           } elseif ($version -eq '5.0.87') {
             $ref = 'heads/test/r01-vulkan-plate'
             $expected = '0b776237e37b01c689e7dde8d4f18493efd6356c'
+          } elseif ($version -eq '5.0.88') {
+            $ref = 'heads/test/r02-bilateral-s4'
+            $expected = '76a935c0564fcf77fc030f00ca473873b0f6dc6f'
           } else { exit 0 }
           $sha = gh api "repos/$env:GITHUB_REPOSITORY/git/ref/$ref" --jq '.object.sha'
           if ($LASTEXITCODE -ne 0) { throw 'Accepted test branch verification failed.' }

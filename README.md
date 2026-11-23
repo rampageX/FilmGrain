@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.0.87 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.88 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 <table>
   <tr>
@@ -208,6 +208,8 @@ Git 源码中 Dark 原始 RAW 以 `.raw.gz` 无损归档，Windows 构建前会�
 默认关闭，启用默认值为 `sigmaS=3 / sigmaR=0.05 / planes=1`。sigmaS 控制空间范围（0–512），sigmaR 控制像素差异容忍度（0–1），planes 为通道位掩码（0–15；1=Y、2=U、4=V、6=UV、7=YUV，0=不处理）。数值越强不代表画质越好，建议先比较默认值。
 
 CPU 双边滤波位于现有反交错、HDR 转换和插帧之后，调色/LUT及新增颗粒之前；以 `yuv420p10le` 进入滤镜，输出像素格式由原编码路线决定。原有部分 SDR 插帧、FGSIM 和数字颗粒路线的 8-bit 边界不因此升级为 10-bit。硬件解码保留原策略，CPU 滤镜可能降低速度。
+
+v5.0.88 起，**逐行 SDR 的 CPU Bilateral＋真实扫描 Grain Plate＋胶片边框**可保留 GPU S4：Bilateral 仍在 CPU 前处理，扫描颗粒与静/动态边框在 Vulkan/libplacebo 合成，再送 CUDA/NVENC；不再额外退回 CPU 边框。HDR、非 Plate 与其它未验证前处理保持原限制。
 
 前处理参与统一/独立配置、逐任务快照以及简单/完整预设。旧配置默认关闭；旧预设加载时也恢复关闭。设置窗确认后保存，取消保留原值；恢复默认值需确认后才应用。窗口位置和大小单独记忆，不进入任务或预设。
 
