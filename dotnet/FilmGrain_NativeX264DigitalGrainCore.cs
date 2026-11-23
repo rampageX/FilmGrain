@@ -265,8 +265,10 @@ namespace FilmGrainStudioPreview
             string deinterlaceFilter = deinterlace ? SharedHdrPreprocessCore.DeinterlaceFilter(Get(state,"FG_DEINT_METHOD"),info) : "";
             string fieldFilter=deinterlaceFilter;
             bool fieldWorkfile=deinterlace && hdrToSdr;
-            bool separateDeint=deinterlace && !hdrToSdr && bwdifVulkan && (plateMode || fgsimMode);
+            bool inlineVulkanPlate=deinterlace && !hdrToSdr && bwdifVulkan && plateMode && !interpolate;
+            bool separateDeint=deinterlace && !hdrToSdr && bwdifVulkan && (fgsimMode || (plateMode && interpolate));
             if(fieldWorkfile || separateDeint)deinterlaceFilter="";
+            else if(inlineVulkanPlate)deinterlaceFilter=SharedHdrPreprocessCore.InlineVulkanPlateSoftwareFilter(info,fps);
             string deinterlaceSuffix = bwdifVulkan ? "_DI_BWV" : bwdifCuda ? "_DI_BWC" : deinterlace ? "_DI_W3F" : "";
             double durationSeconds = 0.0;
             double.TryParse(info.Duration, NumberStyles.Float, CultureInfo.InvariantCulture, out durationSeconds);
@@ -406,6 +408,8 @@ namespace FilmGrainStudioPreview
                     string baseFilter;
                     if (!string.IsNullOrEmpty(lutCompatName))
                         baseFilter = "[0:v:0]" + deinterlaceFilter + fpsFilter + colorFilter + "format=gbrp16le,setpts=PTS-STARTPTS,split=2[lutorig][lutsrc];[lutsrc]lut3d=file='" + EscapeFilterPath(lutCompatName) + "':interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=" + lutOpacity + ",format=p010le,hwupload[basevk]";
+                    else if (inlineVulkanPlate && string.IsNullOrEmpty(colorFilter))
+                        baseFilter = "[0:v:0]" + SharedHdrPreprocessCore.InlineVulkanPlateFilter(info,fps) + "[basevk]";
                     else
                         baseFilter = "[0:v:0]" + deinterlaceFilter + fpsFilter + colorFilter + "format=p010le,setpts=PTS-STARTPTS,hwupload[basevk]";
                     filter = baseFilter + ";" + grain + ";[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=" + grainOpacity + ",hwdownload,format=p010le" + frame.Filter + subtitleFilter + ",format=" + (high10 ? "yuv420p10le" : "yuv420p") + "[vout]";
@@ -541,6 +545,11 @@ namespace FilmGrainStudioPreview
                 if(fieldWorkfile || separateDeint || hdrOffSdr)
                     for(int i=stageOffset;i<stages.Count;i++)
                         SharedHdrPreprocessCore.AttachFieldTimeline(stages[i],ffprobe,encodeInput,info,hdrToSdr,!hdrOffSdr);
+                if(inlineVulkanPlate)
+                    for(int i=stageOffset;i<stages.Count;i++) {
+                        SharedHdrPreprocessCore.AttachInlineFieldTimeline(stages[i],ffprobe,input,fps);
+                        stages[i].StageText += " / inline Vulkan BWDIF + Plate (no FFV1)";
+                    }
 
                 request.TemporaryFiles = temporaryFiles.Count == 0 ? null : temporaryFiles;
                 if (fruc && request.DirectStages != null)

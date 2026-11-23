@@ -133,8 +133,8 @@ namespace FilmGrainStudioPreview
 
             { reason = "unsupported HEVC deinterlace method"; return false; }
 
-            // Vulkan deinterlace with FGSIM / Grain Plate uses a separate workfile stage below.
-            // CUDA avoids that stage unless HDR-to-SDR preprocessing already requires one.
+            // R01: Plate can run after Vulkan field bob in the same encode graph.
+            // FGSIM and interpolated Plate keep their original intermediate-file protection.
 
             if (info.Width <= 0 || info.Height <= 0) { reason = "invalid dimensions"; return false; }
 
@@ -180,9 +180,11 @@ namespace FilmGrainStudioPreview
 
             bool fieldWorkfile=deinterlace && hdrToSdr;
 
-            bool separateDeint=deinterlace && !hdrToSdr && bwdifVulkan && (plateMode || fgsimMode);
+            bool inlineVulkanPlate=deinterlace && !hdrToSdr && bwdifVulkan && plateMode && !interpolate;
+            bool separateDeint=deinterlace && !hdrToSdr && bwdifVulkan && (fgsimMode || (plateMode && interpolate));
 
             if(fieldWorkfile || separateDeint || hdrOffSdr)deinterlaceFilter="";
+            else if(inlineVulkanPlate)deinterlaceFilter=SharedHdrPreprocessCore.InlineVulkanPlateSoftwareFilter(info,fps);
 
             string deinterlaceSuffix = bwdifVulkan ? "_DI_BWV" : bwdifCuda ? "_DI_BWC" : deinterlace ? "_DI_W3F" : "";
 
@@ -470,8 +472,9 @@ namespace FilmGrainStudioPreview
                             ? BuildSdrPlateLutGpuBaseFilter(deinterlaceFilter, fpsFilter, colorFilter, lutCompatName, lutOpacity, fps, s4Signal)
                             : "[0:v:0]" + deinterlaceFilter + fpsFilter + colorFilter + "format=gbrp16le,setpts=PTS-STARTPTS,split=2[lutorig][lutsrc];[lutsrc]lut3d=file='" + EscapeFilterPath(lutCompatName) + "':interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=" + lutOpacity + ",format=p010le,hwupload[basevk]";
 
+                    else if (inlineVulkanPlate && string.IsNullOrEmpty(colorFilter))
+                        baseFilter = "[0:v:0]" + SharedHdrPreprocessCore.InlineVulkanPlateFilter(info,fps) + "[basevk]";
                     else
-
                         baseFilter = "[0:v:0]" + deinterlaceFilter + fpsFilter + (s4GpuBorder ? (s4Gpu4k30 && !interpolate ? "fps=30," : "fps=" + fps + ",") : "") + colorFilter + "format=p010le," + s4Signal + "setpts=PTS-STARTPTS,hwupload[basevk]";
 
                     if (s4GpuBorder)
@@ -695,6 +698,10 @@ namespace FilmGrainStudioPreview
                         else if (preserveSvpTransportTimeline || NvencInterpolationCore.Enabled(state)) SharedPipeTimelineCore.AttachTransportSource(mainStage,ffprobe,encodeInput,info,hevcArgs);
 
                         if(fieldWorkfile || separateDeint || hdrOffSdr)SharedHdrPreprocessCore.AttachFieldTimeline(mainStage,ffprobe,encodeInput,info,hdrToSdr,!hdrOffSdr);
+                        if(inlineVulkanPlate) {
+                            SharedHdrPreprocessCore.AttachInlineFieldTimeline(mainStage,ffprobe,input,fps);
+                            mainStage.StageText += " / inline Vulkan BWDIF + Plate (no FFV1)";
+                        }
 
                         if(mergedFrucHdr)
                             SharedHdrPreprocessCore.AttachMergedFruc(mainStage,input,info,tonemap,caps.GpuName);

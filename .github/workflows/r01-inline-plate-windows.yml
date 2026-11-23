@@ -1,0 +1,52 @@
+name: FGS R01 Vulkan Plate Windows verification
+on:
+  push:
+    branches:
+      - test/r01-vulkan-plate
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: windows-2022
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact test commit
+        uses: actions/checkout@v4
+      - name: Validate R01 PowerShell syntax
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path = 'dotnet\BuildTools\Test_R01_InlinePlate.ps1'
+          $tokens = $null
+          $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path -LiteralPath $path).Path, [ref]$tokens, [ref]$errors)
+          if ($errors.Count -ne 0) { throw ('R01 PowerShell parser errors: ' + ($errors | Out-String)) }
+          Write-Host 'PASS R01 PowerShell syntax'
+      - name: Build verified Framework 4.8 executable
+        shell: cmd
+        run: call dotnet\build_NET_Preview.bat
+      - name: Run R01 and existing GPU graph regression tests
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = Join-Path $env:GITHUB_WORKSPACE 'FilmGrain_Studio.exe'
+          & '.\dotnet\BuildTools\Test_R01_InlinePlate.ps1' -Exe $exe
+          if (-not $?) { throw 'R01 graph and clock contract check failed' }
+          & '.\dotnet\BuildTools\Test_HLG_GPU_L4Q6.ps1' -Exe $exe
+          if (-not $?) { throw 'HDR border graph regression check failed' }
+          & '.\dotnet\BuildTools\Test_S4_GpuBorder.ps1'
+          if (-not $?) { throw 'S4 GPU border regression check failed' }
+          & '.\dotnet\BuildTools\Test_NullLogCallback.ps1' -Exe $exe
+          if (-not $?) { throw 'Execution callback regression check failed' }
+          $sha = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash
+          Write-Host ('R01 Windows EXE SHA256: ' + $sha)
+      - name: Upload executable only
+        uses: actions/upload-artifact@v4
+        with:
+          name: FGS_R01_InlinePlate_F3A7C2_EXE
+          path: FilmGrain_Studio.exe
+          if-no-files-found: error
+          retention-days: 14

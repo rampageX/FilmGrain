@@ -265,6 +265,53 @@ namespace FilmGrainStudioPreview
             if(string.Equals(method,"W3FDIF",StringComparison.OrdinalIgnoreCase))return "w3fdif=filter=complex:mode=field:parity=auto:deint=all,setfield=prog,";
             throw new ArgumentException("Unsupported deinterlace method: "+method);
         }
+        // R01: FFV1/MKV used an encoder rate time base followed by a 1 ms container
+        // time base. Reproduce both timestamp quantizations without writing a workfile.
+        // This also preserves the legacy plate frame pairing at fractional field rates.
+        static void ParseFieldRate(string fps,out long numerator,out long denominator)
+        {
+            string[] parts=fps.Split('/');denominator=1;
+            if((parts.Length!=1&&parts.Length!=2)||
+                !long.TryParse(parts[0],NumberStyles.Integer,CultureInfo.InvariantCulture,out numerator)||numerator<=0||
+                (parts.Length==2&&(!long.TryParse(parts[1],NumberStyles.Integer,CultureInfo.InvariantCulture,out denominator)||denominator<=0)))
+                throw new InvalidOperationException("Invalid inline Vulkan field rate: "+fps);
+        }
+        internal static string InlineVulkanPlateClock(string fps)
+        {
+            long numerator,denominator;ParseFieldRate(fps,out numerator,out denominator);
+            return "settb="+denominator.ToString(CultureInfo.InvariantCulture)+"/"+numerator.ToString(CultureInfo.InvariantCulture)+
+                ",setpts=PTS-STARTPTS,settb=1/1000,";
+        }
+        internal static double QuantizeInlineFieldDelay(double sourceDelay,string fps)
+        {
+            if(double.IsNaN(sourceDelay)||double.IsInfinity(sourceDelay)||sourceDelay<0)
+                throw new InvalidOperationException("Invalid inline Vulkan source delay");
+            long numerator,denominator;ParseFieldRate(fps,out numerator,out denominator);
+            double fieldTicks=Math.Round(sourceDelay*numerator/denominator,MidpointRounding.AwayFromZero);
+            return Math.Round(fieldTicks*denominator*1000.0/numerator,MidpointRounding.AwayFromZero)/1000.0;
+        }
+        internal static string InlineVulkanPlateFilter(MediaProbeInfo info,string fps)
+        {
+            string filter=DeinterlaceFilter("BWDIF_VULKAN",info);
+            const string download="hwdownload,format=p010le,";
+            if(!filter.Contains(download))throw new InvalidOperationException("Vulkan field/Plate filter contract changed");
+            return filter.Replace(download,"")+InlineVulkanPlateClock(fps);
+        }
+        internal static string InlineVulkanPlateSoftwareFilter(MediaProbeInfo info,string fps)
+        {
+            return DeinterlaceFilter("BWDIF_VULKAN",info)+InlineVulkanPlateClock(fps);
+        }
+        internal static void AttachInlineFieldTimeline(BridgeExecutionStage stage,string ffprobe,string source,string fps)
+        {
+            var frozen=new List<string>(stage.OriginalArguments);
+            stage.BeforeRunPreparation=delegate {
+                var time=SharedFrucCore.ProbeTimeline(ffprobe,source);
+                double fieldDelay=QuantizeInlineFieldDelay(time.VideoDelay,fps);
+                var args=BuildFieldTimeline(frozen,time.CommonOrigin,fieldDelay,false);
+                stage.DirectArguments=SharedFrucCore.JoinArguments(args);
+                return "[Native inline Vulkan field timeline] source_common="+Number(time.CommonOrigin)+" field_video_delay="+Number(fieldDelay)+" / no FFV1 workfile";
+            };
+        }
         static void AddDeinterlaceDevice(List<string> args,string filter)
         {
             if(filter.Contains("bwdif_vulkan="))args.InsertRange(args.IndexOf("-i"),new[]{"-init_hw_device",VulkanDevicePolicy.Spec("deintvk"),"-filter_hw_device","deintvk"});
