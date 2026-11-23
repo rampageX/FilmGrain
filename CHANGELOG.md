@@ -1,3 +1,10 @@
+## v5.0.91 — NVEncC AI（含 HDR 10-bit）→ AV1 NVENC NUT 直连（2026-11-23）
+
+- R04b：NVEncC AI 插帧生产者的 NUT 原始视频流直接交给 AV1 NVENC 编码阶段，不再生成整片 FFV1/MKV 工作视频；最终仍使用 IVF→可选 grav1synth→原 remux 与音视频起点补偿。
+- 保持既有 AI 10-bit HDR PQ／HLG、P010/BT.2020、源静态 MDCV/CLLI 注入与原保护门槛；不放宽 HDR→SDR、不改 NVEncC FRUC（R04c）和 R05 工作空间预检。
+- Windows 2022 R04b CI #45142687854 success，.NET Framework 4.8、Framework API 2996/2996、R01–R04b/HDR 回归通过。RTX 4080 实片 SDR 23.976→47.952、PQ 24→48（有 MDCV/CLLI）、HLG 29.97→59.94 共 3/3 exit=0，用户确认画面声音正常；均显示 NVEncC AI NUT direct to AV1，无整片 FFV1。
+- 三项完整队列 11.261 秒；未取得 v5.0.90 同参数旧路总耗时、CPU/GPU 峰值、工作文件峰值、失败/取消清理以及本轮 grav1synth 成品实测，不计算提速百分比。R04b 已验收，R04 总项在 R04c 验收前仍未完成。
+
 ## v5.0.90 — AV1 NVENC＋OpenSVPFlow Y4M 直连移除整片 FFV1 中转（2026-11-23）
 
 - R04a：OpenSVPFlow 的 Y4M 帧直接通过管道输入 AV1 NVENC，省去原完整 FFV1/MKV 工作文件的编码、写盘和重读。编码阶段仍输出 IVF，沿用原 grav1synth 颗粒、音轨 remux、帧率归一化及 A/V 起点补偿。

@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.0.90 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.91 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 <table>
   <tr>
@@ -209,7 +209,9 @@ Git 源码中 Dark 原始 RAW 以 `.raw.gz` 无损归档，Windows 构建前会�
 
 CPU 双边滤波位于现有反交错、HDR 转换和插帧之后，调色/LUT及新增颗粒之前；以 `yuv420p10le` 进入滤镜，输出像素格式由原编码路线决定。原有部分 SDR 插帧、FGSIM 和数字颗粒路线的 8-bit 边界不因此升级为 10-bit。硬件解码保留原策略，CPU 滤镜可能降低速度。
 
-v5.0.90 起，**AV1 NVENC＋OpenSVPFlow** 在位深与 HDR Preserve 合同匹配、未启用 HDR→SDR 时，将 OpenSVPFlow 输出的 Y4M 直接送入 AV1 编码，不再写入整片 FFV1 临时视频；原 IVF→参数颗粒→remux、音视频起点补偿和已支持的 SDR／PQ／HLG 路线保留。NVEncC AI／FRUC 等其它插帧生产者仍沿用现有路径。
+v5.0.91 起，**AV1 NVENC＋NVEncC AI** 在既有 SDR/PQ/HLG 及 10-bit HDR 合同允许时，将 NVEncC 输出的 NUT 原始帧直接送入 AV1 编码，不再生成整片 FFV1 临时文件；保留 IVF、可选 grav1synth、音频 remux、起点补偿和原有 MDCV/CLLI 规则。NVEncC FRUC 与其它保护性回退不变。
+
+v5.0.90 起，**AV1 NVENC＋OpenSVPFlow** 在位深与 HDR Preserve 合同匹配、未启用 HDR→SDR 时，将 OpenSVPFlow 输出的 Y4M 直接送入 AV1 编码，不再写入整片 FFV1 临时视频；原 IVF→参数颗粒→remux、音视频起点补偿和已支持的 SDR／PQ／HLG 路线保留。NVEncC FRUC 等其它插帧生产者仍沿用原有路径。
 
 v5.0.89 起，**AV1 NVENC＋FRUC Vulkan** 在原安全门槛允许时，支持 MP4（包括 B 帧）与 MKV 输入直接插帧编码至 AV1 IVF，不再先生成整片 FFV1；仍由原始 IVF→remux／参数颗粒流程封装成品，保留音视频起点及 HDR P010 信令。其他滤镜组合继续遵守既有保护限制。
 
