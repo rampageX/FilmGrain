@@ -25,6 +25,7 @@ public static class FgsR01Audit
         var inline = core.GetMethod("InlineVulkanPlateFilter", flags);
         var timeline = core.GetMethod("BuildFieldTimeline", flags);
         var quantize = core.GetMethod("QuantizeInlineFieldDelay", flags);
+        var software = core.GetMethod("InlineVulkanPlateSoftwareFilter", flags);
         Require(inline != null && timeline != null && quantize != null, "R01 shared methods missing");
         Require(Math.Abs((double)quantize.Invoke(null, new object[] {0.320, "60000/1001"}) - 0.317) < 0.0000001,
             "fractional field delay must match original FFV1/MKV clock");
@@ -42,6 +43,18 @@ public static class FgsR01Audit
             Require(mismatchGraph.Contains("parity=auto"), "conflicting stream/container field tags must retain auto parity");
             Require(graph.Contains("settb=1001/60000,setpts=PTS-STARTPTS,settb=1/1000"),
                 "legacy fractional field/mux clock quantization missing");
+            Require(graph.EndsWith("settb=1/1000", StringComparison.Ordinal),
+                "R01 GPU graph must have no dangling comma before [basevk]");
+            Require(!graph.Contains(",[basevk]"), "R01 GPU output pad follows an empty filter");
+            var softwareGraph = (string)software.Invoke(null, new object[] {media, "60000/1001"});
+            Require(softwareGraph.EndsWith("settb=1/1000,", StringComparison.Ordinal),
+                "CPU-prefix continuation requires the comma after the clock");
+        }
+        foreach (var rate in new [] { "50/1", "60000/1001" })
+        {
+            var media = Media(mediaType, "tt", "tt");
+            var completeGraph = "[0:v:0]" + (string)inline.Invoke(null, new object[] {media, rate}) + "[basevk]";
+            Require(!completeGraph.Contains(",[basevk]"), "R01 full graph has an empty filter: " + rate);
         }
         foreach (var rate in new [] { "50/1", "60000/1001" })
         foreach (double offset in new [] { -0.375, 0.0, 0.375 })

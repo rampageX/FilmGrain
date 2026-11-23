@@ -295,7 +295,7 @@ namespace FilmGrainStudioPreview
             string filter=DeinterlaceFilter("BWDIF_VULKAN",info);
             const string download="hwdownload,format=p010le,";
             if(!filter.Contains(download))throw new InvalidOperationException("Vulkan field/Plate filter contract changed");
-            return filter.Replace(download,"")+InlineVulkanPlateClock(fps);
+            return (filter.Replace(download,"")+InlineVulkanPlateClock(fps)).TrimEnd(',');
         }
         internal static string InlineVulkanPlateSoftwareFilter(MediaProbeInfo info,string fps)
         {
