@@ -24,7 +24,7 @@ public static class R07HableProbeAudit
         if (args.Contains("hevc_nvenc"))
         {
             HevcCalls++;
-            Check(args.Contains("main10") && args.Contains("lossless") && args.Contains("format=p010le")
+            Check(args.Contains("main10") && args.Contains("lossless") && args.Contains("s=1920x1080:r=30,format=p010le")
                 && !args.Contains("libplacebo"), "workfile probe mixes encoder and Vulkan capabilities");
             reason = "simulated HEVC failure";
             return Hevc;

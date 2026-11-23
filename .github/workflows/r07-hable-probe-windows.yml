@@ -73,17 +73,17 @@ jobs:
           ('ExecutableSHA256=' + $hash) | Add-Content -LiteralPath 'R07_CI_PROOF.txt' -Encoding Ascii
           ('Status=Windows CI only; R07 not accepted or released') | Add-Content -LiteralPath 'R07_CI_PROOF.txt' -Encoding Ascii
 
-          git archive --format=zip --output=FGS_R07_Q7M4_Full_Source.zip HEAD
+          git archive --format=zip --output=FGS_R07_K8V3_Full_Source.zip HEAD
           if ($LASTEXITCODE -ne 0) { throw 'Source archive failed' }
-          Copy-Item -LiteralPath $exe -Destination 'FilmGrain_Studio_R07_Q7M4.exe'
+          Copy-Item -LiteralPath $exe -Destination 'FilmGrain_Studio_R07_K8V3.exe'
 
       - name: Upload test EXE and matching source
         uses: actions/upload-artifact@v4
         with:
-          name: FGS_R07_Q7M4_Test_and_Source
+          name: FGS_R07_K8V3_Test_and_Source
           path: |
-            FilmGrain_Studio_R07_Q7M4.exe
-            FGS_R07_Q7M4_Full_Source.zip
+            FilmGrain_Studio_R07_K8V3.exe
+            FGS_R07_K8V3_Full_Source.zip
             R07_CI_PROOF.txt
           if-no-files-found: error
           retention-days: 14

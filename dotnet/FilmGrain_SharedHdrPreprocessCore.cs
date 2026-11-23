@@ -48,7 +48,7 @@ namespace FilmGrainStudioPreview
         private static string CheckLosslessHevc(string ffmpeg,SharedFrucCore.ProbeRunner runner)
         {
             var probe=new List<string>{"-hide_banner","-nostdin","-loglevel","error",
-                "-f","lavfi","-i","color=c=black:s=128x128:r=30,format=p010le","-frames:v","3"};
+                "-f","lavfi","-i","color=c=black:s=1920x1080:r=30,format=p010le","-frames:v","3"};
             probe.AddRange(LosslessHevcOptions);
             probe.AddRange(new[]{"-f","null","-"});
             if(runner==null)runner=SharedFrucCore.Run;
