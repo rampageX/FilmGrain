@@ -29,6 +29,14 @@ namespace FilmGrainStudioPreview
             filter="format=yuv420p10le,bilateral=sigmaS="+spatial.ToString("R",System.Globalization.CultureInfo.InvariantCulture)+":sigmaR="+range.ToString("R",System.Globalization.CultureInfo.InvariantCulture)+":planes="+planes.ToString(System.Globalization.CultureInfo.InvariantCulture)+",";
             return true;
         }
+        // Admit only the exact CPU Bilateral prefix already built by this core.
+        // A future additional preprocessing filter must not inherit S4 eligibility.
+        internal static bool IsOnlyBilateral(System.Collections.Generic.IDictionary<string,string> state,string filter)
+        {
+            if(!Enabled(state)||string.IsNullOrEmpty(filter))return false;
+            string expected,reason;
+            return TryBuild(state,out expected,out reason)&&string.Equals(filter,expected,StringComparison.Ordinal);
+        }
         internal static bool TryCheckTool(string ffmpeg,out string reason)
         {
             reason="";

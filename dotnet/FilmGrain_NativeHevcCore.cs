@@ -413,7 +413,8 @@ namespace FilmGrainStudioPreview
                     (s4PlateGeometry || (!resize.Enabled && !cropAfterGrain &&
                         frame.ActiveWidth == info.Width && frame.ActiveHeight == info.Height)) &&
                     FilmBorderEncodingCore.ValidDimensions(info.Width, info.Height) && ParseFps(fps) > 0 &&
-                    string.IsNullOrEmpty(preprocessing) && (string.IsNullOrEmpty(colorFilter) || s4SdrPlate || s4HdrGrade) &&
+                    (string.IsNullOrEmpty(preprocessing) || (s4SdrPlate && PreprocessingCore.IsOnlyBilateral(state,preprocessing))) &&
+                    (string.IsNullOrEmpty(colorFilter) || s4SdrPlate || s4HdrGrade) &&
                     (string.IsNullOrEmpty(lutCompatName) || s4SdrPlate) && string.IsNullOrEmpty(subtitleFilter) &&
                     pixelPercent == 100;
                 // Never silently use the CPU border when the explicitly requested combined GPU path is unavailable.

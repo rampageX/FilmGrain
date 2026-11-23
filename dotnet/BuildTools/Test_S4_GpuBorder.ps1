@@ -200,8 +200,8 @@ $hevcSource = [IO.File]::ReadAllText((Join-Path $PSScriptRoot '..\FilmGrain_Nati
 if (-not $hevcSource.Contains('(string.IsNullOrEmpty(colorFilter) || s4SdrPlate || s4HdrGrade)')) {
     throw 'SDR Grain Plate color correction still disables S4 GPU film border.'
 }
-if (-not $hevcSource.Contains('string.IsNullOrEmpty(preprocessing) && (string.IsNullOrEmpty(colorFilter) || s4SdrPlate || s4HdrGrade)')) {
-    throw 'CPU bilateral must remain excluded from the S4 acceleration gate.'
+if (-not $hevcSource.Contains('(string.IsNullOrEmpty(preprocessing) || (s4SdrPlate && PreprocessingCore.IsOnlyBilateral(state,preprocessing)))')) {
+    throw 'Only the validated SDR Grain Plate Bilateral prefix may use S4.'
 }
 if (-not $hevcSource.Contains('string.IsNullOrEmpty(subtitleFilter)')) {
     throw 'Subtitle ordering protection must remain in the S4 gate.'
