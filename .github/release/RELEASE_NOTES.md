@@ -1,5 +1,5 @@
-# Film Grain Studio v5.0.86
+# Film Grain Studio v5.0.87
 
-- **HDR 调色＋扫描颗粒＋胶片边框**：HEVC NVENC 的 BT.2020 TV Limited PQ／HLG 素材支持 LUT、色彩纠正及两者同时启用。调色沿用原高位深流程，颗粒和边框由 Vulkan/libplacebo 合成，经 CUDA 送入 NVENC。
-- **SDR 缩放／剪裁＋扫描颗粒＋胶片边框**：HEVC 与 H.264 NVENC 支持 Resize、先剪后缩、先缩后剪以及偶数起点的单独剪裁。按最终画布合成静态或动态边框，H.264 在 CUDA 内转 NV12。
-- **验收**：R6K4P9 两项组合均已在 RTX 4080 实机通过。字幕烧录组合沿用原处理链。
+- **R01 慢路径优化**：BWDIF Vulkan＋真实扫描 Grain Plate 在适用 HEVC/H.264 NVENC 及共用 CPU 编码路线中直接串接同一 GPU 过滤图，不再写入并重新读取整片 FFV1 中间视频。
+- **兼容性保持**：TFF/BFF、2× Field-rate 与分数时间戳量化、源音画起点、PQ/HLG 10-bit 信令保留；FGSIM、插帧 Plate、HDR→SDR 和 HDR Preserve＋边框隔行限制不变。
+- **验收**：Windows CI 编译与场序/PTS/色彩/边框回归通过。T600 完成 SDR TFF/BFF、HDR PQ TFF 的 Vulkan/CUDA 六组编码，用户确认画质以及补测音频同步正常。

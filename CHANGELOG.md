@@ -1,3 +1,11 @@
+## v5.0.87 — BWDIF Vulkan＋扫描 Grain Plate 移除整片 FFV1 中转（2026-11-23）
+
+- R01：HEVC/H.264 NVENC 与共用 CPU 编码扫描路径中，非 HDR→SDR、无插帧的 BWDIF Vulkan＋真实扫描 Grain Plate 复用同一 Vulkan 滤镜图进行逐场反交错及颗粒合成，不再先写整片 `__FGS_FIELDS_*.mkv` CPU FFV1 再读取。
+- 保持 TFF/BFF、2× Field-rate、分数场率的 FFV1/MKV 原有时钟量化语义、视频/音频起点、10-bit PQ/HLG 色彩标记与原有保护条件。FGSIM、HDR→SDR、插帧 Plate、HDR Preserve＋边框隔行限制保持原行为。
+- 修复测试期间 GPU 过滤图输出标签前多余逗号导致的 `No such filter: ''`，增加场序冲突回退 auto、整数/分数场率及输出标签拼接断言。
+- Windows 2022 CI [#45117181714](https://github.com/rampageX/FilmGrain/actions/runs/45117181714) 通过：.NET Framework 4.8 编译及 API 2996/2996、R01 时钟/场序检查、HDR PQ/HLG 图及 S4 GPU 边框回归；T600 对 SDR TFF/BFF、PQ TFF 各 Vulkan/CUDA 共 6 次编码成功，输出 59.94p，用户确认画面及带音频素材音画同步正常。
+- 未作新版对原 5.0.86 整片 FFV1 路线的同条件性能百分比结论；HLG、25i 等非本次 GPU 成品样本的覆盖情况见独立任务卡。
+
 ## v5.0.86 — HDR 调色及 SDR 缩放／剪裁组合的 GPU 边框（2026-11-23）
 
 - HEVC NVENC 的逐行 BT.2020 TV Limited PQ／HLG 视频，可将 LUT、色彩纠正或两者同时与扫描 Grain Plate、静态／动态胶片边框组合，经原高位深调色流程进入 S4 Vulkan/libplacebo→CUDA GPU 边框通道。

@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.0.86 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.87 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 <table>
   <tr>
@@ -804,6 +804,8 @@ GUI 默认启用自动反交错，并根据 FFprobe 的 `field_order` 判断输�
 ```
 
 Field-rate 输出优先于普通电影帧率选择。progressive / unknown 素材保持正常逐行帧率逻辑。
+
+v5.0.87 起，**BWDIF Vulkan＋扫描 Grain Plate** 在无需 HDR→SDR 预转换、没有插帧的适用路线中，使用同一 Vulkan 滤镜图完成 2× 场率反交错和扫描颗粒混合，不再将反交错结果写为整片 FFV1 临时文件。原场序、PTS、音画起点和 HDR Preserve 信令保持不变；FGSIM、插帧 Plate、HDR→SDR 和 HDR Preserve＋边框的隔行保护仍沿用既有路线。
 
 ---
 
