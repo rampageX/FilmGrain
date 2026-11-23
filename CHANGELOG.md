@@ -1,3 +1,9 @@
+## v5.0.86 — HDR 调色及 SDR 缩放／剪裁组合的 GPU 边框（2026-11-23）
+
+- HEVC NVENC 的逐行 BT.2020 TV Limited PQ／HLG 视频，可将 LUT、色彩纠正或两者同时与扫描 Grain Plate、静态／动态胶片边框组合，经原高位深调色流程进入 S4 Vulkan/libplacebo→CUDA GPU 边框通道。
+- SDR BT.709 TV Limited 的 HEVC／H.264 NVENC 扫描 Grain Plate＋胶片边框支持 Resize、先剪后缩、先缩后剪及偶数起点的单独剪裁。Resize 按输出画布定位边框，单独剪裁保留源尺寸的颗粒混合。H.264 在 CUDA 内输出 NV12。
+- R6K4P9 的两项新增组合已通过 RTX 4080 实机验收。字幕烧录组合沿用现有处理顺序。
+
 ## v5.0.85 — SDR 多效果组合保持 GPU 边框快速通道（2026-11-23）
 
 - 修复 SDR BT.709 TV Limited 的扫描 Grain Plate＋胶片边框叠加 LUT／色彩纠正时，S4 GPU 通道被 `lutCompatName` 或 `colorFilter` 条件错误排除、退回 CPU 边框合成的问题。

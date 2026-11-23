@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.0.85 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.86 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 <table>
   <tr>
@@ -176,7 +176,12 @@ Source 与 Stable 来自同一次已提交源码归档，`SOURCE_BUILD_INFO.txt`
 
 ## 胶片边框（Film Border）
 
-**v5.0.85**：SDR BT.709 TV Limited 的 HEVC/H.264 NVENC 扫描 Grain Plate＋静态/动态边框，现在可以组合 LUT、色彩纠正或两者同时开启，沿用原有处理次序后直接进入 S4 Vulkan/libplacebo→CUDA GPU 边框通道，避免 CPU 边框回退。L8Q3W7 测试版已完成用户验收，Windows 组合图回归通过；HDR LUT、Resize/剪裁、字幕烧录与边框组合仍沿用现有保护条件。
+S4 Vulkan/libplacebo→CUDA GPU 边框支持以下逐行素材的扫描 Grain Plate 组合：
+
+- **HDR PQ／HLG（BT.2020 TV Limited）**：HEVC NVENC 支持 LUT、色彩纠正或两者同时启用。调色保留原高位深顺序，颗粒与静态或动态边框在 GPU 合成。
+- **SDR BT.709 TV Limited**：HEVC／H.264 NVENC 支持 LUT、色彩纠正、Resize、先剪后缩、先缩后剪及偶数起点的单独剪裁。边框按最终画布定位。H.264 在 CUDA 内转 NV12。
+
+扫描颗粒与烧录字幕同时使用时，边框继续走原合成路线。
 
 
 **v5.0.84**：SDR BT.709 TV Limited 的 HEVC/H.264 NVENC 在组合扫描 Grain Plate 与胶片边框时，优先使用 Vulkan/libplacebo→CUDA GPU 合成，避免重复把整帧下载到 CPU 做边框叠加；RTX 4080、1080p 实测组合由约 15 fps 恢复至约 142 fps。HDR HEVC 的 PQ/HLG S4 GPU 路线继续保留。任务日志上方的阶段文字仅对实际执行的高开销 CPU 组合标橙色（如 GPU 颗粒＋CPU 边框、HDR 软件色调映射、CPU Bilateral 或 SVP HDR CPU10），不将单独 SDR 边框或普通 CPU 编码误报为严重回退。

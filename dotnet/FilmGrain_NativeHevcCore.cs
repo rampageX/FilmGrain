@@ -397,21 +397,28 @@ namespace FilmGrainStudioPreview
                     (string.IsNullOrEmpty(info.ColorTransfer) || info.ColorTransfer == "bt709" || info.ColorTransfer == "unknown") &&
                     (string.IsNullOrEmpty(info.ColorSpace) || info.ColorSpace == "bt709" || info.ColorSpace == "unknown") &&
                     (string.IsNullOrEmpty(info.ColorRange) || info.ColorRange == "tv" || info.ColorRange == "unknown");
+                // Resize applies its crop before grain. With crop alone, the plate is
+                // still blended at source size and the border compositor applies the crop.
+                bool cropAfterGrain = frame.Filter.StartsWith(",crop=", StringComparison.Ordinal);
+                bool s4PlateGeometry = s4SdrPlate &&
+                    (resize.Enabled || (cropAfterGrain && ((frame.ContentX | frame.ContentY) & 1) == 0)) &&
+                    FilmBorderEncodingCore.ValidDimensions(frame.ActiveWidth, frame.ActiveHeight);
+                bool s4HdrGrade = hdrPreserve && plateMode && !interpolate && !string.IsNullOrEmpty(colorFilter);
                 bool s4GpuBorder = s4GpuRequested && filmBorder != null &&
                     (hdrPreserve || (fgb02 && !info.IsHdr) || s4SdrPlate) &&
                     (!h264 || s4SdrPlate) && (!interpolate || fgb02) &&
-                    (!grainEnabled || plateMode) && durationSeconds > 0.0 && !info.IsInterlaced && !resize.Enabled &&
-                    frame.ActiveWidth == info.Width && frame.ActiveHeight == info.Height &&
-                    info.Width >= 32 && info.Height >= 32 && info.Width <= 16384 && info.Height <= 16384 &&
-                    info.Width % 2 == 0 && info.Height % 2 == 0 && ParseFps(fps) > 0 &&
-                    string.IsNullOrEmpty(preprocessing) && (string.IsNullOrEmpty(colorFilter) || s4SdrPlate) &&
+                    (!grainEnabled || plateMode) && durationSeconds > 0.0 && !info.IsInterlaced &&
+                    (s4PlateGeometry || (!resize.Enabled && !cropAfterGrain &&
+                        frame.ActiveWidth == info.Width && frame.ActiveHeight == info.Height)) &&
+                    FilmBorderEncodingCore.ValidDimensions(info.Width, info.Height) && ParseFps(fps) > 0 &&
+                    string.IsNullOrEmpty(preprocessing) && (string.IsNullOrEmpty(colorFilter) || s4SdrPlate || s4HdrGrade) &&
                     (string.IsNullOrEmpty(lutCompatName) || s4SdrPlate) && string.IsNullOrEmpty(subtitleFilter) &&
                     pixelPercent == 100;
                 // Never silently use the CPU border when the explicitly requested combined GPU path is unavailable.
                 if (fgb02 && !s4GpuBorder)
                 { reason = "FGB-02 requires S4 Vulkan/CUDA GPU compositing: progressive HEVC, no resize/LUT/CC/subtitles/preprocess/FGSIM, and no grain or Grain Plate only."; return false; }
                 int filmInputIndex = plateMode ? (svp ? 3 : 2) : (svp ? 2 : 1);
-                string fgb02Signal = (fgb02 || s4SdrPlate) ? "setparams=range=limited:color_primaries=" + (hdrPreserve ? "bt2020" : "bt709") +
+                string s4Signal = (fgb02 || s4SdrPlate || (s4GpuBorder && s4HdrGrade)) ? "setparams=range=limited:color_primaries=" + (hdrPreserve ? "bt2020" : "bt709") +
                     ":color_trc=" + (hdrPreserve ? info.ColorTransfer : "bt709") +
                     ":colorspace=" + (hdrPreserve ? "bt2020nc" : "bt709") + "," : "";
                 if (s4GpuBorder)
@@ -426,9 +433,7 @@ namespace FilmGrainStudioPreview
                     filmBorder.GpuH264 = s4SdrPlate && h264;
                     filmBorder.GpuUseLegacy4k = hdrPreserve && s4Gpu4k30 && !interpolate && !filmBorder.User &&
                         FilmBorderFramingCore.Neutral(filmBorder.FocusX,filmBorder.FocusY,filmBorder.Zoom);
-                    filmBorder.GpuWidth = info.Width; filmBorder.GpuHeight = info.Height;
-                    filmBorder.GpuContentX = frame.ContentX; filmBorder.GpuContentY = frame.ContentY;
-                    filmBorder.GpuContentWidth = frame.ContentWidth; filmBorder.GpuContentHeight = frame.ContentHeight;
+                    FilmBorderEncodingCore.ConfigureGpuGeometry(filmBorder, frame, s4PlateGeometry, cropAfterGrain);
                 }
                 // The independent R3M8P4 Vulkan->CUDA pass used this FFmpeg binary.
                 // Do not silently switch back to a different FFmpeg build for the GPU experiment.
@@ -444,7 +449,7 @@ namespace FilmGrainStudioPreview
                     if (s4GpuBorder)
                         filter = FilmBorderEncodingCore.AppendGpuFilter(
                             "[0:v:0]" + deinterlaceFilter + fpsFilter + (s4Gpu4k30 ? "fps=30," : "fps=" + fps + ",") +
-                            "format=p010le," + fgb02Signal + "setpts=PTS-STARTPTS,split[fgsfilm_gpu_src][fgsfilm_clock_src];" +
+                            "format=p010le," + s4Signal + "setpts=PTS-STARTPTS,split[fgsfilm_gpu_src][fgsfilm_clock_src];" +
                             "[fgsfilm_gpu_src]hwupload[fgsfilm_gpu_video]", filmBorder);
                     else
                         filter = SharedGrainCore.BuildWithoutGrain(deinterlaceFilter + fpsFilter + colorFilter,
@@ -462,12 +467,12 @@ namespace FilmGrainStudioPreview
                     if (!string.IsNullOrEmpty(lutCompatName))
 
                         baseFilter = s4GpuBorder && s4SdrPlate
-                            ? BuildSdrPlateLutGpuBaseFilter(deinterlaceFilter, fpsFilter, colorFilter, lutCompatName, lutOpacity, fps, fgb02Signal)
+                            ? BuildSdrPlateLutGpuBaseFilter(deinterlaceFilter, fpsFilter, colorFilter, lutCompatName, lutOpacity, fps, s4Signal)
                             : "[0:v:0]" + deinterlaceFilter + fpsFilter + colorFilter + "format=gbrp16le,setpts=PTS-STARTPTS,split=2[lutorig][lutsrc];[lutsrc]lut3d=file='" + EscapeFilterPath(lutCompatName) + "':interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=" + lutOpacity + ",format=p010le,hwupload[basevk]";
 
                     else
 
-                        baseFilter = "[0:v:0]" + deinterlaceFilter + fpsFilter + (s4GpuBorder ? (s4Gpu4k30 && !interpolate ? "fps=30," : "fps=" + fps + ",") : "") + colorFilter + "format=p010le," + fgb02Signal + "setpts=PTS-STARTPTS,hwupload[basevk]";
+                        baseFilter = "[0:v:0]" + deinterlaceFilter + fpsFilter + (s4GpuBorder ? (s4Gpu4k30 && !interpolate ? "fps=30," : "fps=" + fps + ",") : "") + colorFilter + "format=p010le," + s4Signal + "setpts=PTS-STARTPTS,hwupload[basevk]";
 
                     if (s4GpuBorder)
                         filter = FilmBorderEncodingCore.AppendGpuFilter(
@@ -1668,6 +1673,8 @@ namespace FilmGrainStudioPreview
             internal bool GpuClockGated;
             internal int GpuInputIndex;
             internal int GpuWidth, GpuHeight, GpuContentX, GpuContentY, GpuContentWidth, GpuContentHeight;
+            internal int GpuCropX, GpuCropY;
+            internal bool GpuSquareOutput;
         }
 
         private static string Read(IDictionary<string,string> state,string key)
@@ -1766,12 +1773,37 @@ namespace FilmGrainStudioPreview
         {return plan.ApertureHeight1080>0?plan.ApertureHeight1080:
             (plan.Classic?FilmBorderCatalogCore.ClassicApertureHeight1080:990);}
 
+        internal static bool ValidDimensions(int width,int height)
+        {
+            return width>=32 && height>=32 && width<=16384 && height<=16384 && ((width|height)&1)==0;
+        }
+
+        internal static void ConfigureGpuGeometry(Plan plan,CinematicFramePlan frame,bool geometryChanged,bool cropAfterGrain)
+        {
+            plan.GpuWidth=frame.ActiveWidth;
+            plan.GpuHeight=frame.ActiveHeight;
+            plan.GpuSquareOutput=geometryChanged;
+            if (geometryChanged && !frame.Filter.StartsWith(",drawbox=",StringComparison.Ordinal))
+            {
+                plan.GpuCropX=cropAfterGrain?frame.ContentX:0;
+                plan.GpuCropY=cropAfterGrain?frame.ContentY:0;
+                plan.GpuContentX=plan.GpuContentY=0;
+                plan.GpuContentWidth=frame.ActiveWidth;
+                plan.GpuContentHeight=frame.ActiveHeight;
+                return;
+            }
+            plan.GpuContentX=frame.ContentX;
+            plan.GpuContentY=frame.ContentY;
+            plan.GpuContentWidth=frame.ContentWidth;
+            plan.GpuContentHeight=frame.ContentHeight;
+        }
+
         // Final filter stage: existing color, frame, LUT, subtitles and grain complete first.
         // Dimensions are normalized from the R3 1920x1080 aperture; SAR remains square.
         internal static string AppendFilter(string original,Plan plan,int width,int height,int filmInputIndex,string fps,MediaProbeInfo media,string outputFormat="p010le")
         {
             if(plan==null) return original;
-            if(width<32 || height<32 || width%2!=0 || height%2!=0 || width>16384 || height>16384)
+            if(!ValidDimensions(width,height))
                 throw new InvalidOperationException("Film border requires even output dimensions in the range 32..16384.");
             int at=original.LastIndexOf("[vout]",StringComparison.Ordinal);
             if(at<0) throw new InvalidOperationException("Existing filter graph has no final [vout] label.");
@@ -1845,8 +1877,8 @@ namespace FilmGrainStudioPreview
                 Func<double,string> f=delegate(double value) { return value.ToString("0.##########",CultureInfo.InvariantCulture); };
                 string kernelDynamic = "libplacebo=inputs=2:w="+N(w)+":h="+N(h)+":format=p010le:"+
                     "colorspace="+gpuColorSpace+":color_primaries="+gpuPrimaries+":color_trc="+gpuComposeTransfer+":range=limited"+
-                    ":crop_x='if(eq(idx,0),"+f(left)+",0)'"+
-                    ":crop_y='if(eq(idx,0),"+f(top)+",0)'"+
+                    ":crop_x='if(eq(idx,0),"+f(left+plan.GpuCropX)+",0)'"+
+                    ":crop_y='if(eq(idx,0),"+f(top+plan.GpuCropY)+",0)'"+
                     ":crop_w='if(eq(idx,0),"+f(right-left)+",iw)'"+
                     ":crop_h='if(eq(idx,0),"+f(bottom-top)+",ih)'"+
                     ":pos_w='if(eq(idx,0),"+f((right-left)*scale)+","+N(w)+")'"+
@@ -1855,6 +1887,7 @@ namespace FilmGrainStudioPreview
                     ":pos_y='if(eq(idx,0),"+f((h-apertureH)/2+(top-cropTop)*scale)+",0)+("+moveY+")'"+
                     ":upscaler=ewa_lanczos:downscaler=ewa_lanczos:tonemapping=clip:peak_detect=false:dithering=none:fillcolor=black";
                 return graph+";"+input+";[fgsfilm_gpu_video][fgsfilm_gpu_png]"+kernelDynamic+gpuHlgFinish+
+                    (plan.GpuSquareOutput?",setsar=1":"")+
                     ",hwupload=derive_device=cuda"+gpuCudaFormat+",setparams=range=limited:color_primaries="+gpuPrimaries+":"+
                     "color_trc="+gpuOutputTransfer+":colorspace="+gpuColorSpace+"[vout]";
             }
