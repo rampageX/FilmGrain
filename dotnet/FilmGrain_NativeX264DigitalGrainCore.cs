@@ -229,6 +229,7 @@ namespace FilmGrainStudioPreview
             if(hdrPreserve&&fruc)shareInterpolation=false;
             string tonemap = Get(state, "FG_TONEMAP_ALGO").ToLowerInvariant();
             if (tonemap != "mobius" && tonemap != "reinhard" && tonemap != "gamma" && tonemap != "linear" && tonemap != "clip") tonemap = "hable";
+            string toneSettings = Get(state, "FG_TONEMAP_OPTIONS");
             string tonemapLabel = char.ToUpperInvariant(tonemap[0]) + tonemap.Substring(1);
             // Match Legacy Bridge: interlaced input only enters the deinterlace route when UI selects AUTO.
             // "OFF" keeps the original field-encoded source path without BWDIF/W3FDIF conversion.
@@ -491,8 +492,8 @@ namespace FilmGrainStudioPreview
                     if (!TryResolveTempRoot(input, state, out tempRoot, out reason)) return false;
                     encodeInput = Path.Combine(tempRoot, (hdrToSdr ? "__FGS_HDR2SDR_" : "__FGS_FIELDS_") + Guid.NewGuid().ToString("N") + ".mkv");
                     temporaryFiles.Add(encodeInput);
-                    stages.Add(MakeStage(ffmpeg, workingDirectory, hdrToSdr ? SharedHdrPreprocessCore.BuildToSdr(input,encodeInput,info,tonemap,true,fieldWorkfile?fieldFilter:"") : SharedHdrPreprocessCore.BuildDeinterlaced(input,encodeInput,info,fieldFilter), durationSeconds, 1, stageTotal, hdrToSdr ? "HDR to SDR / " + tonemapLabel : "Shared field deinterlace / separate Vulkan device"));
-                    if(hdrToSdr)SharedHdrPreprocessCore.AttachAutomatic(stages[stages.Count-1],tonemap);
+                    stages.Add(MakeStage(ffmpeg, workingDirectory, hdrToSdr ? SharedHdrPreprocessCore.BuildTunedToSdr(input,encodeInput,info,tonemap,true,fieldWorkfile?fieldFilter:"",toneSettings) : SharedHdrPreprocessCore.BuildDeinterlaced(input,encodeInput,info,fieldFilter), durationSeconds, 1, stageTotal, hdrToSdr ? "HDR to SDR / " + tonemapLabel : "Shared field deinterlace / separate Vulkan device"));
+                    if(hdrToSdr)SharedHdrPreprocessCore.AttachTunedAutomatic(stages[stages.Count-1],tonemap,settings:toneSettings);
                 }
                 string interpolationAudio=input;
                 if(shareInterpolation) {
@@ -510,7 +511,7 @@ namespace FilmGrainStudioPreview
                         if(hdrToSdr)SharedHdrPreprocessCore.AttachPipeTimeline(shared,ffprobe,encodeInput,info,shared.OriginalArguments,input);
                         else SharedPipeTimelineCore.AttachTransportSource(shared,ffprobe,encodeInput,info,shared.OriginalArguments);
                     }
-                    if(mergeFrucHdr)SharedHdrPreprocessCore.AttachMergedFruc(shared,input,info,tonemap,gpuName);
+                    if(mergeFrucHdr)SharedHdrPreprocessCore.AttachMergedFruc(shared,input,info,tonemap,gpuName,settings:toneSettings);
                     stages.Add(shared);encodeInput=cached;filter="[0:v:0]null[vout]";plateMode=false;
                 }
                 if (passMode == "VBR1")
@@ -561,10 +562,10 @@ namespace FilmGrainStudioPreview
                         SharedInterpolationEncodeCore.AttachConsumer(stages[i],ffprobe,encodeInput,interpolationAudio,fps,fruc,hdrToSdr);
                 else if(mergeFrucHdr)
                     for(int i=stageOffset;i<stages.Count;i++)
-                        SharedHdrPreprocessCore.AttachMergedFruc(stages[i],input,info,tonemap,gpuName);
+                        SharedHdrPreprocessCore.AttachMergedFruc(stages[i],input,info,tonemap,gpuName,settings:toneSettings);
                 else if(mergedHdr)
                     for(int i=stageOffset;i<stages.Count;i++)
-                        SharedHdrPreprocessCore.AttachMergedEncode(stages[i],ffprobe,input,info,tonemap,gpuName,fieldFilter:mergedFields?fieldFilter:"");
+                        SharedHdrPreprocessCore.AttachMergedEncode(stages[i],ffprobe,input,info,tonemap,gpuName,fieldFilter:mergedFields?fieldFilter:"",settings:toneSettings);
                 else if(hdrWorkfile && !interpolate && !info.IsInterlaced)
                     for(int i=stageOffset;i<stages.Count;i++)
                         SharedHdrPreprocessCore.AttachSharedWorkfileEncode(stages[i],ffprobe,encodeInput,gpuName);

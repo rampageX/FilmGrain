@@ -91,6 +91,7 @@ namespace FilmGrainStudioPreview
 
             if (tonemap != "mobius" && tonemap != "reinhard" && tonemap != "gamma" && tonemap != "linear" && tonemap != "clip") tonemap = "hable";
 
+            string toneSettings = Get(state, "FG_TONEMAP_OPTIONS");
             string tonemapLabel = char.ToUpperInvariant(tonemap[0]) + tonemap.Substring(1);
 
             bool mkv = Eq(state, "FG_CONTAINER", "MKV");
@@ -666,8 +667,8 @@ namespace FilmGrainStudioPreview
 
                     temporaryFiles.Add(encodeInput);
 
-                    stages.Add(MakeStage(ffmpeg, workingDirectory, hdrToSdr ? SharedHdrPreprocessCore.BuildToSdr(input,encodeInput,info,tonemap,true,fieldWorkfile?fieldFilter:"") : SharedHdrPreprocessCore.BuildDeinterlaced(input,encodeInput,info,fieldFilter), durationSeconds, 1, totalStages, hdrToSdr ? "HDR to SDR / " + tonemapLabel : "Shared field deinterlace / separate Vulkan device"));
-                    if(hdrToSdr)SharedHdrPreprocessCore.AttachAutomatic(stages[stages.Count-1],tonemap);
+                    stages.Add(MakeStage(ffmpeg, workingDirectory, hdrToSdr ? SharedHdrPreprocessCore.BuildTunedToSdr(input,encodeInput,info,tonemap,true,fieldWorkfile?fieldFilter:"",toneSettings) : SharedHdrPreprocessCore.BuildDeinterlaced(input,encodeInput,info,fieldFilter), durationSeconds, 1, totalStages, hdrToSdr ? "HDR to SDR / " + tonemapLabel : "Shared field deinterlace / separate Vulkan device"));
+                    if(hdrToSdr)SharedHdrPreprocessCore.AttachTunedAutomatic(stages[stages.Count-1],tonemap,settings:toneSettings);
 
                 }
 
@@ -706,13 +707,13 @@ namespace FilmGrainStudioPreview
                         }
 
                         if(mergedFrucHdr)
-                            SharedHdrPreprocessCore.AttachMergedFruc(mainStage,input,info,tonemap,caps.GpuName);
+                            SharedHdrPreprocessCore.AttachMergedFruc(mainStage,input,info,tonemap,caps.GpuName,settings:toneSettings);
                         else if (mergedHdr)
                         {
                             mainStage.StageText = (h264?"H.264":"HEVC")+"：HDR 合并 / 调色 / LUT / 颗粒 / 编码";
-                            if(mergedFields)SharedHdrPreprocessCore.AttachMergedEncode(mainStage,ffprobe,input,info,tonemap,caps.GpuName,fieldFilter:fieldFilter);
-                            else if(!grainEnabled && !resize.Enabled)SharedHdrPreprocessCore.AttachMergedHevc(mainStage,ffprobe,input,info,tonemap,caps.GpuName);
-                            else SharedHdrPreprocessCore.AttachMergedEncode(mainStage,ffprobe,input,info,tonemap,caps.GpuName);
+                            if(mergedFields)SharedHdrPreprocessCore.AttachMergedEncode(mainStage,ffprobe,input,info,tonemap,caps.GpuName,fieldFilter:fieldFilter,settings:toneSettings);
+                            else if(!grainEnabled && !resize.Enabled)SharedHdrPreprocessCore.AttachMergedHevc(mainStage,ffprobe,input,info,tonemap,caps.GpuName,settings:toneSettings);
+                            else SharedHdrPreprocessCore.AttachMergedEncode(mainStage,ffprobe,input,info,tonemap,caps.GpuName,settings:toneSettings);
                         }
                         else if(needsHdrWorkfile && !interpolate && !info.IsInterlaced)
                             SharedHdrPreprocessCore.AttachSharedWorkfileEncode(mainStage,ffprobe,encodeInput,caps.GpuName);

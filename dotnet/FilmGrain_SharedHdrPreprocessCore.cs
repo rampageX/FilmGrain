@@ -4,6 +4,142 @@ using System.Globalization;
 using System.IO;
 namespace FilmGrainStudioPreview
 {
+    internal sealed class HdrToneParameter
+    {
+        internal readonly string Option, Chinese, English;
+        internal readonly int Minimum, Maximum, Default, Scale;
+
+        internal HdrToneParameter(string option, string chinese, string english, int minimum, int maximum, int initial, int scale = 100)
+        {
+            Option = option; Chinese = chinese; English = english;
+            Minimum = minimum; Maximum = maximum; Default = initial; Scale = scale;
+        }
+
+        internal string Format(int steps)
+        {
+            return ((decimal)steps / Scale).ToString("0.##", CultureInfo.InvariantCulture);
+        }
+    }
+
+    internal static class HdrToneSettings
+    {
+        internal static readonly string[] Algorithms = { "hable", "mobius", "reinhard", "gamma", "linear", "clip" };
+        private static readonly HdrToneParameter Desaturation = new HdrToneParameter("desat", "高光去饱和阈值", "Desaturation threshold", 0, 1000, 200);
+        private static readonly HdrToneParameter Peak = new HdrToneParameter("peak", "信号峰值（倍）", "Signal peak (×)", 0, 1000, 0, 10);
+        private static readonly HdrToneParameter Brightness = new HdrToneParameter("brightness", "亮度", "Brightness", -25, 25, 0);
+        private static readonly HdrToneParameter Saturation = new HdrToneParameter("saturation", "饱和度", "Saturation", 0, 200, 100);
+        private static readonly HdrToneParameter[][] Parameters = {
+            new[] { new HdrToneParameter("contrast_recovery", "Vulkan 对比度恢复", "Vulkan contrast recovery", 0, 300, 0),
+                    new HdrToneParameter("desat", "CPU 高光去饱和阈值", "CPU desaturation threshold", 0, 1000, 200),
+                    new HdrToneParameter("peak", "CPU 信号峰值（倍）", "CPU signal peak (×)", 0, 1000, 0, 10),
+                    Brightness, Saturation },
+            new[] { new HdrToneParameter("param", "线性过渡点", "Linear transition point", 1, 99, 30), Desaturation, Peak, Brightness, Saturation },
+            new[] { new HdrToneParameter("param", "局部对比度", "Local contrast", 1, 99, 50), Desaturation, Peak, Brightness, Saturation },
+            new[] { new HdrToneParameter("param", "伽马指数", "Gamma exponent", 10, 500, 180), Desaturation, Peak, Brightness, Saturation },
+            new[] { new HdrToneParameter("param", "线性增益", "Linear gain", 1, 400, 100), Desaturation, Peak, Brightness, Saturation },
+            new[] { new HdrToneParameter("param", "裁切前增益", "Pre-clip gain", 1, 400, 100), Desaturation, Brightness, Saturation }
+        };
+
+        internal static string Key(string algorithm) { return "TONE_MAP_" + algorithm.ToUpperInvariant() + "_OPTIONS"; }
+
+        internal static HdrToneParameter[] For(string algorithm)
+        {
+            int index = Array.IndexOf(Algorithms, algorithm);
+            return Parameters[Math.Max(0, index)];
+        }
+
+        internal static int[] Read(string algorithm, string text)
+        {
+            var fields = For(algorithm);
+            var values = new int[fields.Length];
+            if (TryRead(fields, text, values)) return values;
+            for (int i = 0; i < fields.Length; i++) values[i] = fields[i].Default;
+            return values;
+        }
+
+        private static bool TryRead(HdrToneParameter[] fields, string text, int[] values)
+        {
+            if (string.IsNullOrEmpty(text)) {
+                for (int i = 0; i < fields.Length; i++) values[i] = fields[i].Default;
+                return true;
+            }
+            string[] parts = text.Split(':');
+            // Older test builds stored the algorithm controls without brightness and saturation.
+            if (parts.Length != fields.Length && parts.Length != fields.Length - 2) return false;
+            for (int i = 0; i < fields.Length; i++) {
+                if (i >= parts.Length) {
+                    values[i] = fields[i].Default;
+                } else if (!int.TryParse(parts[i], NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out values[i]) ||
+                    values[i] < fields[i].Minimum || values[i] > fields[i].Maximum) return false;
+            }
+            return true;
+        }
+
+        internal static bool IsValid(string key, string text)
+        {
+            foreach (string algorithm in Algorithms)
+                if (Key(algorithm) == key) {
+                    var fields = For(algorithm);
+                    return TryRead(fields, text, new int[fields.Length]);
+                }
+            return false;
+        }
+
+        internal static string Serialize(string algorithm, int[] values)
+        {
+            var fields = For(algorithm);
+            bool changed = false;
+            for (int i = 0; i < fields.Length; i++) changed |= values[i] != fields[i].Default;
+            if (!changed) return "";
+            return string.Join(":", Array.ConvertAll(values, x => x.ToString(CultureInfo.InvariantCulture)));
+        }
+
+        internal static string CpuOptions(string algorithm, string settings)
+        {
+            var fields = For(algorithm);
+            var values = Read(algorithm, settings);
+            string options = "";
+            for (int i = 0; i < fields.Length; i++) {
+                var field = fields[i];
+                if (field.Option == "desat" || ((field.Option == "param" || field.Option == "peak") && values[i] != field.Default))
+                    options += ":" + field.Option + "=" + field.Format(values[i]);
+            }
+            return options;
+        }
+
+        internal static string CpuSdrColorFilter(string algorithm, string settings)
+        {
+            var values = Read(algorithm, settings);
+            int brightness = values[values.Length - 2];
+            int saturation = values[values.Length - 1];
+            if (brightness == Brightness.Default && saturation == Saturation.Default) return "";
+
+            // zscale has already produced limited-range BT.709. Process planar 10-bit
+            // samples and convert back to P010 for the existing downstream contract.
+            string filter = ",format=yuv420p10le,lutyuv=";
+            if (brightness != Brightness.Default) {
+                string offset = (876m * brightness / Brightness.Scale).ToString(CultureInfo.InvariantCulture);
+                filter += "y='clip(val+(" + offset + "),64,940)'";
+            }
+            if (saturation != Saturation.Default) {
+                string chroma = "'clip((val-512)*" + Saturation.Format(saturation) + "+512,64,960)'";
+                if (brightness != Brightness.Default) filter += ":";
+                filter += "u=" + chroma + ":v=" + chroma;
+            }
+            return filter;
+        }
+
+        internal static string VulkanHableOptions(string settings)
+        {
+            var fields = For("hable");
+            var values = Read("hable", settings);
+            string options = "contrast_recovery=" + fields[0].Format(values[0]);
+            for (int i = 3; i < fields.Length; i++)
+                if (values[i] != fields[i].Default) options += ":" + fields[i].Option + "=" + fields[i].Format(values[i]);
+            return options;
+        }
+    }
+
     internal static class SharedHdrPreprocessCore
     {
         private static readonly string[] LosslessHevcOptions =
@@ -14,11 +150,17 @@ namespace FilmGrainStudioPreview
 
         internal static List<string> BuildToSdr(string input,string output,MediaProbeInfo info,string tonemap,bool retainStreams,string deinterlaceFilter = "")
         {
+            return BuildTunedToSdr(input, output, info, tonemap, retainStreams, deinterlaceFilter, "");
+        }
+
+        internal static List<string> BuildTunedToSdr(string input, string output, MediaProbeInfo info, string tonemap,
+            bool retainStreams, string deinterlaceFilter, string settings)
+        {
             string range=string.Equals(info.ColorRange,"pc",StringComparison.OrdinalIgnoreCase)?"pc":"tv";
             string primaries=string.IsNullOrWhiteSpace(info.ColorPrimaries)||info.ColorPrimaries=="unknown"||info.ColorPrimaries=="reserved"?"bt2020":info.ColorPrimaries;
             string space=string.IsNullOrWhiteSpace(info.ColorSpace)||info.ColorSpace=="unknown"||info.ColorSpace=="reserved"?"bt2020nc":info.ColorSpace;
             deinterlaceFilter=ResolveDeinterlaceParity(deinterlaceFilter,info);
-            string filter=deinterlaceFilter+"zscale=rin="+range+":pin="+primaries+":tin="+info.ColorTransfer+":min="+space+":t=linear"+(deinterlaceFilter.Length==0?"":":p="+primaries)+":npl=100,format=gbrpf32le,tonemap=tonemap="+tonemap+":desat=2,zscale=p=bt709:t=bt709:m=bt709:r=tv,format=p010le,sidedata=mode=delete:type=MASTERING_DISPLAY_METADATA,sidedata=mode=delete:type=CONTENT_LIGHT_LEVEL,setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709";
+            string filter=deinterlaceFilter+"zscale=rin="+range+":pin="+primaries+":tin="+info.ColorTransfer+":min="+space+":t=linear"+(deinterlaceFilter.Length==0?"":":p="+primaries)+":npl=100,format=gbrpf32le,tonemap=tonemap="+tonemap+HdrToneSettings.CpuOptions(tonemap,settings)+",zscale=p=bt709:t=bt709:m=bt709:r=tv"+HdrToneSettings.CpuSdrColorFilter(tonemap,settings)+",format=p010le,sidedata=mode=delete:type=MASTERING_DISPLAY_METADATA,sidedata=mode=delete:type=CONTENT_LIGHT_LEVEL,setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709";
             var args=new List<string>{"-hide_banner","-stats","-progress","pipe:2","-stats_period","0.5","-y","-copyts","-start_at_zero","-i",input,"-map","0:v:0"};
             if(retainStreams)args.AddRange(new[]{"-map","0:a?","-map","0:s?","-map","0:t?","-map_metadata","0","-map_chapters","0"});
             AddDeinterlaceDevice(args,deinterlaceFilter);
@@ -33,6 +175,11 @@ namespace FilmGrainStudioPreview
         // The original CPU command remains intact for unsupported devices/builds/algorithms.
         internal static void AttachAutomatic(BridgeExecutionStage stage,string tonemap,SharedFrucCore.ProbeRunner runner = null)
         {
+            AttachTunedAutomatic(stage,tonemap,"",runner);
+        }
+
+        internal static void AttachTunedAutomatic(BridgeExecutionStage stage,string tonemap,string settings,SharedFrucCore.ProbeRunner runner = null)
+        {
             if(stage==null)throw new ArgumentNullException("stage");
             var cpu=new List<string>(stage.OriginalArguments);
             Func<string> previous=stage.BeforeRunPreparation;
@@ -40,7 +187,7 @@ namespace FilmGrainStudioPreview
                 string prior=previous==null?"":previous();
                 string notice;
                 string encoderNotice=CheckLosslessHevc(stage.ToolPath,runner);
-                var selected=SelectAutomatic(stage.ToolPath,cpu,tonemap,out notice,runner:runner);
+                var selected=SelectTunedAutomatic(stage.ToolPath,cpu,tonemap,out notice,runner:runner,settings:settings);
                 stage.DirectArguments=SharedFrucCore.JoinArguments(selected);
                 return (string.IsNullOrEmpty(prior)?"":prior+"\n")+encoderNotice+"\n"+notice;
             };
@@ -56,12 +203,12 @@ namespace FilmGrainStudioPreview
             return args;
         }
 
-        internal static void AttachSdrPipeInput(BridgeExecutionStage stage, string source, MediaProbeInfo info, string tonemap, bool y4m = false)
+        internal static void AttachSdrPipeInput(BridgeExecutionStage stage, string source, MediaProbeInfo info, string tonemap, bool y4m = false, string settings = "")
         {
-            var cpu = BuildToSdr(source,"pipe:1",info,tonemap,false);
+            var cpu = BuildTunedToSdr(source,"pipe:1",info,tonemap,false,"",settings);
             stage.BeforeRunPreparation = delegate {
                 string notice;
-                var selected = SelectAutomatic(stage.ToolPath,cpu,tonemap,out notice);
+                var selected = SelectTunedAutomatic(stage.ToolPath,cpu,tonemap,out notice,settings:settings);
                 var pipe = BuildSdrNutArguments(selected);
                 if (y4m)
                 {
@@ -89,6 +236,11 @@ namespace FilmGrainStudioPreview
 
         internal static List<string> BuildGpuArguments(IList<string> cpu,string vulkanDevice = null)
         {
+            return BuildTunedGpuArguments(cpu, "");
+        }
+
+        private static List<string> BuildTunedGpuArguments(IList<string> cpu, string settings)
+        {
             var args=new List<string>(cpu);
             int vf=args.IndexOf("-vf"),input=args.IndexOf("-i");
             if(vf<0||vf+1>=args.Count||input<0)throw new InvalidOperationException("HDR command layout changed");
@@ -99,12 +251,18 @@ namespace FilmGrainStudioPreview
             var source=System.Text.RegularExpressions.Regex.Match(filter.Substring(linear),@"^zscale=rin=([^:]+):pin=([^:]+):tin=([^:]+):min=([^:]+):");
             if(!source.Success)throw new InvalidOperationException("HDR source color layout changed");
             string sourceTags="setparams=range="+source.Groups[1].Value+":color_primaries="+source.Groups[2].Value+":color_trc="+source.Groups[3].Value+":colorspace="+source.Groups[4].Value+",";
-            args[vf+1]=sourceTags+deint+"format=p010le,hwupload,libplacebo=tonemapping=hable:peak_detect=1:colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv:format=p010le:contrast_recovery=0:gamut_mode=clip,hwdownload,format=p010le,"+filter.Substring(clean);
+            args[vf+1]=sourceTags+deint+"format=p010le,hwupload,libplacebo=tonemapping=hable:peak_detect=1:colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv:format=p010le:"+HdrToneSettings.VulkanHableOptions(settings)+":gamut_mode=clip,hwdownload,format=p010le,"+filter.Substring(clean);
             // A Vulkan deinterlace stage already supplies a filter device; reuse it.
             if(!args.Contains("-filter_hw_device"))args.InsertRange(input,new[]{"-init_hw_device",VulkanDevicePolicy.Spec("hdrvk"),"-filter_hw_device","hdrvk"});
             return args;
         }
         internal static List<string> SelectAutomatic(string ffmpeg,IList<string> cpu,string tonemap,out string notice,string vulkanDevice = null,SharedFrucCore.ProbeRunner runner = null)
+        {
+            return SelectTunedAutomatic(ffmpeg, cpu, tonemap, out notice, vulkanDevice, runner, "");
+        }
+
+        private static List<string> SelectTunedAutomatic(string ffmpeg, IList<string> cpu, string tonemap, out string notice,
+            string vulkanDevice = null, SharedFrucCore.ProbeRunner runner = null, string settings = "")
         {
             if(!string.Equals(tonemap,"hable",StringComparison.OrdinalIgnoreCase))
             {
@@ -112,7 +270,7 @@ namespace FilmGrainStudioPreview
                 return new List<string>(cpu);
             }
             // Command construction errors are programming errors, not missing GPU support.
-            var gpu=BuildGpuArguments(cpu,vulkanDevice);
+            var gpu=BuildTunedGpuArguments(cpu,settings);
             var probe=new List<string>{"-hide_banner","-nostdin","-loglevel","verbose"};
             foreach(string option in new[]{"-init_hw_device","-filter_hw_device"})
                 for(int i=0;i+1<gpu.Count;i++)if(gpu[i]==option)probe.AddRange(new[]{option,gpu[i+1]});
@@ -131,7 +289,7 @@ namespace FilmGrainStudioPreview
             }
             if(supported&&!software)
             {
-                notice="[HDR preprocess] GPU Vulkan/libplacebo Hable / peak_detect=1 / gamut_mode=clip / contrast_recovery=0; actual source/Vulkan filter check passed.";
+                notice="[HDR preprocess] GPU Vulkan/libplacebo Hable / peak_detect=1 / gamut_mode=clip / "+HdrToneSettings.VulkanHableOptions(settings)+"; actual source/Vulkan filter check passed.";
                 return gpu;
             }
             string detail=software?"software Vulkan selected":reason;
@@ -161,16 +319,16 @@ namespace FilmGrainStudioPreview
         }
         static int IndexOf(IList<string> args,string value){for(int i=0;i<args.Count;i++)if(args[i]==value)return i;return -1;}
 
-        internal static void AttachMergedHevc(BridgeExecutionStage stage,string ffprobe,string input,MediaProbeInfo info,string tonemap,string gpuName)
+        internal static void AttachMergedHevc(BridgeExecutionStage stage,string ffprobe,string input,MediaProbeInfo info,string tonemap,string gpuName,string settings = "")
         {
             if(stage.BeforeRunPreparation!=null)throw new InvalidOperationException("HDR merge preparation already attached");
             var frozen=new List<string>(stage.OriginalArguments);
             // No workfile is created: reuse the shared filter builders and their worker-side probe/fallback.
-            var cpu=BuildToSdr(input,"unused-inline-hdr.mkv",info,tonemap,false);
+            var cpu=BuildTunedToSdr(input,"unused-inline-hdr.mkv",info,tonemap,false,"",settings);
             string device=VulkanDevicePolicy.DeviceName;
             stage.BeforeRunPreparation=delegate {
                 string notice;
-                var selected=SelectAutomatic(stage.ToolPath,cpu,tonemap,out notice,device);
+                var selected=SelectTunedAutomatic(stage.ToolPath,cpu,tonemap,out notice,device,settings:settings);
                 var merged=MergeHevcArguments(frozen,selected);
                 var time=SharedFrucCore.ProbeTimeline(ffprobe,input);
                 merged=SharedOrdinaryTimelineCore.Build(merged,input,time.CommonOrigin,time.VideoDelay);
@@ -255,13 +413,13 @@ namespace FilmGrainStudioPreview
             if(!match.Success)throw new InvalidOperationException("HDR workfile clock probe did not report the decoder filter frame rate");
             return match.Groups[1].Value;
         }
-        internal static void AttachMergedFruc(BridgeExecutionStage stage,string input,MediaProbeInfo info,string tonemap,string gpuName)
+        internal static void AttachMergedFruc(BridgeExecutionStage stage,string input,MediaProbeInfo info,string tonemap,string gpuName,string settings = "")
         {
             if(stage.BeforeRunPreparation!=null||stage.FrucArguments==null)throw new InvalidOperationException("FRUC merge preparation layout changed");
             var original=new List<string>(stage.FrucArguments);
-            var cpu=BuildToSdr(input,"unused-fruc-hdr.mkv",info,tonemap,false);
+            var cpu=BuildTunedToSdr(input,"unused-fruc-hdr.mkv",info,tonemap,false,"",settings);
             stage.BeforeRunPreparation=delegate {
-                string notice;var hdr=SelectAutomatic(stage.ToolPath,cpu,tonemap,out notice,VulkanDevicePolicy.DeviceName);
+                string notice;var hdr=SelectTunedAutomatic(stage.ToolPath,cpu,tonemap,out notice,VulkanDevicePolicy.DeviceName,settings:settings);
                 string rate=ProbeWorkfileFrameRate(stage.ToolPath,input);
                 stage.FrucArguments=MergeFrucArguments(original,hdr,gpuName,rate);
                 return "[HDR merged FRUC] conversion before interpolation; no HDR workfile; encoder clock="+rate+" then Matroska milliseconds.\n"+notice;
@@ -286,15 +444,15 @@ namespace FilmGrainStudioPreview
         }
 
         internal static void AttachMergedEncode(BridgeExecutionStage stage,string ffprobe,string input,
-            MediaProbeInfo info,string tonemap,string gpuName,bool videoOnly=false,bool sourceCadence=true,string fieldFilter="")
+            MediaProbeInfo info,string tonemap,string gpuName,bool videoOnly=false,bool sourceCadence=true,string fieldFilter="",string settings="")
         {
             if(stage.BeforeRunPreparation!=null)throw new InvalidOperationException("Merged encode preparation already attached");
             var frozen=new List<string>(stage.OriginalArguments);
-            var cpu=BuildToSdr(input,"unused-inline-hdr.mkv",info,tonemap,false,fieldFilter);
+            var cpu=BuildTunedToSdr(input,"unused-inline-hdr.mkv",info,tonemap,false,fieldFilter,settings);
             string device=VulkanDevicePolicy.DeviceName;
             stage.BeforeRunPreparation=delegate {
                 string notice;
-                var selected=SelectAutomatic(stage.ToolPath,cpu,tonemap,out notice,device);
+                var selected=SelectTunedAutomatic(stage.ToolPath,cpu,tonemap,out notice,device,settings:settings);
                 var time=SharedFrucCore.ProbeTimeline(ffprobe,input);
                 var merged=MergeEncodeArguments(frozen,selected,videoOnly,time.CommonOrigin,time.VideoDelay,device,sourceCadence);
                 if (fieldFilter.Length > 0 && !videoOnly)

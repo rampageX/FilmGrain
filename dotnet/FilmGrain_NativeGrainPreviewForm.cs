@@ -1162,17 +1162,17 @@ namespace FilmGrainStudioPreview
         private readonly string ffmpeg,lut,video;
         private readonly MediaProbeInfo media;
         private readonly bool preserveHdr;
-        private readonly string tone;
+        private readonly string tone, toneSettings;
         private readonly string temporary=Path.Combine(Path.GetTempPath(),"FilmGrain_Studio","LutCompare_"+Guid.NewGuid().ToString("N"));
         private readonly bool zh;
         private bool running,closing;private int generation;private double desiredPosition;
         internal int SelectedStrength {get;private set;}
         internal byte[] SelectedReference {get;private set;}
         private string T(string a,string b){return zh?a:b;}
-        internal NativeLutStrengthPreviewForm(string tool,string selectedLut,string source,string language,MediaProbeInfo info=null,bool preserve=false,string tonemap="hable")
+        internal NativeLutStrengthPreviewForm(string tool,string selectedLut,string source,string language,MediaProbeInfo info=null,bool preserve=false,string tonemap="hable",string settings="")
         {
             ffmpeg=tool;lut=selectedLut;video=source;media=info;zh=language=="zh-CN";
-            preserveHdr=preserve&&media!=null&&media.IsHdr;tone=tonemap;
+            preserveHdr=preserve&&media!=null&&media.IsHdr;tone=tonemap;toneSettings=settings;
             Text=T("LUT 四档对照","LUT strength comparison");Size=new Size(1180,860);MinimumSize=new Size(900,680);StartPosition=FormStartPosition.CenterParent;
             var layout=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=2,RowCount=5,Padding=new Padding(8)};
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,50));layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,50));
@@ -1205,7 +1205,7 @@ namespace FilmGrainStudioPreview
         private static Bitmap LoadCopy(string path){using(var image=Image.FromFile(path))return new Bitmap(image);}
         private void ReleaseImages(){foreach(var p in pictures)p.Image=null;foreach(var b in rendered)b.Dispose();rendered.Clear();if(original!=null){original.Dispose();original=null;}}
         private void ShowImages(){if(closing||rendered.Count!=4)return;for(int i=0;i<4;i++){pictures[i].SizeMode=actualSize.Checked?PictureBoxSizeMode.CenterImage:PictureBoxSizeMode.Zoom;pictures[i].Image=showOriginal.Checked?original:rendered[i];}}
-        internal static List<string> FrameArguments(string reference,string cube,string opacity,string output,int maxWidth=1920,MediaProbeInfo hdr=null,string tone="hable")
+        internal static List<string> FrameArguments(string reference,string cube,string opacity,string output,int maxWidth=1920,MediaProbeInfo hdr=null,string tone="hable",string settings="")
         {
             string filter="scale=w='max(2,trunc(min("+maxWidth.ToString(CultureInfo.InvariantCulture)+",iw)/2)*2)':h=-2,format=gbrp16le";
             if(!string.IsNullOrEmpty(cube)) {
@@ -1215,15 +1215,16 @@ namespace FilmGrainStudioPreview
             }
             if(hdr!=null) {
                 string name=(cube??"").Replace("\\","/").Replace(":","\\:").Replace("'","'"+new string('\\',3)+"'");
-                filter=(string.IsNullOrEmpty(cube)?"":HdrColorProcessingCore.Lut(hdr,name,opacity))+HdrColorProcessingCore.DisplayToSdr(hdr,tone)+",scale=w='max(2,trunc(min("+maxWidth.ToString(CultureInfo.InvariantCulture)+",iw)/2)*2)':h=-2";
+                filter=(string.IsNullOrEmpty(cube)?"":HdrColorProcessingCore.Lut(hdr,name,opacity))+HdrColorProcessingCore.DisplayToSdr(hdr,tone,settings)+",scale=w='max(2,trunc(min("+maxWidth.ToString(CultureInfo.InvariantCulture)+",iw)/2)*2)':h=-2";
             }
             return new List<string>{"-hide_banner","-v","error","-y","-i",reference,"-vf",filter,"-frames:v","1","-threads","1","-pix_fmt","rgb24",output};
         }
-        internal static List<string> SnapshotArguments(string video,MediaProbeInfo media,double seconds,string output,bool preserve=false)
+        internal static List<string> SnapshotArguments(string video,MediaProbeInfo media,double seconds,string output,bool preserve=false,string tone="hable",string settings="")
         {
             string filter="scale=w='max(2,trunc(min(1920,iw)/2)*2)':h=-2";
             if(media!=null) {
-                string display=preserve?"null":NativeGrainPreviewForm.PreviewFilter(media);
+                string display=preserve ? "null" : media.IsHdr && !string.IsNullOrEmpty(settings)
+                    ? HdrColorProcessingCore.DisplayToSdr(media,tone,settings) : NativeGrainPreviewForm.PreviewFilter(media);
                 if(media.IsInterlaced)display=SharedHdrPreprocessCore.ResolveDeinterlaceParity("bwdif=mode=send_frame:parity=auto:deint=all,",media)+display;
                 filter=display+","+filter;
             }
@@ -1250,11 +1251,11 @@ namespace FilmGrainStudioPreview
                 try {
                     if(media!=null&&media.Identity!=null)media.Identity.RequireCurrent();Directory.CreateDirectory(dir);
                     Action<List<string>> run=delegate(List<string> args) {var log=new StringBuilder();int rc=NativeLibraryTools.RunProcess(ffmpeg,args,dir,cancel.Token,delegate(string line){lock(log)log.AppendLine(line);});if(rc!=0)throw new InvalidOperationException(log.ToString());};
-                    string frame=Path.Combine(dir,preserveHdr?"source.hdr.mkv":"original.png");run(SnapshotArguments(video,media,position,frame,preserveHdr));
-                    if(preserveHdr)run(FrameArguments(frame,"","1.00",Path.Combine(dir,"original.png"),1920,media,tone));
+                    string frame=Path.Combine(dir,preserveHdr?"source.hdr.mkv":"original.png");run(SnapshotArguments(video,media,position,frame,preserveHdr,tone,toneSettings));
+                    if(preserveHdr)run(FrameArguments(frame,"","1.00",Path.Combine(dir,"original.png"),1920,media,tone,toneSettings));
                     for(int i=0;i<4;i++) {
                         cancel.Token.ThrowIfCancellationRequested();string cube=Path.Combine(dir,"strength"+levels[i]+".cube");
-                        string opacity=LutStrengthCore.CreateFile(lut,cube,levels[i]);run(FrameArguments(frame,cube,opacity,Path.Combine(dir,"preview"+i+".png"),1920,preserveHdr?media:null,tone));
+                        string opacity=LutStrengthCore.CreateFile(lut,cube,levels[i]);run(FrameArguments(frame,cube,opacity,Path.Combine(dir,"preview"+i+".png"),1920,preserveHdr?media:null,tone,toneSettings));
                     }
                     if(media!=null&&media.Identity!=null)media.Identity.RequireCurrent();
                 }catch(OperationCanceledException){}catch(Exception ex){error=ex.Message;}

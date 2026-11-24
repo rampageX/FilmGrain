@@ -31,7 +31,8 @@ namespace FilmGrainStudioPreview
             new KeyValuePair<string, string[]>("Advanced.RateControl", new[] { "NVENC_AV1_RATE_CONTROL", "NVENC_AV1_CQ", "NVENC_HEVC_RATE_CONTROL", "NVENC_HEVC_CQ", "NVENC_H264_RATE_CONTROL", "NVENC_H264_CQ", "NVENC_AV1_CQ_LIMIT_ENABLED", "NVENC_AV1_CQ_MAXRATE", "NVENC_HEVC_CQ_LIMIT_ENABLED", "NVENC_HEVC_CQ_MAXRATE", "NVENC_H264_CQ_LIMIT_ENABLED", "NVENC_H264_CQ_MAXRATE", "NVENC_AV1_CQ_AUTO", "NVENC_HEVC_CQ_AUTO", "NVENC_H264_CQ_AUTO" }),
             new KeyValuePair<string, string[]>("Advanced.Encoding", new string[] { "GPU_DECODE", "CPU_CODEC", "CPU_SVT_TUNING", "CPU_SVT_GRAIN_TUNE", "CPU_X265_GRAIN_TUNE", "X264_GRAIN_TUNE", "CPU_SVT_PRESET", "CPU_X265_PRESET", "CPU_X265_THREADED_ME", "CPU_SVT_RATE_CONTROL", "CPU_SVT_CQ", "CPU_SVT_CQ_AUTO", "CPU_X265_RATE_CONTROL", "CPU_X265_CQ", "CPU_X265_CQ_AUTO", "H264_HIGH10", "X264_RATE_MODE", "X264_PRESET", "NVENC_SPATIAL_AQ", "NVENC_TEMPORAL_AQ", "AUDIO_MODE", "AUDIO_BITRATE", "AV1_MULTIPASS", "HEVC_MULTIPASS", "H264_MULTIPASS", "HEVC_BFRAMES", "H264_BFRAMES", "HEVC_BREF_MODE", "H264_BREF_MODE", "HEVC_LOOKAHEAD", "H264_LOOKAHEAD" }),
             new KeyValuePair<string, string[]>("Advanced.Interpolation", new string[] { "SVP_ALGO", "SVP_ANALYSE", "SVP_MASK_AREA", "SVP_SPEED", "SVP_TUNING", "SVP_BLOCK_SIZE", "SVP_HDR_BACKEND", "SVP_EXACT", "SVP_LEAN", "SVP_DEDUP", "SVP_STILL", "SVP_STILL_LIMIT", "SVP_STILL_EDGE", "SVP_STILL_TOLERANCE", "SVP_PEEL", "SVP_PEEL_LIMIT", "NVENC_AI_MODE", "FRUC_PERF", "FRUC_GRID", "INTERPOLATION_TARGET_FPS" }),
-            new KeyValuePair<string, string[]>("Advanced.HDR", new string[] { "HDR_POLICY", "TONE_MAP_ALGO" }),
+            new KeyValuePair<string, string[]>("Advanced.HDR", new string[] { "HDR_POLICY", "TONE_MAP_ALGO", HdrToneSettings.Key("hable"), HdrToneSettings.Key("mobius"),
+                HdrToneSettings.Key("reinhard"), HdrToneSettings.Key("gamma"), HdrToneSettings.Key("linear"), HdrToneSettings.Key("clip") }),
             new KeyValuePair<string, string[]>("Advanced.Other", new string[] { "QUEUE_SKIP_FAILED", "CINEMATIC_CROP_PER_SIDE", "CINEMATIC_CROP_HORIZONTAL", CinematicFrameCore.MarginsKey, CinematicFrameCore.CropEnabledKey, CinematicFrameCore.CropModeKey, CinematicCropGeometry.PresetKey, "CINEMATIC_NO_CROP", "COLOR_PREVIEW_LARGE_UI", "FILM_BORDER_MODE", "FILM_BORDER_AMP", "FILM_BORDER_SPEED", "FILM_BORDER_FREQUENCY" }),
             new KeyValuePair<string, string[]>("ColorCorrection", new string[] { "COLOR_CORRECTION_ENABLED", "COLOR_CONTRAST", "COLOR_BRIGHTNESS", "COLOR_SATURATION", "COLOR_GAMMA", "COLOR_BLACK_WHITE", ColorGrade.ConfigKey, "COLOR_MATCH_STRENGTH" })
         };
@@ -199,6 +200,7 @@ defaults["CPU_X265_CQ_AUTO"] = "false";
             defaults["INTERPOLATION_TARGET_FPS"] = "60";
             defaults["HDR_POLICY"] = "AUTO";
             defaults["TONE_MAP_ALGO"] = "hable";
+            foreach (string algorithm in HdrToneSettings.Algorithms) defaults[HdrToneSettings.Key(algorithm)] = "";
             defaults["CINEMATIC_STYLE_ENABLED"] = "false";
             defaults["CINEMATIC_CROP_PER_SIDE"] = "0";
             defaults[CinematicFrameCore.MarginsKey] = "";

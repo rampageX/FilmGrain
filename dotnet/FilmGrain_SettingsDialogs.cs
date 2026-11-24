@@ -920,6 +920,15 @@ namespace FilmGrainStudioPreview
                 var skipQueueFailed=new ThemeCheckBox {Name="QUEUE_SKIP_FAILED",Text=UiText("跳过队列中失败的文件","Skip failed files in queue"),Checked=config.GetBool("QUEUE_SKIP_FAILED"),AutoSize=true,Location=new Point(24,28)};
                 otherPage.Controls.Add(skipQueueFailed);
                 otherPage.Controls.Add(new ThemeLabel {Text=UiText("勾选后，处理失败会保留失败状态并继续下一项。\n取消任务仍会停止整个队列；队列结束会报告失败。\n再次开始仅处理未完成项；右键重置状态可重做已完成文件。","Continue after processing failures; retain failed status.\nCancellation stops the queue. Final result still reports failures.\nStart retries unfinished items; right-click Reset status to rerun completed files."),Location=new Point(24,70),Size=new Size(670,95),ForeColor=ColorMuted});
+                var otherFaststart = new ThemeCheckBox {
+                    Name = "MP4_FASTSTART", Text = UiText("MP4 网页播放优化 (faststart)", "MP4 web playback optimization (faststart)"),
+                    Checked = config.GetBool("MP4_FASTSTART"), AutoSize = true, Location = new Point(24, 180)
+                };
+                var otherAutoPreview = new ThemeCheckBox {
+                    Name = "OUTPUT_PREVIEW_AUTO_OPEN", Text = UiText("编码时自动打开输出预览", "Open output preview automatically when encoding"),
+                    Checked = config.GetBool("OUTPUT_PREVIEW_AUTO_OPEN"), AutoSize = true, Location = new Point(24, 216)
+                };
+                otherPage.Controls.AddRange(new Control[] { otherFaststart, otherAutoPreview });
                 TabPage hdr = new AdvancedSettingsPage(selectedDarkTheme,"HDR");
                 tabs.Name="ADVANCED_TABS";enc.Name="ENCODER_AV1";hevcPage.Name="ENCODER_HEVC";h264Page.Name="ENCODER_H264";audioPage.Name="AUDIO_PAGE";
                 tabs.TabPages.Add(enc); tabs.TabPages.Add(hevcPage); tabs.TabPages.Add(h264Page); tabs.TabPages.Add(interp); tabs.TabPages.Add(hdr);tabs.TabPages.Add(audioPage);tabs.TabPages.Add(otherPage); dlg.Controls.Add(tabs);
@@ -1055,13 +1064,99 @@ namespace FilmGrainStudioPreview
                 Label hdrLabel = new ThemeLabel(); hdrLabel.Text = lang.T("advanced.hdr_policy"); hdrLabel.Location = new Point(28, 34); hdrLabel.Size = new Size(150, 24); hdr.Controls.Add(hdrLabel);
                 ComboBox hdrPolicy = new ThemeComboBox(); hdrPolicy.Name="HDR_POLICY"; hdrPolicy.DropDownStyle = ComboBoxStyle.DropDownList; hdrPolicy.Location = new Point(190, 30); hdrPolicy.Size = new Size(330, 26);
                 hdrPolicy.Items.Add(lang.T("advanced.hdr_auto")); hdrPolicy.Items.Add(lang.T("advanced.hdr_preserve")); hdrPolicy.Items.Add(lang.T("advanced.hdr_force_sdr")); hdrPolicy.SelectedIndex = string.Equals(config.Get("HDR_POLICY"), "PRESERVE", StringComparison.OrdinalIgnoreCase) ? 1 : (string.Equals(config.Get("HDR_POLICY"), "SDR", StringComparison.OrdinalIgnoreCase) ? 2 : 0); hdr.Controls.Add(hdrPolicy);
-                Label toneLabel = new ThemeLabel(); toneLabel.Text = "Tone Mapping"; toneLabel.Location = new Point(28, 82); toneLabel.Size = new Size(150, 24); hdr.Controls.Add(toneLabel);
+                Label toneLabel = new ThemeLabel(); toneLabel.Text = UiText("色调映射", "Tone mapping"); toneLabel.Location = new Point(28, 82); toneLabel.Size = new Size(150, 24); hdr.Controls.Add(toneLabel);
                 ComboBox tone = new ThemeComboBox(); tone.Name="TONE_MAP_ALGO"; tone.DropDownStyle = ComboBoxStyle.DropDownList; tone.Location = new Point(190, 78); tone.Size = new Size(220, 26);
                 tone.Items.Add(lang.T("advanced.hable")); tone.Items.Add("Mobius"); tone.Items.Add("Reinhard"); tone.Items.Add("Gamma"); tone.Items.Add("Linear"); tone.Items.Add("Clip");
-                string ta = config.Get("TONE_MAP_ALGO").ToLowerInvariant(); tone.SelectedIndex = ta == "mobius" ? 1 : (ta == "reinhard" ? 2 : (ta == "gamma" ? 3 : (ta == "linear" ? 4 : (ta == "clip" ? 5 : 0)))); hdr.Controls.Add(tone);
-                Label hdrInfo = new ThemeLabel(); hdrInfo.Location = new Point(28, 132); hdrInfo.Size = new Size(620, 150); hdrInfo.ForeColor = ColorMuted; hdrInfo.Text = lang.T("advanced.hdr_info"); hdr.Controls.Add(hdrInfo);
-                EventHandler updateHdr = delegate { bool enabled = hdrPolicy.SelectedIndex != 1; tone.Enabled = enabled; toneLabel.Enabled = enabled; };
-                hdrPolicy.SelectedIndexChanged += updateHdr; updateHdr(null, EventArgs.Empty);
+                string[] toneValues = HdrToneSettings.Algorithms;
+                int selectedTone = Array.IndexOf(toneValues, config.Get("TONE_MAP_ALGO").ToLowerInvariant());
+                tone.SelectedIndex = Math.Max(0, selectedTone);
+                hdr.Controls.Add(tone);
+
+                var toneEditor = new Panel { Location = new Point(28, 124), Size = new Size(518, HdrToneSettings.For("hable").Length * 34) };
+                var toneRows = new Panel[toneValues.Length];
+                var toneSliders = new TrackBar[toneValues.Length][];
+                for (int i = 0; i < toneValues.Length; i++) {
+                    string algorithm = toneValues[i];
+                    var definitions = HdrToneSettings.For(algorithm);
+                    var initial = HdrToneSettings.Read(algorithm, config.Get(HdrToneSettings.Key(algorithm)));
+                    var rows = new Panel { Dock = DockStyle.Fill, Visible = false };
+                    var sliders = new TrackBar[definitions.Length];
+                    toneRows[i] = rows;
+                    toneSliders[i] = sliders;
+                    toneEditor.Controls.Add(rows);
+                    for (int row = 0; row < definitions.Length; row++) {
+                        var field = definitions[row];
+                        int firstColorRow = definitions.Length - 2;
+                        int displayRow = row < firstColorRow ? row + 2 : row - firstColorRow;
+                        int y = displayRow * 34;
+                        string caption = UiText(field.Chinese, field.English);
+                        var label = new ThemeLabel { Text = caption, Location = new Point(0, y), Size = new Size(180, 26), TextAlign = ContentAlignment.MiddleLeft };
+                        var slider = new ThemeTrackBar { TabIndex = displayRow * 3, AutoSize = false, TickStyle = TickStyle.None,
+                            Minimum = field.Minimum, Maximum = field.Maximum, Value = initial[row], SmallChange = 1,
+                            LargeChange = Math.Max(1, (field.Maximum - field.Minimum) / 20),
+                            Location = new Point(182, y), Size = new Size(226, 26), AccessibleName = caption };
+                        decimal step = 1m / field.Scale;
+                        var number = new ThemeNumericUpDown { TabIndex = displayRow * 3 + 1, DecimalPlaces = field.Scale == 10 ? 1 : 2, Increment = step,
+                            Minimum = field.Minimum * step, Maximum = field.Maximum * step, Value = initial[row] * step,
+                            Location = new Point(414, y), Size = new Size(66, 26), TextAlign = HorizontalAlignment.Right, AccessibleName = caption };
+                        var reset = new ThemeButton { TabIndex = displayRow * 3 + 2, Text = "↺", Location = new Point(486, y), Size = new Size(26, 26),
+                            AccessibleName = UiText("重置 ", "Reset ") + caption };
+                        string tip = field.Option == "peak"
+                            ? UiText("0 = 自动读取信号峰值。", "0 = automatic signal peak.")
+                            : field.Option == "desat" ? UiText("0 = 关闭高光去饱和。", "0 = disable highlight desaturation.") : caption;
+                        if (field.Option == "contrast_recovery") tip = UiText("补回局部纹理，整体亮度变化通常很小。", "Restores local detail with little change to overall brightness.");
+                        if (field.Option == "saturation") tip = UiText("0 = 灰度，1 = 默认饱和度。", "0 = grayscale, 1 = default saturation.");
+                        if (field.Option == "brightness") tip = UiText("负值压暗，正值提亮，0 = 默认。", "Negative darkens, positive brightens, 0 = default.");
+                        interpTips.SetToolTip(slider, tip);
+                        interpTips.SetToolTip(number, tip);
+                        interpTips.SetToolTip(reset, reset.AccessibleName + " (" + field.Format(field.Default) + ")");
+                        slider.ValueChanged += delegate { number.Value = slider.Value * step; };
+                        number.ValueChanged += delegate {
+                            slider.Value = (int)Math.Round(number.Value / step, MidpointRounding.AwayFromZero);
+                        };
+                        reset.Click += delegate { slider.Value = field.Default; number.Value = field.Default * step; };
+                        sliders[row] = slider;
+                        rows.Controls.AddRange(new Control[] { label, slider, number, reset });
+                    }
+                }
+                hdr.Controls.Add(toneEditor);
+                var hdrInfo = new ThemeLabel {
+                    ForeColor = ColorMuted, UseMnemonic = false,
+                    Text = UiText(
+                        "自动优先保留 PQ / HLG。编码、颗粒或插帧组合需要 SDR 时会转换。显式保留遇到不兼容组合可能报错，实际路线见主界面 HDR 状态。\n" +
+                        "三种反交错可保留 HDR。OpenSVPFlow 支持符合条件的逐行 10-bit PQ / HLG；FRUC Vulkan 和 NVEncC AI 须通过高位深能力检测。\n" +
+                        "转 SDR 时才使用此处滑条。Hable 优先走 Vulkan，其余算法走 CPU。兼容的调色和 LUT 可保留 HDR；LUT 工坊和四档对照仍以 SDR 显示。",
+                        "Auto keeps PQ / HLG where possible and converts when the encode, grain or interpolation route requires SDR. Explicit Preserve can reject incompatible combinations. See the main HDR status.\n" +
+                        "All three deinterlacers can retain HDR. OpenSVPFlow supports eligible progressive 10-bit PQ / HLG. FRUC Vulkan and NVEncC AI require high-bit-depth support.\n" +
+                        "The sliders apply to HDR-to-SDR. Hable prefers Vulkan; the other algorithms use the CPU. Compatible grading and LUTs can retain HDR. LUT still previews display SDR.")
+                };
+                hdr.Controls.Add(hdrInfo);
+                EventHandler placeHdrInfo = delegate {
+                    int sliderBottom = tone.Bottom;
+                    if (hdrPolicy.SelectedIndex != 1 && tone.SelectedIndex >= 0)
+                        foreach (TrackBar slider in toneSliders[tone.SelectedIndex])
+                            sliderBottom = Math.Max(sliderBottom, toneEditor.Top + slider.Bottom);
+
+                    int left = toneEditor.Left;
+                    int width = Math.Max(1, hdr.ClientSize.Width - 2 * left);
+                    int textHeight = TextRenderer.MeasureText(hdrInfo.Text, hdrInfo.Font, new Size(width, int.MaxValue),
+                        TextFormatFlags.WordBreak | TextFormatFlags.TextBoxControl | TextFormatFlags.NoPrefix).Height;
+                    int available = Math.Max(0, hdr.ClientSize.Height - sliderBottom);
+                    int height = Math.Min(textHeight, available);
+                    hdrInfo.SetBounds(left, sliderBottom + (available - height) / 2, width, height);
+                };
+                hdr.ClientSizeChanged += placeHdrInfo;
+                hdr.VisibleChanged += placeHdrInfo;
+                hdrInfo.FontChanged += placeHdrInfo;
+                EventHandler updateHdr = delegate {
+                    bool enabled = hdrPolicy.SelectedIndex != 1;
+                    tone.Enabled = toneLabel.Enabled = enabled;
+                    for (int i = 0; i < toneRows.Length; i++) toneRows[i].Visible = enabled && i == tone.SelectedIndex;
+                    placeHdrInfo(null, EventArgs.Empty);
+                };
+                hdrPolicy.SelectedIndexChanged += updateHdr;
+                tone.SelectedIndexChanged += updateHdr;
+                updateHdr(null, EventArgs.Empty);
 
                 Button ok = new ThemeButton(); ok.Name="ADVANCED_OK";ok.Text = lang.T("advanced.ok"); ok.Location = new Point(554, 466); ok.Size = new Size(88, 30); dlg.Controls.Add(ok);
                 Button cancel = new ThemeButton(); cancel.Text = lang.T("advanced.cancel"); cancel.Location = new Point(650, 466); cancel.Size = new Size(88, 30); cancel.DialogResult = DialogResult.Cancel; dlg.Controls.Add(cancel);
@@ -1075,7 +1170,13 @@ namespace FilmGrainStudioPreview
                 Action resetSvp=delegate { svpSpeed.SelectedIndex=0;svpTuning.SelectedIndex=0;svpBlock.SelectedIndex=0;svpHdrBackend.SelectedIndex=0;algo.SelectedItem="13";analyse.SelectedIndex=0;mask.Value=100;svpFast.Checked=false;svpLean.Checked=false;dedup.Value=0;still.Checked=false;stillLimit.Value=4.5m;stillEdge.Value=5;stillTolerance.Value=30;peel.Checked=false;peelLimit.Value=6; };
                 Action resetFruc=delegate {frucPerf.SelectedIndex=1;frucGrid.SelectedIndex=0;};
                 Action resetAi=delegate {aiMode.SelectedIndex=1;};
-                Action resetHdr=delegate {hdrPolicy.SelectedIndex=0;tone.SelectedIndex=0;updateHdr(null,EventArgs.Empty);};
+                Action resetHdr=delegate {
+                    hdrPolicy.SelectedIndex = 0; tone.SelectedIndex = 0;
+                    for (int i = 0; i < toneValues.Length; i++) {
+                        var fields = HdrToneSettings.For(toneValues[i]);
+                        for (int j = 0; j < fields.Length; j++) toneSliders[i][j].Value = fields[j].Default;
+                    }
+                };
                 pageDefaults.Click += delegate {
                     if(quickScope!=null) {
                         if(quickScope=="SVP")resetSvp();else if(quickScope=="FRUC")resetFruc();else if(quickScope=="NVENC_AI")resetAi();else if(quickScope=="HDR")resetHdr();
@@ -1088,6 +1189,10 @@ namespace FilmGrainStudioPreview
                     else if(tabs.SelectedTab==audioPage){audioMode.SelectedIndex=0;audioRate.SelectedIndex=4;}
                     else if (tabs.SelectedTab == interp) { resetAi();resetSvp();resetFruc(); }
                     else if (tabs.SelectedTab == hdr) { resetHdr(); }
+                    else if (tabs.SelectedTab == otherPage) {
+                        otherFaststart.Checked = config.GetDefault("MP4_FASTSTART") == "true";
+                        otherAutoPreview.Checked = config.GetDefault("OUTPUT_PREVIEW_AUTO_OPEN") == "true";
+                    }
                 };
 
                 interpTips.InitialDelay = 500; interpTips.ReshowDelay = 100; interpTips.AutoPopDelay = 15000; interpTips.ShowAlways = true;
@@ -1166,6 +1271,10 @@ namespace FilmGrainStudioPreview
                     updates["AUDIO_MODE"]=audioModes[audioMode.SelectedIndex];updates["AUDIO_BITRATE"]=audioRates[audioRate.SelectedIndex];
 
                     updates["QUEUE_SKIP_FAILED"]=skipQueueFailed.Checked?"true":"false";
+                    if (quickScope == null) {
+                        updates["MP4_FASTSTART"] = otherFaststart.Checked ? "true" : "false";
+                        updates["OUTPUT_PREVIEW_AUTO_OPEN"] = otherAutoPreview.Checked ? "true" : "false";
+                    }
                     updates["SVP_ALGO"] = Convert.ToString(algo.SelectedItem, CultureInfo.InvariantCulture);
                     updates["SVP_ANALYSE"] = analyse.SelectedIndex == 1 ? "BASE" : "ENCODEGUI";
                     updates["SVP_MASK_AREA"] = ((int)mask.Value).ToString(CultureInfo.InvariantCulture);
@@ -1191,7 +1300,16 @@ namespace FilmGrainStudioPreview
                     }
                     updates["FRUC_GRID"] = Convert.ToString(frucGrid.SelectedItem, CultureInfo.InvariantCulture);
                     updates["HDR_POLICY"] = hdrPolicy.SelectedIndex == 1 ? "PRESERVE" : (hdrPolicy.SelectedIndex == 2 ? "SDR" : "AUTO");
-                    string[] toneValues = new string[] { "hable", "mobius", "reinhard", "gamma", "linear", "clip" }; updates["TONE_MAP_ALGO"] = toneValues[Math.Max(0, Math.Min(toneValues.Length - 1, tone.SelectedIndex))];
+                    updates["TONE_MAP_ALGO"] = toneValues[Math.Max(0, tone.SelectedIndex)];
+                    if (quickScope == null || quickScope == "HDR") {
+                        // Commit pending numeric edits before freezing the values in settings.
+                        dlg.ValidateChildren();
+                        for (int i = 0; i < toneValues.Length; i++) {
+                            var sliders = toneSliders[i];
+                            var values = Array.ConvertAll(sliders, slider => slider.Value);
+                            updates[HdrToneSettings.Key(toneValues[i])] = HdrToneSettings.Serialize(toneValues[i], values);
+                        }
+                    }
                     if(quickScope!=null)updates=ProcessingQuickSettingsPolicy.Select(quickScope,updates);
                     try
                     {
@@ -1205,8 +1323,8 @@ namespace FilmGrainStudioPreview
 
                 Panel quickSurface=null;
                 if(quickScope!=null) {
-                    int width=quickScope=="HDR"?430:356;
-                    int bodyHeight=quickScope=="SVP"?430:quickScope=="FRUC"?92:quickScope=="HDR"?96:quickScope=="NVENC_AI"?64:82;
+                    int width=quickScope=="HDR"?558:356;
+                    int bodyHeight=quickScope=="SVP"?430:quickScope=="FRUC"?92:quickScope=="HDR"?98+toneEditor.Height:quickScope=="NVENC_AI"?64:82;
                     quickSurface=new Panel {Name="PROCESSING_QUICK_SURFACE",Location=Point.Empty,Size=new Size(width,bodyHeight)};
                     quickSurface.SuspendLayout();
                     dlg.Name="PROCESSING_QUICK_DIALOG";
@@ -1216,7 +1334,7 @@ namespace FilmGrainStudioPreview
                     if(quickScope=="SVP")fields=new Control[]{algoLabel,algo,analyseLabel,analyse,maskLabel,mask,speedLabel,svpSpeed,tuningLabel,svpTuning,blockLabel,svpBlock,svpFast,svpLean,dedupLabel,dedup,still,stillLimitLabel,stillLimit,stillEdgeLabel,stillEdge,stillToleranceLabel,stillTolerance,peel,peelLimitLabel,peelLimit,svpHdrBackendLabel,svpHdrBackend};
                     else if(quickScope=="FRUC")fields=new Control[]{frucPerfLabel,frucPerf,frucGridLabel,frucGrid};
                     else if(quickScope=="NVENC_AI")fields=new Control[]{aiModeLabel,aiMode};
-                    else if(quickScope=="HDR")fields=new Control[]{hdrLabel,hdrPolicy,toneLabel,tone};
+                    else if(quickScope=="HDR")fields=new Control[]{hdrLabel,hdrPolicy,toneLabel,tone,toneEditor};
                     else fields=new Control[0];
                     foreach(Control field in fields) {
                         if(quickScope=="SVP")field.Location=new Point(field.Left+2,field.Top-22);
@@ -1228,6 +1346,7 @@ namespace FilmGrainStudioPreview
                     if(quickScope=="HDR") {
                         interpRow(hdrLabel,hdrPolicy,20,16);interpRow(toneLabel,tone,20,52);
                         hdrPolicy.Width=tone.Width=224;
+                        toneEditor.Location = new Point(20, 90);
                         setInterpTip(hdrPolicy,hdrLabel,hdrInfo.Text);
                         setInterpTip(tone,toneLabel,hdrInfo.Text);
                     }
@@ -1470,7 +1589,7 @@ namespace FilmGrainStudioPreview
                 bool keep=scope=="SVP"?pair.Key.StartsWith("SVP_",StringComparison.OrdinalIgnoreCase):
                     scope=="FRUC"?(pair.Key=="FRUC_PERF"||pair.Key=="FRUC_GRID"):
                     scope=="NVENC_AI"?pair.Key=="NVENC_AI_MODE":
-                    scope=="HDR"?(pair.Key=="HDR_POLICY"||pair.Key=="TONE_MAP_ALGO"):false;
+                    scope=="HDR"?(pair.Key=="HDR_POLICY"||pair.Key=="TONE_MAP_ALGO"||HdrToneSettings.IsValid(pair.Key,pair.Value)):false;
                 if(keep)selected.Add(pair.Key,pair.Value);
             }
             return selected;

@@ -121,6 +121,7 @@ namespace FilmGrainStudioPreview
 
         private readonly MediaProbeInfo hdrPreviewInfo;
         private readonly bool preserveHdrColor;
+        private readonly string previewToneSettings;
         private readonly string previewTonemap;
         private readonly string videoPath;
         private MediaProbeIdentity sourceIdentity;
@@ -229,12 +230,12 @@ namespace FilmGrainStudioPreview
             bool blackWhite,
             bool useLut,
             bool largeUi,
-            string languageCode, MediaProbeInfo mediaInfo = null, bool preserveHdr = false, string tonemap = "hable",FilmLutSettings filmSettings=null, string grade="", int matchStrength=35)
+            string languageCode, MediaProbeInfo mediaInfo = null, bool preserveHdr = false, string tonemap = "hable",FilmLutSettings filmSettings=null, string grade="", int matchStrength=35, string toneSettings="")
         {
             this.matchStrength = Math.Max(0,Math.Min(100,matchStrength));
             this.videoPath = videoPath;
             hdrPreviewInfo=mediaInfo!=null&&mediaInfo.IsHdr?mediaInfo:null;
-            preserveHdrColor=preserveHdr;previewTonemap=tonemap;
+            preserveHdrColor=preserveHdr;previewTonemap=tonemap; previewToneSettings=toneSettings;
             this.ffmpegPath = ffmpegPath;
             this.ffprobePath = ffprobePath;
             this.galleryAppRoot = galleryAppRoot;
@@ -1466,7 +1467,7 @@ namespace FilmGrainStudioPreview
             if(state.Zoom)prefix.Add("null");
             else prefix.Add("scale=" + previewWidth.ToString(CultureInfo.InvariantCulture) + ":" + previewHeight.ToString(CultureInfo.InvariantCulture) + ":force_original_aspect_ratio=decrease:force_divisible_by=2:flags=bilinear");
             bool gradeInHdr = hdrPreviewInfo!=null && preserveHdrColor;
-            if(hdrPreviewInfo!=null && !gradeInHdr)prefix.Add(HdrColorProcessingCore.DisplayToSdr(hdrPreviewInfo,previewTonemap));
+            if(hdrPreviewInfo!=null && !gradeInHdr)prefix.Add(HdrColorProcessingCore.DisplayToSdr(hdrPreviewInfo,previewTonemap,previewToneSettings));
             if (!state.Original && state.Enabled && gradeInHdr)
             {
                 var cc=new Dictionary<string,string>();cc["FG_COLOR_ENABLED"]="1";
@@ -1526,7 +1527,7 @@ namespace FilmGrainStudioPreview
                     filter += ",format=gbrp16le,split=2[lutorig][lutsrc];[lutsrc]lut3d=file='" + escaped + "':interp=tetrahedral[lutgraded];[lutgraded][lutorig]blend=all_mode=normal:all_opacity=" + opacity;
                 }
             }
-            if(gradeInHdr)filter+=","+HdrColorProcessingCore.DisplayToSdr(hdrPreviewInfo,previewTonemap);
+            if(gradeInHdr)filter+=","+HdrColorProcessingCore.DisplayToSdr(hdrPreviewInfo,previewTonemap,previewToneSettings);
             if(!state.Zoom)filter += ",pad=" + previewWidth.ToString(CultureInfo.InvariantCulture) + ":" + previewHeight.ToString(CultureInfo.InvariantCulture) + ":(ow-iw)/2:(oh-ih)/2:black";
 
             sourceIdentity.RequireCurrent();

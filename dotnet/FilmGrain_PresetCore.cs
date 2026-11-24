@@ -45,6 +45,9 @@ namespace FilmGrainStudioPreview
         internal static void ValidateConfig(string k,string v)
         {
             SafeText(v,k,128);
+            if(k.StartsWith("TONE_MAP_",StringComparison.Ordinal) && k.EndsWith("_OPTIONS",StringComparison.Ordinal)) {
+                Require(HdrToneSettings.IsValid(k,v),"无效参数: "+k);return;
+            }
             if(k.EndsWith("_CQ_AUTO")){Choice(v," true false",k);return;}
             if(k.EndsWith("_RATE_CONTROL")){Choice(v,"VBR CQ",k);return;}
             if(k.EndsWith("_CQ")){if(v!="AUTO")Number(v,1,k.Contains("AV1")||k.Contains("SVT")?63:51,k);return;}

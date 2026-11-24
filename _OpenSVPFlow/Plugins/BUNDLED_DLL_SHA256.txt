@@ -1,4 +1,4 @@
-Film Grain Studio v5.0.95 bundled OpenSVPFlow Windows DLL pair
+Film Grain Studio v5.0.96 bundled OpenSVPFlow Windows DLL pair
 Source: Z1xus/open-svpflow nightly-20261123-badc0debd33f x86_64-pc-windows-msvc.zip
 Archive SHA256: 64bc83d3773e9daaff33641a9e296ba9f8a95788a1a328140f098ad32b443883
 SHA-256 (lowercase):

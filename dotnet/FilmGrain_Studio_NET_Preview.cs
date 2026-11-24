@@ -107,8 +107,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.0.95";
-        internal const string FileReleaseVersion = "5.0.95.0";
+        internal const string ReleaseVersion = "5.0.96";
+        internal const string FileReleaseVersion = "5.0.96.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -4658,7 +4658,7 @@ namespace FilmGrainStudioPreview
             string video=GetPreviewVideoPath();MediaProbeInfo media=null;
             if(!string.IsNullOrEmpty(video))mediaProbeCache.TryGetValue(video,out media);
             if(string.IsNullOrEmpty(video)||media==null){FgsMessageBox.Show(this,UiText("请选择一个已完成探测的视频。","Select one fully probed video."));return;}
-            using(var window=new NativeLutStrengthPreviewForm(Path.Combine(config.Get("FFMPEG_DIR"),"ffmpeg.exe"),selectedLutPath,video,lang.Code,media,UsesHdrColorPreview(media),config.Get("TONE_MAP_ALGO"))) {
+            using(var window=new NativeLutStrengthPreviewForm(Path.Combine(config.Get("FFMPEG_DIR"),"ffmpeg.exe"),selectedLutPath,video,lang.Code,media,UsesHdrColorPreview(media),config.Get("TONE_MAP_ALGO"),config.Get(HdrToneSettings.Key(config.Get("TONE_MAP_ALGO"))))) {
                 AttachOwnedTheme(window,this,log);window.ShowDialog(this);
                 if(window.SelectedStrength>0){
                     try{lutSessionReference.Set(window.SelectedReference);}
@@ -4924,7 +4924,8 @@ namespace FilmGrainStudioPreview
                     chkLut.Checked && !string.IsNullOrEmpty(selectedLutPath),
                     config.GetBool("COLOR_PREVIEW_LARGE_UI"),
                     lang.Code, GetSelectedMediaInfo(), UsesHdrColorPreview(GetSelectedMediaInfo()), config.Get("TONE_MAP_ALGO"),
-                    selectedLutSource=="FilmLut"?activeFilmLutSettings:null, config.Get(ColorGrade.ConfigKey), config.GetInt("COLOR_MATCH_STRENGTH",35)))
+                    selectedLutSource=="FilmLut"?activeFilmLutSettings:null, config.Get(ColorGrade.ConfigKey), config.GetInt("COLOR_MATCH_STRENGTH",35),
+                    config.Get(HdrToneSettings.Key(config.Get("TONE_MAP_ALGO")))))
                 {
                     dlg.PrepareTheme(this);
                     if (dlg.ShowDialog(this) == DialogResult.OK && dlg.Result != null)

@@ -82,6 +82,7 @@ namespace FilmGrainStudioPreview
         public bool HevcTemporalAq;
         public string HdrPolicy = "";
         public string TonemapAlgo = "";
+        public string TonemapOptions = "";
         public string FilmBorderMode = "OFF";
         public string FilmBorderAmplitude="1",FilmBorderSpeed="1",FilmBorderFrequency="1";
         public string FilmBorderFocusX="0.5",FilmBorderFocusY="0.5",FilmBorderZoom="1";
@@ -228,6 +229,7 @@ namespace FilmGrainStudioPreview
             state["FG_HEVC_TEMPORAL_AQ"] = snapshot.HevcTemporalAq ? "1" : "0";
             state["FG_HDR_POLICY"] = snapshot.HdrPolicy;
             state["FG_TONEMAP_ALGO"] = snapshot.TonemapAlgo;
+            state["FG_TONEMAP_OPTIONS"] = snapshot.TonemapOptions;
             state["FG_FILM_BORDER_MODE"] = snapshot.FilmBorderMode;
             state["FG_FILM_BORDER_AMP"] = snapshot.FilmBorderAmplitude;
             state["FG_FILM_BORDER_SPEED"] = snapshot.FilmBorderSpeed;
@@ -801,10 +803,10 @@ namespace FilmGrainStudioPreview
             return "zscale=matrixin=gbr:matrix="+Matrix(info)+":rangein=pc:range="+Range(info)+
                 ",format=yuv420p10le"+SvtHdr10Core.ColorFilter(info);
         }
-        internal static string DisplayToSdr(MediaProbeInfo info,string tone)
+        internal static string DisplayToSdr(MediaProbeInfo info,string tone,string settings = "")
         {
             if(tone!="mobius"&&tone!="reinhard"&&tone!="gamma"&&tone!="linear"&&tone!="clip")tone="hable";
-            var args=SharedHdrPreprocessCore.BuildToSdr("preview-input","preview-output",info,tone,false);
+            var args=SharedHdrPreprocessCore.BuildTunedToSdr("preview-input","preview-output",info,tone,false,"",settings);
             return args[args.IndexOf("-vf")+1];
         }
         internal static void Notice(BridgeExecutionRequest request,MediaProbeInfo info,System.Collections.Generic.IDictionary<string,string> state,bool preserve)

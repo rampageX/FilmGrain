@@ -182,6 +182,7 @@ namespace FilmGrainStudioPreview
             snapshot.HevcTemporalAq = string.Equals(config.EncoderAq(mode, true), "true", StringComparison.OrdinalIgnoreCase);
             snapshot.HdrPolicy = config.Get("HDR_POLICY");
             snapshot.TonemapAlgo = config.Get("TONE_MAP_ALGO");
+            snapshot.TonemapOptions = config.Get(HdrToneSettings.Key(snapshot.TonemapAlgo));
             snapshot.FilmBorderMode = config.Get("FILM_BORDER_MODE");
             snapshot.FilmBorderAmplitude=config.Get(FilmBorderMotionCore.AmpKey);
             snapshot.FilmBorderSpeed=config.Get(FilmBorderMotionCore.SpeedKey);

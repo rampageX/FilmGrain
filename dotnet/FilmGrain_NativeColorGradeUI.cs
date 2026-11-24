@@ -445,7 +445,7 @@ namespace FilmGrainStudioPreview
             string filter="scale=40:40:flags=area";
             if(video&&hdrPreviewInfo!=null)
             {
-                if(signal==GradeSignal.Bt709)filter=HdrColorProcessingCore.DisplayToSdr(hdrPreviewInfo,previewTonemap)+","+filter;
+                if(signal==GradeSignal.Bt709)filter=HdrColorProcessingCore.DisplayToSdr(hdrPreviewInfo,previewTonemap,previewToneSettings)+","+filter;
                 else
                 {
                     filter+=","+HdrColorProcessingCore.RgbInput(hdrPreviewInfo);

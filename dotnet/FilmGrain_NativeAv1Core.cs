@@ -50,6 +50,7 @@ namespace FilmGrainStudioPreview
 
             string tonemap = Get(state, "FG_TONEMAP_ALGO").ToLowerInvariant();
             if (tonemap != "mobius" && tonemap != "reinhard" && tonemap != "gamma" && tonemap != "linear" && tonemap != "clip") tonemap = "hable";
+            string toneSettings = Get(state, "FG_TONEMAP_OPTIONS");
             string tonemapLabel = char.ToUpperInvariant(tonemap[0]) + tonemap.Substring(1);
             if (info.Width <= 0 || info.Height <= 0) { reason = "invalid dimensions"; return false; }
             bool deinterlace = info.IsInterlaced && Eq(state, "FG_DEINTERLACE", "AUTO");
@@ -397,15 +398,15 @@ namespace FilmGrainStudioPreview
             
             int totalStages = preStages + encodeStages;
             List<BridgeExecutionStage> directStages = new List<BridgeExecutionStage>();
-            if (needsHdrWorkfile || separateDeint) directStages.Add(Stage(ffmpeg, tempRoot, hdrToSdr ? SharedHdrPreprocessCore.BuildToSdr(input,hdrWorkfile,info,tonemap,fieldWorkfile || hdrOffSdr,fieldWorkfile?fieldFilter:"") : SharedHdrPreprocessCore.BuildDeinterlaced(input,hdrWorkfile,info,fieldFilter), duration, 1, totalStages, hdrToSdr ? "HDR 转 SDR / " + tonemapLabel : "Shared field deinterlace / separate Vulkan device"));
-            if(needsHdrWorkfile)SharedHdrPreprocessCore.AttachAutomatic(directStages[directStages.Count-1],tonemap);
+            if (needsHdrWorkfile || separateDeint) directStages.Add(Stage(ffmpeg, tempRoot, hdrToSdr ? SharedHdrPreprocessCore.BuildTunedToSdr(input,hdrWorkfile,info,tonemap,fieldWorkfile || hdrOffSdr,fieldWorkfile?fieldFilter:"",toneSettings) : SharedHdrPreprocessCore.BuildDeinterlaced(input,hdrWorkfile,info,fieldFilter), duration, 1, totalStages, hdrToSdr ? "HDR 转 SDR / " + tonemapLabel : "Shared field deinterlace / separate Vulkan device"));
+            if(needsHdrWorkfile)SharedHdrPreprocessCore.AttachTunedAutomatic(directStages[directStages.Count-1],tonemap,settings:toneSettings);
             if (fruc && !directFruc)
             {
                 BridgeExecutionStage preprocess = SharedFrucCore.CreateVideoPreprocess(frucFfmpeg, ffprobe, frucInput, frucWorkfile,
                     tempRoot, fpsText, frucPerf, frucGrid, duration, needsHdrWorkfile ? 2 : 1, totalStages, hdrPreserve);
                 preprocess.FrucTimelineReferenceInput = input;
                 if(hdrPreserve) request.ExecutionNotice = SharedFrucCore.HdrNotice;
-                if(mergedFrucHdr)SharedHdrPreprocessCore.AttachMergedFruc(preprocess,input,info,tonemap,caps.GpuName);
+                if(mergedFrucHdr)SharedHdrPreprocessCore.AttachMergedFruc(preprocess,input,info,tonemap,caps.GpuName,settings:toneSettings);
                 directStages.Add(preprocess);
             }
             if (svp && !directSvp && !directNvencAi)
@@ -460,7 +461,7 @@ namespace FilmGrainStudioPreview
                 if (streamSdrSvp)
                 {
                     stage.PipeProducerArguments="--requests 1 --arg hdr_sdr_pipe=1 "+stage.PipeProducerArguments;
-                    SharedHdrPreprocessCore.AttachSdrPipeInput(stage,input,info,tonemap,true);
+                    SharedHdrPreprocessCore.AttachSdrPipeInput(stage,input,info,tonemap,true,settings:toneSettings);
                 }
                 stage.StageText+=" / OpenSVPFlow direct Y4M, no FFV1";
                 request.ExecutionNotice="[AV1 route] OpenSVPFlow Y4M direct to AV1; no FFV1; IVF/grain/remux retained; original final A/V clock adapter retained.";
@@ -475,7 +476,7 @@ namespace FilmGrainStudioPreview
                     var producer = HardwareDecodeCore.SplitArguments(stage.PipeProducerArguments);
                     producer[producer.IndexOf("-i")+1] = "-";
                     stage.PipeProducerArguments = SharedFrucCore.JoinArguments(producer);
-                    SharedHdrPreprocessCore.AttachSdrPipeInput(stage,input,info,tonemap);
+                    SharedHdrPreprocessCore.AttachSdrPipeInput(stage,input,info,tonemap,settings:toneSettings);
                 }
                 stage.StageText+=" / NVEncC AI direct NUT, no FFV1";
                 request.ExecutionNotice="[AV1 route] NVEncC AI NUT direct to AV1; no FFV1; IVF/grain/remux retained; original final A/V clock adapter retained.";
@@ -503,7 +504,7 @@ namespace FilmGrainStudioPreview
             }
 
             if(mergedHdr) {
-                SharedHdrPreprocessCore.AttachMergedEncode(directStages[preStages],ffprobe,input,info,tonemap,caps.GpuName,true,!mergedFields && Eq(state,"FG_FPS_MODE","SOURCE"),mergedFields?fieldFilter:"");
+                SharedHdrPreprocessCore.AttachMergedEncode(directStages[preStages],ffprobe,input,info,tonemap,caps.GpuName,true,!mergedFields && Eq(state,"FG_FPS_MODE","SOURCE"),mergedFields?fieldFilter:"",settings:toneSettings);
                 directStages[preStages].StageText+=" / HDR merged";
             }
             if((fieldWorkfile && !mergedFields) || separateDeint || hdrOffSdr)SharedHdrPreprocessCore.AttachFieldValidation(directStages[preStages],ffprobe,hdrWorkfile,info,hdrToSdr,!hdrOffSdr);

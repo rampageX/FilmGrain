@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.0.95 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.96 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 <table>
   <tr>
@@ -256,7 +256,7 @@ FilmGrain_Studio.exe
 2. 编码家族选择 AV1、HEVC 或 H264；勾选 CPU 使用 SVT-AV1-HDR、x265 或 x264；颗粒方式在下方独立选择。
 3. 按需勾选或关闭“启用颗粒”，设置输出容器、码率、输出帧率和反交错方式。
 4. 按需启用 Cinematic Style、LUT、字幕、OpenSVPFlow / FRUC Vulkan、HDR 处理等功能。
-5. 点击“开始编码”。右键“开始编码”可设置“MP4 网页播放优化 (faststart)”：默认关闭，全局记忆；启用时仅为 MP4 成品添加 `-movflags +faststart`，方便网页渐进式播放，但大文件会增加封装读写时间。MKV 不受影响。
+5. 点击“开始编码”。右键“开始编码”或打开「高级 → 其它」可设置“MP4 网页播放优化 (faststart)”：默认关闭，全局记忆；启用时仅为 MP4 成品添加 `-movflags +faststart`，方便网页渐进式播放，但大文件会增加封装读写时间。MKV 不受影响。
 6. 在任务区查看当前阶段、进度、`fps`、`speed`、`ETA` 与完整日志；Task Log 会单独保存，便于定位单次任务问题。
 
 文件列表的长文件名按实际列宽在中间显示 `...`，保留开头和更多末尾文字，便于辨认版本号及扩展名；加宽窗口／列时自动显示更多内容。完整名称、排序依据和完整路径保持，悬停仍使用原完整路径提示。
@@ -738,6 +738,8 @@ AV1／HEVC 的逐行 HDR 保留路线支持 FRUC Vulkan：插帧输入和输出�
 
 自动模式下，兼容 HDR/HLG 的反交错与逐行高位深 OpenSVPFlow 不执行 Tone Mapping；不兼容的 x264/H.264、CPU FGSIM 或 SDR-only 插帧路线先转换为 BT.709 SDR。即使显式选择「保持 HDR」，当前输出组合必须使用 SDR 时也自动切换并记录原因。HLG + OpenSVPFlow 是待实测实验路线，不能视为已验证。
 
+在 HDR 快捷设置或「高级 → HDR」中可为每种色调映射算法单独保存亮度、饱和度及其他调节值。滑条右侧可单项复位，亮度默认 0，饱和度默认 1。滑条仅在 HDR→SDR 时生效。
+
 Tone Mapping 默认使用 **Hable**，还可选择：
 
 ```text
@@ -906,7 +908,7 @@ HDR10 渲染选 CPU10 时，完整和快捷高级设置均自动取消并禁用�
 
 所有新选项默认关闭，保留既有插帧参数。dedup 不重建逐帧时间戳，不是 VFR 或音画同步修复；也不能处理任意连续重复帧。普通 SDR 仍为 YUV420P8/SmoothFps；逐行 HDR10 与符合条件的 HLG 可选 CPU10/GPU16 高位深路径，其它 HDR、隔行旁路及 FRUC 仍按实际能力处理。FGS 私有 VapourSynth 环境首次安装即为 R82 / BestSource 21.0；高级设置与 OpenSVPFlow 快捷设置都可检查更新，显示本地和远程版本并在确认后更新。选择「重建运行环境」可用 FGS 独立 Python 重新创建虚拟环境和私有配置，失败时恢复先前备份。
 
-v5.0.95 携带已验证 HDR 插帧修复的 `nightly-20261123-badc0debd33f` 两只插件 DLL，实际 SHA-256 见 [_OpenSVPFlow/Plugins/BUNDLED_DLL_SHA256.txt](_OpenSVPFlow/Plugins/BUNDLED_DLL_SHA256.txt)。原配套插件已取消对固定 DLL 哈希的运行门槛；后续如再次在线更新，必须成对更新并通过 CPU/GPU/HDR 自检，不保证新构建在所有素材上与本次测试配对表现相同。
+v5.0.96 携带已验证 HDR 插帧修复的 `nightly-20261123-badc0debd33f` 两只插件 DLL，实际 SHA-256 见 [_OpenSVPFlow/Plugins/BUNDLED_DLL_SHA256.txt](_OpenSVPFlow/Plugins/BUNDLED_DLL_SHA256.txt)。原配套插件已取消对固定 DLL 哈希的运行门槛；后续如再次在线更新，必须成对更新并通过 CPU/GPU/HDR 自检，不保证新构建在所有素材上与本次测试配对表现相同。
 
 ### FRUC Vulkan
 
@@ -927,7 +929,7 @@ FGS 的 auto 采用速度优先策略：检测当前设备支持集合后，选�
 
 ## 输出实时预览
 
-默认在开始编码时自动打开独立窗口。右键「输出预览」可关闭自动打开，也可随时左键打开。关闭自动打开且启动队列时窗口未打开，普通 MP4 在封装完成后出画，MKV 仍可读正在写入的成片。窗口独立取样并比较原片与编码输出。默认用滑动分割线，按空格切换左右并排，方向键可移动分割线。编码中的 MKV 从输出文件取帧。普通 MP4 同时将已编码的视频包写入同目录临时 MKV，供预览取帧，任务结束后清理。需要单独合成颗粒或重封装的路线在最终输出阶段开始预览。两侧分别按各自的场序和色彩标记取帧。隔行先反交错，PQ／HLG 转为 SDR 显示。
+默认在开始编码时自动打开独立窗口。右键「输出预览」或打开「高级 → 其它」可关闭自动打开。左键可随时打开预览。关闭自动打开且启动队列时窗口未打开，普通 MP4 在封装完成后出画，MKV 仍可读正在写入的成片。窗口独立取样并比较原片与编码输出。默认用滑动分割线，按空格切换左右并排，方向键可移动分割线。编码中的 MKV 从输出文件取帧。普通 MP4 同时将已编码的视频包写入同目录临时 MKV，供预览取帧，任务结束后清理。需要单独合成颗粒或重封装的路线在最终输出阶段开始预览。两侧分别按各自的场序和色彩标记取帧。隔行先反交错，PQ／HLG 转为 SDR 显示。
 
 ## 色彩纠正与 LUT 实时预览
 
