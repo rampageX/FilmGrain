@@ -144,7 +144,12 @@ internal static class CommandAudit
         Field(source, "ColorTransfer", "bt709");
         Field(source, "FieldOrder", "progressive");
         Field(source, "PixelFormat", "yuv420p10le");
-        Require(queueItem.Invoke(options, new[] { source }) == null, "Queue skips unsupported progressive SDR");
+        var directTask = queueItem.Invoke(options, new[] { source });
+        Require(directTask != null && !(bool)options.GetType().GetProperty("AiInterpolation").GetValue(directTask, null),
+            "Queue converts high-bit-depth progressive SDR directly");
+        var direct = (IList<string>)build.Invoke(null, new[] { input, output, directTask, source, invoke[4] });
+        Require(Option(direct, "-i") == input && direct.Contains("--vpp-ngx-truehdr") &&
+            !direct.Contains("--vpp-yadif") && !direct.Contains("--vpp-nvvfx-framegen"), "Direct queue route");
         Set(options, "PreviewStart", "bad");
         RequireRejected(build, invoke, "Invalid preview timestamp");
         Set(options, "PreviewSeconds", 0);

@@ -77,11 +77,11 @@ namespace FilmGrainStudioPreview
                 var pending = PendingQueueInputs();
                 bool hasQueue = listFiles.Items.Count > 1;
                 var ai = new ThemeCheckBox { Name = "TRUEHDR_AI", Text = UiText("AI 插帧 2×", "AI interpolation 2×"),
-                    Location = new Point(160, 581), Size = new Size(150, 28), Enabled = TrueHdrCore.CanInterpolate(source) };
+                    Location = new Point(125, 581), Size = new Size(140, 28), Enabled = TrueHdrCore.CanInterpolate(source) };
                 ai.Checked = ai.Enabled && options.AiInterpolation;
                 tips.SetToolTip(ai, UiText("逐行 8-bit 4:2:0 SDR，最低 640×360。成片和预览编码启用插帧；实时画面用于检查颜色。",
                     "Progressive 8-bit 4:2:0 SDR, at least 640×360. Applies to encoding and clip preview; live stills are for color."));
-                var route = new ThemeLabel { Name = "TRUEHDR_ROUTE", Location = new Point(304, 584), Size = new Size(184, 21), AutoEllipsis = true };
+                var route = new ThemeLabel { Name = "TRUEHDR_ROUTE", Location = new Point(269, 581), Size = new Size(216, 28), TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true };
                 settings.Controls.AddRange(new Control[] { ai, route });
                 Action updateRate = delegate {
                     bool batchRoute = hasQueue;
@@ -89,7 +89,7 @@ namespace FilmGrainStudioPreview
                     ai.Enabled = !batchRoute && TrueHdrCore.CanInterpolate(source);
                     string processing = source.IsInterlaced ? UiText("反交错 · CUDA Bob 2×", "Deinterlace · CUDA Bob 2×") :
                         useAi ? UiText("插帧 · NVEncC AI 2×", "NVEncC AI 2×") : UiText("直接转换", "Direct conversion");
-                    route.Text = batchRoute && !source.IsInterlaced && !useAi ? UiText("当前素材将跳过", "Current source skipped") : processing + " → HDR";
+                    route.Text = processing + " → HDR";
                     tips.SetToolTip(route, route.Text);
                     target.Enabled = !auto.Checked;
                     if (!auto.Checked) return;
@@ -171,7 +171,7 @@ namespace FilmGrainStudioPreview
                 showEditor();
 
                 var live = new ThemeCheckBox { Name = "TRUEHDR_LIVE", Checked = true, Text = UiText("实时画面", "Live preview"),
-                    Location = new Point(16, 581), Size = new Size(140, 28) };
+                    Location = new Point(16, 581), Size = new Size(108, 28) };
                 var screen = new OutputComparisonCanvas(UiText("原片", "Original"), "TrueHDR") { Name = "TRUEHDR_LIVE_FRAME",
                     SampleAspect = CinematicCropGeometry.SampleAspect(source),
                     Location = new Point(12, 12), Size = new Size(800, 500) };
@@ -266,8 +266,8 @@ namespace FilmGrainStudioPreview
                 };
                 preview.CheckedChanged += delegate { updateStartLabel(); };
                 updateStartLabel();
-                if (hasQueue) tips.SetToolTip(begin, UiText("队列使用当前统一配置。HDR 跳过，隔行 Bob，符合条件的逐行 SDR 用 AI 2×。预览编码对每个待处理素材使用同一截取范围。",
-                    "Queue uses these shared settings. Skip HDR, Bob interlaced SDR, AI 2× for eligible progressive SDR. Clip preview applies the same range to every pending source."));
+                if (hasQueue) tips.SetToolTip(begin, UiText("队列使用当前统一配置。HDR 跳过，隔行 Bob，符合条件的逐行 SDR 用 AI 2×，其余可转换 SDR 直接转 HDR。预览编码对每个待处理素材使用同一截取范围。",
+                    "Queue uses these shared settings. Skip HDR, Bob interlaced SDR, AI 2× for eligible progressive SDR, direct conversion for other supported SDR. Clip preview applies the same range to every pending source."));
 
                 begin.Click += delegate {
                     bool tracking = false;

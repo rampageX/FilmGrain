@@ -37,9 +37,9 @@ namespace FilmGrainStudioPreview
 
         internal TrueHdrOptions ForQueueItem(MediaProbeInfo source)
         {
-            if (!TrueHdrCore.Eligible(source) || (!source.IsInterlaced && !TrueHdrCore.CanInterpolate(source))) return null;
+            if (!TrueHdrCore.Eligible(source)) return null;
             var item = (TrueHdrOptions)MemberwiseClone();
-            item.AiInterpolation = !source.IsInterlaced;
+            item.AiInterpolation = TrueHdrCore.CanInterpolate(source);
             return item;
         }
 
