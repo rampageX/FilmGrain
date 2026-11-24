@@ -215,7 +215,12 @@ namespace FilmGrainStudioPreview
         {
             return Eligible(source) && !source.IsInterlaced && Math.Min(source.Width, source.Height) >= 360 &&
                 Math.Max(source.Width, source.Height) >= 640 &&
-                (source.PixelFormat == "yuv420p" || source.PixelFormat == "yuvj420p");
+                (source.PixelFormat == "yuv420p" || source.PixelFormat == "yuvj420p" || DownconvertsForAi(source));
+        }
+
+        internal static bool DownconvertsForAi(MediaProbeInfo source)
+        {
+            return source.PixelFormat == "yuv420p10le" || source.PixelFormat == "p010le";
         }
 
         private static void AddPreviewRange(List<string> args, TrueHdrOptions options)
@@ -233,7 +238,7 @@ namespace FilmGrainStudioPreview
         internal static List<string> InterpolationArguments(string input, TrueHdrOptions options, MediaProbeInfo source)
         {
             if (!CanInterpolate(source))
-                throw new InvalidDataException("AI 插帧需要至少 640×360 的逐行 8-bit 4:2:0 SDR。 / AI interpolation requires progressive 8-bit 4:2:0 SDR, at least 640×360.");
+                throw new InvalidDataException("AI 插帧需要至少 640×360 的逐行 8/10-bit 4:2:0 SDR。 / AI interpolation requires progressive 8/10-bit 4:2:0 SDR, at least 640×360.");
             var args = new List<string> { "--avsw", "--video-track", "1", "--avsync", "vfr", "--log-opt", "color=off",
                 "-i", input, "--vpp-nvvfx-framegen", "mode=medium,multiplier=2,autoshotchange=true",
                 "--codec", "raw", "--output-depth", "8", "--output-csp", "yuv420",
@@ -382,7 +387,8 @@ namespace FilmGrainStudioPreview
                 BeforeRunPreparation = delegate {
                     RequireFilters(exe, options.AiInterpolation);
                     AudioOutputCore.EstimateMissing(input, probe, source, audio);
-                    return "[TrueHDR] NGX and codec capability are validated by NVEncC initialization on the selected input.";
+                    return (options.AiInterpolation && DownconvertsForAi(source) ? "[TrueHDR] AI VFG: 10-bit SDR → 8-bit SDR before interpolation." + Environment.NewLine : "") +
+                        "[TrueHDR] NGX and codec capability are validated by NVEncC initialization on the selected input.";
                 }
             };
             if (options.AiInterpolation)

@@ -67,7 +67,7 @@ namespace FilmGrainStudioPreview
             return videoLine + Environment.NewLine + audioLine + Environment.NewLine + formatLine;
         }
 
-        private static string FormatVideoBitDepth(MediaProbeInfo info)
+        internal static string FormatVideoBitDepth(MediaProbeInfo info)
         {
             // FFprobe often omits bits_per_raw_sample for AV1/HEVC; the decoded
             // pixel format is the more reliable source when it is recognizable.

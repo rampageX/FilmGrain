@@ -79,8 +79,8 @@ namespace FilmGrainStudioPreview
                 var ai = new ThemeCheckBox { Name = "TRUEHDR_AI", Text = UiText("AI 插帧 2×", "AI interpolation 2×"),
                     Location = new Point(125, 581), Size = new Size(140, 28), Enabled = TrueHdrCore.CanInterpolate(source) };
                 ai.Checked = ai.Enabled && options.AiInterpolation;
-                tips.SetToolTip(ai, UiText("逐行 8-bit 4:2:0 SDR，最低 640×360。成片和预览编码启用插帧；实时画面用于检查颜色。",
-                    "Progressive 8-bit 4:2:0 SDR, at least 640×360. Applies to encoding and clip preview; live stills are for color."));
+                tips.SetToolTip(ai, UiText("逐行 8/10-bit 4:2:0 SDR，最低 640×360。10-bit 先降至 8-bit。成片和预览编码启用插帧；实时画面用于检查颜色。",
+                    "Progressive 8/10-bit 4:2:0 SDR, at least 640×360. 10-bit is reduced to 8-bit. Applies to encoding and clip preview; live stills are for color."));
                 var route = new ThemeLabel { Name = "TRUEHDR_ROUTE", Location = new Point(269, 581), Size = new Size(216, 28), TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true };
                 settings.Controls.AddRange(new Control[] { ai, route });
                 Action updateRate = delegate {
@@ -179,7 +179,16 @@ namespace FilmGrainStudioPreview
                 double.TryParse(source.Duration, NumberStyles.Float, CultureInfo.InvariantCulture, out mediaLength);
                 var seek = new NativeSeekStrip { Location = new Point(12, 522), Width = 493,
                     Duration = Math.Max(0, mediaLength - 1), Enabled = mediaLength > 1 };
-                var displayStatus = new ThemeLabel { Location = new Point(12, 557), Size = new Size(800, 42), AutoEllipsis = true };
+                var displayStatus = new ThemeLabel { Location = new Point(12, 557), Size = new Size(800, 36), AutoEllipsis = true };
+                var sourceDepth = new ThemeLabel { Name = "TRUEHDR_SOURCE_DEPTH", Location = new Point(12, 594), Size = new Size(270, 20),
+                    TextAlign = ContentAlignment.MiddleLeft };
+                Action updateDepth = delegate {
+                    bool converts = TrueHdrCore.CanInterpolate(source) && (hasQueue || ai.Checked) && TrueHdrCore.DownconvertsForAi(source);
+                    sourceDepth.Text = UiText("源位深：", "Source depth: ") + (converts ? "10-bit → 8-bit" : MediaSummaryCore.FormatVideoBitDepth(source));
+                    sourceDepth.ForeColor = converts ? (selectedDarkTheme ? Color.Orange : Color.FromArgb(168, 79, 0)) :
+                        (selectedDarkTheme ? UiTheme.TextColor : SystemColors.ControlText);
+                };
+                ai.CheckedChanged += delegate { updateDepth(); };
                 var view = new ThemeComboBox { Location = new Point(513, 521), Size = new Size(150, 26),
                     DropDownStyle = ComboBoxStyle.DropDownList };
                 view.Items.AddRange(new object[] { UiText("单张", "Single"), UiText("并排", "Side by side"), UiText("滑动比较", "Split") });
@@ -205,7 +214,7 @@ namespace FilmGrainStudioPreview
                 zoom.Click += delegate { toggleZoom(); };
                 screen.DoubleClick += delegate { toggleZoom(); };
                 settings.Controls.Add(live);
-                dlg.Controls.AddRange(new Control[] { screen, seek, displayStatus, view, zoom, scale });
+                dlg.Controls.AddRange(new Control[] { screen, seek, displayStatus, sourceDepth, view, zoom, scale });
                 CancellationTokenSource render = null;
                 int revision = 0;
                 Action schedule = delegate {
@@ -369,7 +378,7 @@ namespace FilmGrainStudioPreview
                 dlg.CancelButton = cancel;
                 AttachThemeWindow(dlg);
                 dlg.ResumeLayout(true);
-                dlg.Shown += delegate { dlg.Refresh(); dlg.Opacity = 1; schedule(); };
+                dlg.Shown += delegate { updateDepth(); dlg.Refresh(); dlg.Opacity = 1; schedule(); };
                 dlg.ShowDialog(this);
             }
         }

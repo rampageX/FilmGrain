@@ -123,7 +123,9 @@ internal static class CommandAudit
         RequireRejected(producer, producerArgs, "AI producer excludes Bob");
         Field(source, "FieldOrder", "progressive");
         Field(source, "PixelFormat", "yuv420p10le");
-        RequireRejected(producer, producerArgs, "AI producer excludes high-bit-depth SDR");
+        var downconverted = (IList<string>)producer.Invoke(null, producerArgs);
+        Require(Option(downconverted, "--output-depth") == "8" &&
+            Option(downconverted, "--vpp-nvvfx-framegen").Contains("multiplier=2"), "10-bit SDR produces 8-bit AI 2x stream");
         Set(options, "AiInterpolation", false);
         var queueItem = options.GetType().GetMethod("ForQueueItem", Flags);
         Field(source, "PixelFormat", "yuv420p");
@@ -144,12 +146,13 @@ internal static class CommandAudit
         Field(source, "ColorTransfer", "bt709");
         Field(source, "FieldOrder", "progressive");
         Field(source, "PixelFormat", "yuv420p10le");
+        var tenBitTask = queueItem.Invoke(options, new[] { source });
+        Require(tenBitTask != null && (bool)options.GetType().GetProperty("AiInterpolation").GetValue(tenBitTask, null),
+            "Queue picks AI for 10-bit progressive SDR");
+        Field(source, "PixelFormat", "yuv420p12le");
         var directTask = queueItem.Invoke(options, new[] { source });
         Require(directTask != null && !(bool)options.GetType().GetProperty("AiInterpolation").GetValue(directTask, null),
-            "Queue converts high-bit-depth progressive SDR directly");
-        var direct = (IList<string>)build.Invoke(null, new[] { input, output, directTask, source, invoke[4] });
-        Require(Option(direct, "-i") == input && direct.Contains("--vpp-ngx-truehdr") &&
-            !direct.Contains("--vpp-yadif") && !direct.Contains("--vpp-nvvfx-framegen"), "Direct queue route");
+            "Queue converts 12-bit progressive SDR directly");
         Set(options, "PreviewStart", "bad");
         RequireRejected(build, invoke, "Invalid preview timestamp");
         Set(options, "PreviewSeconds", 0);
