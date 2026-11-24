@@ -146,13 +146,32 @@ namespace FilmGrainStudioPreview
             finally { try { Directory.Delete(directory, true); } catch (IOException) { } catch (UnauthorizedAccessException) { } }
         }
 
+        internal static int LiveFrameRetryBudget(string log)
+        {
+            var match = Regex.Match(log, @"all frames in the trim range are before the first keyframe and cannot be decoded \(offset (\d+)\)");
+            int offset;
+            return match.Success && int.TryParse(match.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out offset)
+                && offset > 0 && offset < 1000000 ? offset + 1 : 0;
+        }
+
         private static void RunLiveFrameTool(string executable, IList<string> args, CancellationToken token)
         {
             if (!File.Exists(executable)) throw new FileNotFoundException("Preview tool missing", executable);
             var log = new System.Text.StringBuilder();
-            int exit = NativeLibraryTools.RunProcessEnvironment(executable, args, Path.GetDirectoryName(executable),
-                null, 20000, token, delegate(string line) { lock (log) if (log.Length < 16384) log.AppendLine(line); });
-            if (exit != 0) throw new IOException(Path.GetFileName(executable) + " exit=" + Number(exit) + "\n" + log);
+            var attempt = new List<string>(args);
+            for (int n = 0; ; n++)
+            {
+                log.Clear();
+                int exit = NativeLibraryTools.RunProcessEnvironment(executable, attempt, Path.GetDirectoryName(executable),
+                    null, 20000, token, delegate(string line) { lock (log) if (log.Length < 16384) log.AppendLine(line); });
+                if (exit == 0) return;
+                int budget = n == 0 ? LiveFrameRetryBudget(log.ToString()) : 0;
+                int frameOption = attempt.IndexOf("--frames");
+                if (budget == 0 || frameOption < 0)
+                    throw new IOException(Path.GetFileName(executable) + " exit=" + Number(exit) + "\n" + log);
+                // The avsw reader subtracts this offset from the trim range after finding the keyframe.
+                attempt[frameOption + 1] = Number(budget);
+            }
         }
 
         internal static List<string> Arguments(string input, string output, TrueHdrOptions options,

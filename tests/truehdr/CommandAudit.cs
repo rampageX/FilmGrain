@@ -23,6 +23,9 @@ internal static class CommandAudit
         var options = Activator.CreateInstance(assembly.GetType("FilmGrainStudioPreview.TrueHdrOptions", true));
         var source = Activator.CreateInstance(assembly.GetType("FilmGrainStudioPreview.MediaProbeInfo", true));
         var build = core.GetMethod("Arguments", Flags);
+        var retry = core.GetMethod("LiveFrameRetryBudget", Flags);
+        Require((int)retry.Invoke(null, new object[] { "avsw: all frames in the trim range are before the first keyframe and cannot be decoded (offset 119)." }) == 120, "NVEncC keyframe retry");
+        Require((int)retry.Invoke(null, new object[] { "failed to initialize file reader(s)." }) == 0, "Unrelated NVEncC errors are not retried");
         var frames = assembly.GetType("FilmGrainStudioPreview.TrueHdrPreviewFrames", true);
         double white = (double)frames.GetMethod("PqToNits", Flags).Invoke(null, new object[] { 1.0 });
         Require(Math.Abs(white - 10000) < 0.001, "ST 2084 white level");
