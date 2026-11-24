@@ -344,7 +344,7 @@ namespace FilmGrainStudioPreview
                     options.PreviewSeconds < 1 || options.PreviewSeconds > 86400 ||
                     (double.TryParse(source.Duration, NumberStyles.Float, CultureInfo.InvariantCulture, out lengthSeconds) &&
                         lengthSeconds > 0 && start >= lengthSeconds))
-                    throw new InvalidDataException("Invalid TrueHDR preview start or duration.");
+                    throw new InvalidDataException("Invalid TrueHDR preview start or duration: " + input);
             }
             string directory = string.Equals(config.Get("OUTPUT_MODE"), "CUSTOM", StringComparison.OrdinalIgnoreCase) ? config.Get("OUTPUT_CUSTOM_DIR") : Path.GetDirectoryName(input);
             if (!Directory.Exists(directory)) throw new DirectoryNotFoundException(directory);
@@ -381,7 +381,10 @@ namespace FilmGrainStudioPreview
             var request = new BridgeExecutionRequest {
                 ToolPath = exe, WorkingDirectory = stage.WorkingDirectory, DirectProcess = true,
                 InputFiles = new[] { input }, DirectStages = new[] { stage }, SkipPreviewSpool = true,
-                Environment = new Dictionary<string, string> { { "FG_MODE", "TrueHDR " + options.Codec } },
+                Environment = new Dictionary<string, string> {
+                    { "FG_MODE", "TrueHDR " + options.Codec },
+                    { "FG_TRUEHDR_CLIP", options.PreviewSeconds > 0 ? "1" : "0" }
+                },
                 OutputFiles = new List<string> { staging }, TemporaryFiles = new[] { staging },
                 TrueHdrSourceFps = OutputFps(source, options.AiInterpolation),
                 ProgressDurationSeconds = duration, ExecutionNotice = "[TrueHDR] Output: " + output

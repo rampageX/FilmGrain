@@ -76,7 +76,6 @@ namespace FilmGrainStudioPreview
                 var motion = new ThemeCheckBox { Text = UiText("高动态", "High motion"), Checked = options.HighMotion, Location = new Point(373, 80), Size = new Size(78, 26) };
                 var pending = PendingQueueInputs();
                 bool hasQueue = listFiles.Items.Count > 1;
-                bool previewOnly = chkEncodePreview.Checked;
                 var ai = new ThemeCheckBox { Name = "TRUEHDR_AI", Text = UiText("AI 插帧 2×", "AI interpolation 2×"),
                     Location = new Point(160, 581), Size = new Size(150, 28), Enabled = TrueHdrCore.CanInterpolate(source) };
                 ai.Checked = ai.Enabled && options.AiInterpolation;
@@ -85,7 +84,7 @@ namespace FilmGrainStudioPreview
                 var route = new ThemeLabel { Name = "TRUEHDR_ROUTE", Location = new Point(304, 584), Size = new Size(184, 21), AutoEllipsis = true };
                 settings.Controls.AddRange(new Control[] { ai, route });
                 Action updateRate = delegate {
-                    bool batchRoute = hasQueue && !previewOnly;
+                    bool batchRoute = hasQueue;
                     bool useAi = TrueHdrCore.CanInterpolate(source) && (batchRoute || ai.Checked);
                     ai.Enabled = !batchRoute && TrueHdrCore.CanInterpolate(source);
                     string processing = source.IsInterlaced ? UiText("反交错 · CUDA Bob 2×", "Deinterlace · CUDA Bob 2×") :
@@ -262,14 +261,13 @@ namespace FilmGrainStudioPreview
                 };
 
                 Action updateStartLabel = delegate {
-                    previewOnly = preview.Checked;
-                    updateRate();
-                    begin.Text = hasQueue && !preview.Checked ? UiText("开始队列", "Start queue") : UiText("开始编码", "Start encoding");
+                    begin.Text = hasQueue ? (preview.Checked ? UiText("预览编码队列", "Preview queue") : UiText("开始队列", "Start queue")) :
+                        UiText("开始编码", "Start encoding");
                 };
                 preview.CheckedChanged += delegate { updateStartLabel(); };
                 updateStartLabel();
-                if (hasQueue) tips.SetToolTip(begin, UiText("队列使用当前统一配置。HDR 跳过，隔行 Bob，符合条件的逐行 SDR 用 AI 2×。预览编码只处理当前素材。",
-                    "Queue uses these shared settings. Skip HDR, Bob interlaced SDR, AI 2× for eligible progressive SDR. Clip preview encodes the current source."));
+                if (hasQueue) tips.SetToolTip(begin, UiText("队列使用当前统一配置。HDR 跳过，隔行 Bob，符合条件的逐行 SDR 用 AI 2×。预览编码对每个待处理素材使用同一截取范围。",
+                    "Queue uses these shared settings. Skip HDR, Bob interlaced SDR, AI 2× for eligible progressive SDR. Clip preview applies the same range to every pending source."));
 
                 begin.Click += delegate {
                     bool tracking = false;
@@ -294,7 +292,7 @@ namespace FilmGrainStudioPreview
                         for (int i = 0; i < sliders.Length; i++) options.Picture[i] = sliders[i].Value;
                         foreach (var setting in editors[codec.SelectedIndex].ReadValues()) options.Advanced[setting.Key] = setting.Value;
                         config.Load();
-                        bool batch = hasQueue && !preview.Checked;
+                        bool batch = hasQueue;
                         var inputs = batch ? pending : new List<string> { source.PathValue };
                         var tasks = new List<BridgeTaskRequest>();
                         var skipped = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);

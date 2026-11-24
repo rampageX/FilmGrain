@@ -127,6 +127,13 @@ internal static class CommandAudit
         Field(source, "FieldOrder", "tt");
         var bobTask = queueItem.Invoke(options, new[] { source });
         Require(bobTask != null && !(bool)options.GetType().GetProperty("AiInterpolation").GetValue(bobTask, null), "Queue picks Bob for interlaced SDR");
+        var bobClip = (IList<string>)build.Invoke(null, new[] { input, output, bobTask, source, invoke[4] });
+        Require(Option(bobClip, "--seek") == "65" && Option(bobClip, "--seekto") == "95" &&
+            Option(bobClip, "--vpp-yadif") == "mode=bob", "Queue Bob clip uses shared range");
+        Field(source, "FieldOrder", "progressive");
+        var aiClip = (IList<string>)producer.Invoke(null, new[] { input, progressiveTask, source });
+        Require(Option(aiClip, "--seek") == "65" && Option(aiClip, "--seekto") == "95" &&
+            aiClip.Contains("--vpp-nvvfx-framegen"), "Queue AI clip uses shared range");
         Field(source, "ColorTransfer", "smpte2084");
         Require(queueItem.Invoke(options, new[] { source }) == null, "Queue skips HDR");
         Field(source, "ColorTransfer", "bt709");

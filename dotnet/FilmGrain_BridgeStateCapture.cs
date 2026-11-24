@@ -564,9 +564,13 @@ namespace FilmGrainStudioPreview
                 if(IsDisposed||Disposing)return;
                 var item=QueueFileItem(e.Task);if(item==null)return;
                 string path=item.Tag as string;
-                if(!e.Result.Cancelled&&e.Result.ExitCode==0&&e.Result.Exception==null)completedQueueFiles.Add(path);
-                item.SubItems[2].Text=e.Result.Cancelled?UiText("已取消","Cancelled"):
-                    e.Result.ExitCode==0&&e.Result.Exception==null?UiText("结束","Finished"):UiText("失败","Failed");
+                var environment = e.Task.ExecutionRequest.Environment;
+                string clip;
+                bool trueHdrClip = environment != null && environment.TryGetValue("FG_TRUEHDR_CLIP", out clip) && clip == "1";
+                bool succeeded = !e.Result.Cancelled && e.Result.ExitCode == 0 && e.Result.Exception == null;
+                if (succeeded && !trueHdrClip) completedQueueFiles.Add(path);
+                item.SubItems[2].Text = e.Result.Cancelled ? UiText("已取消", "Cancelled") : !succeeded ? UiText("失败", "Failed") :
+                    trueHdrClip ? UiText("预览完成", "Preview finished") : UiText("结束", "Finished");
                 UpdateAv1BakeAvailability();
             });}catch(InvalidOperationException){}
         }
