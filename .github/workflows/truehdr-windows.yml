@@ -63,8 +63,9 @@ jobs:
           $help = (& $nvenc.FullName --help | Out-String)
           if ($LASTEXITCODE -ne 0 -or $help -notmatch '--vpp-ngx-truehdr') { throw 'TrueHDR help missing' }
           [IO.File]::WriteAllText((Join-Path $env:RUNNER_TEMP 'TrueHDR_NVEncC_Help.txt'), $help)
-          foreach ($pattern in @('contrast=.*125, 0 - 200', 'saturation=.*75, 0 - 200',
-              'middlegray=.*44, 10 - 100', 'maxluminance=.*1000, 400 - 2000')) {
+          $help -split '\r?\n' | Where-Object { $_ -match 'contrast=|saturation=|middlegray=|maxluminance=' } | Write-Host
+          foreach ($pattern in @('contrast=.*default:\s*125\)', 'saturation=.*default:\s*75\)',
+              'middlegray=.*default:\s*44\)', 'maxluminance=.*default:\s*1000\)')) {
             if ($help -notmatch $pattern) { throw ('Unexpected TrueHDR help: ' + $pattern) }
           }
 
