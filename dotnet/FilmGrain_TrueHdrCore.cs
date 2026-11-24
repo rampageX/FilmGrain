@@ -21,6 +21,8 @@ namespace FilmGrainStudioPreview
         public bool Auto { get; set; }
         public bool HighMotion { get; set; }
         public string Target { get; set; }
+        public string PreviewStart { get; set; }
+        public int PreviewSeconds { get; set; }
         public bool Mp4 { get; set; }
         public Dictionary<string, string> Advanced { get; set; }
 
@@ -114,6 +116,16 @@ namespace FilmGrainStudioPreview
                 "--colormatrix", "bt2020nc", "--colorrange", "auto", "--master-display",
                 "G(8500,39850)B(6550,2300)R(35400,14600)WP(15635,16450)L(" + Number(options.Picture[3] * 10000) + ",1)",
                 "--vbr", Number(Bitrate(options, source)) };
+            if (options.PreviewSeconds != 0)
+            {
+                double start;
+                if (options.PreviewSeconds < 1 || options.PreviewSeconds > 86400 ||
+                    !SharedEncodePreviewCore.TryParseStart(options.PreviewStart, out start))
+                    throw new InvalidDataException("TrueHDR preview requires HH:MM:SS and a duration of 1–86400 seconds.");
+                args.InsertRange(args.IndexOf("-i"), new[] {
+                    "--seek", start.ToString(CultureInfo.InvariantCulture),
+                    "--seekto", (start + options.PreviewSeconds).ToString(CultureInfo.InvariantCulture) });
+            }
             if (options.Cq)
             {
                 var rate = RateState(options);
@@ -183,6 +195,15 @@ namespace FilmGrainStudioPreview
             }
             if (source.Identity != null && !source.Identity.IsCurrent(input, probe))
                 throw new IOException("TrueHDR source changed; reselect and probe it again: " + input);
+            if (options.PreviewSeconds != 0)
+            {
+                double start, lengthSeconds;
+                if (!SharedEncodePreviewCore.TryParseStart(options.PreviewStart, out start) ||
+                    options.PreviewSeconds < 1 || options.PreviewSeconds > 86400 ||
+                    (double.TryParse(source.Duration, NumberStyles.Float, CultureInfo.InvariantCulture, out lengthSeconds) &&
+                        lengthSeconds > 0 && start >= lengthSeconds))
+                    throw new InvalidDataException("Invalid TrueHDR preview start or duration.");
+            }
             string directory = string.Equals(config.Get("OUTPUT_MODE"), "CUSTOM", StringComparison.OrdinalIgnoreCase) ? config.Get("OUTPUT_CUSTOM_DIR") : Path.GetDirectoryName(input);
             if (!Directory.Exists(directory)) throw new DirectoryNotFoundException(directory);
             var audio = new Dictionary<string, string> {
@@ -190,13 +211,15 @@ namespace FilmGrainStudioPreview
             };
             string ext = options.Mp4 ? ".mp4" : ".mkv";
             string output = Path.Combine(directory, Path.GetFileNameWithoutExtension(input) + "_TrueHDR_" + options.Codec + "_" +
-                NvencRateControlCore.FileToken(RateState(options), Bitrate(options, source)) + ext);
+                NvencRateControlCore.FileToken(RateState(options), Bitrate(options, source)) + (options.PreviewSeconds > 0 ? "_Preview_" + (options.PreviewStart ?? "").Replace(":", "") +
+                    "_" + Number(options.PreviewSeconds) + "s" : "") + ext);
             if (File.Exists(output)) throw new IOException("Output already exists: " + output);
             string staging = Path.Combine(directory, ".fgs-truehdr-" + Guid.NewGuid().ToString("N") + ext);
             var args = Arguments(input, staging, options, source, audio);
             bool faststart = options.Mp4 && config.GetBool("MP4_FASTSTART");
             double duration;
             double.TryParse(source.Duration, NumberStyles.Float, CultureInfo.InvariantCulture, out duration);
+            if (options.PreviewSeconds > 0) duration = options.PreviewSeconds;
             var stage = new BridgeExecutionStage {
                 ToolPath = exe, WorkingDirectory = Path.GetDirectoryName(exe),
                 DirectArguments = SharedFrucCore.JoinArguments(args), ProgressDurationSeconds = duration,

@@ -44,7 +44,7 @@ namespace FilmGrainStudioPreview
                 dlg.ForeColor = selectedDarkTheme ? UiTheme.TextColor : SystemColors.ControlText;
                 dlg.Font = UiFont(9f, FontStyle.Regular);
                 dlg.AutoScaleMode = AutoScaleMode.Font;
-                dlg.ClientSize = new Size(748, 541);
+                dlg.ClientSize = new Size(748, 581);
                 dlg.StartPosition = FormStartPosition.CenterParent;
                 dlg.FormBorderStyle = FormBorderStyle.FixedDialog;
                 dlg.MaximizeBox = dlg.MinimizeBox = dlg.ShowInTaskbar = false;
@@ -100,11 +100,27 @@ namespace FilmGrainStudioPreview
                     sliders[i] = slider;
                     dlg.Controls.AddRange(new Control[] { label, slider, value });
                 }
-                var reset = new ThemeButton { Text = UiText("恢复画面默认值", "Reset picture"), Location = new Point(16, 493), Size = new Size(150, 31) };
+                var preview = new ThemeCheckBox { Text = UiText("预览编码", "Preview encode"),
+                    Name = "TRUEHDR_PREVIEW", Checked = chkEncodePreview.Checked,
+                    Location = new Point(16, 493), Size = new Size(135, 26) };
+                var start = new MaskedTextBox("00:00:00") { Text = txtPreviewStart.Text, TextMaskFormat = MaskFormat.IncludeLiterals,
+                    Location = new Point(210, 493), Size = new Size(90, 26) };
+                var seconds = new ThemeIntegerCombo(1, 86400, numPreviewDuration.Value, new[] { 30, 60, 120 }, false) {
+                    Location = new Point(394, 493), Size = new Size(75, 26) };
+                Action updatePreview = delegate { start.Enabled = seconds.Enabled = preview.Checked; };
+                preview.CheckedChanged += delegate { updatePreview(); };
+                updatePreview();
+                tips.SetToolTip(preview, UiText("按关键帧定位后使用当前 TrueHDR 参数编码，实际起点和时长可能略有偏差。",
+                    "Seek near a keyframe and encode using current TrueHDR settings. Start and duration may vary."));
+                dlg.Controls.AddRange(new Control[] { preview, start, seconds,
+                    new ThemeLabel { Text = UiText("起始", "Start"), Location = new Point(154, 496), Size = new Size(53, 24) },
+                    new ThemeLabel { Text = UiText("持续", "Length"), Location = new Point(327, 496), Size = new Size(65, 24) },
+                    new ThemeLabel { Text = UiText("秒", "s"), Location = new Point(473, 496), Size = new Size(28, 24) } });
+                var reset = new ThemeButton { Text = UiText("恢复画面默认值", "Reset picture"), Location = new Point(16, 533), Size = new Size(150, 31) };
                 reset.Click += delegate { for (int i = 0; i < sliders.Length; i++) sliders[i].Value = TrueHdrOptions.Defaults[i]; };
                 var begin = new ThemeButton { Text = UiText("开始编码", "Start encoding"), Name = "TRUEHDR_START",
-                    Location = new Point(501, 493), Size = new Size(114, 31) };
-                var cancel = new ThemeButton { Text = lang.T("config.cancel"), Location = new Point(624, 493), Size = new Size(104, 31), DialogResult = DialogResult.Cancel };
+                    Location = new Point(501, 533), Size = new Size(114, 31) };
+                var cancel = new ThemeButton { Text = lang.T("config.cancel"), Location = new Point(624, 533), Size = new Size(104, 31), DialogResult = DialogResult.Cancel };
 
                 var editors = new[] { BuildEncoderOptions("HEVC", false, tips), BuildEncoderOptions("AV1", false, tips) };
                 foreach (var editor in editors)
@@ -128,6 +144,9 @@ namespace FilmGrainStudioPreview
                     bool tracking = false;
                     try
                     {
+                        if (preview.Checked && !seconds.ValidateInput()) return;
+                        options.PreviewStart = preview.Checked ? start.Text : null;
+                        options.PreviewSeconds = preview.Checked ? seconds.Value : 0;
                         options.Codec = codec.SelectedIndex == 1 ? "AV1" : "HEVC";
                         options.Preset = (string)preset.SelectedItem;
                         options.Cq = rate.SelectedIndex == 1;
@@ -142,7 +161,10 @@ namespace FilmGrainStudioPreview
                         Directory.CreateDirectory(Path.GetDirectoryName(settingsPath));
                         string temporary = settingsPath + "." + Guid.NewGuid().ToString("N");
                         try {
-                            File.WriteAllText(temporary, serializer.Serialize(options));
+                            var persisted = serializer.Deserialize<TrueHdrOptions>(serializer.Serialize(options));
+                            persisted.PreviewStart = null;
+                            persisted.PreviewSeconds = 0;
+                            File.WriteAllText(temporary, serializer.Serialize(persisted));
                             if (File.Exists(settingsPath)) File.Replace(temporary, settingsPath, null);
                             else File.Move(temporary, settingsPath);
                         }

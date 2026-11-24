@@ -48,6 +48,14 @@ internal static class CommandAudit
         Require(Option(command, "-i") == input && Option(command, "-o") == output && Option(command, "--audio-copy") == "1", "Paths and audio");
         Require((string)source.GetType().GetField("ColorTransfer").GetValue(source) == "bt709" &&
             (string)source.GetType().GetField("ColorSpace").GetValue(source) == "smpte170m", "SDR source unchanged");
+        Require(!command.Contains("--seek") && !command.Contains("--seekto"), "Full encode timeline");
+        Set(options, "PreviewStart", "00:01:05");
+        Set(options, "PreviewSeconds", 30);
+        command = (IList<string>)build.Invoke(null, invoke);
+        Require(Option(command, "--seek") == "65" && Option(command, "--seekto") == "95", "Preview timeline");
+        Set(options, "PreviewStart", "bad");
+        RequireRejected(build, invoke, "Invalid preview timestamp");
+        Set(options, "PreviewSeconds", 0);
         Set(options, "Codec", "AV1");
         Set(options, "Cq", true);
         Set(options, "Auto", false);
