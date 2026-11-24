@@ -37,7 +37,7 @@ internal static class CommandAudit
             Option(live, "--vpp-ngx-truehdr") == "contrast=125,saturation=75,middlegray=44,maxluminance=1000", "Live TrueHDR frame");
         var interlacedLive = (IList<string>)core.GetMethod("LiveFrameArguments", Flags).Invoke(null, new object[] {
             "test.mkv", "frame.y4m", 2.5, new[] { 125, 75, 44, 1000 }, true });
-        Require(Option(interlacedLive, "--frames") == "2" && Option(interlacedLive, "--vpp-yadif") == "mode=auto", "YADIF preview and lookahead");
+        Require(Option(interlacedLive, "--frames") == "2" && Option(interlacedLive, "--vpp-yadif") == "mode=bob", "YADIF preview and lookahead");
         Require((int)retry.Invoke(null, new object[] { "all frames in the trim range are before the first keyframe and cannot be decoded (offset 119)", 2 }) == 121, "YADIF preview retry keeps lookahead");
         if (args.Length > 2) core.GetMethod("RequireTrueHdr", Flags).Invoke(null, new object[] { args[2] });
         var help = core.GetMethod("AdvertisesTrueHdr", Flags);
@@ -84,12 +84,17 @@ internal static class CommandAudit
         Require(Option(command, "-i") == input && Option(command, "-o") == output && Option(command, "--audio-copy") == "1", "Paths and audio");
         Require((string)source.GetType().GetField("ColorTransfer").GetValue(source) == "bt709" &&
             (string)source.GetType().GetField("ColorSpace").GetValue(source) == "smpte170m", "SDR source unchanged");
+        Require(!command.Contains("--vpp-yadif"), "Progressive SDR has no deinterlacer");
         Require(!command.Contains("--seek") && !command.Contains("--seekto"), "Full encode timeline");
         Field(source, "FieldOrder", "tt");
+        Field(source, "AvgFrameRate", "30000/1001");
+        double outputFps = (double)core.GetMethod("OutputFps", Flags).Invoke(null, new[] { source });
+        Require(Math.Abs(outputFps - 60000.0 / 1001) < 0.000001, "Interlaced SDR Bob doubles frame rate");
         var interlaced = (IList<string>)build.Invoke(null, invoke);
-        Require(Option(interlaced, "--vpp-yadif") == "mode=auto" &&
+        Require(Option(interlaced, "--vpp-yadif") == "mode=bob" &&
             interlaced.IndexOf("--vpp-yadif") < interlaced.IndexOf("--vpp-ngx-truehdr"), "Interlaced SDR YADIF before TrueHDR");
         Field(source, "FieldOrder", "progressive");
+        Field(source, "AvgFrameRate", "24000/1001");
         Set(options, "PreviewStart", "00:01:05");
         Set(options, "PreviewSeconds", 30);
         command = (IList<string>)build.Invoke(null, invoke);

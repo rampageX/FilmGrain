@@ -79,11 +79,16 @@ namespace FilmGrainStudioPreview
             return options.Advanced != null && options.Advanced.TryGetValue(key, out value) ? value : fallback;
         }
 
+        internal static double OutputFps(MediaProbeInfo source)
+        {
+            return BitrateRecommendationCore.ParseMediaFps(source) * (source.IsInterlaced ? 2.0 : 1.0);
+        }
+
         internal static int Bitrate(TrueHdrOptions options, MediaProbeInfo source)
         {
             if (options.Cq) return 0;
             if (options.Auto) return BitrateRecommendationCore.GetRecommendedBitrate(options.Codec == "AV1" ? 0 : 1,
-                source.Width, source.Height, BitrateRecommendationCore.ParseMediaFps(source), options.HighMotion);
+                source.Width, source.Height, OutputFps(source), options.HighMotion);
             int bitrate;
             if (!int.TryParse(options.Target, NumberStyles.None, CultureInfo.InvariantCulture, out bitrate) || bitrate < 100 || bitrate > 500000)
                 throw new InvalidDataException("TrueHDR: target bitrate must be 100–500000 kbps.");
@@ -125,7 +130,7 @@ namespace FilmGrainStudioPreview
 
         private static void AddDeinterlace(List<string> args, bool interlaced)
         {
-            if (interlaced) args.InsertRange(args.IndexOf("--vpp-ngx-truehdr"), new[] { "--vpp-yadif", "mode=auto" });
+            if (interlaced) args.InsertRange(args.IndexOf("--vpp-ngx-truehdr"), new[] { "--vpp-yadif", "mode=bob" });
         }
 
         internal static Tuple<System.Drawing.Bitmap, System.Drawing.Bitmap> RenderLiveFrame(string nvenc, MediaProbeInfo source,
@@ -308,7 +313,7 @@ namespace FilmGrainStudioPreview
             var stage = new BridgeExecutionStage {
                 ToolPath = exe, WorkingDirectory = Path.GetDirectoryName(exe),
                 DirectArguments = SharedFrucCore.JoinArguments(args), ProgressDurationSeconds = duration,
-                StageCurrent = 1, StageTotal = 1, StageText = (source.IsInterlaced ? "SDR → CUDA YADIF → TrueHDR → " : "SDR → TrueHDR → ") + options.Codec + " HDR10",
+                StageCurrent = 1, StageTotal = 1, StageText = (source.IsInterlaced ? "SDR → CUDA YADIF Bob → TrueHDR → " : "SDR → TrueHDR → ") + options.Codec + " HDR10",
                 BeforeRunPreparation = delegate {
                     RequireTrueHdr(exe);
                     AudioOutputCore.EstimateMissing(input, probe, source, audio);
@@ -320,7 +325,7 @@ namespace FilmGrainStudioPreview
                 InputFiles = new[] { input }, DirectStages = new[] { stage }, SkipPreviewSpool = true,
                 Environment = new Dictionary<string, string> { { "FG_MODE", "TrueHDR " + options.Codec } },
                 OutputFiles = new List<string> { staging }, TemporaryFiles = new[] { staging },
-                TrueHdrSourceFps = BitrateRecommendationCore.ParseMediaFps(source),
+                TrueHdrSourceFps = OutputFps(source),
                 ProgressDurationSeconds = duration, ExecutionNotice = "[TrueHDR] Output: " + output
             };
             var original = new FileInfo(input);
@@ -340,6 +345,14 @@ namespace FilmGrainStudioPreview
             };
             request.PostRunValidation = delegate {
                 var actual = Probe(probe, staging);
+                if (source.IsInterlaced && options.PreviewSeconds == 0)
+                {
+                    double expected = OutputFps(source);
+                    double measured = BitrateRecommendationCore.ParseMediaFps(actual);
+                    if (expected > 0 && measured > 0 && Math.Abs(expected - measured) > Math.Max(expected * 0.01, 2 / Math.Max(1, duration)))
+                        return "TrueHDR YADIF Bob output frame rate mismatch: " + measured.ToString("0.###", CultureInfo.InvariantCulture) +
+                            " fps; expected " + expected.ToString("0.###", CultureInfo.InvariantCulture) + " fps.";
+                }
                 if (actual.IsInterlaced) return "TrueHDR output validation failed: interlaced video.";
                 if (actual.VideoCodec != options.Codec.ToLowerInvariant() || actual.PixelFormat != "yuv420p10le" ||
                     actual.ColorSpace != "bt2020nc" || actual.ColorTransfer != "smpte2084" || actual.ColorPrimaries != "bt2020" ||

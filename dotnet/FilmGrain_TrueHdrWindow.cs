@@ -80,7 +80,7 @@ namespace FilmGrainStudioPreview
                     string family = codec.SelectedIndex == 1 ? "AV1" : "HEVC";
                     target.Text = rate.SelectedIndex == 1 ? NvencRateControlCore.Recommend(family, motion.Checked, false) :
                         TrueHdrCore.Number(BitrateRecommendationCore.GetRecommendedBitrate(codec.SelectedIndex == 1 ? 0 : 1,
-                            source.Width, source.Height, BitrateRecommendationCore.ParseMediaFps(source), motion.Checked));
+                            source.Width, source.Height, TrueHdrCore.OutputFps(source), motion.Checked));
                 };
                 rate.SelectedIndexChanged += delegate { if (!auto.Checked) target.Text = rate.SelectedIndex == 1 ?
                     NvencRateControlCore.Recommend(codec.SelectedIndex == 1 ? "AV1" : "HEVC", motion.Checked, false) : "12000"; updateRate(); };
@@ -213,7 +213,7 @@ namespace FilmGrainStudioPreview
                         if (dlg.IsDisposed || requested != revision) { image.Item1.Dispose(); image.Item2.Dispose(); return; }
                         screen.SetFrames(image.Item1, image.Item2);
                         scaleText();
-                        string fps = BitrateRecommendationCore.ParseMediaFps(source).ToString("0.###", CultureInfo.InvariantCulture);
+                        string fps = TrueHdrCore.OutputFps(source).ToString("0.###", CultureInfo.InvariantCulture);
                         displayStatus.Text = NativeSeekStrip.FormatTime(position) + " · " + image.Item2.Width + "×" + image.Item2.Height +
                             " · " + fps + " fps · SAR " + source.SampleAspectRatio + Environment.NewLine +
                             "BT.2020 NCL · " + image.Item2.Tag + " · PQ → SDR · 203 nit";
@@ -287,7 +287,7 @@ namespace FilmGrainStudioPreview
                         lock (queueClockSync) { queueClock.Restart(); queueClockStatus = ""; }
                         tracking = true;
                         bridgeTaskCoordinator.Start(new BridgeTaskRequest { ExecutionRequest = request,
-                            RecommendedOutputFps = BitrateRecommendationCore.ParseMediaFps(source) });
+                            RecommendedOutputFps = TrueHdrCore.OutputFps(source) });
                         dlg.DialogResult = DialogResult.OK;
                     }
                     catch (Exception error)
