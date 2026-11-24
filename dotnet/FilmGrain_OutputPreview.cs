@@ -283,12 +283,18 @@ namespace FilmGrainStudioPreview
         }
         protected override void OnMouseUp(MouseEventArgs e){base.OnMouseUp(e);panning=false;Capture=false;}
 
+        protected override void OnMouseCaptureChanged(EventArgs e)
+        {
+            base.OnMouseCaptureChanged(e);
+            if (!Capture) panning = false;
+        }
+
         private Point ClampPan(Point value)
         {
             int x = Math.Max(0, right.Width - ClientSize.Width);
             int y = Math.Max(0, right.Height - ClientSize.Height);
-            return new Point(Math.Max(-x / 2, Math.Min((x + 1) / 2, value.X)),
-                Math.Max(-y / 2, Math.Min((y + 1) / 2, value.Y)));
+            return new Point(Math.Max(-(x + 1) / 2, Math.Min(x / 2, value.X)),
+                Math.Max(-(y + 1) / 2, Math.Min(y / 2, value.Y)));
         }
 
         protected override void OnPaint(PaintEventArgs e)
