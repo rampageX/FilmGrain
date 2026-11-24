@@ -120,6 +120,7 @@ namespace FilmGrainStudioPreview
         public string FrucTimelineReferenceInput { get; set; }
         public string PipeProducerPath { get; set; }
         public string PipeProducerArguments { get; set; }
+        internal string PipeInputArguments { get; set; }
         internal IList<string> OriginalArguments { get; set; }
         internal bool OrdinaryTimelineBound { get; set; }
         public string ToolPath { get; set; }
@@ -592,9 +593,10 @@ namespace FilmGrainStudioPreview
         private int RunPipedProcess(BridgeExecutionRequest request, BridgeExecutionStage stage, out Exception failure)
         {
             failure = null;
-            Process producer = null, encoder = null;
+            Process producer = null, encoder = null, input = null;
             Exception copyFailure = null;
-            Thread copyThread = null;
+            Thread copyThread = null, inputThread = null;
+            Exception inputFailure = null;
             int producerErrorClosed=0,encoderOutputClosed=0,encoderErrorClosed=0;
             try
             {
@@ -610,6 +612,7 @@ namespace FilmGrainStudioPreview
                 if (request.Environment != null)
                     foreach (KeyValuePair<string,string> pair in request.Environment)
                         SetEnvironmentVariable(sourceInfo.EnvironmentVariables, pair.Key, pair.Value ?? "");
+                sourceInfo.RedirectStandardInput = !string.IsNullOrEmpty(stage.PipeInputArguments);
                 producer = new Process(); producer.StartInfo = sourceInfo;
                 encoder = new Process(); encoder.StartInfo = BuildStartInfo(request, stage);
                 encoder.StartInfo.RedirectStandardInput = true;
@@ -627,17 +630,46 @@ namespace FilmGrainStudioPreview
                 encoder.BeginOutputReadLine(); encoder.BeginErrorReadLine();
                 if (!producer.Start()) throw new InvalidOperationException("Native pipe producer did not start");
                 producer.BeginErrorReadLine();
+                if (sourceInfo.RedirectStandardInput)
+                {
+                    var inputInfo = BuildStartInfo(request, stage);
+                    inputInfo.Arguments = stage.PipeInputArguments;
+                    input = new Process { StartInfo = inputInfo };
+                    input.ErrorDataReceived += delegate(object sender, DataReceivedEventArgs e)
+                    { if (e.Data != null) RaiseLog(BridgeLogStream.StandardError, "[HDR pipe input] " + e.Data); };
+                    RaiseLog(BridgeLogStream.System, "[R08b] HDR to SDR NUT -> NVEncC AI -> AV1; no HDR workfile. args=" + inputInfo.Arguments);
+                    if (!input.Start()) throw new InvalidOperationException("HDR pipe input did not start");
+                    input.BeginErrorReadLine();
+                    Process upstream = input, receiver = producer;
+                    inputThread = new Thread(delegate()
+                    {
+                        try { upstream.StandardOutput.BaseStream.CopyTo(receiver.StandardInput.BaseStream); }
+                        catch (Exception ex) { inputFailure = ex; }
+                        finally { try { upstream.StandardOutput.Close(); } catch { } try { receiver.StandardInput.Close(); } catch { } }
+                    });
+                    inputThread.IsBackground = true;
+                    inputThread.Start();
+                }
                 Process pipeSource = producer, pipeTarget = encoder;
                 copyThread = new Thread(delegate()
                 {
                     try { pipeSource.StandardOutput.BaseStream.CopyTo(pipeTarget.StandardInput.BaseStream); }
                     catch (Exception ex) { copyFailure = ex; }
-                    finally { try { pipeTarget.StandardInput.Close(); } catch { } }
+                    finally { if (pipeSource.StartInfo.RedirectStandardInput) { try { pipeSource.StandardOutput.Close(); } catch { } } try { pipeTarget.StandardInput.Close(); } catch { } }
                 });
                 copyThread.IsBackground = true; copyThread.Start();
                 WaitForNativeExit(encoder,producer);
                 if (encoder.ExitCode != 0 || cancelRequested) StopProcessTree(producer);
-                WaitForNativeExit(producer,null);
+                WaitForNativeExit(producer,input);
+                if (input != null)
+                {
+                    if (!input.HasExited && (cancelRequested || producer.ExitCode != 0)) StopProcessTree(input);
+                    WaitForNativeExit(input,null);
+                    if (!inputThread.Join(5000)) throw new IOException("HDR pipe input copy thread did not stop.");
+                    if (!cancelRequested && encoder.ExitCode == 0 && producer.ExitCode == 0 &&
+                        (input.ExitCode != 0 || inputFailure != null))
+                        throw new IOException("HDR pipe input failed, exit code " + input.ExitCode, inputFailure);
+                }
                 if (!copyThread.Join(5000)) throw new IOException("Native pipe copy thread did not stop within 5 seconds.");
                 DrainProcessOutput(delegate { return Thread.VolatileRead(ref producerErrorClosed)!=0 && Thread.VolatileRead(ref encoderOutputClosed)!=0 && Thread.VolatileRead(ref encoderErrorClosed)!=0; });
                 if (!cancelRequested && encoder.ExitCode == 0 && producer.ExitCode != 0)
@@ -655,8 +687,12 @@ namespace FilmGrainStudioPreview
             }
             finally
             {
+                StopProcessTree(input);
                 StopProcessTree(producer);
                 StopProcessTree(encoder);
+                if (input != null) { try { input.WaitForExit(5000); } catch { } try { input.CancelErrorRead(); } catch { } }
+                if (inputThread != null && inputThread.IsAlive) inputThread.Join(5000);
+                if (input != null) input.Dispose();
                 if (producer != null) { try { producer.WaitForExit(5000); } catch { } try { producer.CancelErrorRead(); } catch { } }
                 if (encoder != null) { try { encoder.WaitForExit(5000); } catch { } try { encoder.CancelOutputRead(); } catch { } try { encoder.CancelErrorRead(); } catch { } }
                 if (copyThread != null && copyThread.IsAlive && !copyThread.Join(5000))

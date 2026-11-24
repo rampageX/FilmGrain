@@ -65,6 +65,10 @@ public static class R08HdrSdrAudit
                 var merged = (List<string>)core.GetMethod("MergeEncodeArguments", Methods).Invoke(null,
                     new object[]{original,hdr,videoOnly,0.5d,0.32d,"",false});
                 string graph = merged[merged.IndexOf("-filter_complex")+1];
+                var nut = (List<string>)core.GetMethod("BuildSdrNutArguments", Methods).Invoke(null,new object[]{hdr});
+                Require(nut[nut.IndexOf("-c:v")+1]=="rawvideo" && nut[nut.IndexOf("-pix_fmt")+1]=="yuv420p10le"
+                    && nut[nut.Count-2]=="nut" && nut[nut.Count-1]=="pipe:1" && !nut.Contains("hevc_nvenc")
+                    && nut[nut.IndexOf("-vf")+1]==hdr[hdr.IndexOf("-vf")+1], "lossless stdin feed");
                 int tonemap = graph.IndexOf(hdr==gpu?"libplacebo=tonemapping=hable":"tonemap=tonemap=hable");
                 Require(tonemap > graph.IndexOf(fieldFilter) && graph.IndexOf(fieldFilter) >= 0, "bob must precede tone mapping");
                 Require(graph.Contains("color_trc=bt709") && graph.Contains("MASTERING_DISPLAY_METADATA"), "SDR color contract");

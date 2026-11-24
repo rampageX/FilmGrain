@@ -45,6 +45,28 @@ namespace FilmGrainStudioPreview
                 return (string.IsNullOrEmpty(prior)?"":prior+"\n")+encoderNotice+"\n"+notice;
             };
         }
+        internal static List<string> BuildSdrNutArguments(IList<string> selected)
+        {
+            var args = new List<string>(selected);
+            int codec = args.IndexOf("-c:v");
+            args.RemoveRange(codec, args.Count - codec);
+            // Keep the clock and 10-bit 4:2:0 pixels the HEVC boundary used before Matroska.
+            args.AddRange(new[]{"-c:v","rawvideo","-threads:v","1","-pix_fmt","yuv420p10le",
+                "-fps_mode:v","passthrough","-f","nut","pipe:1"});
+            return args;
+        }
+
+        internal static void AttachSdrNutInput(BridgeExecutionStage stage, string source, MediaProbeInfo info, string tonemap)
+        {
+            var cpu = BuildToSdr(source,"pipe:1",info,tonemap,false);
+            stage.BeforeRunPreparation = delegate {
+                string notice;
+                var selected = SelectAutomatic(stage.ToolPath,cpu,tonemap,out notice);
+                stage.PipeInputArguments = SharedFrucCore.JoinArguments(BuildSdrNutArguments(selected));
+                return notice;
+            };
+        }
+
         private static string CheckLosslessHevc(string ffmpeg,SharedFrucCore.ProbeRunner runner)
         {
             var probe=new List<string>{"-hide_banner","-nostdin","-loglevel","error",

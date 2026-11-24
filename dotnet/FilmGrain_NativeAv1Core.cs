@@ -248,7 +248,10 @@ namespace FilmGrainStudioPreview
             // A separate FRUC-only tool must not acquire HDR filter dependencies from the main FFmpeg.
             bool mergedFrucHdr=hdrToSdr&&fruc&&!info.IsInterlaced&&
                 string.Equals(Path.GetFullPath(frucFfmpeg),Path.GetFullPath(ffmpeg),StringComparison.OrdinalIgnoreCase);
-            bool needsHdrWorkfile=hdrToSdr && !mergedHdr && !mergedFrucHdr;
+            // Gate the new streaming input until the real NVEncC reader and RTX path are verified.
+            bool streamSdrAi = hdrToSdr && directNvencAi && string.Equals(
+                Environment.GetEnvironmentVariable("FGS_R08_NVENC_STDIN"),"1",StringComparison.Ordinal);
+            bool needsHdrWorkfile=hdrToSdr && !mergedHdr && !mergedFrucHdr && !streamSdrAi;
             string hdrWorkfile = needsHdrWorkfile || separateDeint ? Path.Combine(tempRoot, job + (hdrToSdr ? "_hdr2sdr.mkv" : "_fields.mkv")) : "";
             string frucInput = needsHdrWorkfile || separateDeint ? hdrWorkfile : input;
             string frucWorkfile = interpolate ? Path.Combine(tempRoot, job + (fruc ? "_fruc.mkv" : "_svp.mkv")) : "";
@@ -460,6 +463,13 @@ namespace FilmGrainStudioPreview
                 // Keep the original IVF/grain/remux timeline adjustment unchanged.
                 var stage=directStages[preStages];
                 NvencInterpolationCore.AttachProducer(stage,frucInput,state,fpsText);
+                if (streamSdrAi)
+                {
+                    var producer = HardwareDecodeCore.SplitArguments(stage.PipeProducerArguments);
+                    producer[producer.IndexOf("-i")+1] = "-";
+                    stage.PipeProducerArguments = SharedFrucCore.JoinArguments(producer);
+                    SharedHdrPreprocessCore.AttachSdrNutInput(stage,input,info,tonemap);
+                }
                 stage.StageText+=" / NVEncC AI direct NUT, no FFV1";
                 request.ExecutionNotice="[AV1 route] NVEncC AI NUT direct to AV1; no FFV1; IVF/grain/remux retained; original final A/V clock adapter retained.";
             } else if(directFruc) {
@@ -479,7 +489,7 @@ namespace FilmGrainStudioPreview
                 request.ExecutionNotice="[AV1 encode route] IVF encode/container stages retained; direct-output/FRUC eligibility not met. Grain metadata optimization is selected independently.";
             }
 
-            if (hdrToSdr && (directSvp || directNvencAi))
+            if (hdrToSdr && (directSvp || directNvencAi) && !streamSdrAi)
             {
                 SharedHdrPreprocessCore.AttachValidation(directStages[preStages],ffprobe,hdrWorkfile,info);
                 directStages[preStages].StageText+=" / R08b SDR workfile to producer to AV1";
