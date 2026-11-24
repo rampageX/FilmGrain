@@ -156,7 +156,7 @@ namespace FilmGrainStudioPreview
                 var live = new ThemeCheckBox { Name = "TRUEHDR_LIVE", Checked = true, Text = UiText("实时画面", "Live preview"),
                     Location = new Point(16, 581), Size = new Size(140, 28) };
                 var screen = new OutputComparisonCanvas(UiText("原片", "Original"), "TrueHDR") { Name = "TRUEHDR_LIVE_FRAME",
-                    SingleOutput = true, SampleAspect = CinematicCropGeometry.SampleAspect(source),
+                    SampleAspect = CinematicCropGeometry.SampleAspect(source),
                     Location = new Point(12, 12), Size = new Size(800, 500) };
                 double mediaLength;
                 double.TryParse(source.Duration, NumberStyles.Float, CultureInfo.InvariantCulture, out mediaLength);
@@ -166,18 +166,20 @@ namespace FilmGrainStudioPreview
                 var view = new ThemeComboBox { Location = new Point(513, 521), Size = new Size(150, 26),
                     DropDownStyle = ComboBoxStyle.DropDownList };
                 view.Items.AddRange(new object[] { UiText("单张", "Single"), UiText("并排", "Side by side"), UiText("滑动比较", "Split") });
-                view.SelectedIndex = 0;
+                view.SelectedIndex = 2;
                 var zoom = new ThemeButton { Location = new Point(669, 521), Size = new Size(85, 26),
                     Text = UiText("适应窗口", "Fit") };
                 var scale = new ThemeLabel { Location = new Point(758, 525), Size = new Size(54, 23) };
                 Action scaleText = delegate { scale.Text = screen.HasPair ? screen.DisplayPercent + "%" : ""; };
                 view.SelectedIndexChanged += delegate {
+                    screen.ResetPan();
                     screen.SingleOutput = view.SelectedIndex == 0;
                     screen.SideBySide = view.SelectedIndex == 1;
                     screen.Invalidate();
                     scaleText();
                 };
                 Action toggleZoom = delegate {
+                    screen.ResetPan();
                     screen.ActualSize = !screen.ActualSize;
                     zoom.Text = screen.ActualSize ? "1:1" : UiText("适应窗口", "Fit");
                     screen.Invalidate();

@@ -224,6 +224,10 @@ namespace FilmGrainStudioPreview
         private readonly string original,final;
         private float divider=0.5f;
         private Rectangle viewport;
+        private Point pan, dragStart, panStart;
+        private bool panning;
+        private bool CanPan { get { return SingleOutput && ActualSize && right != null && (right.Width > ClientSize.Width || right.Height > ClientSize.Height); } }
+        internal void ResetPan() { pan = Point.Empty; panning = false; Cursor = Cursors.Default; }
         internal bool SideBySide;
         internal bool SingleOutput;
         internal bool ActualSize;
@@ -250,16 +254,42 @@ namespace FilmGrainStudioPreview
         protected override void OnMouseDown(MouseEventArgs e)
         {
             base.OnMouseDown(e);
+            if (e.Button == MouseButtons.Left && CanPan && viewport.Contains(e.Location))
+            {
+                dragStart = e.Location;
+                panStart = pan;
+                panning = Capture = true;
+                Cursor = Cursors.SizeAll;
+                return;
+            }
             if(e.Button==MouseButtons.Left && !SideBySide && !SingleOutput && viewport.Contains(e.Location))
             {Capture=true;SetSplit((e.X-viewport.X)/(float)viewport.Width);}
         }
         protected override void OnMouseMove(MouseEventArgs e)
         {
             base.OnMouseMove(e);
+            if (CanPan)
+            {
+                if (Capture && panning && e.Button == MouseButtons.Left)
+                {
+                    pan = ClampPan(new Point(panStart.X + e.X - dragStart.X, panStart.Y + e.Y - dragStart.Y));
+                    Invalidate();
+                }
+                Cursor = panning || viewport.Contains(e.Location) ? Cursors.SizeAll : Cursors.Default;
+                return;
+            }
             Cursor=!SideBySide && !SingleOutput && viewport.Contains(e.Location)?Cursors.VSplit:Cursors.Default;
             if(Capture && e.Button==MouseButtons.Left && viewport.Width>0)SetSplit((e.X-viewport.X)/(float)viewport.Width);
         }
-        protected override void OnMouseUp(MouseEventArgs e){base.OnMouseUp(e);Capture=false;}
+        protected override void OnMouseUp(MouseEventArgs e){base.OnMouseUp(e);panning=false;Capture=false;}
+
+        private Point ClampPan(Point value)
+        {
+            int x = Math.Max(0, right.Width - ClientSize.Width);
+            int y = Math.Max(0, right.Height - ClientSize.Height);
+            return new Point(Math.Max(-x / 2, Math.Min((x + 1) / 2, value.X)),
+                Math.Max(-y / 2, Math.Min((y + 1) / 2, value.Y)));
+        }
 
         protected override void OnPaint(PaintEventArgs e)
         {
@@ -267,12 +297,19 @@ namespace FilmGrainStudioPreview
             var g=e.Graphics;
             g.InterpolationMode=InterpolationMode.HighQualityBilinear;
             var area=ClientRectangle;
+            viewport = Rectangle.Empty;
             if(left!=null && right!=null)
             {
                 if (SingleOutput)
                 {
-                    viewport = Rectangle.Empty;
-                    DrawFrame(g, right, area);
+                    var bounds = Fit(right, area);
+                    if (CanPan)
+                    {
+                        pan = ClampPan(pan);
+                        bounds.Offset(pan);
+                    }
+                    viewport = Rectangle.Intersect(bounds, area);
+                    g.DrawImage(right, bounds);
                 }
                 else if(SideBySide)
                 {
