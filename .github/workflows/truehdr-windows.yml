@@ -4,6 +4,12 @@ on:
   push:
     branches:
       - test/truehdr
+  pull_request:
+    paths:
+      - '.github/workflows/truehdr-windows.yml'
+      - 'dotnet/FilmGrain_TrueHdr*.cs'
+      - 'dotnet/FilmGrain_MediaProbeCore.cs'
+      - 'tests/truehdr/**'
   workflow_dispatch:
 
 permissions:

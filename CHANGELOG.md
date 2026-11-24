@@ -1,3 +1,8 @@
+## v5.1.00 — TrueHDR 路径兼容修复（2026-11-24）
+
+- 修复 TrueHDR 编码结束后，中文输出路径可能导致 FFprobe JSON 解析失败的问题。成品校验复用主界面探测字段。
+- Windows 回归以真实 HDR10 双音轨样片覆盖中文路径、I:\-=Converter=- 及文件名内的特殊字符。
+
 ## v5.0.99 — TrueHDR 队列与 AI 2×（2026-11-24）
 
 - TrueHDR 支持统一设置批量编码，跳过 HDR，隔行 SDR 自动 Bob，符合条件的逐行 SDR 自动 AI 2×，其余可转换的 SDR 直接转 HDR10。
