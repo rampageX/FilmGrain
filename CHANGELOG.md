@@ -1,3 +1,9 @@
+## v5.0.99 — TrueHDR 队列与 AI 2×（2026-11-24）
+
+- TrueHDR 支持统一设置批量编码，跳过 HDR，隔行 SDR 自动 Bob，符合条件的逐行 SDR 自动 AI 2×，其余可转换的 SDR 直接转 HDR10。
+- 支持 10-bit SDR 在 AI 2× 前降为 8-bit，最终输出 10-bit HDR10。实时预览在现有信息行橙色标示 10-bit 与 8-bit。
+- TrueHDR 视频截取可应用到整个队列。主界面和 TrueHDR 遇到短于设定截取时长的素材时，自动处理整片。
+
 ## v5.0.98 — TrueHDR 隔行 SDR 2× 反交错（2026-11-24）
 
 - SDR → TrueHDR 自动对隔行 SDR 启用 CUDA YADIF Bob，每场输出一帧。1080i 29.97 帧／59.94 场可输出 1080p59.94 HDR10。

@@ -152,6 +152,9 @@ jobs:
           } elseif ($version -eq '5.0.98') {
             $ref = 'heads/test/truehdr'
             $expected = 'db408679cca6ed546c389d3f6cc2ba4375576452'
+          } elseif ($version -eq '5.0.99') {
+            $ref = 'heads/test/truehdr'
+            $expected = 'b01e095408c58d4a29e4613877c7a15e3823d99b'
           } else { exit 0 }
           $sha = gh api "repos/$env:GITHUB_REPOSITORY/git/ref/$ref" --jq '.object.sha'
           if ($LASTEXITCODE -ne 0) { throw 'Accepted test branch verification failed.' }
