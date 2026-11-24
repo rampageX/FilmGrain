@@ -283,12 +283,13 @@ namespace FilmGrainStudioPreview
                 }
                 else
                 {
-                    viewport=Fit(left,area);
+                    var leftBounds=Fit(left,area);
+                    viewport=Rectangle.Intersect(leftBounds,area);
                     int x=viewport.Left+(int)(viewport.Width*divider);
-                    g.DrawImage(left,viewport);
+                    g.DrawImage(left,leftBounds);
                     var state=g.Save();
                     g.SetClip(new Rectangle(x,viewport.Top,viewport.Right-x,viewport.Height),CombineMode.Intersect);
-                    var output=Fit(right,area);
+                    var output=Fit(right,ActualSize ? area : leftBounds);
                     g.FillRectangle(Brushes.Black,viewport);
                     g.DrawImage(right,output);
                     g.Restore(state);
