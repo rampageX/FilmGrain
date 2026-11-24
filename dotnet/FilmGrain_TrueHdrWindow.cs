@@ -74,23 +74,30 @@ namespace FilmGrainStudioPreview
                 var target = new ThemeTextBox { Text = options.Target, Location = new Point(176, 80), Size = new Size(94, 26), AutoSize = false };
                 var auto = new ThemeCheckBox { Text = lang.T("encode.auto"), Checked = options.Auto, Location = new Point(281, 80), Size = new Size(78, 26) };
                 var motion = new ThemeCheckBox { Text = UiText("高动态", "High motion"), Checked = options.HighMotion, Location = new Point(373, 80), Size = new Size(78, 26) };
+                var pending = PendingQueueInputs();
+                bool hasQueue = pending.Count > 1;
+                bool previewOnly = chkEncodePreview.Checked;
                 var ai = new ThemeCheckBox { Name = "TRUEHDR_AI", Text = UiText("AI 插帧 2×", "AI interpolation 2×"),
                     Location = new Point(160, 581), Size = new Size(150, 28), Enabled = TrueHdrCore.CanInterpolate(source) };
                 ai.Checked = ai.Enabled && options.AiInterpolation;
                 tips.SetToolTip(ai, UiText("逐行 8-bit 4:2:0 SDR，最低 640×360。成片和预览编码启用插帧；实时画面用于检查颜色。",
                     "Progressive 8-bit 4:2:0 SDR, at least 640×360. Applies to encoding and clip preview; live stills are for color."));
-                var route = new ThemeLabel { Name = "TRUEHDR_ROUTE", Location = new Point(16, 105), Size = new Size(465, 20) };
+                var route = new ThemeLabel { Name = "TRUEHDR_ROUTE", Location = new Point(304, 584), Size = new Size(184, 21), AutoEllipsis = true };
                 settings.Controls.AddRange(new Control[] { ai, route });
                 Action updateRate = delegate {
-                    string processing = source.IsInterlaced ? UiText("反交错 · CUDA YADIF Bob 2×", "Deinterlace · CUDA YADIF Bob 2×") :
-                        ai.Checked ? UiText("插帧 · NVEncC AI 2×", "Interpolation · NVEncC AI 2×") : UiText("直接转换", "Direct conversion");
-                    route.Text = processing + " → TrueHDR";
+                    bool batchRoute = hasQueue && !previewOnly;
+                    bool useAi = TrueHdrCore.CanInterpolate(source) && (batchRoute || ai.Checked);
+                    ai.Enabled = !batchRoute && TrueHdrCore.CanInterpolate(source);
+                    string processing = source.IsInterlaced ? UiText("反交错 · CUDA Bob 2×", "Deinterlace · CUDA Bob 2×") :
+                        useAi ? UiText("插帧 · NVEncC AI 2×", "NVEncC AI 2×") : UiText("直接转换", "Direct conversion");
+                    route.Text = batchRoute && !source.IsInterlaced && !useAi ? UiText("当前素材将跳过", "Current source skipped") : processing + " → HDR";
+                    tips.SetToolTip(route, route.Text);
                     target.Enabled = !auto.Checked;
                     if (!auto.Checked) return;
                     string family = codec.SelectedIndex == 1 ? "AV1" : "HEVC";
                     target.Text = rate.SelectedIndex == 1 ? NvencRateControlCore.Recommend(family, motion.Checked, false) :
                         TrueHdrCore.Number(BitrateRecommendationCore.GetRecommendedBitrate(codec.SelectedIndex == 1 ? 0 : 1,
-                            source.Width, source.Height, TrueHdrCore.OutputFps(source, ai.Checked), motion.Checked));
+                            source.Width, source.Height, TrueHdrCore.OutputFps(source, useAi), motion.Checked));
                 };
                 rate.SelectedIndexChanged += delegate { if (!auto.Checked) target.Text = rate.SelectedIndex == 1 ?
                     NvencRateControlCore.Recommend(codec.SelectedIndex == 1 ? "AV1" : "HEVC", motion.Checked, false) : "12000"; updateRate(); };
@@ -254,6 +261,16 @@ namespace FilmGrainStudioPreview
                     screen.SetFrames(null, null);
                 };
 
+                Action updateStartLabel = delegate {
+                    previewOnly = preview.Checked;
+                    updateRate();
+                    begin.Text = hasQueue && !preview.Checked ? UiText("开始队列", "Start queue") : UiText("开始编码", "Start encoding");
+                };
+                preview.CheckedChanged += delegate { updateStartLabel(); };
+                updateStartLabel();
+                if (hasQueue) tips.SetToolTip(begin, UiText("队列使用当前统一配置。HDR 跳过，隔行 Bob，符合条件的逐行 SDR 用 AI 2×。预览编码只处理当前素材。",
+                    "Queue uses these shared settings. Skip HDR, Bob interlaced SDR, AI 2× for eligible progressive SDR. Clip preview encodes the current source."));
+
                 begin.Click += delegate {
                     bool tracking = false;
                     try
@@ -277,7 +294,31 @@ namespace FilmGrainStudioPreview
                         for (int i = 0; i < sliders.Length; i++) options.Picture[i] = sliders[i].Value;
                         foreach (var setting in editors[codec.SelectedIndex].ReadValues()) options.Advanced[setting.Key] = setting.Value;
                         config.Load();
-                        var request = TrueHdrCore.Prepare(config, source.PathValue, source, options);
+                        bool batch = hasQueue && !preview.Checked;
+                        var inputs = batch ? pending : new List<string> { source.PathValue };
+                        var tasks = new List<BridgeTaskRequest>();
+                        var skipped = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                        var finalOutputs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        foreach (string input in inputs)
+                        {
+                            MediaProbeInfo media = source;
+                            if (batch && !mediaProbeCache.TryGetValue(input, out media))
+                                throw new InvalidOperationException(UiText("队列媒体信息未就绪：", "Queue media info is unavailable: ") + input);
+                            var itemOptions = batch ? options.ForQueueItem(media) : options;
+                            if (itemOptions == null)
+                            {
+                                skipped[input] = media.IsHdr ? UiText("跳过 HDR", "Skipped HDR") : UiText("跳过 · 素材不符合条件", "Skipped · unsupported source");
+                                continue;
+                            }
+                            string output;
+                            var request = TrueHdrCore.Prepare(config, input, media, itemOptions, out output);
+                            if (!finalOutputs.Add(Path.GetFullPath(output)))
+                                throw new InvalidOperationException(UiText("队列输出路径重复：", "Duplicate queue output: ") + output);
+                            tasks.Add(new BridgeTaskRequest { ExecutionRequest = request,
+                                RecommendedOutputFps = TrueHdrCore.OutputFps(media, itemOptions.AiInterpolation) });
+                        }
+                        if (tasks.Count == 0)
+                            throw new InvalidOperationException(UiText("队列里没有符合条件的 SDR 素材。", "No eligible SDR sources in the queue."));
                         Directory.CreateDirectory(Path.GetDirectoryName(settingsPath));
                         string temporary = settingsPath + "." + Guid.NewGuid().ToString("N");
                         try {
@@ -293,13 +334,30 @@ namespace FilmGrainStudioPreview
                         if (taskLog != null) taskLog.Dispose();
                         taskLog = new FullLogFileCore(appRoot, "Task", GetLogEntryLimit());
                         fullLogErrorReported = false;
-                        AppendTaskLog("[Task log] " + taskLog.FilePath + Environment.NewLine + "[TrueHDR input] " + source.PathValue + Environment.NewLine);
-                        queueHistory = null;
+                        AppendTaskLog("[Task log] " + taskLog.FilePath + Environment.NewLine);
+                        foreach (var skip in skipped) AppendTaskLog("[TrueHDR queue] " + skip.Value + " " + skip.Key + Environment.NewLine);
+                        foreach (ListViewItem item in listFiles.Items)
+                        {
+                            string reason;
+                            if (item.Tag is string && skipped.TryGetValue((string)item.Tag, out reason)) item.SubItems[2].Text = reason;
+                        }
+                        queueHistory = batch ? new QueueCompletionHistory(chkQueueHistory != null && chkQueueHistory.Checked) : null;
                         submittedQueueFiles.Clear();
+                        foreach (var task in tasks)
+                        {
+                            string input = task.ExecutionRequest.InputFiles[0];
+                            submittedQueueFiles.Add(input);
+                            AppendTaskLog("[TrueHDR input] " + input + Environment.NewLine);
+                        }
                         lock (queueClockSync) { queueClock.Restart(); queueClockStatus = ""; }
                         tracking = true;
-                        bridgeTaskCoordinator.Start(new BridgeTaskRequest { ExecutionRequest = request,
-                            RecommendedOutputFps = TrueHdrCore.OutputFps(source, options.AiInterpolation) });
+                        if (batch)
+                        {
+                            bridgeTaskCoordinator.SkipFailedFiles = config.GetBool("QUEUE_SKIP_FAILED");
+                            RegisterQueueHistory(tasks);
+                            bridgeTaskCoordinator.StartQueue(tasks);
+                        }
+                        else bridgeTaskCoordinator.Start(tasks[0]);
                         dlg.DialogResult = DialogResult.OK;
                     }
                     catch (Exception error)

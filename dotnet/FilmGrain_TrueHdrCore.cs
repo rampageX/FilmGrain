@@ -27,6 +27,14 @@ namespace FilmGrainStudioPreview
         public bool Mp4 { get; set; }
         public Dictionary<string, string> Advanced { get; set; }
 
+        internal TrueHdrOptions ForQueueItem(MediaProbeInfo source)
+        {
+            if (!TrueHdrCore.Eligible(source) || (!source.IsInterlaced && !TrueHdrCore.CanInterpolate(source))) return null;
+            var item = (TrueHdrOptions)MemberwiseClone();
+            item.AiInterpolation = !source.IsInterlaced;
+            return item;
+        }
+
         public TrueHdrOptions()
         {
             Picture = (int[])Defaults.Clone();
@@ -311,6 +319,12 @@ namespace FilmGrainStudioPreview
 
         internal static BridgeExecutionRequest Prepare(FgsConfig config, string input, MediaProbeInfo source, TrueHdrOptions options)
         {
+            string output;
+            return Prepare(config, input, source, options, out output);
+        }
+
+        internal static BridgeExecutionRequest Prepare(FgsConfig config, string input, MediaProbeInfo source, TrueHdrOptions options, out string finalOutput)
+        {
             input = Path.GetFullPath(input);
             string exe = NvencInterpolationCore.Exe(config.Get("NVENC_DIR"));
             string probe = Path.Combine(config.Get("FFMPEG_DIR"), "ffprobe.exe");
@@ -341,6 +355,7 @@ namespace FilmGrainStudioPreview
             string output = Path.Combine(directory, Path.GetFileNameWithoutExtension(input) + "_TrueHDR_" + options.Codec + "_" +
                 NvencRateControlCore.FileToken(RateState(options), Bitrate(options, source)) + (options.PreviewSeconds > 0 ? "_Preview_" + (options.PreviewStart ?? "").Replace(":", "") +
                     "_" + Number(options.PreviewSeconds) + "s" : "") + ext);
+            finalOutput = output;
             if (File.Exists(output)) throw new IOException("Output already exists: " + output);
             string staging = Path.Combine(directory, ".fgs-truehdr-" + Guid.NewGuid().ToString("N") + ext);
             var args = Arguments(input, staging, options, source, audio);
