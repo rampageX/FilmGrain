@@ -260,6 +260,8 @@ namespace FilmGrainStudioPreview
             }
         }
 
+        internal const string ProbeEntries = "format=format_name,duration,bit_rate:stream_tags=BPS,BPS-eng:stream=index,codec_type,codec_name,profile,width,height,sample_aspect_ratio,avg_frame_rate,start_time,field_order,bit_rate,channels,channel_layout,sample_rate,pix_fmt,bits_per_raw_sample,color_range,color_space,color_transfer,color_primaries";
+
         public static MediaProbeInfo Parse(string path, string json)
         {
             JavaScriptSerializer serializer = new JavaScriptSerializer();
@@ -458,7 +460,7 @@ namespace FilmGrainStudioPreview
                 psi.CreateNoWindow = true;
                 psi.RedirectStandardOutput = true;
                 psi.RedirectStandardError = true;
-                psi.Arguments = "-v error -show_entries format=format_name,duration,bit_rate:stream_tags=BPS,BPS-eng:stream=index,codec_type,codec_name,profile,width,height,sample_aspect_ratio,avg_frame_rate,start_time,field_order,bit_rate,channels,channel_layout,sample_rate,pix_fmt,bits_per_raw_sample,color_range,color_space,color_transfer,color_primaries -of json " + QuoteArgument(path);
+                psi.Arguments = "-v error -show_entries " + MediaProbeInfo.ProbeEntries + " -of json " + QuoteArgument(path);
 
                 process = new Process();
                 process.StartInfo = psi;

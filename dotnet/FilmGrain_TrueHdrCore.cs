@@ -325,7 +325,7 @@ namespace FilmGrainStudioPreview
         {
             string json, error;
             if (!SharedFrucCore.Run(executable, SharedFrucCore.JoinArguments(new[] {
-                "-v", "error", "-show_streams", "-show_format", "-of", "json", path }), 30000, out json, out error))
+                "-v", "error", "-show_entries", MediaProbeInfo.ProbeEntries, "-of", "json", path }), 30000, out json, out error))
                 throw new InvalidDataException("TrueHDR media probe failed: " + error);
             return MediaProbeInfo.Parse(path, json);
         }

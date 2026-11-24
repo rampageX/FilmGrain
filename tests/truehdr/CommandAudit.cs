@@ -22,6 +22,22 @@ internal static class CommandAudit
         var core = assembly.GetType("FilmGrainStudioPreview.TrueHdrCore", true);
         var options = Activator.CreateInstance(assembly.GetType("FilmGrainStudioPreview.TrueHdrOptions", true));
         var source = Activator.CreateInstance(assembly.GetType("FilmGrainStudioPreview.MediaProbeInfo", true));
+        if (args.Length >= 5)
+        {
+            var probe = core.GetMethod("Probe", Flags);
+            foreach (string path in args.Skip(4))
+            {
+                var media = probe.Invoke(null, new object[] { args[3], path });
+                var type = media.GetType();
+                Require((string)type.GetField("VideoCodec", Flags).GetValue(media) == "hevc" &&
+                    (string)type.GetField("PixelFormat", Flags).GetValue(media) == "yuv420p10le" &&
+                    (string)type.GetField("ColorSpace", Flags).GetValue(media) == "bt2020nc" &&
+                    (string)type.GetField("ColorTransfer", Flags).GetValue(media) == "smpte2084" &&
+                    (string)type.GetField("ColorPrimaries", Flags).GetValue(media) == "bt2020" &&
+                    ((System.Collections.IList)type.GetField("AudioTracks", Flags).GetValue(media)).Count == 2,
+                    "TrueHDR probe must read HDR10 tags and both audio tracks: " + path);
+            }
+        }
         var build = core.GetMethod("Arguments", Flags);
         var rangePolicy = assembly.GetType("FilmGrainStudioPreview.SharedEncodePreviewCore").GetMethod("UseWholeSource", Flags);
         Require((bool)rangePolicy.Invoke(null, new object[] { "19.5", 30 }), "Short source encodes whole");
