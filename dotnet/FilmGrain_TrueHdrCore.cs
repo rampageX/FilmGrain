@@ -116,7 +116,7 @@ namespace FilmGrainStudioPreview
         {
             return new List<string> { "--avsw", "--video-track", "1", "--seek",
                 seconds.ToString("0.###", CultureInfo.InvariantCulture), "--frames", "1", "-i", input,
-                "--codec", "raw", "--output-depth", "10", "--output-csp", "yuv420", "--y4m-timestamp",
+                "--codec", "raw", "--output-depth", "10", "--output-csp", "yuv420", "--output-format", "y4m", "--y4m-timestamp",
                 "--vpp-ngx-truehdr", PictureArgument(values), "--colormatrix", "bt2020nc",
                 "--colorprim", "bt2020", "--transfer", "smpte2084", "--colorrange", "auto", "-o", output };
         }
