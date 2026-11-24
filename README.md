@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.0.94 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.95 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 <table>
   <tr>
@@ -904,9 +904,9 @@ HDR10 渲染选 CPU10 时，完整和快捷高级设置均自动取消并禁用�
 | 保护静止文字 / Logo（Still） | 关闭；limit 4.5、edge 5、tolerance 30 | GPU 静止遮罩，减少固定文字与 Logo 拖影 |
 | 剥离 HUD 后重合成（Peel） | 关闭；limit 6 | GPU HUD 剥离再合成 |
 
-所有新选项默认关闭，保留既有插帧参数。dedup 不重建逐帧时间戳，不是 VFR 或音画同步修复；也不能处理任意连续重复帧。普通 SDR 仍为 YUV420P8/SmoothFps；逐行 HDR10 与符合条件的 HLG 可选 CPU10/GPU16 高位深路径，其它 HDR、隔行旁路及 FRUC 仍按实际能力处理。FGS 私有 VapourSynth 环境首次安装即为 R82 / BestSource 21.0；现有环境通过「更新 OpenSVPFlow 插件」入口原地升级，不重建 .venv。
+所有新选项默认关闭，保留既有插帧参数。dedup 不重建逐帧时间戳，不是 VFR 或音画同步修复；也不能处理任意连续重复帧。普通 SDR 仍为 YUV420P8/SmoothFps；逐行 HDR10 与符合条件的 HLG 可选 CPU10/GPU16 高位深路径，其它 HDR、隔行旁路及 FRUC 仍按实际能力处理。FGS 私有 VapourSynth 环境首次安装即为 R82 / BestSource 21.0；高级设置与 OpenSVPFlow 快捷设置都可检查更新，显示本地和远程版本并在确认后更新。选择「重建运行环境」可用 FGS 独立 Python 重新创建虚拟环境和私有配置，失败时恢复先前备份。
 
-v5.0.94 携带已验证 HDR 插帧修复的 `nightly-20261123-badc0debd33f` 两只插件 DLL，实际 SHA-256 见 [_OpenSVPFlow/Plugins/BUNDLED_DLL_SHA256.txt](_OpenSVPFlow/Plugins/BUNDLED_DLL_SHA256.txt)。原配套插件已取消对固定 DLL 哈希的运行门槛；后续如再次在线更新，必须成对更新并通过 CPU/GPU/HDR 自检，不保证新构建在所有素材上与本次测试配对表现相同。
+v5.0.95 携带已验证 HDR 插帧修复的 `nightly-20261123-badc0debd33f` 两只插件 DLL，实际 SHA-256 见 [_OpenSVPFlow/Plugins/BUNDLED_DLL_SHA256.txt](_OpenSVPFlow/Plugins/BUNDLED_DLL_SHA256.txt)。原配套插件已取消对固定 DLL 哈希的运行门槛；后续如再次在线更新，必须成对更新并通过 CPU/GPU/HDR 自检，不保证新构建在所有素材上与本次测试配对表现相同。
 
 ### FRUC Vulkan
 

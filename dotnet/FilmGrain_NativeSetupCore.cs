@@ -22,11 +22,11 @@ namespace FilmGrainStudioPreview
             this.root=Path.GetFullPath(root);deps=Path.Combine(this.root,"_Dependencies");stage=Path.Combine(deps,"_stage_NET_"+Guid.NewGuid().ToString("N"));
             this.systemPython=systemPython;this.token=token;this.log=log;this.download=download;this.process=process;
         }
-        internal LibraryToolResult Install(string tool)
+        internal LibraryToolResult Install(string tool, bool rebuildSvp = false)
         {
             Directory.CreateDirectory(stage);
             try {
-                switch(tool){case "FFmpeg":InstallFfmpeg();break;case "Grav1synth":InstallGrav();break;case "Python":InstallPython();break;case "OpenSVPFlow":InstallSvp();break;case "OpenSVPFlowUpdate":return UpdateSvp();default:throw new InvalidDataException("未知组件："+tool);}
+                switch(tool){case "FFmpeg":InstallFfmpeg();break;case "Grav1synth":InstallGrav();break;case "Python":InstallPython();break;case "OpenSVPFlow":if(rebuildSvp)RebuildSvp();else InstallSvp();break;default:throw new InvalidDataException("未知组件："+tool);}
                 log("安装与验证完成："+tool);return new LibraryToolResult{Success=1};
             }finally{try{Directory.Delete(stage,true);}catch{log("安装临时目录未能清理："+stage);}}
         }
@@ -155,7 +155,55 @@ namespace FilmGrainStudioPreview
             try{Verify(exe,"-m","venv",probe);Verify(Path.Combine(probe,"Scripts","python.exe"),"-m","pip","--version");}finally{if(Directory.Exists(probe))Directory.Delete(probe,true);}
             token.ThrowIfCancellationRequested();PublishDirectory(runtime,dest);return Path.Combine(dest,"tools","python.exe");
         }
-        internal LibraryToolResult UpdateSvp()
+        string ReadSvpVersion()
+        {
+            string plugins = Path.Combine(root, "_OpenSVPFlow", "Plugins");
+            string marker = Path.Combine(plugins, "open-svpflow-version.txt");
+            if (!File.Exists(marker) || new FileInfo(marker).Length > 1024 ||
+                !File.Exists(Path.Combine(plugins, "svpflow1_vs.dll")) ||
+                !File.Exists(Path.Combine(plugins, "svpflow2_vs.dll"))) return "";
+            string version = File.ReadAllText(marker).Trim();
+            return ValidSvpTag(version) ? version : "";
+        }
+
+        static bool ValidSvpTag(string tag)
+        {
+            return Regex.IsMatch(tag ?? "", @"\A[A-Za-z0-9][A-Za-z0-9._+-]{0,199}\z");
+        }
+
+        internal Dictionary<string,object> CheckSvpVersion(out string current, out string remote)
+        {
+            current = ReadSvpVersion();
+            Directory.CreateDirectory(stage);
+            try {
+                var release = Release("https://api.github.com/repos/Z1xus/open-svpflow/releases/latest");
+                if (release == null || !release.ContainsKey("tag_name") || !release.ContainsKey("assets"))
+                    throw new IOException("发布信息不完整");
+                remote = Convert.ToString(release["tag_name"]);
+                if (!ValidSvpTag(remote)) throw new IOException("远程发布版本标记无效");
+                return release;
+            } finally {
+                try { Directory.Delete(stage, true); }
+                catch (IOException ex) { log(ex.Message); }
+                catch (UnauthorizedAccessException ex) { log(ex.Message); }
+            }
+        }
+
+        internal LibraryToolResult UpdateSvp(Dictionary<string,object> release, string old)
+        {
+            string tag = Convert.ToString(release["tag_name"]);
+            if (ReadSvpVersion() != old) throw new IOException("本地版本已变化，请重新检查更新。");
+            if (string.Equals(tag, old, StringComparison.OrdinalIgnoreCase)) return new LibraryToolResult { Skipped = 1 };
+            Directory.CreateDirectory(stage);
+            try { return InstallSvpUpdate(release, old, tag); }
+            finally {
+                try { Directory.Delete(stage, true); }
+                catch (IOException ex) { log(ex.Message); }
+                catch (UnauthorizedAccessException ex) { log(ex.Message); }
+            }
+        }
+
+        LibraryToolResult InstallSvpUpdate(Dictionary<string,object> release, string old, string tag)
         {
             string svp = Path.Combine(root, "_OpenSVPFlow"), plugins = Path.Combine(svp, "Plugins");
             string pipe = Path.Combine(svp, ".venv", "Scripts", "vspipe.exe"), check = Path.Combine(svp, "Check_OpenSVPFlow.vpy");
@@ -165,18 +213,7 @@ namespace FilmGrainStudioPreview
                 throw new IOException("更新前须安装完整 OpenSVPFlow 与 FGS 私有配置；请先使用依赖安装入口。");
             var env = new Dictionary<string,string>{{"APPDATA",profile},{"PYTHONUTF8","1"},{"PYTHONIOENCODING","utf-8"}};
             if(!File.Exists(python))throw new IOException("OpenSVPFlow 私有 Python 不存在："+python);
-            log("[0/7] 原地升级 FGS 私有 VapourSynth R82 / BestSource，不重建 .venv");
-            if(Run(python,new[]{"-m","pip","install","--disable-pip-version-check","--timeout","30","--retries","2","--upgrade","vapoursynth==82","vapoursynth-bestsource==21.0"},env,null)!=0)
-                throw new IOException("FGS 私有 VapourSynth R82 升级失败；现有配置保留，请检查安装日志。");
-            if(Run(pipe,new[]{"--version"},env,null)!=0)throw new IOException("VapourSynth R82 vspipe 启动失败");
-            log("[1/7] 查询 OpenSVPFlow 最新发布");
-            var release = Release("https://api.github.com/repos/Z1xus/open-svpflow/releases/latest");
-            if (release == null || !release.ContainsKey("tag_name") || !release.ContainsKey("assets")) throw new IOException("发布信息不完整");
-            string tag = Convert.ToString(release["tag_name"]);
-            if (string.IsNullOrWhiteSpace(tag) || tag.Length > 200 || tag.Any(char.IsControl)) throw new IOException("发布版本标记无效");
-            string marker = Path.Combine(plugins, "open-svpflow-version.txt");
-            string old = File.Exists(marker) ? File.ReadAllText(marker).Trim() : "unknown";
-            log("当前：" + old + "；目标：" + tag);
+            log("当前：" + (old.Length == 0 ? "未知" : old) + "；目标：" + tag);
             Action<string> smoke = dir => {
                 foreach (string gpu in new[]{"0","1"}) {
                     token.ThrowIfCancellationRequested();
@@ -190,10 +227,6 @@ namespace FilmGrainStudioPreview
                 }
             };
             string[] files = {"svpflow1_vs.dll","svpflow2_vs.dll","open-svpflow-version.txt"};
-            if (old == tag && files.All(x=>File.Exists(Path.Combine(plugins,x)) && new FileInfo(Path.Combine(plugins,x)).Length > 0)) {
-                log("[5/7] 版本相同，验证现有插件"); smoke(plugins); token.ThrowIfCancellationRequested();
-                log("已是最新版本，插件未改动。"); return new LibraryToolResult{Skipped=1};
-            }
             var selected = ((object[])release["assets"]).Cast<Dictionary<string,object>>().Where(x=>x.ContainsKey("name") && Convert.ToString(x["name"])=="x86_64-pc-windows-msvc.zip").ToArray();
             if (selected.Length != 1) throw new IOException("Windows 更新资产缺失或不唯一");
             var asset=selected[0];long size=Convert.ToInt64(asset["size"]);if(size<=0||size>200*MB)throw new IOException("更新资产大小无效");
@@ -216,6 +249,10 @@ namespace FilmGrainStudioPreview
                 File.Copy(paths[0],Path.Combine(ready,name));
             }
             File.WriteAllText(Path.Combine(ready,files[2]),tag+"\r\n",new UTF8Encoding(false));
+            log("[0/7] 原地升级 FGS 私有 VapourSynth R82 / BestSource，不重建 .venv");
+            if(Run(python,new[]{"-m","pip","install","--disable-pip-version-check","--timeout","30","--retries","2","--upgrade","vapoursynth==82","vapoursynth-bestsource==21.0"},env,null)!=0)
+                throw new IOException("FGS 私有 VapourSynth R82 升级失败；现有配置保留，请检查安装日志。");
+            if(Run(pipe,new[]{"--version"},env,null)!=0)throw new IOException("VapourSynth R82 vspipe 启动失败");
             log("[4/7] 新插件 CPU / GPU 自检");smoke(ready);token.ThrowIfCancellationRequested();
             log("[5/7] 备份原插件和版本标记");Directory.CreateDirectory(plugins);
             string backup=Path.Combine(svp,"_PluginBackup","UpdateNET_"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(backup);
@@ -246,6 +283,43 @@ namespace FilmGrainStudioPreview
             }
             log("更新与双模式验证完成："+tag+"；备份："+backup+"。使用前请重启 FGS 并重检测硬件。");
             return new LibraryToolResult{Success=1};
+        }
+
+        void RebuildSvp()
+        {
+            string svp = Path.Combine(root, "_OpenSVPFlow");
+            if (!File.Exists(Path.Combine(svp, "Check_OpenSVPFlow.vpy"))) throw new IOException("缺少 OpenSVPFlow 自检文件");
+            string backup = Path.Combine(svp, "_RuntimeBackup", "RebuildNET_" + Guid.NewGuid().ToString("N"));
+            string[] folders = { ".venv", "_UserConfig" };
+            var moved = new List<string>();
+            bool installStarted = false;
+            try {
+                foreach (string name in folders) {
+                    token.ThrowIfCancellationRequested();
+                    string source = Path.Combine(svp, name);
+                    if (File.Exists(source)) throw new IOException("运行环境路径被文件占用：" + source);
+                    if (!Directory.Exists(source)) continue;
+                    Directory.CreateDirectory(backup);
+                    Directory.Move(source, Path.Combine(backup, name));
+                    moved.Add(name);
+                }
+                token.ThrowIfCancellationRequested();
+                installStarted = true;
+                // A Windows venv embeds its path. Build it at its final location.
+                InstallSvp();
+            } catch (Exception original) {
+                var errors = new List<string>();
+                foreach (string name in folders) {
+                    string target = Path.Combine(svp, name);
+                    try {
+                        if (installStarted && Directory.Exists(target)) Directory.Delete(target, true);
+                        if (moved.Contains(name)) Directory.Move(Path.Combine(backup, name), target);
+                    } catch (Exception ex) { errors.Add(name + "：" + ex.Message); }
+                }
+                if (errors.Count > 0) throw new IOException("恢复运行环境失败，备份位于 " + backup + "：" + string.Join("；", errors.ToArray()), original);
+                throw;
+            }
+            if (moved.Count > 0) log("旧运行环境备份：" + backup);
         }
 
         void InstallSvp()

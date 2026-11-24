@@ -11,7 +11,7 @@ namespace FilmGrainStudioPreview
 {
     internal static class NativeLibraryToolDialog
     {
-        internal static LibraryToolResult Show(IWin32Window owner,string title,Func<CancellationToken,Action<string>,LibraryToolResult> job)
+        internal static LibraryToolResult Show(IWin32Window owner,string title,Func<CancellationToken,Action<string>,LibraryToolResult> job, bool closeOnSuccess = false)
         {
             using(var dialog=new SettingsDialogForm(false)) using(var timer=new System.Windows.Forms.Timer()) using(var cancel=new CancellationTokenSource()) {
                 dialog.Text=title;dialog.Size=new Size(880,580);dialog.MinimumSize=new Size(680,420);dialog.StartPosition=FormStartPosition.CenterParent;
@@ -34,7 +34,9 @@ namespace FilmGrainStudioPreview
                         if(!cancel.IsCancellationRequested && (line.StartsWith("[") || line.StartsWith("编码") || line.StartsWith("解码")))phase.Text=line;
                     }
                     if(worker==null || worker.IsAlive || finished || !lines.IsEmpty)return;
-                    finished=true;timer.Stop();phase.Text=result.Summary;button.Text="关闭";button.Enabled=true;
+                    finished=true;timer.Stop();
+                    if(closeOnSuccess && result.Success > 0 && result.Failed == 0 && !result.Cancelled){dialog.Close();return;}
+                    phase.Text=result.Summary;button.Text="关闭";button.Enabled=true;
                 };
                 dialog.Shown+=delegate {
                     worker=new Thread(delegate() {

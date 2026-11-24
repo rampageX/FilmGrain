@@ -800,22 +800,66 @@ namespace FilmGrainStudioPreview
             }
         }
 
-        private void StartNativeSvpUpdate(Form owner)
+        private void StartNativeSvpMaintenance(Form owner, bool rebuild)
         {
-            if (setupTestMode) { FgsMessageBox.Show(owner, "设置测试模式禁止真实更新。"); return; }
-            if (bridgeTaskCoordinator != null && bridgeTaskCoordinator.IsActive) { FgsMessageBox.Show(owner, "请等待编码队列结束后更新插件。"); return; }
+            if (setupTestMode) { FgsMessageBox.Show(owner, UiText("设置测试模式禁止维护 OpenSVPFlow。", "Setup test mode disables OpenSVPFlow maintenance.")); return; }
+            if (bridgeTaskCoordinator != null && bridgeTaskCoordinator.IsActive) {
+                FgsMessageBox.Show(owner, UiText("请等待编码队列结束后维护 OpenSVPFlow。", "Wait for the encoding queue to finish before servicing OpenSVPFlow."));
+                return;
+            }
+
             string mode = config.Get("NETWORK_PROXY_MODE"), proxy = config.Get("NETWORK_PROXY_URL");
-            LibraryToolResult result = NativeLibraryToolDialog.Show(owner, "OpenSVPFlow 原生更新", delegate(CancellationToken token, Action<string> log) {
-                var core = new NativeSetupCore(appRoot, false, token, log,
-                    delegate(string url, string path, long limit, CancellationToken ct, Action<string> write) { NativeSetupCore.Download(url, path, limit, mode, proxy, ct, write); },
-                    delegate(string exe, IList<string> args, string cwd, IDictionary<string,string> env, CancellationToken ct, Action<string> write) { return NativeLibraryTools.RunProcessEnvironment(exe,args,cwd,env,120000,ct,write); });
-                return core.Install("OpenSVPFlowUpdate");
+            Func<CancellationToken, Action<string>, NativeSetupCore> createCore = (token, log) =>
+                new NativeSetupCore(appRoot, false, token, log,
+                    (url, path, limit, ct, write) => NativeSetupCore.Download(url, path, limit, mode, proxy, ct, write),
+                    (exe, args, cwd, env, ct, write) => {
+                        var childEnv = env == null ? new Dictionary<string,string>() : new Dictionary<string,string>(env);
+                        childEnv["PYTHONUTF8"] = "1";
+                        childEnv["PYTHONIOENCODING"] = "utf-8";
+                        return NativeLibraryTools.RunProcessEnvironment(exe, args, cwd, childEnv, rebuild ? 1200000 : 120000, ct, write);
+                    });
+
+            string title = "OpenSVPFlow · " + (rebuild ? UiText("重建运行环境", "Rebuild runtime") : UiText("检查更新", "Check for updates"));
+            Dictionary<string,object> release = null;
+            string local = "", remote = "";
+            if (rebuild) {
+                if (FgsMessageBox.Show(owner,
+                    UiText("使用 FGS 自带的独立 Python 重建虚拟环境和私有配置。现有环境会先备份。继续？",
+                           "Recreate the virtual environment and private configuration using the standalone FGS Python. The current runtime will be backed up. Continue?"),
+                    title, MessageBoxButtons.OKCancel, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2,
+                    UiText("重建", "Rebuild")) != DialogResult.OK) return;
+            } else {
+                LibraryToolResult check = NativeLibraryToolDialog.Show(owner, title, (token, log) => {
+                    log(UiText("[1/1] 读取当前版本并查询远程发布", "[1/1] Reading installed version and querying the release"));
+                    release = createCore(token, log).CheckSvpVersion(out local, out remote);
+                    token.ThrowIfCancellationRequested();
+                    return new LibraryToolResult { Success = 1 };
+                }, true);
+                if (check.Success != 1 || check.Cancelled) return;
+
+                string versions = UiText("当前版本：", "Installed: ") + (local.Length == 0 ? UiText("无法识别", "Unknown") : local) +
+                    Environment.NewLine + UiText("远程版本：", "Remote: ") + remote + Environment.NewLine + Environment.NewLine;
+                if (string.Equals(local, remote, StringComparison.OrdinalIgnoreCase)) {
+                    FgsMessageBox.Show(owner, versions + UiText("版本相同。", "The versions match."), title, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+                string comparison = local.Length == 0
+                    ? UiText("无法比较版本。是否安装显示的远程版本？", "The versions cannot be compared. Install the displayed remote version?")
+                    : UiText("版本不同。是否更新到显示的远程版本？", "The versions differ. Update to the displayed remote version?");
+                if (FgsMessageBox.Show(owner, versions + comparison, title, MessageBoxButtons.OKCancel,
+                    MessageBoxIcon.Question, MessageBoxDefaultButton.Button2, UiText("更新", "Update")) != DialogResult.OK) return;
+                title = "OpenSVPFlow · " + UiText("更新插件", "Update plugins");
+            }
+
+            LibraryToolResult result = NativeLibraryToolDialog.Show(owner, title, (token, log) => {
+                var core = createCore(token, log);
+                return rebuild ? core.Install("OpenSVPFlow", true) : core.UpdateSvp(release, local);
             });
             if (result.Success > 0 && !result.Cancelled && result.Failed == 0) {
-                // An updater can replace DLLs in place while retaining their cached identity.
-                // Refresh explicitly after a successful installation; never on dialog open.
                 BeginSvpRefresh(true);
-                FgsMessageBox.Show(owner, "插件更新并完成自检，已安排刷新 SVP 能力。", "更新完成");
+                FgsMessageBox.Show(owner, rebuild
+                    ? UiText("运行环境重建并通过自检，已安排刷新 SVP 能力。", "The rebuilt runtime passed verification. An SVP capability refresh is queued.")
+                    : UiText("插件更新并通过自检，已安排刷新 SVP 能力。", "The updated plugins passed verification. An SVP capability refresh is queued."), title);
             }
         }
 
@@ -959,8 +1003,12 @@ namespace FilmGrainStudioPreview
                     };
                     choice.FormattingEnabled=true;
                 }
-                Button updateSvp = new ThemeButton { Text = UiText("更新 OpenSVPFlow 插件", "Update OpenSVPFlow plugins"), Location = new Point(22, 586), Size = new Size(235, 30) };
-                updateSvp.Click += delegate { StartNativeSvpUpdate(dlg); }; dlg.Controls.Add(updateSvp);
+                Button updateSvp = new ThemeButton { Text = UiText("检查更新", "Check for updates"), Location = new Point(22, 466), Size = new Size(150, 30) };
+                Button rebuildSvp = new ThemeButton { Text = UiText("重建运行环境", "Rebuild runtime"), Location = new Point(188, 466), Size = new Size(150, 30) };
+                updateSvp.Click += delegate { StartNativeSvpMaintenance(dlg, false); };
+                rebuildSvp.Click += delegate { StartNativeSvpMaintenance(dlg, true); };
+                dlg.Controls.Add(updateSvp);
+                dlg.Controls.Add(rebuildSvp);
 
                 Func<string,decimal,decimal,int,NumericUpDown> extraNumber = delegate(string key,decimal fallback,decimal maximum,int y) {
                     NumericUpDown field = new ThemeNumericUpDown { Location=new Point(560,y),Size=new Size(110,26),Minimum=0,Maximum=maximum,DecimalPlaces=2,Increment=0.1m };
@@ -1020,8 +1068,9 @@ namespace FilmGrainStudioPreview
                 dlg.CancelButton = cancel;
 
                 Button pageDefaults = new ThemeButton { Name="PAGE_DEFAULTS",Text = lang.T("config.defaults"), Location = new Point(434, 466), Size = new Size(112, 30) }; dlg.Controls.Add(pageDefaults);
-                updateSvp.Top=466;
-                EventHandler updateAdvancedActions = delegate { updateSvp.Visible = tabs.SelectedTab == interp; };
+                EventHandler updateAdvancedActions = delegate {
+                    updateSvp.Visible = rebuildSvp.Visible = quickScope == null && tabs.SelectedTab == interp;
+                };
                 tabs.SelectedIndexChanged += updateAdvancedActions; updateAdvancedActions(null, EventArgs.Empty);
                 Action resetSvp=delegate { svpSpeed.SelectedIndex=0;svpTuning.SelectedIndex=0;svpBlock.SelectedIndex=0;svpHdrBackend.SelectedIndex=0;algo.SelectedItem="13";analyse.SelectedIndex=0;mask.Value=100;svpFast.Checked=false;svpLean.Checked=false;dedup.Value=0;still.Checked=false;stillLimit.Value=4.5m;stillEdge.Value=5;stillTolerance.Value=30;peel.Checked=false;peelLimit.Value=6; };
                 Action resetFruc=delegate {frucPerf.SelectedIndex=1;frucGrid.SelectedIndex=0;};
@@ -1195,7 +1244,10 @@ namespace FilmGrainStudioPreview
                     updateSvp.Visible=false;
                     if(quickScope=="SVP") {
                         quickSurface.Controls.Add(updateSvp);
-                        updateSvp.Location=new Point(20,bodyHeight);updateSvp.Size=new Size(316,30);updateSvp.Visible=true;
+                        quickSurface.Controls.Add(rebuildSvp);
+                        updateSvp.Location = new Point(20, bodyHeight);
+                        rebuildSvp.Location = new Point(186, bodyHeight);
+                        updateSvp.Visible = rebuildSvp.Visible = true;
                         quickSurface.Height+=40;bodyHeight+=40;dlg.ClientSize=new Size(width,bodyHeight+56);
                         ok.Top=cancel.Top=pageDefaults.Top=bodyHeight+10;
                     }

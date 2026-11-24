@@ -1820,17 +1820,17 @@ namespace FilmGrainStudioPreview
         internal static DialogResult Show(IWin32Window owner,string text,string caption){return Show(owner,text,caption,MessageBoxButtons.OK,MessageBoxIcon.None,MessageBoxDefaultButton.Button1);}
         internal static DialogResult Show(IWin32Window owner,string text,string caption,MessageBoxButtons buttons){return Show(owner,text,caption,buttons,MessageBoxIcon.None,MessageBoxDefaultButton.Button1);}
         internal static DialogResult Show(IWin32Window owner,string text,string caption,MessageBoxButtons buttons,MessageBoxIcon icon){return Show(owner,text,caption,buttons,icon,MessageBoxDefaultButton.Button1);}
-        internal static DialogResult Show(IWin32Window owner,string text,string caption,MessageBoxButtons buttons,MessageBoxIcon icon,MessageBoxDefaultButton defaultButton)
+        internal static DialogResult Show(IWin32Window owner,string text,string caption,MessageBoxButtons buttons,MessageBoxIcon icon,MessageBoxDefaultButton defaultButton, string confirmText = null)
         {
             Control control=owner as Control;
             if(control==null && owner!=null)control=Control.FromHandle(owner.Handle);
             if(control==null)control=Form.ActiveForm;
             if(control==null && Application.OpenForms.Count>0)control=Application.OpenForms[0];
             if(control!=null && !control.IsDisposed && control.IsHandleCreated && control.InvokeRequired)
-                return (DialogResult)control.Invoke(new Func<DialogResult>(delegate{return Show(control,text,caption,buttons,icon,defaultButton);}));
+                return (DialogResult)control.Invoke(new Func<DialogResult>(delegate{return Show(control,text,caption,buttons,icon,defaultButton,confirmText);}));
             if(control!=null && (control.IsDisposed||control.Disposing)){control=null;owner=null;}
             IWin32Window modalOwner=control??owner;
-            using(var dialog=Create(text,caption,buttons,icon,defaultButton,modalOwner))
+            using(var dialog=Create(text,caption,buttons,icon,defaultButton,modalOwner,confirmText))
             using(var theme=new UiTheme()) {
                 UiWindowIcon.Apply(dialog,AppDomain.CurrentDomain.BaseDirectory);
                 foreach(Control child in dialog.Controls)
@@ -1839,7 +1839,7 @@ namespace FilmGrainStudioPreview
                 return modalOwner==null?dialog.ShowDialog():dialog.ShowDialog(modalOwner);
             }
         }
-        internal static Form Create(string text,string caption,MessageBoxButtons buttons,MessageBoxIcon icon,MessageBoxDefaultButton defaultButton,IWin32Window owner)
+        internal static Form Create(string text,string caption,MessageBoxButtons buttons,MessageBoxIcon icon,MessageBoxDefaultButton defaultButton,IWin32Window owner, string confirmText = null)
         {
             var dialog=new PromptForm(text??"",caption??"Film Grain Studio");
             dialog.Text=caption??"Film Grain Studio";
@@ -1867,7 +1867,7 @@ namespace FilmGrainStudioPreview
             var actions=new ThemeButton[results.Length];bool chinese=(LanguageCode??"").StartsWith("zh",StringComparison.OrdinalIgnoreCase);
             int left=(width-results.Length*buttonWidth-(results.Length-1)*gap)/2;
             for(int i=0;i<results.Length;i++) {
-                var result=results[i];var button=new ThemeButton {Text=ButtonText(result,chinese),DialogResult=result,
+                var result=results[i];var button=new ThemeButton {Text=result==DialogResult.OK && confirmText!=null ? confirmText : ButtonText(result,chinese),DialogResult=result,
                     Location=new Point(left+i*(buttonWidth+gap),bodyHeight+pad*2),Size=new Size(buttonWidth,buttonHeight),TabIndex=i};
                 actions[i]=button;dialog.Controls.Add(button);
                 if(result==DialogResult.Cancel)dialog.CancelButton=button;
