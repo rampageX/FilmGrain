@@ -30,7 +30,7 @@ internal static class CommandAudit
         var live = (IList<string>)core.GetMethod("LiveFrameArguments", Flags).Invoke(null, new object[] {
             "test.mkv", "frame.y4m", 2.5, new[] { 125, 75, 44, 1000 } });
         Require(Option(live, "--codec") == "raw" && Option(live, "--frames") == "1" &&
-            Option(live, "--seek") == "2.5" && Option(live, "--output-depth") == "10" &&
+            Option(live, "--seek") == "2.5" && !live.Contains("--output-depth") && Option(live, "--output-format") == "y4m" &&
             Option(live, "--vpp-ngx-truehdr") == "contrast=125,saturation=75,middlegray=44,maxluminance=1000", "Live TrueHDR frame");
         if (args.Length > 2) core.GetMethod("RequireTrueHdr", Flags).Invoke(null, new object[] { args[2] });
         var help = core.GetMethod("AdvertisesTrueHdr", Flags);
@@ -52,10 +52,10 @@ internal static class CommandAudit
         Field(source, "Height", 2);
         var read = frames.GetMethods(Flags).Single(m => m.Name == "Read" && m.GetParameters()[0].ParameterType == typeof(Stream));
         foreach (bool hdr in new[] { false, true })
+        foreach (bool tenBit in new[] { false, true })
         {
-            string header = "YUV4MPEG2 W2 H2 F24:1 Ip A1:1 C420p10 XCOLORRANGE=LIMITED\nFRAME\n";
-            byte[] raw = System.Text.Encoding.ASCII.GetBytes(header).Concat(new byte[] {
-                64, 0, 64, 0, 172, 3, 172, 3, 0, 2, 0, 2 }).ToArray();
+            string header = "YUV4MPEG2 W2 H2 F24:1 Ip A1:1 C" + (tenBit ? "420p10" : "420mpeg2") + " XCOLORRANGE=LIMITED\nFRAME\n";
+            byte[] raw = System.Text.Encoding.ASCII.GetBytes(header).Concat(tenBit ? new byte[] { 64, 0, 64, 0, 172, 3, 172, 3, 0, 2, 0, 2 } : new byte[] { 16, 16, 235, 235, 128, 128 }).ToArray();
             using (var stream = new MemoryStream(raw))
             using (var bmp = (IDisposable)read.Invoke(null, new object[] { stream, source, hdr, 1000, System.Threading.CancellationToken.None }))
             {

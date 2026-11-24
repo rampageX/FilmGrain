@@ -103,7 +103,7 @@ namespace FilmGrainStudioPreview
                     var value = new ThemeLabel { Text = TrueHdrCore.Number(slider.Value), Location = new Point(427, y + 4), Size = new Size(55, 25) };
                     slider.ValueChanged += delegate { value.Text = TrueHdrCore.Number(slider.Value); };
                     sliders[i] = slider;
-                    dlg.Controls.AddRange(new Control[] { label, slider, value });
+                    settings.Controls.AddRange(new Control[] { label, slider, value });
                 }
                 var preview = new ThemeCheckBox { Text = UiText("预览编码", "Preview encode"),
                     Name = "TRUEHDR_PREVIEW", Checked = chkEncodePreview.Checked,

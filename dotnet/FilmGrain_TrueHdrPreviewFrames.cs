@@ -68,7 +68,7 @@ internal static class TrueHdrPreviewFrames
         string chroma = Tag(tags, "C", "");
         int depth = chroma == "420p10" || chroma == "420p10le" ? 10 :
             chroma == "420" || chroma == "420jpeg" || chroma == "420mpeg2" ? 8 : 0;
-        if (depth == 0 || (hdr && depth != 10)) throw new InvalidDataException("Unsupported Y4M pixel format: " + chroma);
+        if (depth == 0) throw new InvalidDataException("Unsupported Y4M pixel format: " + chroma);
         string frame = ReadLine(stream);
         if (frame != "FRAME" && !frame.StartsWith("FRAME ", StringComparison.Ordinal))
             throw new InvalidDataException("Missing Y4M frame.");
@@ -89,7 +89,7 @@ internal static class TrueHdrPreviewFrames
         bool center = location == "center" || (location.Length == 0 && chroma == "420jpeg");
         bool topLeft = location == "topleft" || location == "top-left";
         byte[] result = Convert(data, width, height, depth, full, matrix, center, topLeft, hdr, peak, token);
-        var bitmap = new Bitmap(width, height, PixelFormat.Format32bppArgb) { Tag = full ? "Full" : "Limited" };
+        var bitmap = new Bitmap(width, height, PixelFormat.Format32bppArgb) { Tag = (full ? "Full" : "Limited") + " · " + depth + "-bit" };
         try
         {
             var bits = bitmap.LockBits(new Rectangle(0, 0, width, height), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
