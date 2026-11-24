@@ -225,6 +225,9 @@ namespace FilmGrainStudioPreview
         private float divider=0.5f;
         private Rectangle viewport;
         internal bool SideBySide;
+        internal bool SingleOutput;
+        internal bool ActualSize;
+        internal double SampleAspect = 1.0;
         internal bool HasPair {get{return left!=null && right!=null;}}
 
         internal OutputComparisonCanvas(string original,string final)
@@ -247,13 +250,13 @@ namespace FilmGrainStudioPreview
         protected override void OnMouseDown(MouseEventArgs e)
         {
             base.OnMouseDown(e);
-            if(e.Button==MouseButtons.Left && !SideBySide && viewport.Contains(e.Location))
+            if(e.Button==MouseButtons.Left && !SideBySide && !SingleOutput && viewport.Contains(e.Location))
             {Capture=true;SetSplit((e.X-viewport.X)/(float)viewport.Width);}
         }
         protected override void OnMouseMove(MouseEventArgs e)
         {
             base.OnMouseMove(e);
-            Cursor=!SideBySide && viewport.Contains(e.Location)?Cursors.VSplit:Cursors.Default;
+            Cursor=!SideBySide && !SingleOutput && viewport.Contains(e.Location)?Cursors.VSplit:Cursors.Default;
             if(Capture && e.Button==MouseButtons.Left && viewport.Width>0)SetSplit((e.X-viewport.X)/(float)viewport.Width);
         }
         protected override void OnMouseUp(MouseEventArgs e){base.OnMouseUp(e);Capture=false;}
@@ -266,12 +269,17 @@ namespace FilmGrainStudioPreview
             var area=ClientRectangle;
             if(left!=null && right!=null)
             {
-                if(SideBySide)
+                if (SingleOutput)
+                {
+                    viewport = Rectangle.Empty;
+                    DrawFrame(g, right, area);
+                }
+                else if(SideBySide)
                 {
                     viewport=Rectangle.Empty;
                     int mid=area.Width/2;
-                    g.DrawImage(left,Fit(left,new Rectangle(0,0,Math.Max(0,mid-2),area.Height)));
-                    g.DrawImage(right,Fit(right,new Rectangle(mid+2,0,Math.Max(0,area.Width-mid-2),area.Height)));
+                    DrawFrame(g,left,new Rectangle(0,0,Math.Max(0,mid-2),area.Height));
+                    DrawFrame(g,right,new Rectangle(mid+2,0,Math.Max(0,area.Width-mid-2),area.Height));
                 }
                 else
                 {
@@ -280,7 +288,7 @@ namespace FilmGrainStudioPreview
                     g.DrawImage(left,viewport);
                     var state=g.Save();
                     g.SetClip(new Rectangle(x,viewport.Top,viewport.Right-x,viewport.Height),CombineMode.Intersect);
-                    var output=Fit(right,viewport);
+                    var output=Fit(right,area);
                     g.FillRectangle(Brushes.Black,viewport);
                     g.DrawImage(right,output);
                     g.Restore(state);
@@ -291,7 +299,7 @@ namespace FilmGrainStudioPreview
                     g.DrawLines(Pens.Black,new[]{new Point(x+3,y-3),new Point(x+6,y),new Point(x+3,y+3)});
                 }
             }
-            DrawLabel(g,original,false);
+            if (!SingleOutput) DrawLabel(g,original,false);
             DrawLabel(g,final,true);
         }
 
@@ -303,10 +311,29 @@ namespace FilmGrainStudioPreview
             TextRenderer.DrawText(g,text,Font,bounds,Color.White,TextFormatFlags.HorizontalCenter|TextFormatFlags.VerticalCenter);
         }
 
-        private static Rectangle Fit(Image image,Rectangle area)
+        private void DrawFrame(Graphics graphics, Image image, Rectangle area)
         {
-            double scale=Math.Min(area.Width/(double)image.Width,area.Height/(double)image.Height);
-            var size=new Size((int)(image.Width*scale),(int)(image.Height*scale));
+            var state = graphics.Save();
+            graphics.SetClip(area, CombineMode.Intersect);
+            graphics.DrawImage(image, Fit(image, area));
+            graphics.Restore(state);
+        }
+
+        internal int DisplayPercent
+        {
+            get
+            {
+                if (right == null) return 0;
+                if (ActualSize) return 100;
+                int width = SideBySide ? Math.Max(0, Width / 2 - 2) : Width;
+                return (int)Math.Round(100 * Math.Min(width / (right.Width * SampleAspect), Height / (double)right.Height));
+            }
+        }
+
+        private Rectangle Fit(Image image,Rectangle area)
+        {
+            double scale=ActualSize ? 1.0 : Math.Min(area.Width/(image.Width*SampleAspect),area.Height/(double)image.Height);
+            var size=new Size((int)(image.Width*scale*(ActualSize ? 1.0 : SampleAspect)),(int)(image.Height*scale));
             return new Rectangle(area.X+(area.Width-size.Width)/2,area.Y+(area.Height-size.Height)/2,size.Width,size.Height);
         }
     }

@@ -121,7 +121,7 @@ namespace FilmGrainStudioPreview
                 "--colorprim", "bt2020", "--transfer", "smpte2084", "--colorrange", "auto", "-o", output };
         }
 
-        internal static System.Drawing.Bitmap RenderLiveFrame(string nvenc, string ffmpeg, MediaProbeInfo source,
+        internal static Tuple<System.Drawing.Bitmap, System.Drawing.Bitmap> RenderLiveFrame(string nvenc, string ffmpeg, MediaProbeInfo source,
             double seconds, int[] values, CancellationToken token)
         {
             string directory = Path.Combine(Path.GetTempPath(), "FGS-TrueHDR-" + Guid.NewGuid().ToString("N"));
@@ -129,12 +129,29 @@ namespace FilmGrainStudioPreview
             try
             {
                 string video = Path.Combine(directory, "frame.nut"), image = Path.Combine(directory, "display.png");
-                RunLiveFrameTool(nvenc, LiveFrameArguments(source.PathValue, video, seconds, values), token);
-                var signal = new MediaProbeInfo { ColorRange = source.ColorRange, ColorTransfer = "smpte2084" };
-                RunLiveFrameTool(ffmpeg, new[] { "-v", "error", "-nostdin", "-i", video, "-vf",
-                    NativeGrainPreviewForm.PreviewFilter(signal) + ",scale=w='min(960,iw)':h=-2",
+                var filtered = LiveFrameArguments(source.PathValue, video, seconds, values);
+                var original = new List<string>(filtered);
+                original.RemoveRange(original.IndexOf("--vpp-ngx-truehdr"), 2);
+                original[original.IndexOf("--colormatrix") + 1] = "auto";
+                original[original.IndexOf("--colorprim") + 1] = "auto";
+                original[original.IndexOf("--transfer") + 1] = "auto";
+                RunLiveFrameTool(nvenc, original, token);
+                RunLiveFrameTool(ffmpeg, new[] { "-v", "error", "-nostdin", "-i", video,
                     "-frames:v", "1", "-threads", "1", image }, token);
-                using (var decoded = new System.Drawing.Bitmap(image)) return new System.Drawing.Bitmap(decoded);
+                System.Drawing.Bitmap before;
+                using (var decoded = new System.Drawing.Bitmap(image)) before = new System.Drawing.Bitmap(decoded);
+                try
+                {
+                    File.Delete(video);
+                    File.Delete(image);
+                    RunLiveFrameTool(nvenc, filtered, token);
+                    var signal = new MediaProbeInfo { ColorRange = source.ColorRange, ColorTransfer = "smpte2084" };
+                    RunLiveFrameTool(ffmpeg, new[] { "-v", "error", "-nostdin", "-i", video, "-vf",
+                        NativeGrainPreviewForm.PreviewFilter(signal), "-frames:v", "1", "-threads", "1", image }, token);
+                    using (var decoded = new System.Drawing.Bitmap(image))
+                        return Tuple.Create(before, new System.Drawing.Bitmap(decoded));
+                }
+                catch { before.Dispose(); throw; }
             }
             finally { try { Directory.Delete(directory, true); } catch (IOException) { } catch (UnauthorizedAccessException) { } }
         }

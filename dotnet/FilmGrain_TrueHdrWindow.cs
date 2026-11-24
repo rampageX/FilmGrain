@@ -145,14 +145,37 @@ namespace FilmGrainStudioPreview
 
                 var live = new ThemeCheckBox { Name = "TRUEHDR_LIVE", Text = UiText("实时画面", "Live preview"),
                     Location = new Point(184, 533), Size = new Size(140, 28) };
-                var screen = new PictureBox { Name = "TRUEHDR_LIVE_FRAME", BackColor = Color.Black, SizeMode = PictureBoxSizeMode.Zoom,
+                var screen = new OutputComparisonCanvas(UiText("原片", "Original"), "TrueHDR") { Name = "TRUEHDR_LIVE_FRAME",
+                    SingleOutput = true, SampleAspect = CinematicCropGeometry.SampleAspect(source),
                     Location = new Point(746, 15), Size = new Size(408, 420), Visible = false };
                 double mediaLength;
                 double.TryParse(source.Duration, NumberStyles.Float, CultureInfo.InvariantCulture, out mediaLength);
                 var seek = new NativeSeekStrip { Location = new Point(746, 439), Width = 408, Visible = false,
                     Duration = Math.Max(0, mediaLength - 1), Enabled = mediaLength > 1 };
-                var displayStatus = new ThemeLabel { Location = new Point(746, 476), Size = new Size(408, 72), Visible = false };
-                dlg.Controls.AddRange(new Control[] { live, screen, seek, displayStatus });
+                var displayStatus = new ThemeLabel { Location = new Point(746, 510), Size = new Size(408, 58), Visible = false, AutoEllipsis = true };
+                var view = new ThemeComboBox { Location = new Point(746, 476), Size = new Size(150, 26),
+                    DropDownStyle = ComboBoxStyle.DropDownList, Visible = false };
+                view.Items.AddRange(new object[] { UiText("单张", "Single"), UiText("并排", "Side by side"), UiText("滑动比较", "Split") });
+                view.SelectedIndex = 0;
+                var zoom = new ThemeButton { Location = new Point(906, 476), Size = new Size(122, 26),
+                    Text = UiText("适应窗口", "Fit"), Visible = false };
+                var scale = new ThemeLabel { Location = new Point(1040, 480), Size = new Size(112, 23), Visible = false };
+                Action scaleText = delegate { scale.Text = screen.HasPair ? screen.DisplayPercent + "%" : ""; };
+                view.SelectedIndexChanged += delegate {
+                    screen.SingleOutput = view.SelectedIndex == 0;
+                    screen.SideBySide = view.SelectedIndex == 1;
+                    screen.Invalidate();
+                    scaleText();
+                };
+                Action toggleZoom = delegate {
+                    screen.ActualSize = !screen.ActualSize;
+                    zoom.Text = screen.ActualSize ? "1:1" : UiText("适应窗口", "Fit");
+                    screen.Invalidate();
+                    scaleText();
+                };
+                zoom.Click += delegate { toggleZoom(); };
+                screen.DoubleClick += delegate { toggleZoom(); };
+                dlg.Controls.AddRange(new Control[] { live, screen, seek, displayStatus, view, zoom, scale });
                 CancellationTokenSource render = null;
                 int revision = 0;
                 Action schedule = delegate {
@@ -175,11 +198,13 @@ namespace FilmGrainStudioPreview
                     displayStatus.Text = UiText("正在刷新画面…", "Refreshing preview…");
                     try {
                         var image = await Task.Run(() => TrueHdrCore.RenderLiveFrame(nvenc, ffmpeg, source, position, values, job.Token));
-                        if (dlg.IsDisposed || requested != revision) { image.Dispose(); return; }
-                        var previous = screen.Image;
-                        screen.Image = image;
-                        if (previous != null) previous.Dispose();
-                        displayStatus.Text = NativeSeekStrip.FormatTime(position) + " · " + UiText("附近关键帧 · SDR 显示映射", "Near keyframe · SDR display mapping");
+                        if (dlg.IsDisposed || requested != revision) { image.Item1.Dispose(); image.Item2.Dispose(); return; }
+                        screen.SetFrames(image.Item1, image.Item2);
+                        scaleText();
+                        string fps = BitrateRecommendationCore.ParseMediaFps(source).ToString("0.###", CultureInfo.InvariantCulture);
+                        displayStatus.Text = NativeSeekStrip.FormatTime(position) + " · " + image.Item2.Width + "×" + image.Item2.Height +
+                            " · " + fps + " fps · SAR " + source.SampleAspectRatio + Environment.NewLine +
+                            "BT.2020 NCL · " + (source.ColorRange == "pc" ? "Full" : "Limited") + " · PQ → SDR (Hable)";
                     }
                     catch (OperationCanceledException) { }
                     catch (Exception error) {
@@ -193,7 +218,7 @@ namespace FilmGrainStudioPreview
                 };
                 live.CheckedChanged += delegate {
                     dlg.ClientSize = new Size(live.Checked ? 1170 : 748, 581);
-                    screen.Visible = seek.Visible = displayStatus.Visible = live.Checked;
+                    screen.Visible = seek.Visible = displayStatus.Visible = view.Visible = zoom.Visible = scale.Visible = live.Checked;
                     schedule();
                 };
                 seek.PositionChanged += delegate { schedule(); };
@@ -202,9 +227,7 @@ namespace FilmGrainStudioPreview
                     revision++;
                     refresh.Stop();
                     if (render != null) render.Cancel();
-                    var image = screen.Image;
-                    screen.Image = null;
-                    if (image != null) image.Dispose();
+                    screen.SetFrames(null, null);
                 };
 
                 begin.Click += delegate {
