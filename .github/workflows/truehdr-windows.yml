@@ -60,6 +60,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'NVEncC dependency extraction failed' }
           $nvenc = Get-ChildItem -LiteralPath $dir -Filter 'NVEncC64.exe' -Recurse | Select-Object -First 1
           if (!$nvenc) { throw 'NVEncC64.exe missing' }
+          $envLine = 'TRUEHDR_CI_NVENC=' + $nvenc.FullName
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value $envLine -Encoding utf8
           $help = (& $nvenc.FullName --help | Out-String)
           if ($LASTEXITCODE -ne 0 -or $help -notmatch '--vpp-ngx-truehdr') { throw 'TrueHDR help missing' }
           [IO.File]::WriteAllText((Join-Path $env:RUNNER_TEMP 'TrueHDR_NVEncC_Help.txt'), $help)
@@ -78,7 +80,7 @@ jobs:
           $exe = Join-Path $env:GITHUB_WORKSPACE 'FilmGrain_Studio.exe'
           & $csc /nologo /utf8output ('/out:' + $audit) 'tests\truehdr\CommandAudit.cs'
           if ($LASTEXITCODE -ne 0) { throw 'Command audit compilation failed' }
-          & $audit $exe (Join-Path $env:RUNNER_TEMP 'TrueHDR_NVEncC_Help.txt')
+          & $audit $exe (Join-Path $env:RUNNER_TEMP 'TrueHDR_NVEncC_Help.txt') $env:TRUEHDR_CI_NVENC
           if ($LASTEXITCODE -ne 0) { throw 'TrueHDR command audit failed' }
           & .\dotnet\BuildTools\Test_UI_Startup.ps1 -Exe $exe
 
@@ -108,17 +110,17 @@ jobs:
           ('ExecutableSHA256=' + $hash) | Add-Content -LiteralPath 'TrueHDR_CI_PROOF.txt' -Encoding Ascii
           ('Status=Windows CI only; pending RTX acceptance') | Add-Content -LiteralPath 'TrueHDR_CI_PROOF.txt' -Encoding Ascii
 
-          git archive --format=zip --output=FGS_TrueHDR_A71F6C_Full_Source.zip HEAD
+          git archive --format=zip --output=FGS_TrueHDR_C83B2D_Full_Source.zip HEAD
           if ($LASTEXITCODE -ne 0) { throw 'Source archive failed' }
-          Copy-Item -LiteralPath $exe -Destination 'FilmGrain_Studio_TrueHDR_A71F6C.exe'
+          Copy-Item -LiteralPath $exe -Destination 'FilmGrain_Studio_TrueHDR_C83B2D.exe'
 
       - name: Upload test EXE and matching source
         uses: actions/upload-artifact@v4
         with:
-          name: FGS_TrueHDR_A71F6C_Test_and_Source
+          name: FGS_TrueHDR_C83B2D_Test_and_Source
           path: |
-            FilmGrain_Studio_TrueHDR_A71F6C.exe
-            FGS_TrueHDR_A71F6C_Full_Source.zip
+            FilmGrain_Studio_TrueHDR_C83B2D.exe
+            FGS_TrueHDR_C83B2D_Full_Source.zip
             TrueHDR_CI_PROOF.txt
           if-no-files-found: error
           retention-days: 14
@@ -126,7 +128,7 @@ jobs:
       - name: Upload single test EXE
         uses: actions/upload-artifact@v4
         with:
-          name: FilmGrain_Studio_TrueHDR_A71F6C
-          path: FilmGrain_Studio_TrueHDR_A71F6C.exe
+          name: FilmGrain_Studio_TrueHDR_C83B2D
+          path: FilmGrain_Studio_TrueHDR_C83B2D.exe
           if-no-files-found: error
           retention-days: 14

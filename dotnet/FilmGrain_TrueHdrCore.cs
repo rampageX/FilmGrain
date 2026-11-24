@@ -49,6 +49,15 @@ namespace FilmGrainStudioPreview
             return Regex.IsMatch(help ?? "", @"(?m)^\s*--vpp-ngx-truehdr(?:\s|$)");
         }
 
+        internal static void RequireTrueHdr(string executable)
+        {
+            string help, error;
+            if (!SharedFrucCore.RunWithLimit(executable, "--help", 10000, out help, out error, 1048576))
+                throw new InvalidOperationException("TrueHDR could not read NVEncC help: " + executable + ". " + error);
+            if (!AdvertisesTrueHdr(help))
+                throw new InvalidOperationException("NVEncC does not list --vpp-ngx-truehdr: " + executable);
+        }
+
         internal static string Number(int value) { return value.ToString(CultureInfo.InvariantCulture); }
 
         private static Dictionary<string, string> RateState(TrueHdrOptions options)
@@ -193,10 +202,7 @@ namespace FilmGrainStudioPreview
                 DirectArguments = SharedFrucCore.JoinArguments(args), ProgressDurationSeconds = duration,
                 StageCurrent = 1, StageTotal = 1, StageText = "SDR → TrueHDR → " + options.Codec + " HDR10",
                 BeforeRunPreparation = delegate {
-                    string help, error;
-                    if (!SharedFrucCore.Run(exe, "--help", 10000, out help, out error) ||
-                        !AdvertisesTrueHdr(help))
-                        throw new InvalidOperationException("This NVEncC build does not advertise NGX TrueHDR. " + error);
+                    RequireTrueHdr(exe);
                     AudioOutputCore.EstimateMissing(input, probe, source, audio);
                     return "[TrueHDR] NGX and codec capability are validated by NVEncC initialization on the selected input.";
                 }

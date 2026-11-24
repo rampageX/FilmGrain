@@ -23,6 +23,7 @@ internal static class CommandAudit
         var options = Activator.CreateInstance(assembly.GetType("FilmGrainStudioPreview.TrueHdrOptions", true));
         var source = Activator.CreateInstance(assembly.GetType("FilmGrainStudioPreview.MediaProbeInfo", true));
         var build = core.GetMethod("Arguments", Flags);
+        if (args.Length > 2) core.GetMethod("RequireTrueHdr", Flags).Invoke(null, new object[] { args[2] });
         var help = core.GetMethod("AdvertisesTrueHdr", Flags);
         Require((bool)help.Invoke(null, new object[] { "  --vpp-ngx-truehdr [<param1>=<value>]" }), "Optional help syntax");
         Require(!(bool)help.Invoke(null, new object[] { "  --vpp-ngx-truehdr-experimental" }), "Help option boundary");
