@@ -90,6 +90,64 @@ namespace FilmGrainStudioPreview
             return bitrate;
         }
 
+        internal static string Speed(string measured, double sourceFps)
+        {
+            double fps;
+            return sourceFps > 0 && !double.IsInfinity(sourceFps) &&
+                double.TryParse(measured, NumberStyles.Float, CultureInfo.InvariantCulture, out fps)
+                ? (fps / sourceFps).ToString("0.##", CultureInfo.InvariantCulture) : "";
+        }
+
+        private static string PictureArgument(int[] values)
+        {
+            var picture = new string[TrueHdrOptions.Names.Length];
+            if (values == null || values.Length != picture.Length) throw new InvalidDataException("Invalid TrueHDR parameters.");
+            for (int i = 0; i < picture.Length; i++)
+            {
+                int value = values[i];
+                if (value < TrueHdrOptions.Minimums[i] || value > TrueHdrOptions.Maximums[i])
+                    throw new InvalidDataException("TrueHDR: " + TrueHdrOptions.Names[i] + " out of range.");
+                picture[i] = TrueHdrOptions.Names[i] + "=" + Number(value);
+            }
+            return string.Join(",", picture);
+        }
+
+        internal static List<string> LiveFrameArguments(string input, string output, double seconds, int[] values)
+        {
+            return new List<string> { "--avsw", "--video-track", "1", "--seek",
+                seconds.ToString("0.###", CultureInfo.InvariantCulture), "--frames", "1", "-i", input,
+                "--codec", "raw", "--output-depth", "10", "--output-csp", "yuv420", "--output-format", "nut",
+                "--vpp-ngx-truehdr", PictureArgument(values), "--colormatrix", "bt2020nc",
+                "--colorprim", "bt2020", "--transfer", "smpte2084", "--colorrange", "auto", "-o", output };
+        }
+
+        internal static System.Drawing.Bitmap RenderLiveFrame(string nvenc, string ffmpeg, MediaProbeInfo source,
+            double seconds, int[] values, CancellationToken token)
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "FGS-TrueHDR-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            try
+            {
+                string video = Path.Combine(directory, "frame.nut"), image = Path.Combine(directory, "display.png");
+                RunLiveFrameTool(nvenc, LiveFrameArguments(source.PathValue, video, seconds, values), token);
+                var signal = new MediaProbeInfo { ColorRange = source.ColorRange, ColorTransfer = "smpte2084" };
+                RunLiveFrameTool(ffmpeg, new[] { "-v", "error", "-nostdin", "-i", video, "-vf",
+                    NativeGrainPreviewForm.PreviewFilter(signal) + ",scale=w='min(960,iw)':h=-2",
+                    "-frames:v", "1", "-threads", "1", image }, token);
+                using (var decoded = new System.Drawing.Bitmap(image)) return new System.Drawing.Bitmap(decoded);
+            }
+            finally { try { Directory.Delete(directory, true); } catch (IOException) { } catch (UnauthorizedAccessException) { } }
+        }
+
+        private static void RunLiveFrameTool(string executable, IList<string> args, CancellationToken token)
+        {
+            if (!File.Exists(executable)) throw new FileNotFoundException("Preview tool missing", executable);
+            var log = new System.Text.StringBuilder();
+            int exit = NativeLibraryTools.RunProcessEnvironment(executable, args, Path.GetDirectoryName(executable),
+                null, 20000, token, delegate(string line) { lock (log) if (log.Length < 16384) log.AppendLine(line); });
+            if (exit != 0) throw new IOException(Path.GetFileName(executable) + " exit=" + Number(exit) + "\n" + log);
+        }
+
         internal static List<string> Arguments(string input, string output, TrueHdrOptions options,
             MediaProbeInfo source, IDictionary<string, string> audio)
         {
@@ -98,21 +156,13 @@ namespace FilmGrainStudioPreview
             if (!hevc && options.Codec != "AV1") throw new InvalidDataException("TrueHDR requires HEVC or AV1 NVENC.");
             if (Array.IndexOf(new[] { "p1", "p2", "p3", "p4", "p5", "p6", "p7" }, options.Preset) < 0)
                 throw new InvalidDataException("Invalid NVEncC preset.");
-            var picture = new string[TrueHdrOptions.Names.Length];
-            if (options.Picture == null || options.Picture.Length != picture.Length) throw new InvalidDataException("Invalid TrueHDR parameters.");
-            for (int i = 0; i < picture.Length; i++)
-            {
-                int value = options.Picture[i];
-                if (value < TrueHdrOptions.Minimums[i] || value > TrueHdrOptions.Maximums[i])
-                    throw new InvalidDataException("TrueHDR: " + TrueHdrOptions.Names[i] + " out of range.");
-                picture[i] = TrueHdrOptions.Names[i] + "=" + Number(value);
-            }
+            string picture = PictureArgument(options.Picture);
             // The avsw reader passes the source VUI to NGX. These color options signal the output.
             // Preserve the source range through NGX's internal colorspace conversion.
             var args = new List<string> { "--avsw", "--video-track", "1", "--avsync", "vfr", "--log-opt", "color=off", "-i", input,
                 "--codec", hevc ? "hevc" : "av1", "--profile", hevc ? "main10" : "main",
                 "--preset", options.Preset, "--output-depth", "10", "--output-csp", "yuv420",
-                "--vpp-ngx-truehdr", string.Join(",", picture), "--colorprim", "bt2020", "--transfer", "smpte2084",
+                "--vpp-ngx-truehdr", picture, "--colorprim", "bt2020", "--transfer", "smpte2084",
                 "--colormatrix", "bt2020nc", "--colorrange", "auto", "--master-display",
                 "G(8500,39850)B(6550,2300)R(35400,14600)WP(15635,16450)L(" + Number(options.Picture[3] * 10000) + ",1)",
                 "--vbr", Number(Bitrate(options, source)) };
@@ -235,6 +285,7 @@ namespace FilmGrainStudioPreview
                 InputFiles = new[] { input }, DirectStages = new[] { stage }, SkipPreviewSpool = true,
                 Environment = new Dictionary<string, string> { { "FG_MODE", "TrueHDR " + options.Codec } },
                 OutputFiles = new List<string> { staging }, TemporaryFiles = new[] { staging },
+                TrueHdrSourceFps = BitrateRecommendationCore.ParseMediaFps(source),
                 ProgressDurationSeconds = duration, ExecutionNotice = "[TrueHDR] Output: " + output
             };
             var original = new FileInfo(input);

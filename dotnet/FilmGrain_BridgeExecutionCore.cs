@@ -137,6 +137,7 @@ namespace FilmGrainStudioPreview
         internal volatile OutputPreviewSample PreviewSample;
         internal volatile OutputPreviewStage PreviewStage;
         internal bool SkipPreviewSpool;
+        internal double TrueHdrSourceFps;
         internal volatile BridgeExecutionResult PreviewResult;
         internal BridgeExecutionRequest PreviewOwner;
         internal string PreviewOriginal;
@@ -827,7 +828,7 @@ namespace FilmGrainStudioPreview
                     {
                         bool hasPercent = double.TryParse(nvenc.Groups["percent"].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out percent);
                         eventArgs = new BridgeProgressEventArgs(hasPercent, (int)(Math.Min(100.0, percent) * 10),
-                            true, nvenc.Groups["fps"].Value, "", nvenc.Groups["eta"].Value, false, 0, 0, "");
+                            true, nvenc.Groups["fps"].Value, TrueHdrCore.Speed(nvenc.Groups["fps"].Value, request.TrueHdrSourceFps), nvenc.Groups["eta"].Value, false, 0, 0, "");
                     }
                 }
 

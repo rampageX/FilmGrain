@@ -3842,7 +3842,8 @@ namespace FilmGrainStudioPreview
 
                     if (metrics != null && metrics.HasMetrics && lblRunMetric != null)
                     {
-                        string metricText = "FPS: " + metrics.FpsText + "   Speed: " + metrics.SpeedText + "x";
+                        string metricText = "FPS: " + metrics.FpsText;
+                        if (!string.IsNullOrWhiteSpace(metrics.SpeedText)) metricText += "   Speed: " + metrics.SpeedText + "x";
                         if (!string.IsNullOrWhiteSpace(metrics.EtaText)) metricText += "   ETA: " + metrics.EtaText;
                         lblRunMetric.Text = metricText;
                         if(encodingMonitor!=null)encodingMonitor.SetMetrics(metricText);

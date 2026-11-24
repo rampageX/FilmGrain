@@ -23,6 +23,12 @@ internal static class CommandAudit
         var options = Activator.CreateInstance(assembly.GetType("FilmGrainStudioPreview.TrueHdrOptions", true));
         var source = Activator.CreateInstance(assembly.GetType("FilmGrainStudioPreview.MediaProbeInfo", true));
         var build = core.GetMethod("Arguments", Flags);
+        Require((string)core.GetMethod("Speed", Flags).Invoke(null, new object[] { "60", 24000.0 / 1001 }) == "2.5", "TrueHDR speed multiplier");
+        var live = (IList<string>)core.GetMethod("LiveFrameArguments", Flags).Invoke(null, new object[] {
+            "test.mkv", "frame.nut", 2.5, new[] { 125, 75, 44, 1000 } });
+        Require(Option(live, "--codec") == "raw" && Option(live, "--frames") == "1" &&
+            Option(live, "--seek") == "2.5" && Option(live, "--output-depth") == "10" &&
+            Option(live, "--vpp-ngx-truehdr") == "contrast=125,saturation=75,middlegray=44,maxluminance=1000", "Live TrueHDR frame");
         if (args.Length > 2) core.GetMethod("RequireTrueHdr", Flags).Invoke(null, new object[] { args[2] });
         var help = core.GetMethod("AdvertisesTrueHdr", Flags);
         Require((bool)help.Invoke(null, new object[] { "  --vpp-ngx-truehdr [<param1>=<value>]" }), "Optional help syntax");

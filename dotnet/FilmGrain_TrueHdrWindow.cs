@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Globalization;
 using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Web.Script.Serialization;
 
@@ -38,6 +40,7 @@ namespace FilmGrainStudioPreview
 
             using (var dlg = new SettingsDialogForm())
             using (var tips = new ThemeToolTip())
+            using (var refresh = new System.Windows.Forms.Timer { Interval = 250 })
             {
                 dlg.Text = "SDR → TrueHDR";
                 dlg.BackColor = selectedDarkTheme ? UiTheme.Surface : SystemColors.Control;
@@ -140,11 +143,80 @@ namespace FilmGrainStudioPreview
                 codec.SelectedIndexChanged += delegate { showEditor(); };
                 showEditor();
 
+                var live = new ThemeCheckBox { Name = "TRUEHDR_LIVE", Text = UiText("实时画面", "Live preview"),
+                    Location = new Point(184, 533), Size = new Size(140, 28) };
+                var screen = new PictureBox { Name = "TRUEHDR_LIVE_FRAME", BackColor = Color.Black, SizeMode = PictureBoxSizeMode.Zoom,
+                    Location = new Point(746, 15), Size = new Size(408, 420), Visible = false };
+                double mediaLength;
+                double.TryParse(source.Duration, NumberStyles.Float, CultureInfo.InvariantCulture, out mediaLength);
+                var seek = new NativeSeekStrip { Location = new Point(746, 439), Width = 408, Visible = false,
+                    Duration = Math.Max(0, mediaLength - 1), Enabled = mediaLength > 1 };
+                var displayStatus = new ThemeLabel { Location = new Point(746, 476), Size = new Size(408, 72), Visible = false };
+                dlg.Controls.AddRange(new Control[] { live, screen, seek, displayStatus });
+                CancellationTokenSource render = null;
+                int revision = 0;
+                Action schedule = delegate {
+                    revision++;
+                    if (render != null) render.Cancel();
+                    refresh.Stop();
+                    if (live.Checked) refresh.Start();
+                };
+                refresh.Tick += async delegate {
+                    refresh.Stop();
+                    if (render != null) { refresh.Start(); return; }
+                    int requested = revision;
+                    var job = new CancellationTokenSource();
+                    render = job;
+                    var values = new int[sliders.Length];
+                    for (int i = 0; i < values.Length; i++) values[i] = sliders[i].Value;
+                    string nvenc = NvencInterpolationCore.Exe(config.Get("NVENC_DIR"));
+                    string ffmpeg = Path.Combine(config.Get("FFMPEG_DIR"), "ffmpeg.exe");
+                    double position = seek.Position;
+                    displayStatus.Text = UiText("正在刷新画面…", "Refreshing preview…");
+                    try {
+                        var image = await Task.Run(() => TrueHdrCore.RenderLiveFrame(nvenc, ffmpeg, source, position, values, job.Token));
+                        if (dlg.IsDisposed || requested != revision) { image.Dispose(); return; }
+                        var previous = screen.Image;
+                        screen.Image = image;
+                        if (previous != null) previous.Dispose();
+                        displayStatus.Text = NativeSeekStrip.FormatTime(position) + " · " + UiText("附近关键帧 · SDR 显示映射", "Near keyframe · SDR display mapping");
+                    }
+                    catch (OperationCanceledException) { }
+                    catch (Exception error) {
+                        if (!dlg.IsDisposed && requested == revision)
+                        {
+                            displayStatus.Text = UiText("实时预览失败", "Live preview failed") + ": " + error.Message.Split('\n')[0];
+                            tips.SetToolTip(displayStatus, error.Message);
+                        }
+                    }
+                    finally { render = null; job.Dispose(); }
+                };
+                live.CheckedChanged += delegate {
+                    dlg.ClientSize = new Size(live.Checked ? 1170 : 748, 581);
+                    screen.Visible = seek.Visible = displayStatus.Visible = live.Checked;
+                    schedule();
+                };
+                seek.PositionChanged += delegate { schedule(); };
+                foreach (TrackBar slider in sliders) slider.ValueChanged += delegate { schedule(); };
+                dlg.FormClosed += delegate {
+                    revision++;
+                    refresh.Stop();
+                    if (render != null) render.Cancel();
+                    var image = screen.Image;
+                    screen.Image = null;
+                    if (image != null) image.Dispose();
+                };
+
                 begin.Click += delegate {
                     bool tracking = false;
                     try
                     {
                         if (preview.Checked && !seconds.ValidateInput()) return;
+                        if (render != null) {
+                            live.Checked = false;
+                            FgsMessageBox.Show(dlg, UiText("正在停止实时预览，请稍后开始编码。", "Stopping live preview. Start encoding once it stops."), dlg.Text);
+                            return;
+                        }
                         options.PreviewStart = preview.Checked ? start.Text : null;
                         options.PreviewSeconds = preview.Checked ? (int)seconds.Value : 0;
                         options.Codec = codec.SelectedIndex == 1 ? "AV1" : "HEVC";
