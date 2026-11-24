@@ -1,8 +1,9 @@
-## 未发布 — TrueHDR 第一阶段
+## v5.0.97 — SDR → TrueHDR（2026-11-24）
 
-- TrueHDR 左侧 16:10 实时画面采用 NVEncC Y4M 与 HWEncVppPreview 显示转换，设置栏缩至约 500 px。保留 FGS 比较控件。
-- 为逐行 SDR 视频提供独立的 NVEncC TrueHDR 快捷转换窗口。支持 HEVC / AV1 HDR10 10-bit、VBR / CQ、四项 TrueHDR 画面参数和独立配置。
-- GUI 与 `--truehdr` 命令行共用执行与输出校验。NVEncC 直接转换并编码，以目标峰值生成标称 mastering-display 元数据。
+- 新增 SDR → TrueHDR，支持 NVEncC HEVC Main10 和 AV1 10-bit HDR10 输出、VBR/CQ 与独立参数。
+- 实时画面采用 NVEncC Y4M 与 HWEncVppPreview 的 PQ→SDR 显示逻辑。左侧 16:10 预览默认滑动比较，单张 1:1 可拖动。
+- 支持预览编码、FPS 与倍速显示，实时取帧遇到关键帧偏移时自动重试。
+- GUI 与 `--truehdr` 命令行共享执行和输出校验。RTX 4080 已验收 HEVC、AV1 与预览界面。
 
 ## v5.0.96 — HDR→SDR 调节与高级设置（2026-11-24）
 

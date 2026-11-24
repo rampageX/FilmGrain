@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.0.96 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.0.97 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 <table>
   <tr>
@@ -96,7 +96,7 @@ Lookahead 的数值是请求深度，可能受到编码器、B 帧、驱动及 F
 
 媒体信息缓存会核对文件路径、长度、最后写入时间等元数据及 FFprobe 配置。同路径文件被替换或探测工具变化后，旧信息不会继续用于任务准备。若任务执行前输入已变化，程序停止并提示重新探测；请重新选择该视频并重新准备任务，原有用户参数保留。已经打开的预览窗口提示输入变化时，请关闭窗口、重新选择视频后再打开。
 
-### SDR → TrueHDR（测试版）
+### SDR → TrueHDR
 
 选中一条单视频流、偶数尺寸的逐行 SDR 视频，点击输入信息旁的 **SDR → TrueHDR**。独立窗口可选择 HEVC NVENC 或 AV1 NVENC、MKV 或 MP4、VBR 或 CQ，以及对比度、饱和度、中间调亮度和峰值亮度。设置中的 NVEncC 路径须指向支持 NGX TrueHDR 的 Windows x64 版本。需要 NVIDIA RTX 显卡和兼容驱动。
 

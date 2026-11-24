@@ -149,6 +149,9 @@ jobs:
           } elseif ($version -eq '5.0.94') {
             $ref = 'heads/test/r08-hdr-sdr'
             $expected = $env:GITHUB_SHA
+          } elseif ($version -eq '5.0.97') {
+            $ref = 'heads/test/truehdr'
+            $expected = '748857eebe3740a65de1068da5b8cfbc67c4b20a'
           } else { exit 0 }
           $sha = gh api "repos/$env:GITHUB_REPOSITORY/git/ref/$ref" --jq '.object.sha'
           if ($LASTEXITCODE -ne 0) { throw 'Accepted test branch verification failed.' }
