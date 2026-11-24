@@ -7,7 +7,8 @@ import subprocess
 path = Path("_OpenSVPFlow/FilmGrain_OpenSVPFlow.vpy")
 tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
 reader_class = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "SdrY4mReader")
-scope = {}
+import sys
+scope = {"sys": sys}
 exec(compile(ast.Module(body=[reader_class], type_ignores=[]), str(path), "exec"), scope)
 reader = scope["SdrY4mReader"]
 
@@ -16,7 +17,8 @@ for n, d in ((25, 1), (30000, 1001), (60000, 1001)):
                "-frames:v", "36", "-threads:v", "1", "-pix_fmt", "yuv420p10le"]
     expected = subprocess.check_output(command + ["-f", "rawvideo", "-"])
     with subprocess.Popen(command + ["-strict", "-1", "-f", "yuv4mpegpipe", "-"], stdout=subprocess.PIPE) as process:
-        source = reader(process.stdout, 80, 48, n, d, 36)
+        source = reader(process.stdout, 80, 48, 60, 1, 36)
+        assert (source.fps_num, source.fps_den) == (n, d)
         for i in range(36):
             frame = source.read_frame(i)
             assert frame == expected[i*source.frame_bytes:(i+1)*source.frame_bytes]

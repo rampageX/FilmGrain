@@ -11,7 +11,7 @@
 1. 停止任务并关闭 FGS、`vspipe.exe` 及可能占用 DLL 的其它播放器/工具。先备份原目录里的 `FilmGrain_Config.ini`、`Presets/User`、`_OpenSVPFlow/_UserConfig` 和 `_OpenSVPFlow/.venv`；不要删除原目录。
 2. 推荐把 v5.0.64 Stable 解压到**新的独立目录**，避免 Windows 占用与旧版本脚本混用。按需迁移个人配置；需沿用已有私有 VapourSynth 环境时，请连同 `_UserConfig` 一起迁移 `.venv`，并注意迁移后 `.venv` 中的绝对路径可能失效，若失效则在新位置使用原生依赖安装重建。
 3. 如必须原目录覆盖升级，先确认进程已退出，再以新包内 `.vpy`、`Check_OpenSVPFlow.vpy`、`Plugins` 中的两只 DLL 和版本标记**成套更新**；保留 `.venv`、`_UserConfig` 和个人配置，不用 Legacy 下的旧安装脚本替换它们。
-4. 启动新 FGS，在「高级 → 插帧 → 更新 OpenSVPFlow 插件」可选择今后升级至上游新 DLL；该操作**不是使用随包 DLL 的前提**。本版已携带用户更新并验证 HLG GPU16/CPU10 的 `nightly-20261106-badc0de392ac` 配对，不必立即再点更新。后续升级属于新组合，建议先用短 HDR10 与 HLG 样本验证再跑长片。
+4. 启动新 FGS，在「高级 → 插帧 → 更新 OpenSVPFlow 插件」可选择今后升级至上游新 DLL；该操作**不是使用随包 DLL 的前提**。本版已携带用户实测确认修复 HDR 插帧问题的 `nightly-20261123-badc0debd33f` 配对，不必立即再点更新。后续升级属于新组合，建议先用短 HDR10 与 HLG 样本验证再跑长片。
 
 ## 原生在线更新做了什么
 
@@ -46,4 +46,4 @@ Get-FileHash -LiteralPath '.\_OpenSVPFlow\Plugins\svpflow2_vs.dll' -Algorithm SH
 
 旧目录 `Legacy/_OpenSVPFlow` 中的 PowerShell/BAT 属历史兼容归档，包含旧版 R79 安装逻辑；v5.0.64 的更新以 **FGS 原生界面**为准。版本标记仅用于显示与更新决策，不能单独证明 DLL 来自同名的官方发布资产，实际身份请核对 SHA-256。
 
-随包两只 DLL 均与上游 `nightly-20261106-badc0de392ac` 的 `x86_64-pc-windows-msvc.zip` 逐字节一致。
+随包两只 DLL 均与上游 `nightly-20261123-badc0debd33f` 的 `x86_64-pc-windows-msvc.zip` 逐字节一致。

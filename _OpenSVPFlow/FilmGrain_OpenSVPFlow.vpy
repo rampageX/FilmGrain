@@ -29,8 +29,12 @@ class SdrY4mReader:
         fps = fields.get(b"F", b"0:1").split(b":")
         if (int(fields.get(b"W", 0)), int(fields.get(b"H", 0))) != (width, height):
             raise ValueError("HDR conversion pipe dimensions differ from source")
-        if len(fps) != 2 or int(fps[0]) * fps_den != fps_num * int(fps[1]):
-            raise ValueError("HDR conversion pipe cadence differs from source")
+        if len(fps) != 2 or min(map(int, fps)) <= 0:
+            raise ValueError("Invalid HDR conversion pipe frame rate")
+        self.fps_num, self.fps_den = map(int, fps)
+        if self.fps_num * fps_den != fps_num * self.fps_den:
+            print(f"[R08b] Y4M FPS {self.fps_num}/{self.fps_den}; BestSource FPS {fps_num}/{fps_den}",
+                  file=sys.stderr, flush=True)
 
     def read_frame(self, n):
         with self.lock:
@@ -69,7 +73,8 @@ def bind_sdr_pipe(clip):
         raise vs.Error("HDR conversion pipe requires even dimensions")
     reader = SdrY4mReader(sys.stdin.buffer, clip.width, clip.height,
                          clip.fps_num, clip.fps_den, clip.num_frames)
-    template = core.std.BlankClip(clip, format=vs.YUV420P10, keep=True)
+    template = core.std.BlankClip(clip, format=vs.YUV420P10, keep=True,
+                                  fpsnum=reader.fps_num, fpsden=reader.fps_den)
 
     def fill(n, f):
         data = reader.read_frame(n)

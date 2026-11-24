@@ -248,11 +248,11 @@ namespace FilmGrainStudioPreview
             // A separate FRUC-only tool must not acquire HDR filter dependencies from the main FFmpeg.
             bool mergedFrucHdr=hdrToSdr&&fruc&&!info.IsInterlaced&&
                 string.Equals(Path.GetFullPath(frucFfmpeg),Path.GetFullPath(ffmpeg),StringComparison.OrdinalIgnoreCase);
-            // Gate the new streaming input until the real NVEncC reader and RTX path are verified.
-            bool streamSdrAi = hdrToSdr && directNvencAi && string.Equals(
-                Environment.GetEnvironmentVariable("FGS_R08_NVENC_STDIN"),"1",StringComparison.Ordinal);
-            bool streamSdrSvp = hdrToSdr && directSvp && string.Equals(
-                Environment.GetEnvironmentVariable("FGS_R08_SVP_STDIN"),"1",StringComparison.Ordinal);
+            // Explicit 0 opts back into the SDR workfile for troubleshooting.
+            bool streamSdrAi = hdrToSdr && directNvencAi && !string.Equals(
+                Environment.GetEnvironmentVariable("FGS_R08_NVENC_STDIN"),"0",StringComparison.Ordinal);
+            bool streamSdrSvp = hdrToSdr && directSvp && !string.Equals(
+                Environment.GetEnvironmentVariable("FGS_R08_SVP_STDIN"),"0",StringComparison.Ordinal);
             bool needsHdrWorkfile=hdrToSdr && !mergedHdr && !mergedFrucHdr && !streamSdrAi && !streamSdrSvp;
             string hdrWorkfile = needsHdrWorkfile || separateDeint ? Path.Combine(tempRoot, job + (hdrToSdr ? "_hdr2sdr.mkv" : "_fields.mkv")) : "";
             string frucInput = needsHdrWorkfile || separateDeint ? hdrWorkfile : input;
