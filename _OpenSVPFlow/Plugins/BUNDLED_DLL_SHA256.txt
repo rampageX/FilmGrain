@@ -1,8 +1,6 @@
-Film Grain Studio v5.0.64 bundled OpenSVPFlow Windows DLL pair
-Source: User-supplied Plugins(1).zip after in-app OpenSVPFlow update, 2026-11-11.
-Marker: nightly-20261106-badc0de392ac (both DLLs match the upstream x86_64-pc-windows-msvc.zip byte for byte)
+Film Grain Studio v5.0.94 bundled OpenSVPFlow Windows DLL pair
+Source: Z1xus/open-svpflow nightly-20261123-badc0debd33f x86_64-pc-windows-msvc.zip
+Archive SHA256: 64bc83d3773e9daaff33641a9e296ba9f8a95788a1a328140f098ad32b443883
 SHA-256 (lowercase):
-975c6503e466e0ad8a6c23d916d1ec7f13b3fc00359586ecab7adc44a5a7415b  svpflow1_vs.dll
-5e302048867c5fe735f699e06269e022e6f733ca00987de31169d25a8c296e69  svpflow2_vs.dll
-Do not mix DLL versions. The native updater downloads the latest matching Windows pair.
-The supplied archive's BUILD.txt/CRATES.txt are retained from its packaged metadata; they are not a verified fingerprint of these exact DLL builds.
+72b31e0b3dd3d62a32f4a7d8277a7e98e019667af8d3e8132ac20674ec465214  svpflow1_vs.dll
+eb24f4a3635615011a3fca76d5f80e4e75990c9d149af9e10faec41458ed0246  svpflow2_vs.dll
