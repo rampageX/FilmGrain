@@ -23,9 +23,12 @@ internal static class CommandAudit
         var options = Activator.CreateInstance(assembly.GetType("FilmGrainStudioPreview.TrueHdrOptions", true));
         var source = Activator.CreateInstance(assembly.GetType("FilmGrainStudioPreview.MediaProbeInfo", true));
         var build = core.GetMethod("Arguments", Flags);
+        var frames = assembly.GetType("FilmGrainStudioPreview.TrueHdrPreviewFrames", true);
+        double white = (double)frames.GetMethod("PqToNits", Flags).Invoke(null, new object[] { 1.0 });
+        Require(Math.Abs(white - 10000) < 0.001, "ST 2084 white level");
         Require((string)core.GetMethod("Speed", Flags).Invoke(null, new object[] { "60", 24000.0 / 1001 }) == "2.5", "TrueHDR speed multiplier");
         var live = (IList<string>)core.GetMethod("LiveFrameArguments", Flags).Invoke(null, new object[] {
-            "test.mkv", "frame.nut", 2.5, new[] { 125, 75, 44, 1000 } });
+            "test.mkv", "frame.y4m", 2.5, new[] { 125, 75, 44, 1000 } });
         Require(Option(live, "--codec") == "raw" && Option(live, "--frames") == "1" &&
             Option(live, "--seek") == "2.5" && Option(live, "--output-depth") == "10" &&
             Option(live, "--vpp-ngx-truehdr") == "contrast=125,saturation=75,middlegray=44,maxluminance=1000", "Live TrueHDR frame");
@@ -45,6 +48,26 @@ internal static class CommandAudit
         Field(source, "AudioCodec", "aac");
         string input = @"I:\-=Converter=-\素材 & (1).mkv";
         string output = @"I:\-=Converter=-\成片.mkv";
+        Field(source, "Width", 2);
+        Field(source, "Height", 2);
+        var read = frames.GetMethods(Flags).Single(m => m.Name == "Read" && m.GetParameters()[0].ParameterType == typeof(Stream));
+        foreach (bool hdr in new[] { false, true })
+        {
+            string header = "YUV4MPEG2 W2 H2 F24:1 Ip A1:1 C420p10 XCOLORRANGE=LIMITED\nFRAME\n";
+            byte[] raw = System.Text.Encoding.ASCII.GetBytes(header).Concat(new byte[] {
+                64, 0, 64, 0, 172, 3, 172, 3, 0, 2, 0, 2 }).ToArray();
+            using (var stream = new MemoryStream(raw))
+            using (var bmp = (IDisposable)read.Invoke(null, new object[] { stream, source, hdr, 1000, System.Threading.CancellationToken.None }))
+            {
+                var getPixel = bmp.GetType().GetMethod("GetPixel");
+                object black = getPixel.Invoke(bmp, new object[] { 0, 0 });
+                object whitePixel = getPixel.Invoke(bmp, new object[] { 0, 1 });
+                var red = black.GetType().GetProperty("R");
+                Require((byte)red.GetValue(black, null) == 0 && (byte)red.GetValue(whitePixel, null) == 255, "Y4M preview black and white");
+            }
+        }
+        Field(source, "Width", 1920);
+        Field(source, "Height", 1080);
         var invoke = new object[] { input, output, options, source, new Dictionary<string, string>() };
         var command = (IList<string>)build.Invoke(null, invoke);
         Require(Option(command, "--vpp-ngx-truehdr") == "contrast=125,saturation=75,middlegray=44,maxluminance=1000", "Picture defaults");

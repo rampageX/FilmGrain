@@ -1,5 +1,6 @@
 ## 未发布 — TrueHDR 第一阶段
 
+- TrueHDR 左侧 16:10 实时画面采用 NVEncC Y4M 与 HWEncVppPreview 显示转换，设置栏缩至约 500 px。保留 FGS 比较控件。
 - 为逐行 SDR 视频提供独立的 NVEncC TrueHDR 快捷转换窗口。支持 HEVC / AV1 HDR10 10-bit、VBR / CQ、四项 TrueHDR 画面参数和独立配置。
 - GUI 与 `--truehdr` 命令行共用执行与输出校验。NVEncC 直接转换并编码，以目标峰值生成标称 mastering-display 元数据。
 

@@ -116,41 +116,31 @@ namespace FilmGrainStudioPreview
         {
             return new List<string> { "--avsw", "--video-track", "1", "--seek",
                 seconds.ToString("0.###", CultureInfo.InvariantCulture), "--frames", "1", "-i", input,
-                "--codec", "raw", "--output-depth", "10", "--output-csp", "yuv420", "--output-format", "nut",
+                "--codec", "raw", "--output-depth", "10", "--output-csp", "yuv420", "--y4m-timestamp",
                 "--vpp-ngx-truehdr", PictureArgument(values), "--colormatrix", "bt2020nc",
                 "--colorprim", "bt2020", "--transfer", "smpte2084", "--colorrange", "auto", "-o", output };
         }
 
-        internal static Tuple<System.Drawing.Bitmap, System.Drawing.Bitmap> RenderLiveFrame(string nvenc, string ffmpeg, MediaProbeInfo source,
+        internal static Tuple<System.Drawing.Bitmap, System.Drawing.Bitmap> RenderLiveFrame(string nvenc, MediaProbeInfo source,
             double seconds, int[] values, CancellationToken token)
         {
             string directory = Path.Combine(Path.GetTempPath(), "FGS-TrueHDR-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(directory);
             try
             {
-                string video = Path.Combine(directory, "frame.nut"), image = Path.Combine(directory, "display.png");
-                var filtered = LiveFrameArguments(source.PathValue, video, seconds, values);
+                string originalPath = Path.Combine(directory, "source.y4m");
+                string filteredPath = Path.Combine(directory, "truehdr.y4m");
+                var filtered = LiveFrameArguments(source.PathValue, filteredPath, seconds, values);
                 var original = new List<string>(filtered);
+                original[original.Count - 1] = originalPath;
                 original.RemoveRange(original.IndexOf("--vpp-ngx-truehdr"), 2);
                 original[original.IndexOf("--colormatrix") + 1] = "auto";
                 original[original.IndexOf("--colorprim") + 1] = "auto";
                 original[original.IndexOf("--transfer") + 1] = "auto";
+                RunLiveFrameTool(nvenc, filtered, token);
                 RunLiveFrameTool(nvenc, original, token);
-                RunLiveFrameTool(ffmpeg, new[] { "-v", "error", "-nostdin", "-i", video,
-                    "-frames:v", "1", "-threads", "1", image }, token);
-                System.Drawing.Bitmap before;
-                using (var decoded = new System.Drawing.Bitmap(image)) before = new System.Drawing.Bitmap(decoded);
-                try
-                {
-                    File.Delete(video);
-                    File.Delete(image);
-                    RunLiveFrameTool(nvenc, filtered, token);
-                    var signal = new MediaProbeInfo { ColorRange = source.ColorRange, ColorTransfer = "smpte2084" };
-                    RunLiveFrameTool(ffmpeg, new[] { "-v", "error", "-nostdin", "-i", video, "-vf",
-                        NativeGrainPreviewForm.PreviewFilter(signal), "-frames:v", "1", "-threads", "1", image }, token);
-                    using (var decoded = new System.Drawing.Bitmap(image))
-                        return Tuple.Create(before, new System.Drawing.Bitmap(decoded));
-                }
+                var before = TrueHdrPreviewFrames.Read(originalPath, source, false, values[3], token);
+                try { return Tuple.Create(before, TrueHdrPreviewFrames.Read(filteredPath, source, true, values[3], token)); }
                 catch { before.Dispose(); throw; }
             }
             finally { try { Directory.Delete(directory, true); } catch (IOException) { } catch (UnauthorizedAccessException) { } }

@@ -85,6 +85,7 @@ $RequiredPackageFiles = @(
     'dotnet\FilmGrain_NetworkProxyCore.cs',
     'dotnet\FilmGrain_SettingsDialogs.cs',
     'dotnet\FilmGrain_TrueHdrCore.cs',
+    'dotnet\FilmGrain_TrueHdrPreviewFrames.cs',
     'dotnet\FilmGrain_TrueHdrWindow.cs',
     'dotnet\FilmGrain_ResourceMonitor.cs',
     'dotnet\FilmGrain_SetupPhase1.cs',
