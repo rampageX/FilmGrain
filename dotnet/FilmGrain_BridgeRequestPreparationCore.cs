@@ -138,9 +138,18 @@ namespace FilmGrainStudioPreview
             if(state==null){prepared=null;reason="missing execution state";return false;}
             var timer=System.Diagnostics.Stopwatch.StartNew();
             string previewFlag;state.TryGetValue("FG_ENCODE_PREVIEW",out previewFlag);
+            string previewSeconds, previewStart;
+            int seconds;
+            double start;
+            bool wholeSource = previewFlag == "1" && info != null &&
+                state.TryGetValue("FG_PREVIEW_SECONDS", out previewSeconds) && int.TryParse(previewSeconds, out seconds) &&
+                state.TryGetValue("FG_PREVIEW_START", out previewStart) && SharedEncodePreviewCore.TryParseStart(previewStart, out start) &&
+                SharedEncodePreviewCore.UseWholeSource(info.Duration, seconds);
+            if (wholeSource) previewFlag = "0";
             string requested;state.TryGetValue("FG_GPU_DECODE",out requested);
             bool planning=requested=="1"&&!noReencode&&previewFlag!="1"&&!NvencInterpolationCore.Enabled(state);
             var initialState=new Dictionary<string,string>(state,StringComparer.OrdinalIgnoreCase);
+            if (wholeSource) initialState["FG_ENCODE_PREVIEW"] = "0";
             initialState.Remove("FG_HWD_PLAN");initialState.Remove("FG_HWD_BACKEND");initialState.Remove("FG_HWD_SOURCE");
             if(planning)initialState["FG_HWD_PLAN"]=Guid.NewGuid().ToString("N");
             bool ok=TryPrepareCore(appRoot,input,info,initialState,caps,noReencode,out prepared,out reason);
@@ -155,6 +164,9 @@ namespace FilmGrainStudioPreview
                     ok=TryPrepareCore(appRoot,input,info,selected,caps,noReencode,out prepared,out reason);
                 }
             }
+            if (ok && wholeSource)
+                prepared.ExecutionRequest.ExecutionNotice = "[Preview] Source shorter than requested clip; encoding the whole source." +
+                    Environment.NewLine + (prepared.ExecutionRequest.ExecutionNotice ?? "");
             if(ok && prepared!=null && decodeNotice.Length>0)prepared.ExecutionRequest.ExecutionNotice=(prepared.ExecutionRequest.ExecutionNotice??"")+Environment.NewLine+decodeNotice;
             if(ok && prepared!=null && prepared.ExecutionRequest!=null)
             {
@@ -309,6 +321,13 @@ namespace FilmGrainStudioPreview
         private static string Number(double value) { return value.ToString("0.######", System.Globalization.CultureInfo.InvariantCulture); }
         private static double ParseNumber(string value)
         { double n; return double.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out n) ? n : 0; }
+        internal static bool UseWholeSource(string duration, int requestedSeconds)
+        {
+            double sourceSeconds = ParseNumber(duration);
+            return requestedSeconds >= 1 && requestedSeconds <= 86400 &&
+                sourceSeconds > 0 && sourceSeconds < requestedSeconds;
+        }
+
         internal static string Quote(string value)
         {
             // Windows CreateProcess argument quoting, never a command shell.

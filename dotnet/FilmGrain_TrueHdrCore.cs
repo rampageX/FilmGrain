@@ -27,6 +27,14 @@ namespace FilmGrainStudioPreview
         public bool Mp4 { get; set; }
         public Dictionary<string, string> Advanced { get; set; }
 
+        internal TrueHdrOptions WithoutClip()
+        {
+            var full = (TrueHdrOptions)MemberwiseClone();
+            full.PreviewStart = null;
+            full.PreviewSeconds = 0;
+            return full;
+        }
+
         internal TrueHdrOptions ForQueueItem(MediaProbeInfo source)
         {
             if (!TrueHdrCore.Eligible(source) || (!source.IsInterlaced && !TrueHdrCore.CanInterpolate(source))) return null;
@@ -337,6 +345,10 @@ namespace FilmGrainStudioPreview
             }
             if (source.Identity != null && !source.Identity.IsCurrent(input, probe))
                 throw new IOException("TrueHDR source changed; reselect and probe it again: " + input);
+            double parsedStart;
+            bool wholeSource = SharedEncodePreviewCore.TryParseStart(options.PreviewStart, out parsedStart) &&
+                SharedEncodePreviewCore.UseWholeSource(source.Duration, options.PreviewSeconds);
+            if (wholeSource) options = options.WithoutClip();
             if (options.PreviewSeconds != 0)
             {
                 double start, lengthSeconds;
@@ -387,7 +399,7 @@ namespace FilmGrainStudioPreview
                 },
                 OutputFiles = new List<string> { staging }, TemporaryFiles = new[] { staging },
                 TrueHdrSourceFps = OutputFps(source, options.AiInterpolation),
-                ProgressDurationSeconds = duration, ExecutionNotice = "[TrueHDR] Output: " + output
+                ProgressDurationSeconds = duration, ExecutionNotice = (wholeSource ? "[Preview] Source shorter than requested clip; encoding the whole source." + Environment.NewLine : "") + "[TrueHDR] Output: " + output
             };
             var original = new FileInfo(input);
             long length = original.Length;

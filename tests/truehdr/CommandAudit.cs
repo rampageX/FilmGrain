@@ -23,6 +23,11 @@ internal static class CommandAudit
         var options = Activator.CreateInstance(assembly.GetType("FilmGrainStudioPreview.TrueHdrOptions", true));
         var source = Activator.CreateInstance(assembly.GetType("FilmGrainStudioPreview.MediaProbeInfo", true));
         var build = core.GetMethod("Arguments", Flags);
+        var rangePolicy = assembly.GetType("FilmGrainStudioPreview.SharedEncodePreviewCore").GetMethod("UseWholeSource", Flags);
+        Require((bool)rangePolicy.Invoke(null, new object[] { "19.5", 30 }), "Short source encodes whole");
+        Require(!(bool)rangePolicy.Invoke(null, new object[] { "30", 30 }) &&
+            !(bool)rangePolicy.Invoke(null, new object[] { "N/A", 30 }) &&
+            !(bool)rangePolicy.Invoke(null, new object[] { "19.5", 0 }), "Only valid, strictly shorter clips bypass cutting");
         var retry = core.GetMethod("LiveFrameRetryBudget", Flags);
         Require((int)retry.Invoke(null, new object[] { "avsw: all frames in the trim range are before the first keyframe and cannot be decoded (offset 119).", 1 }) == 120, "NVEncC keyframe retry");
         Require((int)retry.Invoke(null, new object[] { "failed to initialize file reader(s).", 1 }) == 0, "Unrelated NVEncC errors are not retried");
