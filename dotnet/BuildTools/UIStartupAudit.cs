@@ -260,7 +260,8 @@ internal static class UIStartupSmoke {
     {
      if(window==main||!window.Text.Contains("TrueHDR"))continue;
      appeared=window.Visible&&window.Opacity==1&&window.Controls.Find("TRUEHDR_contrast",true).Length==1
-      &&window.Controls.Find("TRUEHDR_START",true).Length==1;
+      &&window.Controls.Find("TRUEHDR_START",true).Length==1
+      &&window.Controls.Find("TRUEHDR_PREVIEW",true).Length==1;
      timer.Stop();
      window.DialogResult=DialogResult.Cancel;
      return;

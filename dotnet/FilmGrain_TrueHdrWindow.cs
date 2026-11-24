@@ -105,7 +105,7 @@ namespace FilmGrainStudioPreview
                     Location = new Point(16, 493), Size = new Size(135, 26) };
                 var start = new MaskedTextBox("00:00:00") { Text = txtPreviewStart.Text, TextMaskFormat = MaskFormat.IncludeLiterals,
                     Location = new Point(210, 493), Size = new Size(90, 26) };
-                var seconds = new ThemeIntegerCombo(1, 86400, numPreviewDuration.Value, new[] { 30, 60, 120 }, false) {
+                var seconds = new ThemeIntegerCombo(1, 86400, (int)numPreviewDuration.Value, new[] { 30, 60, 120 }, false) {
                     Location = new Point(394, 493), Size = new Size(75, 26) };
                 Action updatePreview = delegate { start.Enabled = seconds.Enabled = preview.Checked; };
                 preview.CheckedChanged += delegate { updatePreview(); };
@@ -146,7 +146,7 @@ namespace FilmGrainStudioPreview
                     {
                         if (preview.Checked && !seconds.ValidateInput()) return;
                         options.PreviewStart = preview.Checked ? start.Text : null;
-                        options.PreviewSeconds = preview.Checked ? seconds.Value : 0;
+                        options.PreviewSeconds = preview.Checked ? (int)seconds.Value : 0;
                         options.Codec = codec.SelectedIndex == 1 ? "AV1" : "HEVC";
                         options.Preset = (string)preset.SelectedItem;
                         options.Cq = rate.SelectedIndex == 1;
