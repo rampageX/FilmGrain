@@ -1,3 +1,8 @@
+## 未发布 — TrueHDR 第一阶段
+
+- 为逐行 SDR 视频提供独立的 NVEncC TrueHDR 快捷转换窗口。支持 HEVC / AV1 HDR10 10-bit、VBR / CQ、四项 TrueHDR 画面参数和独立配置。
+- GUI 与 `--truehdr` 命令行共用执行与输出校验。NVEncC 直接转换并编码，以目标峰值生成标称 mastering-display 元数据。
+
 ## v5.0.96 — HDR→SDR 调节与高级设置（2026-11-24）
 
 - HDR 快捷设置与「高级 → HDR」加入六种 HDR→SDR 算法的独立调节。亮度和饱和度优先显示，每项可单独复位。

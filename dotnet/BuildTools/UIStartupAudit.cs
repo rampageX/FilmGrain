@@ -115,6 +115,7 @@ internal static class UIStartupSmoke {
     for(int i=0;i<4;i++){codec.SelectedIndex=i;form.Refresh();Application.DoEvents();Capture(form,theme+"_codec_"+i);}
     CheckAdvanced(form,type,flags,lines,true,true,theme);
    }
+   CheckTrueHdr(form,type,flags,lines);
    CheckAqCapabilities(form,type,flags,lines);
    CheckCapturedAq(form,type,flags,lines);
    File.WriteAllLines(Path.Combine(visualDirectory,"ControlBounds.csv"),metrics,new UTF8Encoding(true));
@@ -242,6 +243,41 @@ internal static class UIStartupSmoke {
   hevc.SelectedIndex=5;ht.Checked=true;tabs.SelectedIndex=2;reset.PerformClick();
   if(h264.SelectedIndex!=2||nt.Checked||hevc.SelectedIndex!=5||!ht.Checked)throw new Exception("H264/x264 reset changed HEVC settings");
  }
+ private static void CheckTrueHdr(Form main, Type type, BindingFlags flags, List<string> lines)
+ {
+  object source=Activator.CreateInstance(type.Assembly.GetType("FilmGrainStudioPreview.MediaProbeInfo",true),true);
+  foreach(var pair in new Dictionary<string,object>{{"HasVideo",true},{"Width",1920},{"Height",1080},{"PathValue","SDR fixture.mkv"}})
+   source.GetType().GetField(pair.Key,flags).SetValue(source,pair.Value);
+  var update=type.GetMethod("UpdateHdrRouteStatus",flags);
+  var shortcut=(Button)type.GetField("btnHdrShortcut",flags).GetValue(main);
+  update.Invoke(main,new[]{source});
+  if(!shortcut.Visible||!shortcut.Text.Contains("TrueHDR"))throw new Exception("SDR TrueHDR shortcut missing");
+  using(var timer=new System.Windows.Forms.Timer{Interval=100})
+  {
+   bool appeared=false;
+   timer.Tick+=delegate {
+    foreach(Form window in Application.OpenForms)
+    {
+     if(window==main||!window.Text.Contains("TrueHDR"))continue;
+     appeared=window.Visible&&window.Opacity==1&&window.Controls.Find("TRUEHDR_contrast",true).Length==1
+      &&window.Controls.Find("TRUEHDR_START",true).Length==1;
+     timer.Stop();
+     window.DialogResult=DialogResult.Cancel;
+     return;
+    }
+   };
+   timer.Start();
+   type.GetMethod("ShowTrueHdrDialog",flags).Invoke(main,new[]{source});
+   if(!appeared)throw new Exception("TrueHDR dialog did not reveal its controls");
+  }
+  source.GetType().GetField("ColorTransfer",flags).SetValue(source,"smpte2084");
+  update.Invoke(main,new[]{source});
+  if(!shortcut.Visible||shortcut.Text!="...")throw new Exception("HDR shortcut changed");
+  update.Invoke(main,new object[]{null});
+  if(shortcut.Visible)throw new Exception("Shortcut visible without media");
+  lines.Add("PASS TrueHDR dialog and SDR/HDR/no-source shortcut");
+ }
+
  private static void CheckAqCapabilities(Form main,Type type,BindingFlags flags,List<string> lines){
   var field=type.GetField("hardwareCaps",flags);var ready=type.GetField("hardwareCapsReady",flags);
   object previous=field.GetValue(main);object previousReady=ready.GetValue(main);

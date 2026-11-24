@@ -816,6 +816,20 @@ namespace FilmGrainStudioPreview
                     }
                 }
 
+                string mode;
+                if (activeRequest != null && activeRequest.Environment != null &&
+                    activeRequest.Environment.TryGetValue("FG_MODE", out mode) && mode.StartsWith("TrueHDR ", StringComparison.Ordinal))
+                {
+                    Match nvenc = Regex.Match(line, @"^\s*(?:\[(?<percent>\d+(?:\.\d+)?)%\]\s*)?\d+(?:/\d+)? frames:\s*(?<fps>\d+(?:\.\d+)?) fps(?:.*?, remain (?<eta>\d+:\d{2}:\d{2}))?");
+                    double percent;
+                    if (nvenc.Success)
+                    {
+                        bool hasPercent = double.TryParse(nvenc.Groups["percent"].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out percent);
+                        eventArgs = new BridgeProgressEventArgs(hasPercent, (int)(Math.Min(100.0, percent) * 10),
+                            true, nvenc.Groups["fps"].Value, "", nvenc.Groups["eta"].Value, false, 0, 0, "");
+                    }
+                }
+
                 Match statsMatch = Regex.Match(line, @"fps=\s*([0-9.]+).*?time=\s*([0-9]{2}):([0-9]{2}):([0-9]{2}(?:\.[0-9]+)?).*?speed=\s*([0-9.]+)x", RegexOptions.IgnoreCase);
                 if (statsMatch.Success)
                 {

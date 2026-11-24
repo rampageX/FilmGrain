@@ -45,7 +45,7 @@ namespace FilmGrainStudioPreview
 
         internal static string Number(int value) { return value.ToString(CultureInfo.InvariantCulture); }
 
-        internal static Dictionary<string, string> RateState(TrueHdrOptions options, MediaProbeInfo source)
+        private static Dictionary<string, string> RateState(TrueHdrOptions options)
         {
             string prefix = "NVENC_" + options.Codec;
             return new Dictionary<string, string> {
@@ -101,7 +101,7 @@ namespace FilmGrainStudioPreview
                 "--vbr", Number(Bitrate(options, source)) };
             if (options.Cq)
             {
-                var rate = RateState(options, source);
+                var rate = RateState(options);
                 args.AddRange(new[] { "--vbr-quality", NvencRateControlCore.Quality(rate) });
                 int limit = NvencRateControlCore.Limit(rate);
                 if (limit > 0) args.AddRange(new[] { "--max-bitrate", Number(limit * 1000), "--vbv-bufsize", Number(limit * 2000) });
@@ -175,10 +175,11 @@ namespace FilmGrainStudioPreview
             };
             string ext = options.Mp4 ? ".mp4" : ".mkv";
             string output = Path.Combine(directory, Path.GetFileNameWithoutExtension(input) + "_TrueHDR_" + options.Codec + "_" +
-                NvencRateControlCore.FileToken(RateState(options, source), Bitrate(options, source)) + ext);
+                NvencRateControlCore.FileToken(RateState(options), Bitrate(options, source)) + ext);
             if (File.Exists(output)) throw new IOException("Output already exists: " + output);
             string staging = Path.Combine(directory, ".fgs-truehdr-" + Guid.NewGuid().ToString("N") + ext);
             var args = Arguments(input, staging, options, source, audio);
+            bool faststart = options.Mp4 && config.GetBool("MP4_FASTSTART");
             double duration;
             double.TryParse(source.Duration, NumberStyles.Float, CultureInfo.InvariantCulture, out duration);
             var stage = new BridgeExecutionStage {
@@ -211,7 +212,9 @@ namespace FilmGrainStudioPreview
                     throw new IOException("TrueHDR source changed: " + input);
                 if (File.Exists(output)) throw new IOException("Output already exists: " + output);
                 string notice = preflight();
-                stage.DirectArguments = SharedFrucCore.JoinArguments(Arguments(input, staging, options, source, audio));
+                var prepared = Arguments(input, staging, options, source, audio);
+                if (faststart) prepared.InsertRange(prepared.Count - 2, new[] { "--mux-option", "movflags:+faststart" });
+                stage.DirectArguments = SharedFrucCore.JoinArguments(prepared);
                 return notice;
             };
             request.PostRunValidation = delegate {
