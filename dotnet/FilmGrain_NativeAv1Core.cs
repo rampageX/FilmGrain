@@ -251,7 +251,9 @@ namespace FilmGrainStudioPreview
             // Gate the new streaming input until the real NVEncC reader and RTX path are verified.
             bool streamSdrAi = hdrToSdr && directNvencAi && string.Equals(
                 Environment.GetEnvironmentVariable("FGS_R08_NVENC_STDIN"),"1",StringComparison.Ordinal);
-            bool needsHdrWorkfile=hdrToSdr && !mergedHdr && !mergedFrucHdr && !streamSdrAi;
+            bool streamSdrSvp = hdrToSdr && directSvp && string.Equals(
+                Environment.GetEnvironmentVariable("FGS_R08_SVP_STDIN"),"1",StringComparison.Ordinal);
+            bool needsHdrWorkfile=hdrToSdr && !mergedHdr && !mergedFrucHdr && !streamSdrAi && !streamSdrSvp;
             string hdrWorkfile = needsHdrWorkfile || separateDeint ? Path.Combine(tempRoot, job + (hdrToSdr ? "_hdr2sdr.mkv" : "_fields.mkv")) : "";
             string frucInput = needsHdrWorkfile || separateDeint ? hdrWorkfile : input;
             string frucWorkfile = interpolate ? Path.Combine(tempRoot, job + (fruc ? "_fruc.mkv" : "_svp.mkv")) : "";
@@ -455,6 +457,11 @@ namespace FilmGrainStudioPreview
                 string svpDir=Path.Combine(appRoot,"_OpenSVPFlow");
                 SharedSvpCore.AttachProducer(stage,Path.Combine(svpDir,".venv","Scripts","vspipe.exe"),
                     Path.Combine(svpDir,"FilmGrain_OpenSVPFlow.vpy"),Path.Combine(svpDir,"Plugins"),frucInput,state,fpsText);
+                if (streamSdrSvp)
+                {
+                    stage.PipeProducerArguments="--requests 1 --arg hdr_sdr_pipe=1 "+stage.PipeProducerArguments;
+                    SharedHdrPreprocessCore.AttachSdrPipeInput(stage,input,info,tonemap,true);
+                }
                 stage.StageText+=" / OpenSVPFlow direct Y4M, no FFV1";
                 request.ExecutionNotice="[AV1 route] OpenSVPFlow Y4M direct to AV1; no FFV1; IVF/grain/remux retained; original final A/V clock adapter retained.";
             } else if(directNvencAi) {
@@ -468,7 +475,7 @@ namespace FilmGrainStudioPreview
                     var producer = HardwareDecodeCore.SplitArguments(stage.PipeProducerArguments);
                     producer[producer.IndexOf("-i")+1] = "-";
                     stage.PipeProducerArguments = SharedFrucCore.JoinArguments(producer);
-                    SharedHdrPreprocessCore.AttachSdrNutInput(stage,input,info,tonemap);
+                    SharedHdrPreprocessCore.AttachSdrPipeInput(stage,input,info,tonemap);
                 }
                 stage.StageText+=" / NVEncC AI direct NUT, no FFV1";
                 request.ExecutionNotice="[AV1 route] NVEncC AI NUT direct to AV1; no FFV1; IVF/grain/remux retained; original final A/V clock adapter retained.";
@@ -489,7 +496,7 @@ namespace FilmGrainStudioPreview
                 request.ExecutionNotice="[AV1 encode route] IVF encode/container stages retained; direct-output/FRUC eligibility not met. Grain metadata optimization is selected independently.";
             }
 
-            if (hdrToSdr && (directSvp || directNvencAi) && !streamSdrAi)
+            if (hdrToSdr && (directSvp || directNvencAi) && !streamSdrAi && !streamSdrSvp)
             {
                 SharedHdrPreprocessCore.AttachValidation(directStages[preStages],ffprobe,hdrWorkfile,info);
                 directStages[preStages].StageText+=" / R08b SDR workfile to producer to AV1";

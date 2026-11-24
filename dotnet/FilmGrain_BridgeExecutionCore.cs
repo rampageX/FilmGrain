@@ -637,7 +637,9 @@ namespace FilmGrainStudioPreview
                     input = new Process { StartInfo = inputInfo };
                     input.ErrorDataReceived += delegate(object sender, DataReceivedEventArgs e)
                     { if (e.Data != null) RaiseLog(BridgeLogStream.StandardError, "[HDR pipe input] " + e.Data); };
-                    RaiseLog(BridgeLogStream.System, "[R08b] HDR to SDR NUT -> NVEncC AI -> AV1; no HDR workfile. args=" + inputInfo.Arguments);
+                    string pipeRoute = sourceInfo.Arguments.Contains("hdr_sdr_pipe=1")
+                        ? "HDR to SDR Y4M -> OpenSVPFlow -> AV1" : "HDR to SDR NUT -> NVEncC AI -> AV1";
+                    RaiseLog(BridgeLogStream.System, "[R08b] " + pipeRoute + "; no HDR workfile. args=" + inputInfo.Arguments);
                     if (!input.Start()) throw new InvalidOperationException("HDR pipe input did not start");
                     input.BeginErrorReadLine();
                     Process upstream = input, receiver = producer;

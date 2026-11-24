@@ -6,6 +6,99 @@ import vapoursynth as vs
 core = vs.core
 
 
+class SdrY4mReader:
+    """Sequential input with a bounded look-behind for SVP frame requests."""
+
+    def __init__(self, stream, width, height, fps_num, fps_den, length):
+        from collections import OrderedDict
+        from threading import Lock
+
+        self.stream = stream
+        self.length = length
+        self.next_frame = 0
+        self.frames = OrderedDict()
+        self.lock = Lock()
+        self.sizes = [(width, height), (width // 2, height // 2), (width // 2, height // 2)]
+        self.frame_bytes = sum(w * h * 2 for w, h in self.sizes)
+        self.limit = max(4, min(24, (160 * 1024 * 1024) // self.frame_bytes))
+        self.error = None
+        header = stream.readline(4096).split()
+        if not header or header[0] != b"YUV4MPEG2" or b"C420p10" not in header:
+            raise ValueError("Expected 10-bit 4:2:0 Y4M from HDR conversion")
+        fields = {tag[:1]: tag[1:] for tag in header[1:]}
+        fps = fields.get(b"F", b"0:1").split(b":")
+        if (int(fields.get(b"W", 0)), int(fields.get(b"H", 0))) != (width, height):
+            raise ValueError("HDR conversion pipe dimensions differ from source")
+        if len(fps) != 2 or int(fps[0]) * fps_den != fps_num * int(fps[1]):
+            raise ValueError("HDR conversion pipe cadence differs from source")
+
+    def read_frame(self, n):
+        with self.lock:
+            if self.error is not None:
+                raise ValueError(self.error)
+            try:
+                if n < 0 or n >= self.length:
+                    raise ValueError("HDR conversion frame index outside source")
+                if n < self.next_frame and n not in self.frames:
+                    raise ValueError(f"SVP requests frame {n} outside HDR pipe cache")
+                while self.next_frame <= n:
+                    frame_tag = self.stream.readline(4096)
+                    if not frame_tag or frame_tag.rstrip().split(b" ", 1)[0] != b"FRAME":
+                        raise ValueError(f"HDR conversion ended before frame {self.next_frame}")
+                    data = self.stream.read(self.frame_bytes)
+                    if len(data) != self.frame_bytes:
+                        raise ValueError(f"Truncated HDR conversion frame {self.next_frame}")
+                    self.frames[self.next_frame] = data
+                    self.next_frame += 1
+                    if len(self.frames) > self.limit:
+                        self.frames.popitem(last=False)
+                if n == self.length - 1 and self.stream.read(1):
+                    raise ValueError("HDR conversion output has more frames than the source")
+                return self.frames[n]
+            except (ValueError, OSError) as exc:
+                self.error = str(exc)
+                raise
+
+
+def bind_sdr_pipe(clip):
+    import ctypes
+    if os.name == "nt":
+        import msvcrt
+        msvcrt.setmode(sys.stdin.fileno(), os.O_BINARY)
+    if clip.width % 2 or clip.height % 2:
+        raise vs.Error("HDR conversion pipe requires even dimensions")
+    reader = SdrY4mReader(sys.stdin.buffer, clip.width, clip.height,
+                         clip.fps_num, clip.fps_den, clip.num_frames)
+    template = core.std.BlankClip(clip, format=vs.YUV420P10, keep=True)
+
+    def fill(n, f):
+        data = reader.read_frame(n)
+        out = f.copy()
+        offset = 0
+        for plane, (width, height) in enumerate(reader.sizes):
+            row_bytes = width * 2
+            destination = ctypes.cast(out.get_write_ptr(plane), ctypes.c_void_p).value
+            stride = out.get_stride(plane)
+            if row_bytes == stride:
+                plane_bytes = row_bytes * height
+                ctypes.memmove(destination, data[offset:offset + plane_bytes], plane_bytes)
+                offset += plane_bytes
+            else:
+                for row in range(height):
+                    ctypes.memmove(destination + row * stride, data[offset:offset + row_bytes], row_bytes)
+                    offset += row_bytes
+        out.props["_Matrix"] = 1
+        out.props["_Primaries"] = 1
+        out.props["_Transfer"] = 1
+        out.props["_ColorRange"] = 1
+        out.props["_FieldBased"] = 0
+        return out
+
+    print("[R08b] OpenSVPFlow reading HDR to SDR Y4M from stdin", file=sys.stderr, flush=True)
+    return core.std.ModifyFrame(template, clips=template, selector=fill)
+
+
+
 def build_svp_parameters(speed="FGS", tuning="FGS", block_size="auto",
                          analyse_profile="ENCODEGUI", algo=13, scene_mode=0,
                          mask_area=100, target_num=60, target_den=1,
@@ -218,6 +311,10 @@ if hwdevice:
     print(f"[HWD] effective=BestSource/{hwdevice}", file=sys.stderr, flush=True)
 else:
     clip = core.bs.VideoSource(source=input_path, cachemode=1)
+if option_bool("hdr_sdr_pipe"):
+    if hdr10:
+        raise vs.Error("The HDR conversion pipe supplies SDR frames")
+    clip = bind_sdr_pipe(clip)
 if option_bool("hwd_probe"):
     clip.set_output()
 else:

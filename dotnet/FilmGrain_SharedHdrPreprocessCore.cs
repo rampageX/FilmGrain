@@ -56,13 +56,20 @@ namespace FilmGrainStudioPreview
             return args;
         }
 
-        internal static void AttachSdrNutInput(BridgeExecutionStage stage, string source, MediaProbeInfo info, string tonemap)
+        internal static void AttachSdrPipeInput(BridgeExecutionStage stage, string source, MediaProbeInfo info, string tonemap, bool y4m = false)
         {
             var cpu = BuildToSdr(source,"pipe:1",info,tonemap,false);
             stage.BeforeRunPreparation = delegate {
                 string notice;
                 var selected = SelectAutomatic(stage.ToolPath,cpu,tonemap,out notice);
-                stage.PipeInputArguments = SharedFrucCore.JoinArguments(BuildSdrNutArguments(selected));
+                var pipe = BuildSdrNutArguments(selected);
+                if (y4m)
+                {
+                    int codec = pipe.IndexOf("-c:v");
+                    pipe.RemoveRange(codec,pipe.Count-codec);
+                    pipe.AddRange(new[]{"-pix_fmt","yuv420p10le","-strict","-1","-fps_mode:v","passthrough","-f","yuv4mpegpipe","pipe:1"});
+                }
+                stage.PipeInputArguments = SharedFrucCore.JoinArguments(pipe);
                 return notice;
             };
         }
