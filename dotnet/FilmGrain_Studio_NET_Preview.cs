@@ -113,6 +113,8 @@ namespace FilmGrainStudioPreview
         [STAThread]
         private static void Main(string[] args)
         {
+            if (args.Length > 0 && args[0] == "--truehdr")
+            { Environment.ExitCode = TrueHdrCore.RunCli(args); return; }
             if(args.Length>0&&args[0]=="--av1-hdr-ivf-stream")
             { Environment.ExitCode=NvencHdr10StreamCore.Run(args);return; }
             if (args.Length == 1 && args[0] == "--hardware-gpu-identity")
@@ -1011,7 +1013,7 @@ namespace FilmGrainStudioPreview
             else if(tabIndex>0)shortcut.Name=tabIndex==2?"HDR_SETTINGS_SHORTCUT":"INTERPOLATION_SETTINGS_SHORTCUT";
             shortcut.AccessibleName = UiText("打开高级设置：", "Open advanced settings: ") + page;
             lutToolTip.SetToolTip(shortcut, shortcut.AccessibleName);
-            shortcut.Click += delegate { if(tabIndex==0)ShowEncoderQuickSettings();else if(tabIndex<0)OpenCinematicCrop();else ShowProcessingQuickSettings(tabIndex==2); };
+            shortcut.Click += delegate { if(tabIndex==0)ShowEncoderQuickSettings();else if(tabIndex<0)OpenCinematicCrop();else if(tabIndex==2)ShowHdrSourceShortcut();else ShowProcessingQuickSettings(false); };
             row.Controls.Add(content, 0, 0); row.Controls.Add(shortcut, 1, 0);
             return row;
         }
@@ -3663,7 +3665,7 @@ namespace FilmGrainStudioPreview
                     {
                         BridgeTaskRequest task = e.Task;
                         outputPreviewTask=task;
-                        if(task!=null && task.QueueIndex<=1 && outputPreviewWindow==null && config.GetBool("OUTPUT_PREVIEW_AUTO_OPEN"))ShowOutputPreview();
+                        if(task!=null && task.QueueIndex<=1 && (task.ExecutionRequest == null || !task.ExecutionRequest.SkipPreviewSpool) && outputPreviewWindow==null && config.GetBool("OUTPUT_PREVIEW_AUTO_OPEN"))ShowOutputPreview();
                         bool noReencode = task != null && task.NoReencode;
                         IDictionary<string, string> state = task != null && task.ExecutionRequest != null ? task.ExecutionRequest.Environment : null;
                         activeRunNativeBackend = task != null && task.NativeBackend;
@@ -4101,7 +4103,16 @@ namespace FilmGrainStudioPreview
         {
             if (lblHdrRoute == null) return;
             SetHdrRouteColor(false,false,false);
-            if (btnHdrShortcut != null) btnHdrShortcut.Visible = info != null && info.IsHdr && (listFiles == null || listFiles.SelectedItems.Count <= 1);
+            bool single = listFiles == null || listFiles.SelectedItems.Count <= 1;
+            bool trueHdr = single && TrueHdrCore.Eligible(info);
+            if (btnHdrShortcut != null)
+            {
+                btnHdrShortcut.Visible = single && (info != null && info.IsHdr || trueHdr);
+                btnHdrShortcut.Text = trueHdr ? "SDR → TrueHDR" : "...";
+                ((TableLayoutPanel)btnHdrShortcut.Parent).ColumnStyles[1].Width = trueHdr ? 116 : 28;
+                btnHdrShortcut.AccessibleName = trueHdr ? "SDR → TrueHDR" : UiText("打开高级设置：", "Open advanced settings: ") + "HDR";
+                lutToolTip.SetToolTip(btnHdrShortcut, btnHdrShortcut.AccessibleName);
+            }
             if(info!=null&&info.IsHdr&&NewCpuSelected()&&(listFiles==null||listFiles.SelectedItems.Count<=1)) {
                 // Route display needs processing choices only: no bitrate/file/catalog readiness validation.
                 string error="";var state=CaptureNativeHdrRouteState();

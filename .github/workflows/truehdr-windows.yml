@@ -48,6 +48,37 @@ jobs:
         shell: cmd
         run: call dotnet\build_NET_Preview.bat
 
+      - name: Verify NVEncC 9.41 Windows help
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = Join-Path $env:RUNNER_TEMP 'nvencc-9.41'
+          $archive = $dir + '.7z'
+          Invoke-WebRequest -UseBasicParsing 'https://github.com/rigaya/NVEnc/releases/download/9.41/NVEncC_9.41_x64.7z' -OutFile $archive
+          & 7z x $archive ('-o' + $dir) -y
+          if ($LASTEXITCODE -ne 0) { throw 'NVEncC dependency extraction failed' }
+          $nvenc = Get-ChildItem -LiteralPath $dir -Filter 'NVEncC64.exe' -Recurse | Select-Object -First 1
+          if (!$nvenc) { throw 'NVEncC64.exe missing' }
+          $help = (& $nvenc.FullName --help | Out-String)
+          if ($LASTEXITCODE -ne 0 -or $help -notmatch '--vpp-ngx-truehdr') { throw 'TrueHDR help missing' }
+          foreach ($pattern in @('contrast=.*125, 0 - 200', 'saturation=.*75, 0 - 200',
+              'middlegray=.*44, 10 - 100', 'maxluminance=.*1000, 400 - 2000')) {
+            if ($help -notmatch $pattern) { throw ('Unexpected TrueHDR help: ' + $pattern) }
+          }
+
+      - name: Verify TrueHDR command and WinForms startup
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+          $audit = Join-Path $env:RUNNER_TEMP 'TrueHdrCommandAudit.exe'
+          $exe = Join-Path $env:GITHUB_WORKSPACE 'FilmGrain_Studio.exe'
+          & $csc /nologo /utf8output ('/out:' + $audit) 'tests\truehdr\CommandAudit.cs'
+          if ($LASTEXITCODE -ne 0) { throw 'Command audit compilation failed' }
+          & $audit $exe
+          if ($LASTEXITCODE -ne 0) { throw 'TrueHDR command audit failed' }
+          & .\dotnet\BuildTools\Test_UI_Startup.ps1 -Exe $exe
+
       - name: R08 plan contracts and R01-R07 regression
         shell: powershell
         run: |
@@ -74,20 +105,18 @@ jobs:
           ('ExecutableSHA256=' + $hash) | Add-Content -LiteralPath 'TrueHDR_CI_PROOF.txt' -Encoding Ascii
           ('Status=Windows CI only; pending RTX acceptance') | Add-Content -LiteralPath 'TrueHDR_CI_PROOF.txt' -Encoding Ascii
 
-          git archive --format=zip --output=FGS_TrueHDR_9D4C7B_Full_Source.zip HEAD
+          git archive --format=zip --output=FGS_TrueHDR_A71F6C_Full_Source.zip HEAD
           if ($LASTEXITCODE -ne 0) { throw 'Source archive failed' }
-          Copy-Item -LiteralPath $exe -Destination 'FilmGrain_Studio_TrueHDR_9D4C7B.exe'
+          Copy-Item -LiteralPath $exe -Destination 'FilmGrain_Studio_TrueHDR_A71F6C.exe'
 
       - name: Upload test EXE and matching source
         uses: actions/upload-artifact@v4
         with:
-          name: FGS_TrueHDR_9D4C7B_Test_and_Source
+          name: FGS_TrueHDR_A71F6C_Test_and_Source
           path: |
-            FilmGrain_Studio_TrueHDR_9D4C7B.exe
-            FGS_TrueHDR_9D4C7B_Full_Source.zip
+            FilmGrain_Studio_TrueHDR_A71F6C.exe
+            FGS_TrueHDR_A71F6C_Full_Source.zip
             TrueHDR_CI_PROOF.txt
-            _OpenSVPFlow/FilmGrain_OpenSVPFlow.vpy
           if-no-files-found: error
           retention-days: 14
-
 
