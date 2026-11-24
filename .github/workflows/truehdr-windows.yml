@@ -110,17 +110,17 @@ jobs:
           ('ExecutableSHA256=' + $hash) | Add-Content -LiteralPath 'TrueHDR_CI_PROOF.txt' -Encoding Ascii
           ('Status=Windows CI only; pending RTX acceptance') | Add-Content -LiteralPath 'TrueHDR_CI_PROOF.txt' -Encoding Ascii
 
-          git archive --format=zip --output=FGS_TrueHDR_A91E52_Full_Source.zip HEAD
+          git archive --format=zip --output=FGS_TrueHDR_C7F241_Full_Source.zip HEAD
           if ($LASTEXITCODE -ne 0) { throw 'Source archive failed' }
-          Copy-Item -LiteralPath $exe -Destination 'FilmGrain_Studio_TrueHDR_A91E52.exe'
+          Copy-Item -LiteralPath $exe -Destination 'FilmGrain_Studio_TrueHDR_C7F241.exe'
 
       - name: Upload test EXE and matching source
         uses: actions/upload-artifact@v4
         with:
-          name: FGS_TrueHDR_A91E52_Test_and_Source
+          name: FGS_TrueHDR_C7F241_Test_and_Source
           path: |
-            FilmGrain_Studio_TrueHDR_A91E52.exe
-            FGS_TrueHDR_A91E52_Full_Source.zip
+            FilmGrain_Studio_TrueHDR_C7F241.exe
+            FGS_TrueHDR_C7F241_Full_Source.zip
             TrueHDR_CI_PROOF.txt
           if-no-files-found: error
           retention-days: 14
@@ -128,7 +128,7 @@ jobs:
       - name: Upload single test EXE
         uses: actions/upload-artifact@v4
         with:
-          name: FilmGrain_Studio_TrueHDR_A91E52
-          path: FilmGrain_Studio_TrueHDR_A91E52.exe
+          name: FilmGrain_Studio_TrueHDR_C7F241
+          path: FilmGrain_Studio_TrueHDR_C7F241.exe
           if-no-files-found: error
           retention-days: 14

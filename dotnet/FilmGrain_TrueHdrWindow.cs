@@ -180,15 +180,33 @@ namespace FilmGrainStudioPreview
                 var seek = new NativeSeekStrip { Location = new Point(12, 522), Width = 493,
                     Duration = Math.Max(0, mediaLength - 1), Enabled = mediaLength > 1 };
                 var displayStatus = new ThemeLabel { Location = new Point(12, 557), Size = new Size(800, 36), AutoEllipsis = true };
-                var sourceDepth = new ThemeLabel { Name = "TRUEHDR_SOURCE_DEPTH", Location = new Point(12, 594), Size = new Size(270, 20),
-                    TextAlign = ContentAlignment.MiddleLeft };
-                Action updateDepth = delegate {
-                    bool converts = TrueHdrCore.CanInterpolate(source) && (hasQueue || ai.Checked) && TrueHdrCore.DownconvertsForAi(source);
-                    sourceDepth.Text = UiText("源位深：", "Source depth: ") + (converts ? "10-bit → 8-bit" : MediaSummaryCore.FormatVideoBitDepth(source));
-                    sourceDepth.ForeColor = converts ? (selectedDarkTheme ? Color.Orange : Color.FromArgb(168, 79, 0)) :
-                        (selectedDarkTheme ? UiTheme.TextColor : SystemColors.ControlText);
+                string[] previewInfo = null;
+                string sourceDepth = TrueHdrCore.DownconvertsForAi(source) ? "10-bit" : MediaSummaryCore.FormatVideoBitDepth(source);
+                displayStatus.Paint += delegate(object sender, PaintEventArgs e) {
+                    if (previewInfo == null) return;
+                    bool highlight = sourceDepth == "10-bit" && previewInfo[3] == "8-bit";
+                    Color accent = selectedDarkTheme ? Color.Orange : Color.FromArgb(168, 79, 0);
+                    const TextFormatFlags flags = TextFormatFlags.SingleLine | TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix;
+                    int x = 0;
+                    int y = Math.Max(0, (displayStatus.Height - 2 * displayStatus.Font.Height) / 2);
+                    Action<string, bool> draw = delegate(string value, bool depth) {
+                        TextRenderer.DrawText(e.Graphics, value, displayStatus.Font, new Point(x, y),
+                            highlight && depth ? accent : displayStatus.ForeColor, flags);
+                        x += TextRenderer.MeasureText(e.Graphics, value, displayStatus.Font, Size.Empty, flags).Width;
+                    };
+                    draw(previewInfo[0], false);
+                    if (sourceDepth != "8-bit" || previewInfo[3] != "8-bit")
+                    {
+                        draw(" · ", false);
+                        draw(sourceDepth, true);
+                    }
+                    draw(previewInfo[1], false);
+                    x = 0;
+                    y += displayStatus.Font.Height;
+                    draw("BT.2020 NCL · " + previewInfo[2], false);
+                    draw(previewInfo[3], true);
+                    draw(" · PQ → SDR · 203 nit", false);
                 };
-                ai.CheckedChanged += delegate { updateDepth(); };
                 var view = new ThemeComboBox { Location = new Point(513, 521), Size = new Size(150, 26),
                     DropDownStyle = ComboBoxStyle.DropDownList };
                 view.Items.AddRange(new object[] { UiText("单张", "Single"), UiText("并排", "Side by side"), UiText("滑动比较", "Split") });
@@ -214,7 +232,7 @@ namespace FilmGrainStudioPreview
                 zoom.Click += delegate { toggleZoom(); };
                 screen.DoubleClick += delegate { toggleZoom(); };
                 settings.Controls.Add(live);
-                dlg.Controls.AddRange(new Control[] { screen, seek, displayStatus, sourceDepth, view, zoom, scale });
+                dlg.Controls.AddRange(new Control[] { screen, seek, displayStatus, view, zoom, scale });
                 CancellationTokenSource render = null;
                 int revision = 0;
                 Action schedule = delegate {
@@ -233,6 +251,7 @@ namespace FilmGrainStudioPreview
                     for (int i = 0; i < values.Length; i++) values[i] = sliders[i].Value;
                     string nvenc = NvencInterpolationCore.Exe(config.Get("NVENC_DIR"));
                     double position = seek.Position;
+                    previewInfo = null;
                     displayStatus.Text = UiText("正在刷新画面…", "Refreshing preview…");
                     try {
                         var image = await Task.Run(() => TrueHdrCore.RenderLiveFrame(nvenc, source, position, values, job.Token));
@@ -240,9 +259,15 @@ namespace FilmGrainStudioPreview
                         screen.SetFrames(image.Item1, image.Item2);
                         scaleText();
                         string fps = TrueHdrCore.OutputFps(source).ToString("0.###", CultureInfo.InvariantCulture);
-                        displayStatus.Text = NativeSeekStrip.FormatTime(position) + " · " + image.Item2.Width + "×" + image.Item2.Height +
-                            " · " + fps + " fps · SAR " + source.SampleAspectRatio + Environment.NewLine +
-                            "BT.2020 NCL · " + image.Item2.Tag + " · PQ → SDR · 203 nit";
+                        string output = (string)image.Item2.Tag;
+                        int depthStart = output.LastIndexOf(' ') + 1;
+                        previewInfo = new[] {
+                            NativeSeekStrip.FormatTime(position) + " · " + image.Item2.Width + "×" + image.Item2.Height,
+                            " · " + fps + " fps · SAR " + source.SampleAspectRatio,
+                            output.Substring(0, depthStart), output.Substring(depthStart)
+                        };
+                        displayStatus.Text = "";
+                        displayStatus.Invalidate();
                     }
                     catch (OperationCanceledException) { }
                     catch (Exception error) {
@@ -257,7 +282,7 @@ namespace FilmGrainStudioPreview
                 live.CheckedChanged += delegate {
                     view.Enabled = zoom.Enabled = live.Checked;
                     seek.Enabled = live.Checked && mediaLength > 1;
-                    if (!live.Checked) { screen.SetFrames(null, null); displayStatus.Text = ""; scaleText(); }
+                    if (!live.Checked) { screen.SetFrames(null, null); previewInfo = null; displayStatus.Invalidate(); displayStatus.Text = ""; scaleText(); }
                     schedule();
                 };
                 seek.PositionChanged += delegate { schedule(); };
@@ -378,7 +403,7 @@ namespace FilmGrainStudioPreview
                 dlg.CancelButton = cancel;
                 AttachThemeWindow(dlg);
                 dlg.ResumeLayout(true);
-                dlg.Shown += delegate { updateDepth(); dlg.Refresh(); dlg.Opacity = 1; schedule(); };
+                dlg.Shown += delegate { dlg.Refresh(); dlg.Opacity = 1; schedule(); };
                 dlg.ShowDialog(this);
             }
         }
