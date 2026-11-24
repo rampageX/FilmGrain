@@ -75,7 +75,7 @@ namespace FilmGrainStudioPreview
                 var auto = new ThemeCheckBox { Text = lang.T("encode.auto"), Checked = options.Auto, Location = new Point(281, 80), Size = new Size(78, 26) };
                 var motion = new ThemeCheckBox { Text = UiText("高动态", "High motion"), Checked = options.HighMotion, Location = new Point(373, 80), Size = new Size(78, 26) };
                 var pending = PendingQueueInputs();
-                bool hasQueue = pending.Count > 1;
+                bool hasQueue = listFiles.Items.Count > 1;
                 bool previewOnly = chkEncodePreview.Checked;
                 var ai = new ThemeCheckBox { Name = "TRUEHDR_AI", Text = UiText("AI 插帧 2×", "AI interpolation 2×"),
                     Location = new Point(160, 581), Size = new Size(150, 28), Enabled = TrueHdrCore.CanInterpolate(source) };
