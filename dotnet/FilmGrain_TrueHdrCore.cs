@@ -20,6 +20,7 @@ namespace FilmGrainStudioPreview
         public bool Cq { get; set; }
         public bool Auto { get; set; }
         public bool HighMotion { get; set; }
+        public bool AiInterpolation { get; set; }
         public string Target { get; set; }
         public string PreviewStart { get; set; }
         public int PreviewSeconds { get; set; }
@@ -53,11 +54,18 @@ namespace FilmGrainStudioPreview
 
         internal static void RequireTrueHdr(string executable)
         {
+            RequireFilters(executable, false);
+        }
+
+        private static void RequireFilters(string executable, bool aiInterpolation)
+        {
             string help, error;
             if (!SharedFrucCore.RunWithLimit(executable, "--help", 10000, out help, out error, 1048576))
                 throw new InvalidOperationException("TrueHDR could not read NVEncC help: " + executable + ". " + error);
             if (!AdvertisesTrueHdr(help))
                 throw new InvalidOperationException("NVEncC does not list --vpp-ngx-truehdr: " + executable);
+            if (aiInterpolation && !Regex.IsMatch(help, @"(?m)^\s*--vpp-nvvfx-framegen(?:\s|$)"))
+                throw new InvalidOperationException("NVEncC does not list --vpp-nvvfx-framegen: " + executable);
         }
 
         internal static string Number(int value) { return value.ToString(CultureInfo.InvariantCulture); }
@@ -79,16 +87,16 @@ namespace FilmGrainStudioPreview
             return options.Advanced != null && options.Advanced.TryGetValue(key, out value) ? value : fallback;
         }
 
-        internal static double OutputFps(MediaProbeInfo source)
+        internal static double OutputFps(MediaProbeInfo source, bool aiInterpolation = false)
         {
-            return BitrateRecommendationCore.ParseMediaFps(source) * (source.IsInterlaced ? 2.0 : 1.0);
+            return BitrateRecommendationCore.ParseMediaFps(source) * (source.IsInterlaced || aiInterpolation ? 2.0 : 1.0);
         }
 
         internal static int Bitrate(TrueHdrOptions options, MediaProbeInfo source)
         {
             if (options.Cq) return 0;
             if (options.Auto) return BitrateRecommendationCore.GetRecommendedBitrate(options.Codec == "AV1" ? 0 : 1,
-                source.Width, source.Height, OutputFps(source), options.HighMotion);
+                source.Width, source.Height, OutputFps(source, options.AiInterpolation), options.HighMotion);
             int bitrate;
             if (!int.TryParse(options.Target, NumberStyles.None, CultureInfo.InvariantCulture, out bitrate) || bitrate < 100 || bitrate > 500000)
                 throw new InvalidDataException("TrueHDR: target bitrate must be 100–500000 kbps.");
@@ -187,6 +195,40 @@ namespace FilmGrainStudioPreview
             }
         }
 
+        internal static bool CanInterpolate(MediaProbeInfo source)
+        {
+            return Eligible(source) && !source.IsInterlaced && Math.Min(source.Width, source.Height) >= 360 &&
+                Math.Max(source.Width, source.Height) >= 640 &&
+                (source.PixelFormat == "yuv420p" || source.PixelFormat == "yuvj420p");
+        }
+
+        private static void AddPreviewRange(List<string> args, TrueHdrOptions options)
+        {
+            if (options.PreviewSeconds == 0) return;
+            double start;
+            if (options.PreviewSeconds < 1 || options.PreviewSeconds > 86400 ||
+                !SharedEncodePreviewCore.TryParseStart(options.PreviewStart, out start))
+                throw new InvalidDataException("TrueHDR preview requires HH:MM:SS and a duration of 1–86400 seconds.");
+            args.InsertRange(args.IndexOf("-i"), new[] {
+                "--seek", start.ToString(CultureInfo.InvariantCulture),
+                "--seekto", (start + options.PreviewSeconds).ToString(CultureInfo.InvariantCulture) });
+        }
+
+        internal static List<string> InterpolationArguments(string input, TrueHdrOptions options, MediaProbeInfo source)
+        {
+            if (!CanInterpolate(source))
+                throw new InvalidDataException("AI 插帧需要至少 640×360 的逐行 8-bit 4:2:0 SDR。 / AI interpolation requires progressive 8-bit 4:2:0 SDR, at least 640×360.");
+            var args = new List<string> { "--avsw", "--video-track", "1", "--avsync", "vfr", "--log-opt", "color=off",
+                "-i", input, "--vpp-nvvfx-framegen", "mode=medium,multiplier=2,autoshotchange=true",
+                "--codec", "raw", "--output-depth", "8", "--output-csp", "yuv420",
+                "--colormatrix", "auto", "--colorprim", "auto", "--transfer", "auto", "--colorrange", "auto",
+                "--output-format", "nut" };
+            if (AudioOutputCore.Tracks(source).Count > 0) args.Add("--audio-copy");
+            args.AddRange(new[] { "-o", "-" });
+            AddPreviewRange(args, options);
+            return args;
+        }
+
         internal static List<string> Arguments(string input, string output, TrueHdrOptions options,
             MediaProbeInfo source, IDictionary<string, string> audio)
         {
@@ -206,16 +248,12 @@ namespace FilmGrainStudioPreview
                 "G(8500,39850)B(6550,2300)R(35400,14600)WP(15635,16450)L(" + Number(options.Picture[3] * 10000) + ",1)",
                 "--vbr", Number(Bitrate(options, source)) };
             AddDeinterlace(args, source.IsInterlaced);
-            if (options.PreviewSeconds != 0)
+            if (options.AiInterpolation)
             {
-                double start;
-                if (options.PreviewSeconds < 1 || options.PreviewSeconds > 86400 ||
-                    !SharedEncodePreviewCore.TryParseStart(options.PreviewStart, out start))
-                    throw new InvalidDataException("TrueHDR preview requires HH:MM:SS and a duration of 1–86400 seconds.");
-                args.InsertRange(args.IndexOf("-i"), new[] {
-                    "--seek", start.ToString(CultureInfo.InvariantCulture),
-                    "--seekto", (start + options.PreviewSeconds).ToString(CultureInfo.InvariantCulture) });
+                if (!CanInterpolate(source)) throw new InvalidDataException("This source cannot be used with AI interpolation.");
+                args[args.IndexOf("-i") + 1] = "-";
             }
+            else AddPreviewRange(args, options);
             if (options.Cq)
             {
                 var rate = RateState(options);
@@ -313,19 +351,24 @@ namespace FilmGrainStudioPreview
             var stage = new BridgeExecutionStage {
                 ToolPath = exe, WorkingDirectory = Path.GetDirectoryName(exe),
                 DirectArguments = SharedFrucCore.JoinArguments(args), ProgressDurationSeconds = duration,
-                StageCurrent = 1, StageTotal = 1, StageText = (source.IsInterlaced ? "SDR → CUDA YADIF Bob → TrueHDR → " : "SDR → TrueHDR → ") + options.Codec + " HDR10",
+                StageCurrent = 1, StageTotal = 1, StageText = (source.IsInterlaced ? "SDR → CUDA YADIF Bob 2× → TrueHDR → " : options.AiInterpolation ? "SDR → NVEncC AI VFG 2× → TrueHDR → " : "SDR → TrueHDR → ") + options.Codec + " HDR10",
                 BeforeRunPreparation = delegate {
-                    RequireTrueHdr(exe);
+                    RequireFilters(exe, options.AiInterpolation);
                     AudioOutputCore.EstimateMissing(input, probe, source, audio);
                     return "[TrueHDR] NGX and codec capability are validated by NVEncC initialization on the selected input.";
                 }
             };
+            if (options.AiInterpolation)
+            {
+                stage.PipeProducerPath = exe;
+                stage.PipeProducerArguments = SharedFrucCore.JoinArguments(InterpolationArguments(input, options, source));
+            }
             var request = new BridgeExecutionRequest {
                 ToolPath = exe, WorkingDirectory = stage.WorkingDirectory, DirectProcess = true,
                 InputFiles = new[] { input }, DirectStages = new[] { stage }, SkipPreviewSpool = true,
                 Environment = new Dictionary<string, string> { { "FG_MODE", "TrueHDR " + options.Codec } },
                 OutputFiles = new List<string> { staging }, TemporaryFiles = new[] { staging },
-                TrueHdrSourceFps = OutputFps(source),
+                TrueHdrSourceFps = OutputFps(source, options.AiInterpolation),
                 ProgressDurationSeconds = duration, ExecutionNotice = "[TrueHDR] Output: " + output
             };
             var original = new FileInfo(input);
@@ -345,12 +388,12 @@ namespace FilmGrainStudioPreview
             };
             request.PostRunValidation = delegate {
                 var actual = Probe(probe, staging);
-                if (source.IsInterlaced && options.PreviewSeconds == 0)
+                if ((source.IsInterlaced || options.AiInterpolation) && options.PreviewSeconds == 0)
                 {
-                    double expected = OutputFps(source);
+                    double expected = OutputFps(source, options.AiInterpolation);
                     double measured = BitrateRecommendationCore.ParseMediaFps(actual);
                     if (expected > 0 && measured > 0 && Math.Abs(expected - measured) > Math.Max(expected * 0.01, 2 / Math.Max(1, duration)))
-                        return "TrueHDR YADIF Bob output frame rate mismatch: " + measured.ToString("0.###", CultureInfo.InvariantCulture) +
+                        return "TrueHDR 2× output frame rate mismatch: " + measured.ToString("0.###", CultureInfo.InvariantCulture) +
                             " fps; expected " + expected.ToString("0.###", CultureInfo.InvariantCulture) + " fps.";
                 }
                 if (actual.IsInterlaced) return "TrueHDR output validation failed: interlaced video.";

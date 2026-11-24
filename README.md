@@ -100,7 +100,7 @@ Lookahead 的数值是请求深度，可能受到编码器、B 帧、驱动及 F
 
 选中一条单视频流、偶数尺寸的 SDR 视频，点击输入信息旁的 **SDR → TrueHDR**。独立窗口可选择 HEVC NVENC 或 AV1 NVENC、MKV 或 MP4、VBR 或 CQ，以及对比度、饱和度、中间调亮度和峰值亮度。设置中的 NVEncC 路径须指向支持 NGX TrueHDR 的 Windows x64 版本。需要 NVIDIA RTX 显卡和兼容驱动。
 
-隔行 SDR 在同一个 NVEncC 进程内先经 CUDA YADIF Bob 反交错，每场输出一帧（如 29.97 帧／59.94 场转换到 59.94p）；预览两侧也采用相同的反交错。TrueHDR 是 NVEncC 内的最后一个画面处理步骤，随后直接编码为 BT.2020/PQ 10-bit。音轨沿用 FGS 的音频配置，输出前核验编码格式、色彩标记和音轨数量。窗口保存独立的编码及画面选项。
+隔行 SDR 在同一个 NVEncC 进程内先经 CUDA YADIF Bob 反交错，每场输出一帧（如 29.97 帧／59.94 场转换到 59.94p）；预览两侧也采用相同的反交错。符合条件的逐行 8-bit 4:2:0 SDR 可选 NVEncC AI 插帧 2×，使用 NUT 管道送入 TrueHDR，不生成中间视频文件。窗口显示当前路线。TrueHDR 是 NVEncC 内的最后一个画面处理步骤，随后直接编码为 BT.2020/PQ 10-bit。音轨沿用 FGS 的音频配置，输出前核验编码格式、色彩标记和音轨数量。窗口保存独立的编码及画面选项。
 
 左侧实时画面采用 16:10 视区，支持适应窗口、1:1、单张、并排和滑动对比。预览由 NVEncC 输出 Y4M 样帧，显示转换沿用 HWEncVppPreview 的标量逻辑，PQ→SDR 采用 203 nit 参考白。
 

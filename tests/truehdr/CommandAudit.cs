@@ -88,7 +88,7 @@ internal static class CommandAudit
         Require(!command.Contains("--seek") && !command.Contains("--seekto"), "Full encode timeline");
         Field(source, "FieldOrder", "tt");
         Field(source, "AvgFrameRate", "30000/1001");
-        double outputFps = (double)core.GetMethod("OutputFps", Flags).Invoke(null, new[] { source });
+        double outputFps = (double)core.GetMethod("OutputFps", Flags).Invoke(null, new object[] { source, false });
         Require(Math.Abs(outputFps - 60000.0 / 1001) < 0.000001, "Interlaced SDR Bob doubles frame rate");
         var interlaced = (IList<string>)build.Invoke(null, invoke);
         Require(Option(interlaced, "--vpp-yadif") == "mode=bob" &&
@@ -99,6 +99,27 @@ internal static class CommandAudit
         Set(options, "PreviewSeconds", 30);
         command = (IList<string>)build.Invoke(null, invoke);
         Require(Option(command, "--seek") == "65" && Option(command, "--seekto") == "95", "Preview timeline");
+        var producer = core.GetMethod("InterpolationArguments", Flags);
+        var producerArgs = new object[] { input, options, source };
+        Set(options, "AiInterpolation", true);
+        Field(source, "PixelFormat", "yuv420p");
+        var pipe = (IList<string>)producer.Invoke(null, producerArgs);
+        command = (IList<string>)build.Invoke(null, invoke);
+        Require(Option(pipe, "--output-format") == "nut" && Option(pipe, "-o") == "-" &&
+            Option(pipe, "-i") == input && pipe.Contains("--audio-copy") &&
+            Option(pipe, "--vpp-nvvfx-framegen").Contains("multiplier=2") && !pipe.Contains("--vpp-ngx-truehdr") &&
+            Option(pipe, "--seek") == "65" && Option(pipe, "--seekto") == "95", "SDR AI pipe producer");
+        Require(Option(command, "-i") == "-" && !command.Contains("--seek") &&
+            command.Contains("--vpp-ngx-truehdr") && !command.Contains("--vpp-nvvfx-framegen") &&
+            Option(command, "--output-depth") == "10", "TrueHDR pipe consumer");
+        Require(Math.Abs((double)core.GetMethod("OutputFps", Flags).Invoke(null, new object[] { source, true }) -
+            48000.0 / 1001) < 0.000001, "AI doubles output rate");
+        Field(source, "FieldOrder", "tt");
+        RequireRejected(producer, producerArgs, "AI producer excludes Bob");
+        Field(source, "FieldOrder", "progressive");
+        Field(source, "PixelFormat", "yuv420p10le");
+        RequireRejected(producer, producerArgs, "AI producer excludes high-bit-depth SDR");
+        Set(options, "AiInterpolation", false);
         Set(options, "PreviewStart", "bad");
         RequireRejected(build, invoke, "Invalid preview timestamp");
         Set(options, "PreviewSeconds", 0);
