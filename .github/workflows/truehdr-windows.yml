@@ -54,13 +54,15 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $dir = Join-Path $env:RUNNER_TEMP 'nvencc-9.41'
           $archive = $dir + '.7z'
-          Invoke-WebRequest -UseBasicParsing 'https://github.com/rigaya/NVEnc/releases/download/9.41/NVEncC_9.41_x64.7z' -OutFile $archive
+          & curl.exe -fsSL --retry 3 -o $archive 'https://github.com/rigaya/NVEnc/releases/download/9.41/NVEncC_9.41_x64.7z'
+          if ($LASTEXITCODE -ne 0) { throw 'NVEncC dependency download failed' }
           & 7z x $archive ('-o' + $dir) -y
           if ($LASTEXITCODE -ne 0) { throw 'NVEncC dependency extraction failed' }
           $nvenc = Get-ChildItem -LiteralPath $dir -Filter 'NVEncC64.exe' -Recurse | Select-Object -First 1
           if (!$nvenc) { throw 'NVEncC64.exe missing' }
           $help = (& $nvenc.FullName --help | Out-String)
           if ($LASTEXITCODE -ne 0 -or $help -notmatch '--vpp-ngx-truehdr') { throw 'TrueHDR help missing' }
+          [IO.File]::WriteAllText((Join-Path $env:RUNNER_TEMP 'TrueHDR_NVEncC_Help.txt'), $help)
           foreach ($pattern in @('contrast=.*125, 0 - 200', 'saturation=.*75, 0 - 200',
               'middlegray=.*44, 10 - 100', 'maxluminance=.*1000, 400 - 2000')) {
             if ($help -notmatch $pattern) { throw ('Unexpected TrueHDR help: ' + $pattern) }
@@ -75,7 +77,7 @@ jobs:
           $exe = Join-Path $env:GITHUB_WORKSPACE 'FilmGrain_Studio.exe'
           & $csc /nologo /utf8output ('/out:' + $audit) 'tests\truehdr\CommandAudit.cs'
           if ($LASTEXITCODE -ne 0) { throw 'Command audit compilation failed' }
-          & $audit $exe
+          & $audit $exe (Join-Path $env:RUNNER_TEMP 'TrueHDR_NVEncC_Help.txt')
           if ($LASTEXITCODE -ne 0) { throw 'TrueHDR command audit failed' }
           & .\dotnet\BuildTools\Test_UI_Startup.ps1 -Exe $exe
 
@@ -120,3 +122,10 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Upload single test EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: FilmGrain_Studio_TrueHDR_A71F6C
+          path: FilmGrain_Studio_TrueHDR_A71F6C.exe
+          if-no-files-found: error
+          retention-days: 14

@@ -23,6 +23,10 @@ internal static class CommandAudit
         var options = Activator.CreateInstance(assembly.GetType("FilmGrainStudioPreview.TrueHdrOptions", true));
         var source = Activator.CreateInstance(assembly.GetType("FilmGrainStudioPreview.MediaProbeInfo", true));
         var build = core.GetMethod("Arguments", Flags);
+        var help = core.GetMethod("AdvertisesTrueHdr", Flags);
+        Require((bool)help.Invoke(null, new object[] { "  --vpp-ngx-truehdr [<param1>=<value>]" }), "Optional help syntax");
+        Require(!(bool)help.Invoke(null, new object[] { "  --vpp-ngx-truehdr-experimental" }), "Help option boundary");
+        if (args.Length > 1) Require((bool)help.Invoke(null, new object[] { File.ReadAllText(args[1]) }), "Release help syntax");
         Field(source, "HasVideo", true);
         Field(source, "Width", 1920);
         Field(source, "Height", 1080);
@@ -57,6 +61,9 @@ internal static class CommandAudit
         Set(options, "Picture", new[] { 0, 200, 10, 2000 });
         Field(source, "ColorTransfer", "smpte2084");
         RequireRejected(build, invoke, "HDR input rejected");
+        Field(source, "ColorTransfer", "bt709");
+        Field(source, "VideoStreamCount", 2);
+        RequireRejected(build, invoke, "NVEncC track selection ambiguity rejected");
         Console.WriteLine("PASS TrueHDR command, input/output state, codec, rate, bounds and effect isolation");
         return 0;
     }

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Threading;
+using System.Text.RegularExpressions;
 using System.Web.Script.Serialization;
 
 namespace FilmGrainStudioPreview
@@ -38,9 +39,14 @@ namespace FilmGrainStudioPreview
     {
         internal static bool Eligible(MediaProbeInfo source)
         {
-            return source != null && source.HasVideo && !source.IsHdr &&
+            return source != null && source.HasVideo && source.VideoStreamCount <= 1 && !source.IsHdr &&
                 source.ColorTransfer != "smpte428" && !source.IsInterlaced &&
                 source.Width > 0 && source.Height > 0 && source.Width % 2 == 0 && source.Height % 2 == 0;
+        }
+
+        internal static bool AdvertisesTrueHdr(string help)
+        {
+            return Regex.IsMatch(help ?? "", @"(?m)^\s*--vpp-ngx-truehdr(?:\s|$)");
         }
 
         internal static string Number(int value) { return value.ToString(CultureInfo.InvariantCulture); }
@@ -76,7 +82,7 @@ namespace FilmGrainStudioPreview
         internal static List<string> Arguments(string input, string output, TrueHdrOptions options,
             MediaProbeInfo source, IDictionary<string, string> audio)
         {
-            if (!Eligible(source)) throw new InvalidDataException("TrueHDR requires progressive SDR video with even dimensions.");
+            if (!Eligible(source)) throw new InvalidDataException("TrueHDR requires single-stream progressive SDR video with even dimensions.");
             bool hevc = options.Codec == "HEVC";
             if (!hevc && options.Codec != "AV1") throw new InvalidDataException("TrueHDR requires HEVC or AV1 NVENC.");
             if (Array.IndexOf(new[] { "p1", "p2", "p3", "p4", "p5", "p6", "p7" }, options.Preset) < 0)
@@ -92,7 +98,7 @@ namespace FilmGrainStudioPreview
             }
             // The avsw reader passes the source VUI to NGX. These color options signal the output.
             // Preserve the source range through NGX's internal colorspace conversion.
-            var args = new List<string> { "--avsw", "--video-track", "1", "--avsync", "vfr", "-i", input,
+            var args = new List<string> { "--avsw", "--video-track", "1", "--avsync", "vfr", "--log-opt", "color=off", "-i", input,
                 "--codec", hevc ? "hevc" : "av1", "--profile", hevc ? "main10" : "main",
                 "--preset", options.Preset, "--output-depth", "10", "--output-csp", "yuv420",
                 "--vpp-ngx-truehdr", string.Join(",", picture), "--colorprim", "bt2020", "--transfer", "smpte2084",
@@ -189,7 +195,7 @@ namespace FilmGrainStudioPreview
                 BeforeRunPreparation = delegate {
                     string help, error;
                     if (!SharedFrucCore.Run(exe, "--help", 10000, out help, out error) ||
-                        !SharedFrucCore.HasOption(help, "--vpp-ngx-truehdr"))
+                        !AdvertisesTrueHdr(help))
                         throw new InvalidOperationException("This NVEncC build does not advertise NGX TrueHDR. " + error);
                     AudioOutputCore.EstimateMissing(input, probe, source, audio);
                     return "[TrueHDR] NGX and codec capability are validated by NVEncC initialization on the selected input.";

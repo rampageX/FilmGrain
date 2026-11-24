@@ -817,8 +817,9 @@ namespace FilmGrainStudioPreview
                 }
 
                 string mode;
-                if (activeRequest != null && activeRequest.Environment != null &&
-                    activeRequest.Environment.TryGetValue("FG_MODE", out mode) && mode.StartsWith("TrueHDR ", StringComparison.Ordinal))
+                var request = activeRequest;
+                if (request != null && request.Environment != null &&
+                    request.Environment.TryGetValue("FG_MODE", out mode) && mode.StartsWith("TrueHDR ", StringComparison.Ordinal))
                 {
                     Match nvenc = Regex.Match(line, @"^\s*(?:\[(?<percent>\d+(?:\.\d+)?)%\]\s*)?\d+(?:/\d+)? frames:\s*(?<fps>\d+(?:\.\d+)?) fps(?:.*?, remain (?<eta>\d+:\d{2}:\d{2}))?");
                     double percent;

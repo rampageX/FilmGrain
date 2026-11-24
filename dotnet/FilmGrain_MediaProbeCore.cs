@@ -213,6 +213,7 @@ namespace FilmGrainStudioPreview
         public string TotalBitRate = "";
 
         public bool HasVideo;
+        public int VideoStreamCount;
         public string VideoCodec = "";
         public string VideoProfile = "";
         public int Width;
@@ -294,6 +295,7 @@ namespace FilmGrainStudioPreview
                             info.AudioTracks.Add(new AudioTrackInfo{StreamIndex=GetInt(stream,"index"),Codec=GetString(stream,"codec_name").ToLowerInvariant(),BitRate=rate,Channels=GetInt(stream,"channels"),SampleRate=GetString(stream,"sample_rate")});
                         }
 
+                        if (type == "video") info.VideoStreamCount++;
                         if (type == "video" && !info.HasVideo)
                         {
                             info.HasVideo = true;
