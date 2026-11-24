@@ -24,17 +24,21 @@ internal static class CommandAudit
         var source = Activator.CreateInstance(assembly.GetType("FilmGrainStudioPreview.MediaProbeInfo", true));
         var build = core.GetMethod("Arguments", Flags);
         var retry = core.GetMethod("LiveFrameRetryBudget", Flags);
-        Require((int)retry.Invoke(null, new object[] { "avsw: all frames in the trim range are before the first keyframe and cannot be decoded (offset 119)." }) == 120, "NVEncC keyframe retry");
-        Require((int)retry.Invoke(null, new object[] { "failed to initialize file reader(s)." }) == 0, "Unrelated NVEncC errors are not retried");
+        Require((int)retry.Invoke(null, new object[] { "avsw: all frames in the trim range are before the first keyframe and cannot be decoded (offset 119).", 1 }) == 120, "NVEncC keyframe retry");
+        Require((int)retry.Invoke(null, new object[] { "failed to initialize file reader(s).", 1 }) == 0, "Unrelated NVEncC errors are not retried");
         var frames = assembly.GetType("FilmGrainStudioPreview.TrueHdrPreviewFrames", true);
         double white = (double)frames.GetMethod("PqToNits", Flags).Invoke(null, new object[] { 1.0 });
         Require(Math.Abs(white - 10000) < 0.001, "ST 2084 white level");
         Require((string)core.GetMethod("Speed", Flags).Invoke(null, new object[] { "60", 24000.0 / 1001 }) == "2.5", "TrueHDR speed multiplier");
         var live = (IList<string>)core.GetMethod("LiveFrameArguments", Flags).Invoke(null, new object[] {
-            "test.mkv", "frame.y4m", 2.5, new[] { 125, 75, 44, 1000 } });
+            "test.mkv", "frame.y4m", 2.5, new[] { 125, 75, 44, 1000 }, false });
         Require(Option(live, "--codec") == "raw" && Option(live, "--frames") == "1" &&
             Option(live, "--seek") == "2.5" && !live.Contains("--output-depth") && Option(live, "--output-format") == "y4m" &&
             Option(live, "--vpp-ngx-truehdr") == "contrast=125,saturation=75,middlegray=44,maxluminance=1000", "Live TrueHDR frame");
+        var interlacedLive = (IList<string>)core.GetMethod("LiveFrameArguments", Flags).Invoke(null, new object[] {
+            "test.mkv", "frame.y4m", 2.5, new[] { 125, 75, 44, 1000 }, true });
+        Require(Option(interlacedLive, "--frames") == "2" && Option(interlacedLive, "--vpp-yadif") == "mode=auto", "YADIF preview and lookahead");
+        Require((int)retry.Invoke(null, new object[] { "all frames in the trim range are before the first keyframe and cannot be decoded (offset 119)", 2 }) == 121, "YADIF preview retry keeps lookahead");
         if (args.Length > 2) core.GetMethod("RequireTrueHdr", Flags).Invoke(null, new object[] { args[2] });
         var help = core.GetMethod("AdvertisesTrueHdr", Flags);
         Require((bool)help.Invoke(null, new object[] { "  --vpp-ngx-truehdr [<param1>=<value>]" }), "Optional help syntax");
@@ -81,6 +85,11 @@ internal static class CommandAudit
         Require((string)source.GetType().GetField("ColorTransfer").GetValue(source) == "bt709" &&
             (string)source.GetType().GetField("ColorSpace").GetValue(source) == "smpte170m", "SDR source unchanged");
         Require(!command.Contains("--seek") && !command.Contains("--seekto"), "Full encode timeline");
+        Field(source, "FieldOrder", "tt");
+        var interlaced = (IList<string>)build.Invoke(null, invoke);
+        Require(Option(interlaced, "--vpp-yadif") == "mode=auto" &&
+            interlaced.IndexOf("--vpp-yadif") < interlaced.IndexOf("--vpp-ngx-truehdr"), "Interlaced SDR YADIF before TrueHDR");
+        Field(source, "FieldOrder", "progressive");
         Set(options, "PreviewStart", "00:01:05");
         Set(options, "PreviewSeconds", 30);
         command = (IList<string>)build.Invoke(null, invoke);

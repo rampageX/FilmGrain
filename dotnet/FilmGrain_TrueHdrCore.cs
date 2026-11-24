@@ -42,7 +42,7 @@ namespace FilmGrainStudioPreview
         internal static bool Eligible(MediaProbeInfo source)
         {
             return source != null && source.HasVideo && source.VideoStreamCount <= 1 && !source.IsHdr &&
-                source.ColorTransfer != "smpte428" && !source.IsInterlaced &&
+                source.ColorTransfer != "smpte428" &&
                 source.Width > 0 && source.Height > 0 && source.Width % 2 == 0 && source.Height % 2 == 0;
         }
 
@@ -112,13 +112,20 @@ namespace FilmGrainStudioPreview
             return string.Join(",", picture);
         }
 
-        internal static List<string> LiveFrameArguments(string input, string output, double seconds, int[] values)
+        internal static List<string> LiveFrameArguments(string input, string output, double seconds, int[] values, bool interlaced)
         {
-            return new List<string> { "--avsw", "--video-track", "1", "--seek",
-                seconds.ToString("0.###", CultureInfo.InvariantCulture), "--frames", "1", "-i", input,
+            var args = new List<string> { "--avsw", "--video-track", "1", "--seek",
+                seconds.ToString("0.###", CultureInfo.InvariantCulture), "--frames", interlaced ? "2" : "1", "-i", input,
                 "--codec", "raw", "--output-format", "y4m", "--y4m-timestamp",
                 "--vpp-ngx-truehdr", PictureArgument(values), "--colormatrix", "bt2020nc",
                 "--colorprim", "bt2020", "--transfer", "smpte2084", "--colorrange", "auto", "-o", output };
+            AddDeinterlace(args, interlaced);
+            return args;
+        }
+
+        private static void AddDeinterlace(List<string> args, bool interlaced)
+        {
+            if (interlaced) args.InsertRange(args.IndexOf("--vpp-ngx-truehdr"), new[] { "--vpp-yadif", "mode=auto" });
         }
 
         internal static Tuple<System.Drawing.Bitmap, System.Drawing.Bitmap> RenderLiveFrame(string nvenc, MediaProbeInfo source,
@@ -130,7 +137,7 @@ namespace FilmGrainStudioPreview
             {
                 string originalPath = Path.Combine(directory, "source.y4m");
                 string filteredPath = Path.Combine(directory, "truehdr.y4m");
-                var filtered = LiveFrameArguments(source.PathValue, filteredPath, seconds, values);
+                var filtered = LiveFrameArguments(source.PathValue, filteredPath, seconds, values, source.IsInterlaced);
                 var original = new List<string>(filtered);
                 original[original.Count - 1] = originalPath;
                 original.RemoveRange(original.IndexOf("--vpp-ngx-truehdr"), 2);
@@ -146,12 +153,12 @@ namespace FilmGrainStudioPreview
             finally { try { Directory.Delete(directory, true); } catch (IOException) { } catch (UnauthorizedAccessException) { } }
         }
 
-        internal static int LiveFrameRetryBudget(string log)
+        internal static int LiveFrameRetryBudget(string log, int frames)
         {
             var match = Regex.Match(log, @"all frames in the trim range are before the first keyframe and cannot be decoded \(offset (\d+)\)");
             int offset;
             return match.Success && int.TryParse(match.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out offset)
-                && offset > 0 && offset < 1000000 ? offset + 1 : 0;
+                && offset > 0 && offset < 1000000 ? offset + frames : 0;
         }
 
         private static void RunLiveFrameTool(string executable, IList<string> args, CancellationToken token)
@@ -165,8 +172,9 @@ namespace FilmGrainStudioPreview
                 int exit = NativeLibraryTools.RunProcessEnvironment(executable, attempt, Path.GetDirectoryName(executable),
                     null, 20000, token, delegate(string line) { lock (log) if (log.Length < 16384) log.AppendLine(line); });
                 if (exit == 0) return;
-                int budget = n == 0 ? LiveFrameRetryBudget(log.ToString()) : 0;
                 int frameOption = attempt.IndexOf("--frames");
+                int budget = n == 0 && frameOption >= 0
+                    ? LiveFrameRetryBudget(log.ToString(), int.Parse(attempt[frameOption + 1], CultureInfo.InvariantCulture)) : 0;
                 if (budget == 0 || frameOption < 0)
                     throw new IOException(Path.GetFileName(executable) + " exit=" + Number(exit) + "\n" + log);
                 // The avsw reader subtracts this offset from the trim range after finding the keyframe.
@@ -177,7 +185,7 @@ namespace FilmGrainStudioPreview
         internal static List<string> Arguments(string input, string output, TrueHdrOptions options,
             MediaProbeInfo source, IDictionary<string, string> audio)
         {
-            if (!Eligible(source)) throw new InvalidDataException("TrueHDR requires single-stream progressive SDR video with even dimensions.");
+            if (!Eligible(source)) throw new InvalidDataException("TrueHDR requires single-stream SDR video with even dimensions.");
             bool hevc = options.Codec == "HEVC";
             if (!hevc && options.Codec != "AV1") throw new InvalidDataException("TrueHDR requires HEVC or AV1 NVENC.");
             if (Array.IndexOf(new[] { "p1", "p2", "p3", "p4", "p5", "p6", "p7" }, options.Preset) < 0)
@@ -192,6 +200,7 @@ namespace FilmGrainStudioPreview
                 "--colormatrix", "bt2020nc", "--colorrange", "auto", "--master-display",
                 "G(8500,39850)B(6550,2300)R(35400,14600)WP(15635,16450)L(" + Number(options.Picture[3] * 10000) + ",1)",
                 "--vbr", Number(Bitrate(options, source)) };
+            AddDeinterlace(args, source.IsInterlaced);
             if (options.PreviewSeconds != 0)
             {
                 double start;
@@ -299,7 +308,7 @@ namespace FilmGrainStudioPreview
             var stage = new BridgeExecutionStage {
                 ToolPath = exe, WorkingDirectory = Path.GetDirectoryName(exe),
                 DirectArguments = SharedFrucCore.JoinArguments(args), ProgressDurationSeconds = duration,
-                StageCurrent = 1, StageTotal = 1, StageText = "SDR → TrueHDR → " + options.Codec + " HDR10",
+                StageCurrent = 1, StageTotal = 1, StageText = (source.IsInterlaced ? "SDR → CUDA YADIF → TrueHDR → " : "SDR → TrueHDR → ") + options.Codec + " HDR10",
                 BeforeRunPreparation = delegate {
                     RequireTrueHdr(exe);
                     AudioOutputCore.EstimateMissing(input, probe, source, audio);
@@ -331,6 +340,7 @@ namespace FilmGrainStudioPreview
             };
             request.PostRunValidation = delegate {
                 var actual = Probe(probe, staging);
+                if (actual.IsInterlaced) return "TrueHDR output validation failed: interlaced video.";
                 if (actual.VideoCodec != options.Codec.ToLowerInvariant() || actual.PixelFormat != "yuv420p10le" ||
                     actual.ColorSpace != "bt2020nc" || actual.ColorTransfer != "smpte2084" || actual.ColorPrimaries != "bt2020" ||
                     actual.Width != source.Width || actual.Height != source.Height ||
