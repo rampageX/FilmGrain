@@ -160,9 +160,7 @@ jobs:
             $expected = 'd044dc0a99a315709f01fd951cdbda96570ce233'
           } elseif ($version -eq '5.1.01') {
             $ref = 'heads/test/r04c-fruc-813-v5100'
-            $expected = git rev-parse "$env:GITHUB_SHA^2"
-            if ($LASTEXITCODE -ne 0) { throw 'Expected PR merge parent missing.' }
-            $expected = $expected.Trim()
+            $expected = '8a849b676408fe76d6bdcaa718e2049f8564bb30'
             git merge-base --is-ancestor 613f40dd7d1282e70d6baf35fc013ccce67a19c3 $expected
             if ($LASTEXITCODE -ne 0) { throw 'Accepted Q7M4 commit missing; refusing deletion.' }
           } else { exit 0 }
