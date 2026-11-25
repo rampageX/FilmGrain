@@ -19,9 +19,9 @@ public static class FgsR04bAudit
         Must(source.Contains("Eq(state,\"FG_INTERPOLATION_ENGINE\",\"NVENC_AI\") && !hdrToSdr"),"AI engine/HDR-to-SDR protection missing");
         Must(source.Contains("NvencInterpolationCore.Hdr10Eligible(info,state)"),"Existing 10-bit eligibility not enforced");
         Must(source.Contains("!info.IsHdr && Get(state,\"FG_NVENC_VFG_HDR10\")!=\"1\""),"SDR depth protection missing");
-        Must(source.Contains("if (svp && !directSvp && !directNvencAi)"),"Legacy NVEncC FRUC workfile route changed");
-        Must(source.Contains("if (interpolate && !directFruc && !directSvp && !directNvencAi) request.TemporaryFiles.Add(frucWorkfile);"),"Workfile staging changed");
-        Must(source.Contains("if (directSvp || directNvencAi) Add(encode, \"-f\", \"yuv4mpegpipe\");"),"Direct demuxer setup missing");
+        Must(source.Contains("if (svp && !directSvp && !directNvencAi && !directNvencFruc)"),"Legacy NVEncC FRUC workfile route changed");
+        Must(source.Contains("if (interpolate && !directFruc && !directSvp && !directNvencAi && !directNvencFruc) request.TemporaryFiles.Add(frucWorkfile);"),"Workfile staging changed");
+        Must(source.Contains("if (directSvp || directNvencAi || directNvencFruc) Add(encode, \"-f\", \"yuv4mpegpipe\");"),"Direct demuxer setup missing");
         Must(source.Contains("NvencInterpolationCore.AttachProducer(stage,frucInput,state,fpsText)"),"Existing NVEncC producer not reused");
         Must(source.Contains("SharedFrucCore.AttachAv1RemuxTimeline") && source.Contains("Stage(grav1synth"),"IVF/grain/remux removed");
         Must(source.Contains("NvencHdr10StreamCore.Attach(request,input,info,remuxVideo,hdrOrdinaryClock)"),"AV1 MDCV/CLLI injection hook changed");

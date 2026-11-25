@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.1.00 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.1.01 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 <table>
   <tr>
@@ -223,7 +223,9 @@ v5.0.93 起，HDR→SDR 的 Vulkan Hable 滤镜独立探测。需要写入独立
 
 v5.0.92 起，**工作空间预检**依据实际执行计划识别需要生成的整片 FFV1 工作文件：FRUC Vulkan、OpenSVPFlow Y4M 和 NVEncC AI NUT 等 AV1 直连路径不再因“AV1＋插帧”被额外预留整片 FFV1；NVEncC FRUC 等仍需 FFV1 的回退路径继续按实际计划收费。保留输出、颗粒/预览缓存、安全保留量与多文件队列临时峰值/输出累计量。上游 OpenSVPFlow HDR 59.94→60、NVEncC FRUC raw EOF 异常不在 R05 改动范围。
 
-v5.0.91 起，**AV1 NVENC＋NVEncC AI** 在既有 SDR/PQ/HLG 及 10-bit HDR 合同允许时，将 NVEncC 输出的 NUT 原始帧直接送入 AV1 编码，不再生成整片 FFV1 临时文件；保留 IVF、可选 grav1synth、音频 remux、起点补偿和原有 MDCV/CLLI 规则。NVEncC FRUC 与其它保护性回退不变。
+v5.1.01 起，**AV1 NVENC＋NVEncC FRUC** 对逐行 SDR 且含 [NVEncC #813 修复](https://github.com/rigaya/NVEnc/pull/814) 的实验构建启用 NUT 直连，取消整片 FFV1 中转，保留 IVF、参数颗粒和音画起点补偿。FGS 按 NVEncC64.exe 中两项补丁诊断特征识别并缓存；普通旧版或未识别构建维持原路线。NVEncC 由用户配置，不随 FGS 打包或自动替换。上游正式修复发布后再更新识别条件；已知 NUT 管道告警尚未解决。
+
+v5.0.91 起，**AV1 NVENC＋NVEncC AI** 在既有 SDR/PQ/HLG 及 10-bit HDR 合同允许时，将 NVEncC 输出的 NUT 原始帧直接送入 AV1 编码，不再生成整片 FFV1 临时文件；保留 IVF、可选 grav1synth、音频 remux、起点补偿和原有 MDCV/CLLI 规则。其它保护性回退保持不变。
 
 v5.0.90 起，**AV1 NVENC＋OpenSVPFlow** 在位深与 HDR Preserve 合同匹配、未启用 HDR→SDR 时，将 OpenSVPFlow 输出的 Y4M 直接送入 AV1 编码，不再写入整片 FFV1 临时视频；原 IVF→参数颗粒→remux、音视频起点补偿和已支持的 SDR／PQ／HLG 路线保留。NVEncC FRUC 等其它插帧生产者仍沿用原有路径。
 
@@ -1683,6 +1685,6 @@ AV1 颗粒百分比处理兼容 grav1synth inspect 对无色度颗粒平面输�
 
 NVEncC FRUC 使用现有目标帧率。AI 插帧只允许源帧率整数 2～8 倍，例如 `2x`、`3x`；23.976→60 等非整数倍率停止并提示，不用重复/丢帧补齐。高级→插帧提供 AI low/medium/high，默认 medium，切镜检测开启。预设、统一/独立队列和编码预览共用原生准备入口及设置快照。源 AV1 转 SVT 并替换外部参数颗粒的组合尚未验证 NVEncC 关闭源颗粒合成，因此该组合停止；不改变既有路线。
 
-NVEncC 通过未压缩 **NUT 二进制内存管道**交回原编码核心，不做最终有损编码，也不添加测速用的 raw/NUT 整片落盘。HEVC/H.264/CPU 单次编码直接消费管道；AV1 原有 FFV1 插帧缓存、CPU 多遍编码原有渲染缓存及 HDR→SDR 原有工作文件仍沿用并在任务后清理。此处并不承诺所有编码路线都没有中间文件。
+NVEncC 通过未压缩 **NUT 二进制内存管道**交回原编码核心，不做最终有损编码，也不添加测速用的 raw/NUT 整片落盘。HEVC/H.264/CPU 单次编码直接消费管道；AV1 已支持的直连路线不写整片 FFV1；不满足直连条件的 AV1 插帧缓存、CPU 多遍编码原有渲染缓存及 HDR→SDR 原有工作文件仍沿用并在任务后清理。此处并不承诺所有编码路线都没有中间文件。
 
 状态条的 NVEncC 为独立分隔组，显示可选工具版本和检测状态；悬停查看 FRUC / AI 各自结果，点击仅刷新 NVEncC，不触发整机硬件重测。未配置显示灰色，启动只读取已有缓存。

@@ -785,6 +785,24 @@ namespace FilmGrainStudioPreview
                 return hit;
             }
         }
+        // Same cached native-literal approach as HDR VFG. Both markers are from PR #814.
+        // Unknown or unpatched builds retain the existing FFV1 route.
+        private static readonly Dictionary<string,bool> frucRawFixBuildCache = new Dictionary<string,bool>(StringComparer.OrdinalIgnoreCase);
+        internal static bool HasFrucRawFixBuild(string directory) {
+            try {
+                string stamp=Stamp(directory);
+                if(stamp.Length==0)return false;
+                lock(hdrScanGate) {
+                    bool hit;
+                    if(frucRawFixBuildCache.TryGetValue(stamp,out hit))return hit;
+                    byte[] data=File.ReadAllBytes(Exe(directory));
+                    hit=ContainsNativeLiteral(data,"Failed to allocate extra raw output surface:") &&
+                        ContainsNativeLiteral(data,"FRUC needs more than %d output frames for one input timestamp interval.");
+                    frucRawFixBuildCache[stamp]=hit;
+                    return hit;
+                }
+            } catch(IOException) { return false; } catch(UnauthorizedAccessException) { return false; }
+        }
         static string Stamp(string directory) {
             string path=Exe(directory);if(!File.Exists(path))return "";
             var f=new FileInfo(path);return "v3-hdr-vfg|"+f.FullName+"|"+f.Length+"|"+f.LastWriteTimeUtc.Ticks;

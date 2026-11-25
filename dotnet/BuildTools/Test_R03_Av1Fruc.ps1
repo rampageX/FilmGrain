@@ -28,7 +28,7 @@ public static class FgsR03Audit
         Require(source.Contains("bool directFruc=fruc && Av1RouteOptimizationCore.FrucEncodeSource"),"Direct FRUC gate missing");
         Require(source.Contains("SharedFrucCore.InputFilter(fpsText,frucPerf,frucGrid,hdrPreserve)"),"10-bit FRUC filter selection missing");
         Require(source.Contains("format=\"+frucFormat+\",settb=expr=1/1000,"),"Old FFV1 clock missing");
-        Require(source.Contains("if (interpolate && !directFruc && !directSvp && !directNvencAi) request.TemporaryFiles.Add(frucWorkfile);"),"Workfile staging gate changed");
+        Require(source.Contains("if (interpolate && !directFruc && !directSvp && !directNvencAi && !directNvencFruc) request.TemporaryFiles.Add(frucWorkfile);"),"Workfile staging gate changed");
         Require(source.Contains("SharedFrucCore.AttachAv1RemuxTimeline"),"Final remux timeline removed");
         Require(source.Contains("Av1GrainStrengthCore.Stages") && source.Contains("Stage(grav1synth"),"Metadata grain stages removed");
         Require(source.Contains("SharedFrucCore.TryPreflight10(frucFfmpeg"),"P010 preflight removed");

@@ -191,12 +191,17 @@ namespace FilmGrainStudioPreview
             bool directSvp=svp && !NvencInterpolationCore.Enabled(state) && !hdrToSdr &&
                 hdrPreserve==(Get(state,"FG_SVP_HDR10")=="1");
             // NVEncC AI emits timestamped raw NUT. Accept only its already validated
-            // SDR 8-bit or HDR BT.2020 PQ/HLG 10-bit contract; keep NVEncC FRUC legacy.
+            // SDR 8-bit or HDR BT.2020 PQ/HLG 10-bit contract.
             bool directNvencAi=svp && NvencInterpolationCore.Enabled(state) &&
                 Eq(state,"FG_INTERPOLATION_ENGINE","NVENC_AI") && !hdrToSdr &&
                 (hdrPreserve
                     ? Get(state,"FG_NVENC_VFG_HDR10")=="1" && NvencInterpolationCore.Hdr10Eligible(info,state)
                     : !info.IsHdr && Get(state,"FG_NVENC_VFG_HDR10")!="1");
+            // Only builds carrying the #813 raw-surface fix may use FRUC direct NUT.
+            bool directNvencFruc=svp && NvencInterpolationCore.Enabled(state) &&
+                Eq(state,"FG_INTERPOLATION_ENGINE","NVENC_FRUC") &&
+                !info.IsHdr && !hdrToSdr && Get(state,"FG_NVENC_VFG_HDR10")!="1" && !info.IsInterlaced &&
+                NvencInterpolationCore.HasFrucRawFixBuild(Get(state,"FG_NVENC_DIR"));
             // These producers still require the seekable SDR input. Bypass only the second,
             // video-only FFV1 stage when the downstream graph has no temporal pixel grain.
             if (CanPipeConvertedSdr(svp, hdrToSdr, info.IsInterlaced, grainEnabled && !metadataGrain,
@@ -205,7 +210,7 @@ namespace FilmGrainStudioPreview
                 directSvp = !NvencInterpolationCore.Enabled(state);
                 directNvencAi = Eq(state,"FG_INTERPOLATION_ENGINE","NVENC_AI");
             }
-            if (interpolate && !directFruc && !directSvp && !directNvencAi)
+            if (interpolate && !directFruc && !directSvp && !directNvencAi && !directNvencFruc)
             {
                 string encoderHelp;
                 if (!SharedFrucCore.Run(fruc ? frucFfmpeg : ffmpeg, "-hide_banner -h encoder=ffv1", 5000, out encoderHelp, out reason)) return false;
@@ -258,7 +263,7 @@ namespace FilmGrainStudioPreview
             string hdrWorkfile = needsHdrWorkfile || separateDeint ? Path.Combine(tempRoot, job + (hdrToSdr ? "_hdr2sdr.mkv" : "_fields.mkv")) : "";
             string frucInput = needsHdrWorkfile || separateDeint ? hdrWorkfile : input;
             string frucWorkfile = interpolate ? Path.Combine(tempRoot, job + (fruc ? "_fruc.mkv" : "_svp.mkv")) : "";
-            string encodeInput = (directSvp || directNvencAi) ? "pipe:0" : interpolate && !directFruc ? frucWorkfile : frucInput;
+            string encodeInput = (directSvp || directNvencAi || directNvencFruc) ? "pipe:0" : interpolate && !directFruc ? frucWorkfile : frucInput;
 
             string preset = Eq(state, "FG_SPEED", "STANDARD") ? "p7" : Eq(state, "FG_SPEED", "UHQ") ? "p4" : "p5";
             string tune = Eq(state, "FG_SPEED", "UHQ") ? "uhq" : "hq";
@@ -305,7 +310,7 @@ namespace FilmGrainStudioPreview
             Add(encode, "-hide_banner", "-stats", "-progress", "pipe:2", "-stats_period", "0.5", "-y");
             if (directFruc || resize.Enabled || fgsimGrain || (bwdifVulkan && !fieldWorkfile && !separateDeint)) Add(encode, "-init_hw_device", VulkanDevicePolicy.Spec("vk"), "-filter_hw_device", "vk");
             if (interpolate) Add(encode, "-copyts");
-            if (directSvp || directNvencAi) Add(encode, "-f", "yuv4mpegpipe");
+            if (directSvp || directNvencAi || directNvencFruc) Add(encode, "-f", "yuv4mpegpipe");
             Add(encode, "-i", encodeInput);
             if (hdrToSdr && (directSvp || directNvencAi))
                 filterGraph = ConvertedSdrPipeGraph(filterGraph);
@@ -386,14 +391,14 @@ namespace FilmGrainStudioPreview
             
             request.TemporaryFiles = metadataGrain ? new List<string> { cleanIvf, grainIvf } : new List<string> { cleanIvf };
             if (needsHdrWorkfile || separateDeint) request.TemporaryFiles.Add(hdrWorkfile);
-            if (interpolate && !directFruc && !directSvp && !directNvencAi) request.TemporaryFiles.Add(frucWorkfile);
+            if (interpolate && !directFruc && !directSvp && !directNvencAi && !directNvencFruc) request.TemporaryFiles.Add(frucWorkfile);
             if (hdrPreserve) request.PostRunValidation = delegate { return VerifyHdrOutput(ffprobe, output, info); };
             if (!string.IsNullOrEmpty(lutCompatPath)) request.TemporaryFiles.Add(lutCompatPath);
             if (!string.IsNullOrEmpty(subtitleAss)) request.TemporaryFiles.Add(subtitleAss);
             if (!string.IsNullOrEmpty(subtitleFilterPath)&&subtitleFilterPath!=subtitleAss) request.TemporaryFiles.Add(subtitleFilterPath);
             request.ProgressDurationSeconds = ParseDuration(info.Duration);
             double duration = request.ProgressDurationSeconds;
-            int preStages = (needsHdrWorkfile || separateDeint ? 1 : 0) + (interpolate && !directFruc && !directSvp && !directNvencAi ? 1 : 0);
+            int preStages = (needsHdrWorkfile || separateDeint ? 1 : 0) + (interpolate && !directFruc && !directSvp && !directNvencAi && !directNvencFruc ? 1 : 0);
             int encodeStages = metadataGrain ? 3 : 2;
             
             int totalStages = preStages + encodeStages;
@@ -409,7 +414,7 @@ namespace FilmGrainStudioPreview
                 if(mergedFrucHdr)SharedHdrPreprocessCore.AttachMergedFruc(preprocess,input,info,tonemap,caps.GpuName,settings:toneSettings);
                 directStages.Add(preprocess);
             }
-            if (svp && !directSvp && !directNvencAi)
+            if (svp && !directSvp && !directNvencAi && !directNvencFruc)
             {
                 BridgeExecutionStage svpStage=SharedSvpCore.CreateVideoPreprocess(appRoot,ffmpeg,ffprobe,frucInput,frucWorkfile,
                     tempRoot,fpsText,state,duration,hdrToSdr?2:1,totalStages);
@@ -480,6 +485,11 @@ namespace FilmGrainStudioPreview
                 }
                 stage.StageText+=" / NVEncC AI direct NUT, no FFV1";
                 request.ExecutionNotice="[AV1 route] NVEncC AI NUT direct to AV1; no FFV1; IVF/grain/remux retained; original final A/V clock adapter retained.";
+            } else if(directNvencFruc) {
+                var stage=directStages[preStages];
+                NvencInterpolationCore.AttachProducer(stage,frucInput,state,fpsText);
+                stage.StageText+=" / NVEncC FRUC direct NUT, no FFV1";
+                request.ExecutionNotice="[AV1 route] NVEncC FRUC NUT direct to AV1; no FFV1; IVF/grain/remux retained; original final A/V clock adapter retained.";
             } else if(directFruc) {
                 var stage=directStages[0];
                 var direct=new List<string>(encode);int graph=direct.IndexOf("-filter_complex");
