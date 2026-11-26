@@ -163,6 +163,9 @@ jobs:
             $expected = '8a849b676408fe76d6bdcaa718e2049f8564bb30'
             git merge-base --is-ancestor 613f40dd7d1282e70d6baf35fc013ccce67a19c3 $expected
             if ($LASTEXITCODE -ne 0) { throw 'Accepted Q7M4 commit missing; refusing deletion.' }
+          } elseif ($version -eq '5.1.02') {
+            $ref = 'heads/test/interpolation-start-time'
+            $expected = '45205d866d12e6714421c50cf18252c082863a98'
           } else { exit 0 }
           $sha = gh api "repos/$env:GITHUB_REPOSITORY/git/ref/$ref" --jq '.object.sha'
           if ($LASTEXITCODE -ne 0) { throw 'Accepted test branch verification failed.' }

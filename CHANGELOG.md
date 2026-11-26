@@ -1,3 +1,12 @@
+## v5.1.02 — NVEncC 上游修复与 HDR→SDR FRUC 直连（2026-11-27）
+
+- 移除 NVEncC FRUC（上游 #813）及 10-bit HDR AI VFG（上游 #811）的 Fork 专用二进制指纹检测、缓存和 HDR 构建状态提示。要求使用包含两项上游修复的最新 NVEncC 构建，不保留旧构建兼容分支；当前正式 NVEncC 9.41 早于两项修复，用户需自行配置已更新构建。
+- 修复插帧时间轴探测遇到视频流 start_time 缺失时失败的问题：按需从首个解码视频帧获取实际时间戳，保留原音画补偿；无法取得有效时间戳则明确失败。
+- R08b 补齐 HDR→SDR → NVEncC FRUC → AV1 NVENC 直连：保留已验证的 HEVC 无损 SDR 工作文件，取消 FFV1 编解码与整片中转，恢复 BT.709 标记。RTX 4080 同参 4K 30→60fps、8 秒 PQ→SDR 实测由 36.616 秒降至 16.228 秒（耗时减少 55.7%）；479 帧，用户确认音画正常。
+- #813 原故障素材 H.264 SDR 50fps MPEG-TS 8 秒预览→100fps AV1 直连成功，NVEncC 输出 803 帧；另外三项 SDR 成品实际解码帧数 480/600/2635，均无解码报错。FRUC NUT 已知尾部告警继续记录，不屏蔽。
+- HDR AI VFG 4K PQ 30 秒→60fps AV1 10-bit 直通成功，NVEncC 输出 1799 帧，BT.2020/PQ/TV 标记和成品校验通过，用户确认音画同步；本次素材未验证静态 MDCV/CLLI 保留。
+- Windows 候选 CI #45858333067 通过（13 组回归脚本）；时间轴 10 项测试、R04c、R08b 和既有路线通过。最新依赖原则写入 AGENTS.md。
+
 ## v5.1.01 — R04c NVEncC FRUC → AV1 NVENC 直连（2026-11-25）
 
 - R04c：识别含 NVEncC #813 修复的构建后，逐行 SDR NVEncC FRUC → AV1 NVENC 使用 raw NUT 管道直连，取消整片 FFV1 中转；未知或旧构建保留原路线。保留 IVF、grav1synth 参数颗粒、封装和音画补偿；不自动替换 NVEncC。

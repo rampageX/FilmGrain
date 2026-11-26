@@ -1,19 +1,17 @@
 Film Grain Studio formal stable baseline
 
 Baseline:
-v5.1.01
+v5.1.02
 Supersedes:
-v5.1.00
+v5.1.01
 
 GitHub Release asset:
-FilmGrain_Studio_v5.1.01_Stable.zip
+FilmGrain_Studio_v5.1.02_Stable.zip
 
 Local source archive and workflow artifact:
-FilmGrain_Studio_v5.1.01_Source.zip
+FilmGrain_Studio_v5.1.02_Source.zip
 
-External VFG HDR dependency: validated 6d387a31 experimental NVEncC64.exe is user-selected; it is not bundled.
-FGS detects the 10-bit HDR VFG build signature in the selected NVEncC64.exe. No marker file is required or bundled.
-External FRUC #813 dependency: user-selected patched NVEncC64.exe (validated r4287, commit c0ee78b3); direct AV1 uses cached dual native-literal detection, unknown builds retain FFV1. Upstream PR #814 is pending; known NUT pipe warnings remain.
+External NVEncC dependency: user-selected current build containing upstream PR #811 (10-bit HDR VFG) and #813 fix (36a0efba40a74b452351fcf88eaa92dc19b9c7d9). Neither private binary fingerprint nor legacy build compatibility is required. NVEncC is not bundled. Validated NVEncC 9.41 r4286 build dated 2026-11-26; known FRUC NUT pipe warnings remain.
 15 preinstalled film borders: fixed 60-file SHA256 manifest, validated in Windows build and Stable ZIP.
 Application runtime: .NET Native-only. Stable contains runtime files only; Legacy is retained in Source.
 Acceptance applies only to explicitly tested combinations, not every container/timestamp/clip/hardware combination.
