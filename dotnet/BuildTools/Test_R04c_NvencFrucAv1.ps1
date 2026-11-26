@@ -36,21 +36,8 @@ public static class FgsR04cAudit
         MethodInfo attach=producer.GetMethod("AttachProducer",BindingFlags.NonPublic|BindingFlags.Static);
         MethodInfo enabled=producer.GetMethod("Enabled",BindingFlags.NonPublic|BindingFlags.Static);
         Must(attach!=null && enabled!=null,"NVEncC FRUC reflection entry missing");
-        Must(s.Contains("NvencInterpolationCore.HasFrucRawFixBuild(Get(state,\"FG_NVENC_DIR\"))"),"Fixed-build gate missing");
-        MethodInfo fixedBuild=producer.GetMethod("HasFrucRawFixBuild",BindingFlags.NonPublic|BindingFlags.Static);
-        Must(fixedBuild!=null,"Build fingerprint entry missing");
-        string temp=Path.Combine(Path.GetTempPath(),"FGS R04c & (test) ^ % ! "+Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(temp);
-        try {
-            for(int i=0;i<4;i++) {
-                string dir=Path.Combine(temp,i.ToString()); Directory.CreateDirectory(dir);
-                string path=Path.Combine(dir,"NVEncC64.exe");
-                string data=(i==1||i==3?"Failed to allocate extra raw output surface:":"")+(i==2||i==3?"FRUC needs more than %d output frames for one input timestamp interval.":"");
-                File.WriteAllBytes(path,System.Text.Encoding.Unicode.GetBytes(data));
-                Must((bool)fixedBuild.Invoke(null,new object[]{dir})==(i==3),"Build fingerprint gate mismatch");
-            }
-            Must(!(bool)fixedBuild.Invoke(null,new object[]{Path.Combine(temp,"missing")}),"Missing executable accepted");
-        } finally { Directory.Delete(temp,true); }
+        Must(!s.Contains("NvencInterpolationCore.HasFrucRawFixBuild"),"Fork-only FRUC gate remains");
+        Must(producer.GetMethod("HasFrucRawFixBuild",BindingFlags.NonPublic|BindingFlags.Static)==null,"Obsolete FRUC build fingerprint remains");
         int count=0;
         foreach(string rate in new []{"50","60000/1001"})
         foreach(string origin in new []{"zero","offset_320ms"})

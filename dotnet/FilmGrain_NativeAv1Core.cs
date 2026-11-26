@@ -197,11 +197,10 @@ namespace FilmGrainStudioPreview
                 (hdrPreserve
                     ? Get(state,"FG_NVENC_VFG_HDR10")=="1" && NvencInterpolationCore.Hdr10Eligible(info,state)
                     : !info.IsHdr && Get(state,"FG_NVENC_VFG_HDR10")!="1");
-            // Only builds carrying the #813 raw-surface fix may use FRUC direct NUT.
+            // Test candidate: allow upstream NVEncC to exercise the FRUC direct NUT route.
             bool directNvencFruc=svp && NvencInterpolationCore.Enabled(state) &&
                 Eq(state,"FG_INTERPOLATION_ENGINE","NVENC_FRUC") &&
-                !info.IsHdr && !hdrToSdr && Get(state,"FG_NVENC_VFG_HDR10")!="1" && !info.IsInterlaced &&
-                NvencInterpolationCore.HasFrucRawFixBuild(Get(state,"FG_NVENC_DIR"));
+                !info.IsHdr && !hdrToSdr && Get(state,"FG_NVENC_VFG_HDR10")!="1" && !info.IsInterlaced;
             // These producers still require the seekable SDR input. Bypass only the second,
             // video-only FFV1 stage when the downstream graph has no temporal pixel grain.
             if (CanPipeConvertedSdr(svp, hdrToSdr, info.IsInterlaced, grainEnabled && !metadataGrain,

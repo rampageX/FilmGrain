@@ -335,6 +335,7 @@ namespace FilmGrainStudioPreview
             internal double VideoOrigin;
             internal double CommonOrigin;
             internal string AudioOrigins = "";
+            internal bool VideoOriginFromFrame;
             internal double VideoDelay { get { return VideoOrigin - CommonOrigin; } }
         }
 
@@ -344,9 +345,12 @@ namespace FilmGrainStudioPreview
             return scope==null?ProbeTimelineUncached(ffprobe,source):scope.Probe(ffprobe,source);
         }
         internal static FrucTimeline ProbeTimelineUncached(string ffprobe, string source)
+        { return ProbeTimelineWithRunner(ffprobe, source, Run); }
+
+        internal static FrucTimeline ProbeTimelineWithRunner(string ffprobe, string source, ProbeRunner runner)
         {
             string output, reason;
-            if (!Run(ffprobe, "-v error -show_entries stream=codec_type,start_time -of default=noprint_wrappers=0 " + Quote(source),
+            if (!runner(ffprobe, "-v error -show_entries stream=codec_type,start_time -of default=noprint_wrappers=0 " + Quote(source),
                 15000, out output, out reason)) throw new InvalidOperationException("Interpolation timestamp probe failed: " + reason);
             double videoOrigin = double.NaN, commonOrigin = double.PositiveInfinity;
             var audioOrigins = new List<string>();
@@ -364,9 +368,42 @@ namespace FilmGrainStudioPreview
                     if (type == "video" || type == "audio") commonOrigin = Math.Min(commonOrigin, time);
                 }
             }
-            if (double.IsNaN(videoOrigin) || double.IsInfinity(commonOrigin))
+            bool fromFrame = false;
+            if (double.IsNaN(videoOrigin))
+            {
+                // Matroska workfiles can lack stream start_time despite valid decoded PTS.
+                // Read only the initial video packets; use the first displayed frame, not DTS,
+                // the container origin, or an assumed zero (which can lose A/V delay).
+                if (!runner(ffprobe, "-v error -select_streams v:0 -read_intervals \"%+#64\" -show_frames -show_entries frame=best_effort_timestamp_time -of default=noprint_wrappers=0 " + Quote(source),
+                    15000, out output, out reason)) throw new InvalidOperationException("Interpolation first video frame probe failed: " + reason);
+                if (!TryFirstFrameOrigin(output, out videoOrigin))
+                    throw new InvalidOperationException("Interpolation requires a known video start_time or first decoded frame timestamp: " + source);
+                commonOrigin = Math.Min(commonOrigin, videoOrigin);
+                fromFrame = true;
+            }
+            if (double.IsInfinity(commonOrigin))
                 throw new InvalidOperationException("Interpolation requires a known video start_time: " + source);
-            return new FrucTimeline { VideoOrigin = videoOrigin, CommonOrigin = commonOrigin, AudioOrigins = string.Join(",",audioOrigins.ToArray()) };
+            return new FrucTimeline { VideoOrigin = videoOrigin, CommonOrigin = commonOrigin, AudioOrigins = string.Join(",",audioOrigins.ToArray()), VideoOriginFromFrame = fromFrame };
+        }
+
+        internal static bool TryFirstFrameOrigin(string output, out double origin)
+        {
+            origin = double.NaN;
+            bool frame = false;
+            foreach (string raw in output.Split(new char[]{'\r','\n'}, StringSplitOptions.RemoveEmptyEntries))
+            {
+                string line = raw.Trim();
+                if (line == "[FRAME]") { if (frame) return false; frame = true; }
+                else if (frame && line == "[/FRAME]") return false;
+                else if (frame && line.StartsWith("best_effort_timestamp_time=", StringComparison.Ordinal))
+                {
+                    double time;
+                    if (!double.TryParse(line.Substring("best_effort_timestamp_time=".Length), NumberStyles.Float, CultureInfo.InvariantCulture, out time) || double.IsNaN(time) || double.IsInfinity(time)) return false;
+                    origin = time;
+                    return true;
+                }
+            }
+            return false;
         }
 
         internal static string JoinArguments(IEnumerable<string> args)
@@ -708,7 +745,8 @@ namespace FilmGrainStudioPreview
                 args.InsertRange(at, new string[]{"-copyts", "-itsoffset", timeline.VideoDelay.ToString("0.#########", CultureInfo.InvariantCulture)});
                 stage.DirectArguments=JoinArgs(args);
                 return "[OpenSVPFlow timeline] source_common=" + timeline.CommonOrigin.ToString("0.#########", CultureInfo.InvariantCulture) +
-                    " video_delay=" + timeline.VideoDelay.ToString("0.#########", CultureInfo.InvariantCulture);
+                    " video_delay=" + timeline.VideoDelay.ToString("0.#########", CultureInfo.InvariantCulture) +
+                    (timeline.VideoOriginFromFrame ? " video_origin_evidence=first_decoded_frame" : "");
             };
             return stage;
         }
@@ -784,24 +822,6 @@ namespace FilmGrainStudioPreview
                 hdrBuildCache[stamp]=hit;
                 return hit;
             }
-        }
-        // Same cached native-literal approach as HDR VFG. Both markers are from PR #814.
-        // Unknown or unpatched builds retain the existing FFV1 route.
-        private static readonly Dictionary<string,bool> frucRawFixBuildCache = new Dictionary<string,bool>(StringComparer.OrdinalIgnoreCase);
-        internal static bool HasFrucRawFixBuild(string directory) {
-            try {
-                string stamp=Stamp(directory);
-                if(stamp.Length==0)return false;
-                lock(hdrScanGate) {
-                    bool hit;
-                    if(frucRawFixBuildCache.TryGetValue(stamp,out hit))return hit;
-                    byte[] data=File.ReadAllBytes(Exe(directory));
-                    hit=ContainsNativeLiteral(data,"Failed to allocate extra raw output surface:") &&
-                        ContainsNativeLiteral(data,"FRUC needs more than %d output frames for one input timestamp interval.");
-                    frucRawFixBuildCache[stamp]=hit;
-                    return hit;
-                }
-            } catch(IOException) { return false; } catch(UnauthorizedAccessException) { return false; }
         }
         static string Stamp(string directory) {
             string path=Exe(directory);if(!File.Exists(path))return "";
