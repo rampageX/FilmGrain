@@ -15,7 +15,7 @@
 
 Film Grain Studio 的目标不是只提供一种“加颗粒”方法，而是把几种不同思路的 Film Grain 处理方式统一到同一套工作流中：可以使用 AV1 Film Grain metadata，也可以把真实扫描 Grain Plate、数字颗粒或 GPU Film Grain 直接烘焙进像素；同时保留 HDR、LUT、反交错、插帧、字幕、Cinematic Style、自动码率和多文件处理。
 
-NVEncC AI 插帧支持通过 RTX 4080 测试的 10-bit HDR10(PQ)/HLG 路线：逐行 4:2:0、BT.2020 NCL、TV(Limited) 范围，HEVC/AV1 输出，Low/Medium/High 与整数 2–8 倍。需要使用含 HDR 补丁的 NVEncC 实验构建（rampageX/NVEnc 6d387a31）；FGS 自动识别 NVEncC64.exe 的 10-bit VFG 代码特征，不再需要 `.enable` 标记。配置窗口显示 HDR VFG 10-bit 支持状态，右下角 NVEncC 提示显示 AI HDR ✓／✗。普通 NVEncC 没有此 HDR 功能；PC(Full) HDR 或真正 12-bit/4:4:4 不启用 VFG HDR，仍按原有 SDR 回退。已验证素材通过，不代表所有 HDR 静态 SEI 与音画时序组合均已验证。
+NVEncC AI 插帧支持通过 RTX 4080 测试的 10-bit HDR10(PQ)/HLG 路线：逐行 4:2:0、BT.2020 NCL、TV(Limited) 范围，HEVC/AV1 输出，Low/Medium/High 与整数 2–8 倍。依赖包含上游 [#811](https://github.com/rigaya/NVEnc/pull/811) HDR VFG 和 [#813 修复](https://github.com/rigaya/NVEnc/commit/36a0efba40a74b452351fcf88eaa92dc19b9c7d9) 的最新 NVEncC 构建；不再扫描 EXE 私有诊断字符串，也不为旧构建保留兼容分支。PC(Full) HDR 或真正 12-bit/4:4:4 不启用 VFG HDR，仍按原有 SDR 回退。已验证素材通过，不代表所有 HDR 静态 SEI 与音画时序组合均已验证。
 
 HDR 高位深 OpenSVPFlow 插帧按后端区分输出文件名：`_SVP50C` 为 CPU10，`_SVP50G` 为 GPU16；SDR 原有 `_SVP50` 命名不变。右下角 `SVP-GPU` 使用与在线更新相同的 `vspipe` GPU 自检命令，悬停查看失败原因、点击主动刷新；其余硬件能力仍按缓存策略检测。
 
@@ -203,7 +203,7 @@ S4 Vulkan/libplacebo→CUDA GPU 边框支持以下逐行素材的扫描 Grain Pl
 
 **v5.0.82**：主 FFmpeg 正式接管 `fruc_vulkan` 的滤镜能力检查和 AV1／HEVC／H.264／CPU 执行；特殊版 FFmpeg 独立保留用于 SVT-AV1-HDR／新功能实验。采用 [FGS FFmpeg Windows x64 静态构建](https://github.com/rampageX/FFmpeg/releases)，Stable `9.1.git-FGS-*` 已在 RTX 4080 验收 PQ／HLG 边框、SVP／NVEncC AI 插帧组合及 AV1／SVT 路线。新版 FFmpeg 的 S4 GPU 边框仅在检测支持时使用 `disable_host_image_copy=1`，旧版保持原参数。SVT 参数颗粒接受 `grav1synth ≥ 0.2.2`（包含 v0.2.3 Full Range 修复）；独立特殊版 SVT-HDR 暂不能与主 FFmpeg FRUC 在同一 CPU 编码图组合。FFmpeg 和 grav1synth 仍为用户自行配置的外部程序。
 
-**v5.0.81**：HEVC NVENC 可将 OpenSVPFlow（GPU16／CPU10）或 NVEncC AI FrameGen 与胶片边框组合编码。支持已验证的 SDR BT.709 TV Limited、HDR PQ／HLG BT.2020 TV Limited，静态／动态边框、预装及自定义样式；插帧后由 Vulkan/libplacebo 合成并送往 CUDA/NVENC。HDR NVEncC AI 仍要求已验证的 10-bit 实验构建。PC Full Range 暂不支持，详见 [TODO](docs/todo/FGS_FGB02_Full_Range_TODO.md)。不满足格式或 GPU 管线要求时显示中文原因，任务运行中失败也显示警告，不自动改走 CPU 边框。AV1 边框、FRUC Vulkan＋边框、HDR→SDR 边框仍不开放。
+**v5.0.81**：HEVC NVENC 可将 OpenSVPFlow（GPU16／CPU10）或 NVEncC AI FrameGen 与胶片边框组合编码。支持已验证的 SDR BT.709 TV Limited、HDR PQ／HLG BT.2020 TV Limited，静态／动态边框、预装及自定义样式；插帧后由 Vulkan/libplacebo 合成并送往 CUDA/NVENC。HDR NVEncC AI 要求包含上游 #811 的 NVEncC 构建。PC Full Range 暂不支持，详见 [TODO](docs/todo/FGS_FGB02_Full_Range_TODO.md)。不满足格式或 GPU 管线要求时显示中文原因，任务运行中失败也显示警告，不自动改走 CPU 边框。AV1 边框、FRUC Vulkan＋边框、HDR→SDR 边框仍不开放。
 
 开发/整合追踪见 [FILM_BORDER_INTEGRATION.md](docs/film-border/FILM_BORDER_INTEGRATION.md)。
 
@@ -221,13 +221,13 @@ CPU 双边滤波位于现有反交错、HDR 转换和插帧之后，调色/LUT�
 
 v5.0.93 起，HDR→SDR 的 Vulkan Hable 滤镜独立探测。需要写入独立 HDR→SDR 中间文件时，另检查 HEVC NVENC Main10 无损编码能力。
 
-v5.0.92 起，**工作空间预检**依据实际执行计划识别需要生成的整片 FFV1 工作文件：FRUC Vulkan、OpenSVPFlow Y4M 和 NVEncC AI NUT 等 AV1 直连路径不再因“AV1＋插帧”被额外预留整片 FFV1；NVEncC FRUC 等仍需 FFV1 的回退路径继续按实际计划收费。保留输出、颗粒/预览缓存、安全保留量与多文件队列临时峰值/输出累计量。上游 OpenSVPFlow HDR 59.94→60、NVEncC FRUC raw EOF 异常不在 R05 改动范围。
+v5.0.92 起，**工作空间预检**依据实际执行计划识别需要生成的整片 FFV1 工作文件：FRUC Vulkan、OpenSVPFlow Y4M 和 NVEncC AI NUT 等 AV1 直连路径不再因“AV1＋插帧”被额外预留整片 FFV1；仍需 FFV1 的回退路径继续按实际计划收费。保留输出、颗粒/预览缓存、安全保留量与多文件队列临时峰值/输出累计量。上游 OpenSVPFlow HDR 59.94→60、NVEncC FRUC raw EOF 异常不在 R05 改动范围。
 
-v5.1.01 起，**AV1 NVENC＋NVEncC FRUC** 对逐行 SDR 且含 [NVEncC #813 修复](https://github.com/rigaya/NVEnc/pull/814) 的实验构建启用 NUT 直连，取消整片 FFV1 中转，保留 IVF、参数颗粒和音画起点补偿。FGS 按 NVEncC64.exe 中两项补丁诊断特征识别并缓存；普通旧版或未识别构建维持原路线。NVEncC 由用户配置，不随 FGS 打包或自动替换。上游正式修复发布后再更新识别条件；已知 NUT 管道告警尚未解决。
+**AV1 NVENC＋NVEncC FRUC** 对符合直连条件的原生 SDR 及 HDR→SDR 工作文件使用 raw NUT 直连，取消整片 FFV1 中转，保留 IVF、参数颗粒、BT.709 色彩标记和音画起点补偿。需要包含上游 #813 修复的 NVEncC 构建，不再检测 Fork 指纹。NVEncC 由用户配置，不随 FGS 打包或自动替换；已知 NUT 管道尾部告警保留原日志。
 
 v5.0.91 起，**AV1 NVENC＋NVEncC AI** 在既有 SDR/PQ/HLG 及 10-bit HDR 合同允许时，将 NVEncC 输出的 NUT 原始帧直接送入 AV1 编码，不再生成整片 FFV1 临时文件；保留 IVF、可选 grav1synth、音频 remux、起点补偿和原有 MDCV/CLLI 规则。其它保护性回退保持不变。
 
-v5.0.90 起，**AV1 NVENC＋OpenSVPFlow** 在位深与 HDR Preserve 合同匹配、未启用 HDR→SDR 时，将 OpenSVPFlow 输出的 Y4M 直接送入 AV1 编码，不再写入整片 FFV1 临时视频；原 IVF→参数颗粒→remux、音视频起点补偿和已支持的 SDR／PQ／HLG 路线保留。NVEncC FRUC 等其它插帧生产者仍沿用原有路径。
+v5.0.90 起，**AV1 NVENC＋OpenSVPFlow** 在位深与 HDR Preserve 合同匹配、未启用 HDR→SDR 时，将 OpenSVPFlow 输出的 Y4M 直接送入 AV1 编码，不再写入整片 FFV1 临时视频；原 IVF→参数颗粒→remux、音视频起点补偿和已支持的 SDR／PQ／HLG 路线保留。其它插帧生产者按各自已实现的直连条件选择路线。
 
 v5.0.89 起，**AV1 NVENC＋FRUC Vulkan** 在原安全门槛允许时，支持 MP4（包括 B 帧）与 MKV 输入直接插帧编码至 AV1 IVF，不再先生成整片 FFV1；仍由原始 IVF→remux／参数颗粒流程封装成品，保留音视频起点及 HDR P010 信令。其他滤镜组合继续遵守既有保护限制。
 
@@ -1675,13 +1675,13 @@ AV1 颗粒百分比处理兼容 grav1synth inspect 对无色度颗粒平面输�
 烘焙窗口按所选烘焙编码器、源分辨率和源帧率采用普通档推荐，不使用主界面的输出帧率或高动态选项。自动模式显示目标码率（kbps）；多文件目标不同时显示范围。VBR 实际平均码率可能与目标不同。
 
 
-### NVEncC 可选 SDR 插帧
+### NVEncC 插帧
 
 配置窗口可设置包含 `NVEncC64.exe` 的 **NVEncC 目录**。插帧新增 `NVEncC FRUC` 和 `NVEncC AI`，现有 OpenSVP/FRUC Vulkan 保留。未配置、未通过可选工具版本/帮助检查或已知硬件不支持时显示灰色，选择时说明原因。目录可留空，不影响其他功能。
 
 可选工具的版本、帮助和设备列表在配置检查、打开插帧菜单或实际执行时按需读取，并按 NVEncC 路径/文件签名缓存。FGS EXE 更新不使该缓存失效，不增加启动硬件检测。通过此检查只表示功能入口存在，DLL 和实际输入的可用性由真实运行确认；失败停止，不更换引擎。
 
-两条新增路线仅开放 8-bit SDR；HDR 保留、高位深 SDR 和隔行输入明确停止，不静默降精度。HDR 选择 AUTO/转 SDR 时，沿用原有 HDR→SDR 前处理完成后再进入 NVEncC。当前 NVEncC 生产端明确使用软件解码 `avsw`，GPU 硬解开关不代表其已经通过硬解验证，日志记录软件回退。
+NVEncC FRUC 使用 8-bit SDR；NVEncC AI 还支持符合上述要求的 10-bit HDR 保留。高位深原生 SDR 和隔行输入维持原有保护，不静默降精度。HDR 选择 AUTO/转 SDR 时，沿用原有 HDR→SDR 前处理完成后再进入 NVEncC。当前 NVEncC 生产端明确使用软件解码 `avsw`，GPU 硬解开关不代表其已经通过硬解验证，日志记录软件回退。
 
 NVEncC FRUC 使用现有目标帧率。AI 插帧只允许源帧率整数 2～8 倍，例如 `2x`、`3x`；23.976→60 等非整数倍率停止并提示，不用重复/丢帧补齐。高级→插帧提供 AI low/medium/high，默认 medium，切镜检测开启。预设、统一/独立队列和编码预览共用原生准备入口及设置快照。源 AV1 转 SVT 并替换外部参数颗粒的组合尚未验证 NVEncC 关闭源颗粒合成，因此该组合停止；不改变既有路线。
 

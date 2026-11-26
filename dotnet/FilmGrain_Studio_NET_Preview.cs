@@ -3756,8 +3756,8 @@ namespace FilmGrainStudioPreview
                 message="当前视频的 SDR 色彩标记或范围不受 FGB-02 GPU 组合支持。\n只支持 BT.709 TV Limited；PC Full Range 已列入 TODO，不会自动转换范围。";
             else if (reason.Contains("HDR film border requires limited-range"))
                 message="当前 HDR 视频不满足胶片边框要求的 BT.2020 PQ/HLG、TV Limited 色彩格式。\nPC Full Range 已列入 TODO，不自动转换范围；可先关闭胶片边框。";
-            else if (reason.Contains("HDR VFG experimental path requires"))
-                message="当前 HDR 素材不符合 NVEncC AI 实验路线的 10-bit BT.2020 PQ/HLG TV Limited 要求。\nPC Full Range 暂不支持，请改用符合要求的片源或关闭 AI 插帧。";
+            else if (reason.Contains("HDR VFG path requires"))
+                message="当前 HDR 素材不符合 NVEncC AI 路线的 10-bit BT.2020 PQ/HLG TV Limited 要求。\nPC Full Range 暂不支持，请改用符合要求的片源或关闭 AI 插帧。";
             else if (reason.Contains("FGB-02 requires S4 Vulkan/CUDA GPU compositing"))
                 message="当前设置不能使用插帧＋GPU 胶片边框。\n请检查编码器、反交错、缩放、LUT、调色、字幕及颗粒组合；不会自动回退 CPU 边框。";
             else if (reason.Contains("S2 film border with interpolation is not yet validated"))
@@ -5284,16 +5284,16 @@ namespace FilmGrainStudioPreview {
             ToolStripStatusLabel item;if(!statusCapabilities.TryGetValue("NVEncC",out item))return;
             string dir=config.Get("NVENC_DIR");
             item.ForeColor=ColorMuted;
-            if(!File.Exists(NvencInterpolationCore.Exe(dir))) {item.Text=UiText("NVEncC 未配置","NVEncC not configured");item.ToolTipText=NvencInterpolationCore.Exe(dir)+"\r\n"+UiText("未找到 NVEncC64.exe；可在配置中设置目录。","NVEncC64.exe not found; choose its directory in Configuration.")+"\r\nAI HDR: ✗";return;}
-            if(nvencInspectRunning){item.Text=UiText("NVEncC 检测中","NVEncC checking");item.ToolTipText=UiText("NVEncC 检测中","NVEncC checking")+"\r\nAI HDR: ?";return;}
+            if(!File.Exists(NvencInterpolationCore.Exe(dir))) {item.Text=UiText("NVEncC 未配置","NVEncC not configured");item.ToolTipText=NvencInterpolationCore.Exe(dir)+"\r\n"+UiText("未找到 NVEncC64.exe；可在配置中设置目录。","NVEncC64.exe not found; choose its directory in Configuration.");return;}
+            if(nvencInspectRunning){item.Text=UiText("NVEncC 检测中","NVEncC checking");item.ToolTipText=UiText("NVEncC 检测中","NVEncC checking");return;}
             var report=NvencInterpolationCore.Cached(appRoot,dir);
-            if(report==null){item.Text="NVEncC ?";item.ToolTipText=UiText("尚未检查；点击仅检测可选 NVEncC。","Not checked; click to inspect NVEncC only.")+"\r\nAI HDR: ?";return;}
+            if(report==null){item.Text="NVEncC ?";item.ToolTipText=UiText("尚未检查；点击仅检测可选 NVEncC。","Not checked; click to inspect NVEncC only.");return;}
             string fruc=NvencOptionReason(3),ai=NvencOptionReason(4);
             bool available=fruc.Length==0||ai.Length==0;
             var version=System.Text.RegularExpressions.Regex.Match(report.Version??"",@"\d+\.\d+");
             item.Text="NVEncC "+(version.Success?version.Value:"")+(available?" ✓":" ✗");
             item.ForeColor=available?Color.FromArgb(25,135,65):Color.FromArgb(190,50,45);
-            item.ToolTipText=NvencInterpolationCore.Exe(dir)+"\r\n"+report.Version+"\r\nFRUC: "+(fruc.Length==0?"✓":fruc)+"\r\nAI: "+(ai.Length==0?"✓":ai)+"\r\nAI HDR: "+(ai.Length==0&&report.HdrVfg?"✓":"✗")+"\r\n"+UiText("HDR 标识代表 NVEncC 构建能力，实际输入和 DLL 仍由运行验证。点击仅刷新 NVEncC。","HDR check reflects NVEncC build capability; input and DLLs are verified at runtime. Click to refresh NVEncC only.");
+            item.ToolTipText=NvencInterpolationCore.Exe(dir)+"\r\n"+report.Version+"\r\nFRUC: "+(fruc.Length==0?"✓":fruc)+"\r\nAI: "+(ai.Length==0?"✓":ai)+"\r\n"+UiText("请使用最新 NVEncC 构建；实际输入和 DLL 由运行验证。点击仅刷新 NVEncC。","Use an up-to-date NVEncC build; input and DLLs are verified at runtime. Click to refresh NVEncC only.");
         }
         private bool nvencInspectRunning;
         private string NvencOptionReason(int index) {

@@ -565,11 +565,9 @@ namespace FilmGrainStudioPreview
                 TextBox txtNvenc=ConfigTextBox(config.Get("NVENC_DIR"));
                 Button browseNvenc=ConfigButton(lang.T("config.browse")),refreshNvenc=RefreshButton();
                 Func<NvencInterpolationReport,string> nvencStatusText=delegate(NvencInterpolationReport r) {
-                    if(r==null)return UiText("HDR VFG 10-bit：未检测（点击刷新）","HDR VFG 10-bit: not checked (click refresh)");
+                    if(r==null)return UiText("NVEncC：未检测（点击刷新）","NVEncC: not checked (click refresh)");
                     if(!string.IsNullOrEmpty(r.Error))return r.Error;
-                    return r.Version+" | FRUC="+r.Fruc+" | AI="+r.Ai+" | HDR VFG 10-bit: "+
-                        (r.HdrVfg?UiText("支持","supported"):UiText("不支持","not supported"))+
-                        UiText("；实际运行待验证","; runtime not verified");
+                    return r.Version+" | FRUC="+r.Fruc+" | AI="+r.Ai;
                 };
                 Label statusNvenc=ConfigStatusLabel(nvencStatusText(NvencInterpolationCore.Cached(appRoot,txtNvenc.Text.Trim())));
                 table.Controls.Add(ConfigLabelWithWebLink("NVEncC", "https://github.com/rigaya/NVEnc/releases", "NVEncC",dlg),0,4);
@@ -583,7 +581,7 @@ namespace FilmGrainStudioPreview
                 };
                 refreshNvenc.Click+=delegate {inspectNvenc();};
                 browseNvenc.Click+=delegate {using(var picker=new FolderBrowserDialog()){picker.Description=UiText("选择包含 NVEncC64.exe 的目录","Select the directory containing NVEncC64.exe");if(picker.ShowDialog(dlg)==DialogResult.OK){txtNvenc.Text=picker.SelectedPath;inspectNvenc();}}};
-                txtNvenc.TextChanged+=delegate {statusNvenc.Text=UiText("路径已改变；HDR VFG 10-bit：未检测。","Path changed; HDR VFG 10-bit: not checked.");};
+                txtNvenc.TextChanged+=delegate {statusNvenc.Text=UiText("路径已改变；NVEncC 未检测。","Path changed; NVEncC not checked.");};
 
                 EventHandler updateStorage = delegate
                 {

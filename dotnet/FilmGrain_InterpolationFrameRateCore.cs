@@ -759,7 +759,7 @@ namespace FilmGrainStudioPreview
     internal sealed class NvencInterpolationReport
     {
         public string Stamp {get;set;} public string Version {get;set;} public string Error {get;set;}
-        public bool Fruc {get;set;} public bool Ai {get;set;} public bool HdrVfg {get;set;} public string Devices {get;set;}
+        public bool Fruc {get;set;} public bool Ai {get;set;} public string Devices {get;set;}
     }
     internal static class NvencInterpolationCore
     {
@@ -789,40 +789,6 @@ namespace FilmGrainStudioPreview
         internal static string Label(string engine) { return engine=="NVENC_AI"?"NVEncC AI":engine=="NVENC_FRUC"?"NVEncC FRUC":engine=="FRUC"?"FRUC Vulkan · HDR":"OpenSVPFlow"; }
         internal static string Get(IDictionary<string,string> s,string key) { string v;return s!=null&&s.TryGetValue(key,out v)?v??"":""; }
         internal static string Exe(string directory) { return string.IsNullOrWhiteSpace(directory)?"":Path.Combine(directory,"NVEncC64.exe"); }
-        // Existing NVEncC --version/--help report AI VFG but do not distinguish
-        // the experimental 10-bit CUDA path from stock 8-bit-only builds.
-        // Match two independent diagnostics compiled into that exact 10-bit path.
-        // This is a fast build fingerprint, NOT a claim that the GPU has executed VFG.
-        private static readonly object hdrScanGate = new object();
-        private static readonly Dictionary<string,bool> hdrBuildCache = new Dictionary<string,bool>(StringComparer.OrdinalIgnoreCase);
-        private static bool ContainsBytes(byte[] buffer, byte[] pattern) {
-            if(buffer==null || pattern==null || pattern.Length==0 || pattern.Length>buffer.Length)return false;
-            for(int i=0;i<=buffer.Length-pattern.Length;i++) {
-                if(buffer[i]!=pattern[0])continue;
-                int n=1;
-                while(n<pattern.Length && buffer[i+n]==pattern[n])n++;
-                if(n==pattern.Length)return true;
-            }
-            return false;
-        }
-        private static bool ContainsNativeLiteral(byte[] data,string literal) {
-            return ContainsBytes(data,Encoding.Unicode.GetBytes(literal)) ||
-                   ContainsBytes(data,Encoding.UTF8.GetBytes(literal));
-        }
-        internal static bool HasHdrVfgBuild(string directory) {
-            string path=Exe(directory);
-            if(!File.Exists(path))return false;
-            string stamp=Stamp(directory);
-            lock(hdrScanGate) {
-                bool hit;
-                if(hdrBuildCache.TryGetValue(stamp,out hit))return hit;
-                byte[] data=File.ReadAllBytes(path);
-                hit=ContainsNativeLiteral(data,"nvvfx-framegen 10-bit path requires BT.2020 NCL.") &&
-                    ContainsNativeLiteral(data,"10-bit VFG input is not P010 after GPU conversion.");
-                hdrBuildCache[stamp]=hit;
-                return hit;
-            }
-        }
         static string Stamp(string directory) {
             string path=Exe(directory);if(!File.Exists(path))return "";
             var f=new FileInfo(path);return "v3-hdr-vfg|"+f.FullName+"|"+f.Length+"|"+f.LastWriteTimeUtc.Ticks;
@@ -887,8 +853,7 @@ namespace FilmGrainStudioPreview
                     r.Ai=raw&&help.Contains("--vpp-nvvfx-framegen")&&(major>9||major==9&&minor>=36);
                     if(!SharedFrucCore.Run(Exe(directory),"--check-device",8000,out devices,out error))throw new InvalidOperationException("NVEncC device enumeration failed: "+error);
                     r.Devices=devices;
-                    r.HdrVfg=r.Ai && HasHdrVfgBuild(directory);
-                } catch(Exception ex){r.Error=ex.Message;r.Fruc=false;r.Ai=false;r.HdrVfg=false;}
+                } catch(Exception ex){r.Error=ex.Message;r.Fruc=false;r.Ai=false;}
                 if(!string.IsNullOrEmpty(r.Stamp)) {
                     lock(gate)
                     {
@@ -942,11 +907,9 @@ namespace FilmGrainStudioPreview
                 if(info.IsInterlaced)throw new InvalidOperationException("NVEncC 插帧仅支持逐行输入 / Progressive input required");
                 int sourceBits;int.TryParse(info.BitsPerRawSample,out sourceBits);
                 if(!info.IsHdr && (sourceBits>8 || System.Text.RegularExpressions.Regex.IsMatch(info.PixelFormat??"",@"(p(10|12|14|16)|p0(10|12|16)|48|64|f32|f16)")))throw new InvalidOperationException("NVEncC 插帧当前为 8-bit SDR；高位深 SDR 暂不接入，不自动降位深 / High-bit-depth SDR is not enabled");
-                if(info.IsHdr&&Get(state,"FG_HDR_POLICY").Equals("PRESERVE",StringComparison.OrdinalIgnoreCase)&&!Hdr10Eligible(info,state))throw new InvalidOperationException("HDR VFG experimental path requires 10-bit YUV420 BT.2020 PQ/HLG TV range. PC HDR uses legacy SDR fallback.");
+                if(info.IsHdr&&Get(state,"FG_HDR_POLICY").Equals("PRESERVE",StringComparison.OrdinalIgnoreCase)&&!Hdr10Eligible(info,state))throw new InvalidOperationException("HDR VFG path requires 10-bit YUV420 BT.2020 PQ/HLG TV range. PC HDR uses legacy SDR fallback.");
                 if(Get(state,"FG_MODE")=="SVT" && SharedGrainCore.IsEnabled(state) && SharedGrainCore.Engine(state)=="NATIVE" && string.Equals(info.VideoCodec,"av1",StringComparison.OrdinalIgnoreCase))throw new InvalidOperationException("源 AV1 参数颗粒替换暂不与 NVEncC 插帧组合：尚未验证其软件解码关闭源颗粒合成 / Source AV1 grain suppression is not verified for this producer");
                 string engine=Get(state,"FG_INTERPOLATION_ENGINE");string dir=Get(state,"FG_NVENC_DIR");
-                if(UseHdr10(info,state) && !HasHdrVfgBuild(dir))
-                    throw new InvalidOperationException("当前 NVEncC64.exe 未检测到 10-bit HDR VFG CUDA 路线，请选择已验证的 HDR 实验版 NVEncC；普通版只支持原有 SDR AI 插帧。");
                 var r=Inspect(root,dir,false);
                 string unavailable=Availability(root,dir,engine,gpu);if(unavailable.Length>0)throw new InvalidOperationException(unavailable);
                 try{Device(r.Devices,gpu);}catch{r=Inspect(root,dir,true);if(!string.IsNullOrEmpty(r.Error))throw new InvalidOperationException(r.Error);Device(r.Devices,gpu);}

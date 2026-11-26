@@ -11,7 +11,7 @@ NVENC AV1已接入HEVC HDR10源中已有MDCV/CLLI的写入；SVT/x265沿用各�
 切换编码/软硬后端时颗粒区使用缓冲刷新；保存Resize立即更新Grain Table筛选和HDR提示。
 像素颗粒直接调整各自原有强度，不再使用额外相对强度混合。
 
-NVEncC AI 插帧的 HDR10(PQ)/HLG 10-bit 直通仅适用逐行 4:2:0 BT.2020 NCL TV 范围；需先安装此前验证过的 HDR 实验版 NVEncC64.exe（rampageX/NVEnc 提交 6d387a31），FGS 会自动检测 NVEncC64.exe 的 10-bit VFG 代码特征，无需放置 .enable 文件；可在配置窗口查看 HDR VFG 10-bit 状态，在右下角 NVEncC 悬停提示查看 AI HDR ✓／✗。普通 NVEncC 只能走原有 SDR 路线；PC HDR 或真正 12-bit/4:4:4 不走本 HDR VFG 路线。
+NVEncC AI 插帧的 HDR10(PQ)/HLG 10-bit 直通仅适用逐行 4:2:0 BT.2020 NCL TV 范围；使用包含上游 #811 与 #813 修复的最新 NVEncC64.exe，FGS 不再检测实验构建指纹，不为旧版保留兼容分支。PC HDR 或真正 12-bit/4:4:4 不走本 HDR VFG 路线。
 运行：双击 FilmGrain_Studio.exe，或把视频拖到 EXE；启动只导入，不自动编码。
 同路径视频被替换或 FFprobe 变化时，请重新选择视频完成探测；执行前检测到变化会停止，原有用户参数保留。
 预览窗口提示输入变化时，请关闭窗口、重新选择视频后再打开。

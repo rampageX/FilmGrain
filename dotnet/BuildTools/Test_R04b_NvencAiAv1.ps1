@@ -31,6 +31,8 @@ public static class FgsR04bAudit
         Type stageType=asm.GetType("FilmGrainStudioPreview.BridgeExecutionStage",true);
         MethodInfo attach=cls.GetMethod("AttachProducer",BindingFlags.Static|BindingFlags.NonPublic);
         Must(attach!=null,"NVEncC producer adapter missing");
+        Must(cls.GetMethod("HasHdrVfgBuild",BindingFlags.Static|BindingFlags.NonPublic)==null,"Obsolete HDR build fingerprint remains");
+        Must(!hdrSource.Contains("hdrBuildCache") && !hdrSource.Contains("ContainsNativeLiteral"),"Obsolete native signature scan remains");
         int tested=0;
         foreach(string transfer in new []{"","smpte2084","arib-std-b67"})
         {
