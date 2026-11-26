@@ -84,28 +84,33 @@ public static class R08HdrSdrAudit
             new object[]{"[0:v:0]format=p010le[vout]"});
         Require(pipeGraph.Contains("format=yuv420p,settb=expr=1/1000,") && pipeGraph.Contains("color_trc=bt709"),
             "SDR decoded FFV1 boundary not restored");
-        foreach (bool useAi in new[]{false,true})
+        foreach (string engine in new[]{"SVP","NVENC_AI","NVENC_FRUC"})
         {
             object encode = Activator.CreateInstance(stage,true);
             var args = new List<string>{"-f","yuv4mpegpipe","-i","pipe:0","-filter_complex",pipeGraph,"output.ivf"};
             stage.GetProperty("DirectArguments", Members).SetValue(encode,string.Join(" ",args),null);
-            var state = new Dictionary<string,string>{{"FG_INTERPOLATION_ENGINE",useAi?"NVENC_AI":"SVP"},
+            var state = new Dictionary<string,string>{{"FG_INTERPOLATION_ENGINE",engine},
                 {"FG_NVENC_GPU_NAME","GPU"},{"FG_NVENC_DEVICES","DeviceId #0: GPU (PCI Bus ID:"},
                 {"FG_NVENC_SOURCE_FPS","30000/1001"},{"FG_NVENC_DIR",@"C:\Tool"}};
-            if (useAi)
+            bool useNvenc = engine != "SVP";
+            if (useNvenc)
             {
                 nvenc.GetMethod("AttachProducer", Methods).Invoke(null,new object[]{encode,"converted.mkv",state,"60000/1001"});
                 ((Action)stage.GetProperty("PreparedObserver", Members).GetValue(encode,null))();
                 string consumer = (string)stage.GetProperty("DirectArguments", Members).GetValue(encode,null);
-                Require(consumer.Contains("-f nut") && consumer.Contains("setpts=PTS-STARTPTS,format=yuv420p"),"NUT clock/depth");
+                Require(consumer.Contains("-f nut") && consumer.Contains("setpts=PTS-STARTPTS,format=yuv420p")
+                    && consumer.Contains("settb=expr=1/1000,setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709"),"NUT clock/depth/color");
+                string nvargs = (string)stage.GetProperty("PipeProducerArguments", Members).GetValue(encode,null);
+                Require(nvargs.Contains(engine=="NVENC_FRUC"?"--vpp-fruc":"--vpp-nvvfx-framegen"),"wrong NVEncC producer");
+                if (engine=="NVENC_FRUC") Require(nvargs.Contains("fps=60000/1001") && !nvargs.Contains("--vpp-nvvfx-framegen"),"FRUC target cadence");
             }
             else svp.GetMethod("AttachProducer", Methods).Invoke(null,
                 new object[]{encode,"vspipe.exe","svp.vpy","plugins","converted.mkv",state,"60000/1001"});
             string producer = (string)stage.GetProperty("PipeProducerArguments", Members).GetValue(encode,null);
-            Require(producer.Contains("converted.mkv") && (useAi?producer.Contains("\"--output-depth\" \"8\""):
+            Require(producer.Contains("converted.mkv") && (useNvenc?producer.Contains("\"--output-depth\" \"8\""):
                 producer.Contains("target_num=60000") && producer.Contains("target_den=1001") && !producer.Contains("hdr10=1")), "producer SDR contract");
         }
-        Console.WriteLine("PASS R08a 48 command combinations and 16 route guards; R08b 32 guards and both producer contracts");
+        Console.WriteLine("PASS R08a 48 command combinations and 16 route guards; R08b 32 guards and all three producer contracts (SVP, NVEncC AI, NVEncC FRUC)");
     }
 }
 '@

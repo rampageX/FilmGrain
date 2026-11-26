@@ -17,7 +17,15 @@ public static class FgsR04cAudit
         string p=File.ReadAllText(producerPath);
         Must(s.Contains("bool directNvencFruc=svp && NvencInterpolationCore.Enabled(state)"),"FRUC-specific eligibility missing");
         Must(s.Contains("Eq(state,\"FG_INTERPOLATION_ENGINE\",\"NVENC_FRUC\")") &&
-             s.Contains("!info.IsHdr && !hdrToSdr && Get(state,\"FG_NVENC_VFG_HDR10\")!=\"1\""),"FRUC SDR-only protection missing");
+             s.Contains("!info.IsHdr && !hdrToSdr && Get(state,\"FG_NVENC_VFG_HDR10\")!=\"1\""),"FRUC native-SDR protection missing");
+        Must(s.Contains("if (CanPipeConvertedSdr(svp, hdrToSdr, info.IsInterlaced, grainEnabled && !metadataGrain,") &&
+             s.Contains("directNvencFruc = NvencInterpolationCore.Enabled(state) && Eq(state,\"FG_INTERPOLATION_ENGINE\",\"NVENC_FRUC\");"),"Converted SDR FRUC eligibility missing");
+        Must(s.Contains("if (hdrToSdr && (directSvp || directNvencAi || directNvencFruc))") &&
+             s.Contains("filterGraph = ConvertedSdrPipeGraph(filterGraph);"),"Converted SDR FRUC color/time base contract missing");
+        Must(s.Contains("if (hdrToSdr && (directSvp || directNvencAi || directNvencFruc) && !streamSdrAi && !streamSdrSvp)") &&
+             s.Contains("SharedHdrPreprocessCore.AttachValidation(directStages[preStages],ffprobe,hdrWorkfile,info);"),"Converted SDR workfile validation missing");
+        Must(s.Contains("bool needsHdrWorkfile=hdrToSdr && !mergedHdr && !mergedFrucHdr && !streamSdrAi && !streamSdrSvp;") &&
+             s.Contains("string frucInput = needsHdrWorkfile || separateDeint ? hdrWorkfile : input;"),"Seekable SDR workfile contract changed");
         Must(s.Contains("bool directNvencAi=svp && NvencInterpolationCore.Enabled(state)"),"R04b AI eligibility disturbed");
         Must(s.Contains("if (svp && !directSvp && !directNvencAi && !directNvencFruc)"),"Legacy producer path not retained");
         Must(s.Contains("if (interpolate && !directFruc && !directSvp && !directNvencAi && !directNvencFruc) request.TemporaryFiles.Add(frucWorkfile);"),"Workfile cleanup/fallback guard missing");
@@ -65,7 +73,7 @@ public static class FgsR04cAudit
                  consumer.Contains("[0:v:0]setpts=PTS-STARTPTS,") && !consumer.Contains("setparams=range=limited"),"FRUC PTS rebasing/SDR color handling wrong");
             count++;
         }
-        Console.WriteLine("PASS R04c NVEncC FRUC separate SDR-only guard, raw NUT producer and local PTS normalization "+count+"/4");
+        Console.WriteLine("PASS R04c NVEncC FRUC native/converted SDR guards, raw NUT producer and local PTS normalization "+count+"/4");
         Console.WriteLine("PASS R04c preserved legacy fallback, AVC/IVF/grain/remux/metadata and cancellation owner contracts (static)");
         Console.WriteLine("NOTE: Real NVEncC FRUC requires RTX acceptance.");
     }

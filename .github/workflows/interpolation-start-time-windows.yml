@@ -16,7 +16,7 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          foreach ($path in @('dotnet\BuildTools\Test_InterpolationTimelineStart.ps1','dotnet\BuildTools\Test_R04c_NvencFrucAv1.ps1')) {
+          foreach ($path in @('dotnet\BuildTools\Test_InterpolationTimelineStart.ps1','dotnet\BuildTools\Test_R04c_NvencFrucAv1.ps1','dotnet\BuildTools\Test_R08_HdrSdr.ps1')) {
             $tokens = $null
             $errors = $null
             [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path -LiteralPath $path).Path,[ref]$tokens,[ref]$errors)
@@ -53,16 +53,16 @@ jobs:
           $hash = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash
           ('GitCommit=' + $env:GITHUB_SHA) | Set-Content -LiteralPath 'CI_PROOF.txt' -Encoding Ascii
           ('ExecutableSHA256=' + $hash) | Add-Content -LiteralPath 'CI_PROOF.txt' -Encoding Ascii
-          git archive --format=zip --prefix=FilmGrain/ --output=FilmGrain_Studio_v5.1.01_TimelineFix_F7C29B_Full_Source.zip HEAD
+          git archive --format=zip --prefix=FilmGrain/ --output=FilmGrain_Studio_v5.1.01_HdrFrucDirect_D4E8A1_Full_Source.zip HEAD
           if ($LASTEXITCODE -ne 0) { throw 'Source archive failed' }
-          Copy-Item -LiteralPath $exe -Destination 'FilmGrain_Studio_v5.1.01_TimelineFix_F7C29B.exe'
+          Copy-Item -LiteralPath $exe -Destination 'FilmGrain_Studio_v5.1.01_HdrFrucDirect_D4E8A1.exe'
       - name: Upload test executable and exact source
         uses: actions/upload-artifact@v4
         with:
-          name: FGS_TimelineFix_F7C29B_Test_and_Source
+          name: FGS_HdrFrucDirect_D4E8A1_Test_and_Source
           path: |
-            FilmGrain_Studio_v5.1.01_TimelineFix_F7C29B.exe
-            FilmGrain_Studio_v5.1.01_TimelineFix_F7C29B_Full_Source.zip
+            FilmGrain_Studio_v5.1.01_HdrFrucDirect_D4E8A1.exe
+            FilmGrain_Studio_v5.1.01_HdrFrucDirect_D4E8A1_Full_Source.zip
             CI_PROOF.txt
           if-no-files-found: error
           retention-days: 14

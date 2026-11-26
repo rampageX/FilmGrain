@@ -208,6 +208,8 @@ namespace FilmGrainStudioPreview
             {
                 directSvp = !NvencInterpolationCore.Enabled(state);
                 directNvencAi = Eq(state,"FG_INTERPOLATION_ENGINE","NVENC_AI");
+                // FRUC keeps the validated seekable SDR workfile, but needs no FFV1 encode/decode.
+                directNvencFruc = NvencInterpolationCore.Enabled(state) && Eq(state,"FG_INTERPOLATION_ENGINE","NVENC_FRUC");
             }
             if (interpolate && !directFruc && !directSvp && !directNvencAi && !directNvencFruc)
             {
@@ -311,7 +313,7 @@ namespace FilmGrainStudioPreview
             if (interpolate) Add(encode, "-copyts");
             if (directSvp || directNvencAi || directNvencFruc) Add(encode, "-f", "yuv4mpegpipe");
             Add(encode, "-i", encodeInput);
-            if (hdrToSdr && (directSvp || directNvencAi))
+            if (hdrToSdr && (directSvp || directNvencAi || directNvencFruc))
                 filterGraph = ConvertedSdrPipeGraph(filterGraph);
             if (!string.IsNullOrWhiteSpace(filterGraph)) Add(encode, "-filter_complex", filterGraph, "-map", "[vout]");
             else Add(encode, "-map", "0:v:0");
@@ -506,7 +508,7 @@ namespace FilmGrainStudioPreview
                 request.ExecutionNotice="[AV1 encode route] IVF encode/container stages retained; direct-output/FRUC eligibility not met. Grain metadata optimization is selected independently.";
             }
 
-            if (hdrToSdr && (directSvp || directNvencAi) && !streamSdrAi && !streamSdrSvp)
+            if (hdrToSdr && (directSvp || directNvencAi || directNvencFruc) && !streamSdrAi && !streamSdrSvp)
             {
                 SharedHdrPreprocessCore.AttachValidation(directStages[preStages],ffprobe,hdrWorkfile,info);
                 directStages[preStages].StageText+=" / R08b SDR workfile to producer to AV1";
