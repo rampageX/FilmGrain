@@ -546,7 +546,8 @@ namespace FilmGrainStudioPreview
                     if (!double.TryParse(media.Duration, NumberStyles.Float, CultureInfo.InvariantCulture, out duration) ||
                         double.IsNaN(duration) || double.IsInfinity(duration) || duration < 0) duration = 0;
                     double seconds = duration > 0 ? NativeGrainPreviewForm.ChooseInitialSeconds(duration, 0.5) : 0;
-                    int width = media.Width & ~1, height = media.Height & ~1;
+                    int width = expandPreview==null ? media.Width & ~1 : expandPreview.Width;
+                    int height = expandPreview==null ? media.Height & ~1 : expandPreview.Height;
                     string frame = Path.Combine(work, "frame.yuv");
                     string result = Path.Combine(work, "settings.json");
                     string parity = media.IsInterlaced
@@ -560,9 +561,15 @@ namespace FilmGrainStudioPreview
                         "-map", "0:v:0", "-an", "-sn", "-dn", "-frames:v", "1", "-vf", filter,
                         "-f", "rawvideo", frame };
                     ApplyExpandPreviewFilter(fargs,expandPreview);
-                    int rc=NativeLibraryTools.RunProcessEnvironment(ffmpeg,fargs,work,null,120000,CancellationToken.None,null);
-                    if(rc!=0 || !File.Exists(frame) || new FileInfo(frame).Length!=(long)width*height*3)
-                        throw new InvalidDataException("胶片边框预览抽帧失败。");
+                    var decodeLog=new StringBuilder();
+                    int rc=NativeLibraryTools.RunProcessEnvironment(ffmpeg,fargs,work,null,120000,CancellationToken.None,
+                        delegate(string line) { lock(decodeLog) { if(decodeLog.Length<4000)decodeLog.AppendLine(line); } });
+                    long expectedBytes=(long)width*height*3;
+                    long actualBytes=File.Exists(frame)?new FileInfo(frame).Length:0;
+                    if(rc!=0 || actualBytes!=expectedBytes)
+                        throw new InvalidDataException("胶片边框预览抽帧失败。FFmpeg="+rc+
+                            " / "+width+"x"+height+" / bytes="+actualBytes+"/"+expectedBytes+
+                            (decodeLog.Length>0?Environment.NewLine+decodeLog.ToString().TrimEnd():""));
                     string choices = FilmBorderCatalogCore.CreatePreviewChoices(appRoot,ffmpeg,work,
                         media.IsHdr,media.ColorTransfer,CancellationToken.None,expandPx>0,width,height);
                     var args=new List<string>{frame,width.ToString(CultureInfo.InvariantCulture),
