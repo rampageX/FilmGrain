@@ -26,7 +26,7 @@ for file in sorted(work.glob("*.graph")):
     original = frames(run(*base,*tail))
     graph = file.read_text(encoding="utf-8")
     inp = base+["-i",file.with_suffix(".png")]
-    cropped = graph.replace("[vout]","[canvas];[canvas]crop=320:180:64:64:exact=1[vout]")
+    cropped = graph.replace("[vout]","[canvas];[canvas]crop=320:180:22:8:exact=1[vout]")
     actual = frames(run(*inp,"-filter_complex",cropped,"-map","[vout]",*tail))
     if len(original)!=8 or actual!=original:
         raise RuntimeError(f"{file.stem}: original samples/PTS differ\n{original}\n{actual}")
@@ -34,7 +34,7 @@ for file in sorted(work.glob("*.graph")):
     codec = "libx265" if ten else "libx264"
     run(*inp,"-filter_complex",graph,"-map","[vout]","-an","-c:v",codec,"-threads","1","-preset","ultrafast","-pix_fmt",pix,"-fps_mode","passthrough","-enc_time_base","1/25","-color_range","tv","-color_primaries","bt2020" if hdr else "bt709","-color_trc",trc,"-colorspace","bt2020nc" if hdr else "bt709",out)
     info = json.loads(run("-v","error","-select_streams","v:0","-count_frames","-show_streams","-of","json",out,binary=probe))["streams"][0]
-    expected = {"width":448,"height":308,"sample_aspect_ratio":"16:15","color_transfer":trc,"color_range":"tv","nb_read_frames":"8"}
+    expected = {"width":364,"height":196,"sample_aspect_ratio":"16:15","color_transfer":trc,"color_range":"tv","nb_read_frames":"8"}
     for key,val in expected.items():
         if info.get(key)!=val: raise RuntimeError(f"{file.stem}: {key} expected {val}, got {info.get(key)}")
     print("PASS original samples/PTS and encoded canvas:",file.stem,flush=True)

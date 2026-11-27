@@ -60,21 +60,26 @@ internal static class ExpandCanvasCoreTests
                 draw.Clear(Color.Blue);
                 draw.FillRectangle(Brushes.Magenta,120,166,1680,748);
             }
-            using(var image=FilmBorderExpandCanvasCore.RenderTexture(src,1680,748,g))
+            var artGeometry=FilmBorderExpandCanvasCore.NaturalGeometry(1920,1080,1680,748);
+            using(var image=FilmBorderExpandCanvasCore.RenderTexture(src,1680,748,artGeometry))
             {
-                Check(image.Width==2048 && image.Height==1208,"Texture dimensions");
-                Check(image.GetPixel(64,64).ToArgb()==Color.Black.ToArgb(),"Protected top-left");
-                Check(image.GetPixel(1983,1143).ToArgb()==Color.Black.ToArgb(),"Protected bottom-right");
-                Check(image.GetPixel(1024,604).ToArgb()==Color.Black.ToArgb(),"Protected center");
-                Check(image.GetPixel(32,32).B>128,"Corner texture preserved");
+                Check(image.Width==artGeometry.CanvasWidth && image.Height==artGeometry.CanvasHeight,"Texture dimensions");
+                Check(image.GetPixel(artGeometry.Left,artGeometry.Top).ToArgb()==Color.Black.ToArgb(),"Protected top-left");
+                Check(image.GetPixel(artGeometry.Left+1919,artGeometry.Top+1079).ToArgb()==Color.Black.ToArgb(),"Protected bottom-right");
+                Check(image.GetPixel(artGeometry.Left+960,artGeometry.Top+540).ToArgb()==Color.Black.ToArgb(),"Protected center");
+                Check(image.GetPixel(2,2).B>128,"Corner texture preserved");
                 for(int y=0;y<image.Height;y+=7) for(int x=0;x<image.Width;x+=7)
                     Check(image.GetPixel(x,y).R==0,"Source aperture contamination");
             }
         }
-        CheckContinuousRing(1680,748,new FilmBorderExpandGeometry(320,180,64,64,64,64));
-        CheckContinuousRing(1680,990,new FilmBorderExpandGeometry(180,320,16,32,48,64));
-        CheckContinuousRing(1680,748,new FilmBorderExpandGeometry(640,64,2,2,2,2));
-        CheckContinuousRing(1651,721,new FilmBorderExpandGeometry(64,640,32,32,32,32));
+        CheckContinuousRing(1680,748,FilmBorderExpandCanvasCore.NaturalGeometry(320,180,1680,748));
+        CheckContinuousRing(1680,990,FilmBorderExpandCanvasCore.NaturalGeometry(180,320,1680,990));
+        CheckContinuousRing(1680,748,FilmBorderExpandCanvasCore.NaturalGeometry(640,64,1680,748));
+        CheckContinuousRing(1651,721,FilmBorderExpandCanvasCore.NaturalGeometry(64,640,1651,721));
+        var chroma=FilmBorderExpandCanvasCore.NaturalGeometry(1920,1080,1684,970);
+        var vista=FilmBorderExpandCanvasCore.NaturalGeometry(1920,1080,1888,800);
+        Check(chroma.Left==132 && chroma.Top==62 && chroma.CanvasWidth==2184 && chroma.CanvasHeight==1204,"Chroma native aspect");
+        Check(vista.Left==16 && vista.Top==142 && vista.CanvasWidth==1952 && vista.CanvasHeight==1364,"Vistalux native aspect");
         Console.WriteLine("PASS complete opaque ring coverage (landscape, portrait, thin and odd aperture)");
         foreach(string trc in new[]{"bt709","smpte2084","arib-std-b67"})
         {
@@ -95,6 +100,28 @@ internal static class ExpandCanvasCoreTests
                 Check(cpu.Contains("[fgsexact][fgstop][fgsbottom][fgsleft][fgsright]xstack"),"CPU direct region copy");
                 Check(cpu.Contains("layout=64_64|0_0|0_1144|0_64|1984_64:shortest=1"),"CPU layout");
                 Check(cpu.Contains("color_trc="+trc),"CPU signal");
+            }
+        }
+        if(args.Length==2)
+        {
+            string[] files=Directory.GetFiles(args[0],"*.png");Array.Sort(files,StringComparer.Ordinal);
+            Check(files.Length==15,"Expected all 15 stock textures");
+            Directory.CreateDirectory(args[1]);
+            foreach(string file in files)
+            {
+                string stem=Path.Combine(Path.GetDirectoryName(file),Path.GetFileNameWithoutExtension(file));
+                string[] aperture=File.ReadAllText(stem+".aperture").Trim().Split('\t');
+                int aw=Int32.Parse(aperture[0]),ah=Int32.Parse(aperture[1]);
+                var geo=FilmBorderExpandCanvasCore.NaturalGeometry(1920,1080,aw,ah);
+                using(var stock=new Bitmap(file))
+                using(var result=FilmBorderExpandCanvasCore.RenderTexture(stock,aw,ah,geo))
+                {
+                    Check(result.GetPixel(geo.Left+960,geo.Top+540).ToArgb()==Color.Black.ToArgb(),"Stock aperture isolation");
+                    using(Graphics draw=Graphics.FromImage(result))draw.FillRectangle(Brushes.DimGray,geo.Picture);
+                    string label=File.ReadAllText(stem+".label").Trim();
+                    result.Save(Path.Combine(args[1],label+"_"+geo.CanvasWidth+"x"+geo.CanvasHeight+".png"),System.Drawing.Imaging.ImageFormat.Png);
+                    Console.WriteLine("PASS "+label+" "+geo.CanvasWidth+"x"+geo.CanvasHeight);
+                }
             }
         }
         Console.WriteLine("PASS Expand Canvas geometry, texture isolation, source-clock graph contracts");

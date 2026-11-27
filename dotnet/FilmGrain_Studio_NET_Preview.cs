@@ -1204,7 +1204,7 @@ namespace FilmGrainStudioPreview
                 Margin = new Padding(3,4,8,4) };
             btnFilmBorder.Click += delegate { OpenFilmBorderSettings(); };
             var borderMenu = new ContextMenuStrip();
-            var compositionBorder=borderMenu.Items.Add(UiText("合成模式 / 外扩厚度…","Composition / expand thickness..."),null,delegate {OpenFilmBorderCompositionSettings();});
+            var compositionBorder=borderMenu.Items.Add(UiText("合成模式…","Composition..."),null,delegate {OpenFilmBorderCompositionSettings();});
             var clearBorder = borderMenu.Items.Add(UiText("清空边框","Clear film border"),null,delegate {
                 try {
                     config.SaveValue("FILM_BORDER_MODE",FilmBorderCatalogCore.Off);
@@ -2912,7 +2912,14 @@ namespace FilmGrainStudioPreview
             if(info!=null && config.Get("RESIZE_MODE")!="OFF") {var state=PreprocessEnvironment();CinematicFramePlan frame;ResizePlan plan;string error;if(CinematicFrameCore.TryBuild(info,state,out frame,out error)&&ResizeCore.TryBuild(info,state,frame,out plan,out error)){width=plan.Width;height=plan.Height;}}
             int borderPx=FilmBorderExpandPx();
             if(borderPx>0 && config.Get("FILM_BORDER_MODE")!="OFF" && codecIndex!=0 && !(NewCpuSelected() && CpuCodec()=="SVT"))
-            {width+=2*borderPx;height+=2*borderPx;}
+            {
+                FilmBorderChoice choice;string choiceError;
+                if(FilmBorderCatalogCore.TryResolve(appRoot,config.Get("FILM_BORDER_MODE"),out choice,out choiceError))
+                {
+                    var geometry=TryNaturalBorderGeometry(width,height,choice);
+                    if(geometry!=null){width=geometry.CanvasWidth;height=geometry.CanvasHeight;}
+                }
+            }
             double fps = GetRecommendedOutputFps(info);
             bool highMotion = chkHighMotion != null && chkHighMotion.Checked;
 

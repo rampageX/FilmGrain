@@ -4,6 +4,7 @@ using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Globalization;
 using System.IO;
+using System.Runtime.InteropServices;
 
 namespace FilmGrainStudioPreview
 {
@@ -36,27 +37,19 @@ namespace FilmGrainStudioPreview
             return String.IsNullOrEmpty(value) || (Int32.TryParse(value,NumberStyles.None,CultureInfo.InvariantCulture,out pixels)
                 && pixels>=0 && pixels<=MaximumThickness && (pixels&1)==0);
         }
-        // Preview remaps the same eight isolated rectangles in its shader. Resolve
-        // alpha against black in SDR before converting the artwork to PQ or HLG.
-        internal static string WritePreviewStock(string source,string directory)
+        // The old test-only numeric value now serves as an enable flag.
+        internal static FilmBorderExpandGeometry NaturalGeometry(int width,int height,int apertureWidth,int apertureHeight)
         {
-            string path=Path.Combine(directory,"expand_stock_"+Guid.NewGuid().ToString("N")+".png");
-            try
-            {
-                using(var input=new Bitmap(source))
-                using(var stock=new Bitmap(input.Width,input.Height,PixelFormat.Format32bppPArgb))
-                {
-                    using(Graphics draw=Graphics.FromImage(stock))
-                    {
-                        draw.Clear(Color.Black);
-                        draw.DrawImageUnscaled(input,0,0);
-                    }
-                    stock.Save(path,ImageFormat.Png);
-                }
-                return path;
-            }
-            catch { try { if(File.Exists(path)) File.Delete(path); } catch {} throw; }
+            if(apertureWidth<=0 || apertureHeight<=0 || apertureWidth>=1920 || apertureHeight>=1080)
+                throw new ArgumentException("Invalid film border aperture.");
+            double scale=Math.Min((double)width/apertureWidth,(double)height/apertureHeight);
+            int x=(1920-apertureWidth)/2,y=(1080-apertureHeight)/2;
+            return new FilmBorderExpandGeometry(width,height,EvenMargin(x,scale),EvenMargin(y,scale),
+                EvenMargin(1920-x-apertureWidth,scale),EvenMargin(1080-y-apertureHeight,scale));
         }
+        private static int EvenMargin(int margin,double scale)
+        {return Math.Max(2,2*(int)Math.Floor(margin*scale/2+0.5));}
+
         internal static string WriteTexture(string source,int apertureWidth,int apertureHeight,FilmBorderExpandGeometry geometry,string directory)
         {
             string path=Path.Combine(directory,"__FGS_EXPAND_"+Guid.NewGuid().ToString("N")+".png");
@@ -71,51 +64,118 @@ namespace FilmGrainStudioPreview
         }
         private static string N(int n) { return n.ToString(CultureInfo.InvariantCulture); }
 
-        // Eight isolated pieces: no samples from the source aperture, including opaque scratches.
-        // Nine-slice mapping: each peripheral piece fills its destination rectangle.
-        // Adjacent pieces share boundaries. Only the stock is stretched; the picture stays fixed.
+        // Choose the quietest shared location on both opposing rails. Average
+        // local derivative over 13 pixels and mildly prefer solid bright stock.
+        // Only samples outside the declared original aperture participate.
+        private static int QuietSeam(byte[] pixels,int length,int start,int end,
+            int railStart,int railEnd,int across,bool horizontal)
+        {
+            const int stride=1920*4;
+            double[] delta=new double[length],mean=new double[length];
+            int samples=(railStart+across-railEnd)*3;
+            for(int pos=1;pos<length;pos++)
+            {
+                long diff=0,sum=0;
+                for(int v=0;v<across;v++)
+                {
+                    if(v>=railStart && v<railEnd)continue;
+                    int i=horizontal?v*stride+4*pos:pos*stride+4*v;
+                    int prev=i-(horizontal?4:stride);
+                    for(int ch=0;ch<3;ch++)
+                    {diff+=Math.Abs((int)pixels[i+ch]-pixels[prev+ch]);sum+=pixels[i+ch];}
+                }
+                delta[pos]=(double)diff/samples;
+                mean[pos]=(double)sum/samples;
+            }
+            int low=Math.Max(start+1,Math.Max(7,start+(end-start)/10));
+            int high=Math.Min(end-1,Math.Min(length-7,end-(end-start)/10));
+            if(low>=high)return (start+end)/2;
+            double bright=0;for(int i=low;i<high;i++)bright=Math.Max(bright,mean[i]);
+            double best=Double.MaxValue;int chosen=low;
+            for(int i=low;i<high;i++)
+            {
+                double variation=0;for(int j=-6;j<=6;j++)variation+=delta[i+j];
+                double score=variation/13+0.03*(bright-mean[i])+0.1*Math.Abs(i-(start+end)/2.0)/(end-start);
+                if(score<best){best=score;chosen=i;}
+            }
+            return chosen;
+        }
+        private sealed class Axis
+        {
+            internal int[] Source,Target;
+            internal int Insert=-1;
+            internal bool IsPicture(int i){return i>0 && i<Source.Length-2;}
+        }
+        private static Axis MapAxis(int total,int start,int end,int seam,int first,int content,int last,double scale)
+        {
+            int fitted=Math.Min(content,Math.Max(1,(int)Math.Floor((end-start)*scale+0.5)));
+            int extra=content-fitted;
+            if(extra==0 || fitted<3)return new Axis{Source=new[]{0,start,end,total},
+                Target=new[]{0,first,first+content,first+content+last}};
+            int one=Math.Min(fitted-2,Math.Max(1,(int)Math.Floor(scale+0.5)));
+            int before=Math.Max(1,Math.Min(fitted-one-1,(int)Math.Floor((seam-start)*scale+0.5)));
+            return new Axis{Source=new[]{0,start,seam,seam+1,end,total},
+                Target=new[]{0,first,first+before,first+before+one+extra,first+content,first+content+last},Insert=2};
+        }
+        // Isotropic scale of the stock; only a narrow quiet seam is extended
+        // when the aperture aspect differs. Corners, lettering and sprockets
+        // outside that seam retain shape, apart from integer pixel rounding.
+        // Preview and production consume the same rendered texture.
         internal static Bitmap RenderTexture(Bitmap source,int apertureWidth,int apertureHeight,FilmBorderExpandGeometry g)
         {
-            if(source==null || source.Width!=1920 || source.Height!=1080 ||
-                apertureWidth<=0 || apertureHeight<=0 || apertureWidth>=1920 || apertureHeight>=1080)
-                throw new ArgumentException("Invalid film border source/aperture.");
-            int sx=(source.Width-apertureWidth)/2, sy=(source.Height-apertureHeight)/2;
-            int[] xs={0,sx,sx+apertureWidth,source.Width};
-            int[] ys={0,sy,sy+apertureHeight,source.Height};
-            int[] xd={0,g.Left,g.Left+g.Width,g.CanvasWidth};
-            int[] yd={0,g.Top,g.Top+g.Height,g.CanvasHeight};
-            Bitmap canvas=new Bitmap(g.CanvasWidth,g.CanvasHeight,PixelFormat.Format32bppPArgb);
-            try
+            if(source==null || source.Width!=1920 || source.Height!=1080)
+                throw new ArgumentException("Invalid film border source.");
+            FilmBorderExpandGeometry expected=NaturalGeometry(g.Width,g.Height,apertureWidth,apertureHeight);
+            if(g.Left!=expected.Left || g.Top!=expected.Top || g.Right!=expected.Right || g.Bottom!=expected.Bottom)
+                throw new ArgumentException("Natural film border geometry mismatch.");
+            int sx=(1920-apertureWidth)/2,sy=(1080-apertureHeight)/2,ex=sx+apertureWidth,ey=sy+apertureHeight;
+            double scale=Math.Min((double)g.Width/apertureWidth,(double)g.Height/apertureHeight);
+            using(var stock=new Bitmap(1920,1080,PixelFormat.Format32bppPArgb))
             {
-                using(Graphics target=Graphics.FromImage(canvas))
+                using(Graphics draw=Graphics.FromImage(stock))
+                {draw.Clear(Color.Black);draw.DrawImageUnscaled(source,0,0);}
+                byte[] pixels=new byte[1920*1080*4];
+                BitmapData data=stock.LockBits(new Rectangle(0,0,1920,1080),ImageLockMode.ReadOnly,PixelFormat.Format32bppPArgb);
+                try
                 {
-                    target.Clear(Color.Black);
-                    target.CompositingMode=CompositingMode.SourceOver;
-                    target.InterpolationMode=InterpolationMode.Bilinear;
-                    target.PixelOffsetMode=PixelOffsetMode.Half;
-                    for(int y=0;y<3;y++) for(int x=0;x<3;x++)
+                    for(int y=0;y<1080;y++)Marshal.Copy(IntPtr.Add(data.Scan0,y*data.Stride),pixels,y*1920*4,1920*4);
+                }
+                finally {stock.UnlockBits(data);}
+                int seamX=QuietSeam(pixels,1920,sx,ex,sy,ey,1080,true);
+                int seamY=QuietSeam(pixels,1080,sy,ey,sx,ex,1920,false);
+                Axis xMap=MapAxis(1920,sx,ex,seamX,g.Left,g.Width,g.Right,scale);
+                Axis yMap=MapAxis(1080,sy,ey,seamY,g.Top,g.Height,g.Bottom,scale);
+                Bitmap canvas=new Bitmap(g.CanvasWidth,g.CanvasHeight,PixelFormat.Format32bppPArgb);
+                try
+                {
+                    using(Graphics target=Graphics.FromImage(canvas))
                     {
-                        if(x==1 && y==1) continue;
-                        Rectangle src=new Rectangle(xs[x],ys[y],xs[x+1]-xs[x],ys[y+1]-ys[y]);
-                        Rectangle dst=new Rectangle(xd[x],yd[y],xd[x+1]-xd[x],yd[y+1]-yd[y]);
-                        if(src.Width==0 || src.Height==0) continue;
-                        // Fill the full destination, without independently centering or
-                        // letterboxing edge pieces. Isolate the tile before interpolation
-                        // so a protected-aperture sample cannot leak into the stock.
-                        using(Bitmap tile=source.Clone(src,PixelFormat.Format32bppPArgb))
-                        using(ImageAttributes attrs=new ImageAttributes())
+                        target.Clear(Color.Black);
+                        target.CompositingMode=CompositingMode.SourceCopy;
+                        target.PixelOffsetMode=PixelOffsetMode.Half;
+                        for(int y=0;y<yMap.Source.Length-1;y++)for(int x=0;x<xMap.Source.Length-1;x++)
                         {
-                            attrs.SetWrapMode(WrapMode.TileFlipXY);
-                            GraphicsState saved=target.Save();
-                            target.SetClip(dst);
-                            target.DrawImage(tile,dst,0,0,tile.Width,tile.Height,GraphicsUnit.Pixel,attrs);
-                            target.Restore(saved);
+                            if(xMap.IsPicture(x) && yMap.IsPicture(y))continue;
+                            Rectangle src=Rectangle.FromLTRB(xMap.Source[x],yMap.Source[y],xMap.Source[x+1],yMap.Source[y+1]);
+                            Rectangle dst=Rectangle.FromLTRB(xMap.Target[x],yMap.Target[y],xMap.Target[x+1],yMap.Target[y+1]);
+                            if(src.Width<=0 || src.Height<=0 || dst.Width<=0 || dst.Height<=0)continue;
+                            target.InterpolationMode=(x==xMap.Insert || y==yMap.Insert)?
+                                InterpolationMode.NearestNeighbor:InterpolationMode.Bilinear;
+                            using(Bitmap tile=stock.Clone(src,PixelFormat.Format32bppPArgb))
+                            using(ImageAttributes attrs=new ImageAttributes())
+                            {
+                                attrs.SetWrapMode(WrapMode.TileFlipXY);
+                                GraphicsState saved=target.Save();
+                                target.SetClip(dst);
+                                target.DrawImage(tile,dst,0,0,tile.Width,tile.Height,GraphicsUnit.Pixel,attrs);
+                                target.Restore(saved);
+                            }
                         }
                     }
+                    return canvas;
                 }
-                return canvas;
+                catch {canvas.Dispose();throw;}
             }
-            catch { canvas.Dispose(); throw; }
         }
 
         // Convert only the artwork, once. The selected range/transfer are a property

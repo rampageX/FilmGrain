@@ -1790,7 +1790,7 @@ namespace FilmGrainStudioPreview
                     (!String.IsNullOrEmpty(media.ColorPrimaries) && media.ColorPrimaries!="unknown" && media.ColorPrimaries!="bt709") ||
                     (!String.IsNullOrEmpty(media.ColorRange) && media.ColorRange!="unknown" && media.ColorRange!="tv")))
                 { plan=null;reason="Expand Canvas candidate requires BT.709 limited SDR or existing PQ/HLG HDR preserve.";return false; }
-                plan.FileSuffix+="_EXP"+N(thickness);
+                plan.FileSuffix+="_EXPNAT";
                 plan.GpuRaw=null;
             }
             return true;
@@ -1806,8 +1806,8 @@ namespace FilmGrainStudioPreview
             { reason="Expand Canvas candidate: turn off Crop/Resize/Cinematic bars for this test.";return false; }
             try
             {
-                int p=plan.ExpandThickness;
-                plan.ExpandGeometry=new FilmBorderExpandGeometry(frame.ActiveWidth,frame.ActiveHeight,p,p,p,p);
+                plan.ExpandGeometry=FilmBorderExpandCanvasCore.NaturalGeometry(frame.ActiveWidth,frame.ActiveHeight,
+                    ApertureWidth(plan),ApertureHeight(plan));
                 int max=codec=="H264"?4096:codec=="HEVC"?8192:16384;
                 if(plan.ExpandGeometry.CanvasWidth>max || plan.ExpandGeometry.CanvasHeight>max)
                 { reason="Expand Canvas exceeds codec dimension limit "+N(max)+".";return false; }

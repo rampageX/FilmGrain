@@ -43,6 +43,7 @@ static const wchar_t *s_border_path;
 static bool s_border_weave;
 static int s_expand_px;
 static double s_expand_sar=1.0;
+static int s_expand_left,s_expand_top,s_expand_right,s_expand_bottom;
 static bool s_border_settings;
 static int s_border_mode; /* legacy OFF/STATIC/WEAVE fallback */
 static const wchar_t *s_border_choices_file;
@@ -288,6 +289,8 @@ static bool read_file(const wchar_t *path, size_t exact_bytes, size_t limit,
 }
 
 static bool upload_border_texture(void);
+static bool resize_expand_target(void);
+static bool update_expand_geometry(void);
 static void redraw_controls(void);
 /* A UTF-16LE catalog is written by the existing FGS managed importer. Each
  * line contains a stable ASCII mode ID, localized title and validated RGBA path.
@@ -551,9 +554,10 @@ static bool border_choice_apply(int index,bool reload)
     s_border_selection=index;
     if(reload && old && wcscmp(old,s_border_path)) {
         if(s_device && s_device->gpu)pl_tex_destroy(s_device->gpu,&s_border_texture);
-        if(!upload_border_texture()) {
+        if(!update_expand_geometry() || !upload_border_texture() || (s_expand_px && !resize_expand_target())) {
             s_border_selection=old_index;s_border_weave=old_weave;s_border_path=old;
-            if(s_device && s_device->gpu)upload_border_texture();
+            update_expand_geometry();
+            if(s_device && s_device->gpu){upload_border_texture();if(s_expand_px)resize_expand_target();}
             return false;
         }
     }
@@ -1555,17 +1559,43 @@ static void update_hdr_display(void)
     }
 }
 
+static int natural_even_margin(int margin,double scale)
+{
+    int value=2*(int)floor(margin*scale/2+0.5);
+    return value<2?2:value;
+}
+static bool natural_expand_geometry(int width,int height,int aw,int ah,int *l,int *t,int *r,int *b)
+{
+    if(width<32 || height<32 || (width&1) || (height&1) ||
+        aw<=0 || aw>=1920 || ah<=0 || ah>=1080)return false;
+    double scale=fmin((double)width/aw,(double)height/ah);
+    int x=(1920-aw)/2,y=(1080-ah)/2;
+    *l=natural_even_margin(x,scale);*t=natural_even_margin(y,scale);
+    *r=natural_even_margin(1920-x-aw,scale);*b=natural_even_margin(1080-y-ah,scale);
+    return width+*l+*r<=16384 && height+*t+*b<=16384;
+}
+static bool update_expand_geometry(void)
+{
+    if(!s_expand_px)return true;
+    int aw=s_preview_aperture_width?s_preview_aperture_width:1680;
+    int ah=s_preview_aperture_height?s_preview_aperture_height:990;
+    if(s_border_choices_count && s_border_selection>=0 && s_border_selection<s_border_choices_count)
+    {aw=s_border_choices[s_border_selection].aperture_width;ah=s_border_choices[s_border_selection].aperture_height;}
+    return natural_expand_geometry(s_width,s_height,aw,ah,&s_expand_left,&s_expand_top,&s_expand_right,&s_expand_bottom);
+}
 static bool upload_border_texture(void)
 {
     unsigned char *rgba = NULL;
     const int component_bits = s_hdr_transfer ? 16 : 8;
     const int stride = component_bits / 2;
-    const size_t bytes = 1920u * 1080u * stride;
+    int width=s_expand_px?s_width+s_expand_left+s_expand_right:1920;
+    int height=s_expand_px?s_height+s_expand_top+s_expand_bottom:1080;
+    const size_t bytes = (size_t)width * height * stride;
     if (!read_file(s_border_path, bytes, bytes, &rgba, NULL)) return false;
     struct pl_plane plane;
     struct pl_plane_data data = {
-        .type=PL_FMT_UNORM, .width=1920, .height=1080,
-        .pixel_stride=stride, .row_stride=1920*stride, .pixels=rgba,
+        .type=PL_FMT_UNORM, .width=width, .height=height,
+        .pixel_stride=stride, .row_stride=width*stride, .pixels=rgba,
     };
     // libplacebo may normalize these component descriptors in place.
     int sizes[4] = {component_bits,component_bits,component_bits,component_bits};
@@ -1627,24 +1657,22 @@ static bool focus_view_point(HWND view,int mouse_x,int mouse_y,double *u,double 
     return *u>=0 && *u<=1 && *v>=0 && *v<=1;
 }
 
-// Expand keeps the picture rectangle fixed. Eight full-coverage stock regions
-// use the same integer nine-slice partitions as FilmBorderExpandCanvasCore.RenderTexture.
+// Load the exact artwork prepared by the production managed renderer.
+// Only the stock moves. The original picture always wins in its fixed rectangle.
 static bool compose_film_expand(void)
 {
     pl_dispatch_reset_frame(s_border_dispatch);
     pl_shader sh=pl_dispatch_begin(s_border_dispatch);
-    int aw,ah;border_source_aperture(&aw,&ah);
     struct fgs_film_motion motion=fgs_film_border_motion_adjusted(s_frame_seconds,s_border_weave,
         s_motion_amp,s_motion_speed,s_motion_frequency);
+    int width=s_width+s_expand_left+s_expand_right,height=s_height+s_expand_top+s_expand_bottom;
     const float content[]={(float)s_width,(float)s_height};
-    const float canvas[]={(float)(s_width+2*s_expand_px),(float)(s_height+2*s_expand_px)};
-    const float source_ap[]={(float)aw,(float)ah};
-    const float margin[]={(float)s_expand_px,(float)s_expand_px};
+    const float canvas[]={(float)width,(float)height};
+    const float margin[]={(float)s_expand_left,(float)s_expand_top};
     const float shift[]={(float)motion.shift_x,(float)motion.shift_y};
     const struct pl_shader_var variables[]={
         {.var=pl_var_vec2("fgsContentSize"),.data=content},
         {.var=pl_var_vec2("fgsCanvasSize"),.data=canvas},
-        {.var=pl_var_vec2("fgsStockAperture"),.data=source_ap,.dynamic=true},
         {.var=pl_var_vec2("fgsMargin"),.data=margin},
         {.var=pl_var_vec2("fgsShift"),.data=shift,.dynamic=true},
     };
@@ -1661,30 +1689,14 @@ static bool compose_film_expand(void)
         "    rgb=texture(fgsPicture,q/fgsContentSize).rgb;\n"
         "} else {\n"
         "    vec2 p=gl_FragCoord.xy-fgsShift;\n"
-        "    if(all(greaterThanEqual(p,vec2(0.0))) && all(lessThan(p,fgsCanvasSize))) {\n"
-        "        vec2 stockSize=vec2(1920.0,1080.0);\n"
-        "        vec2 a=floor((stockSize-fgsStockAperture)*0.5);\n"
-        "        vec2 b=a+fgsStockAperture;\n"
-        "        vec2 end=fgsMargin+fgsContentSize;\n"
-        "        ivec2 part=ivec2(p.x<fgsMargin.x?0:(p.x<end.x?1:2),p.y<fgsMargin.y?0:(p.y<end.y?1:2));\n"
-        "        if(part.x!=1 || part.y!=1) {\n"
-        "            vec2 slo=vec2(part.x==0?0.0:(part.x==1?a.x:b.x),part.y==0?0.0:(part.y==1?a.y:b.y));\n"
-        "            vec2 shi=vec2(part.x==0?a.x:(part.x==1?b.x:stockSize.x),part.y==0?a.y:(part.y==1?b.y:stockSize.y));\n"
-        "            vec2 dlo=vec2(part.x==0?0.0:(part.x==1?fgsMargin.x:end.x),part.y==0?0.0:(part.y==1?fgsMargin.y:end.y));\n"
-        "            vec2 dhi=vec2(part.x==0?fgsMargin.x:(part.x==1?end.x:fgsCanvasSize.x),part.y==0?fgsMargin.y:(part.y==1?end.y:fgsCanvasSize.y));\n"
-        "            vec2 ss=shi-slo, ds=dhi-dlo;\n"
-        "            if(all(greaterThan(ss,vec2(0.0))) && all(greaterThan(ds,vec2(0.0)))) {\n"
-        "                vec2 uv=clamp(slo+(p-dlo)/ds*ss,slo+0.5,shi-0.5)/stockSize;\n"
-        "                rgb=texture(fgsStock,uv).rgb;\n"
-        "            }\n"
-        "        }\n"
-        "    }\n"
+        "    if(all(greaterThanEqual(p,vec2(0.0))) && all(lessThan(p,fgsCanvasSize)))\n"
+        "        rgb=texture(fgsStock,p/fgsCanvasSize).rgb;\n"
         "}\n"
         "color=vec4(rgb,1.0);\n";
     if(!pl_shader_custom(sh,&(struct pl_custom_shader){
-        .description="FGS Expand Canvas",
+        .description="FGS Natural Expand Canvas",
         .input=PL_SHADER_SIG_NONE,.output=PL_SHADER_SIG_COLOR,
-        .output_w=s_width+2*s_expand_px,.output_h=s_height+2*s_expand_px,
+        .output_w=width,.output_h=height,
         .body=shader,.descriptors=textures,.num_descriptors=2,
         .variables=variables,.num_variables=sizeof(variables)/sizeof(variables[0]),
     })) {pl_dispatch_abort(s_border_dispatch,&sh);return false;}
@@ -1763,10 +1775,24 @@ static bool init_film_border_targets(void)
         .w=s_width,.h=s_height,.format=format,.sampleable=true,.renderable=true,
     };
     s_border_content = pl_tex_create(gpu,&params);
-    params.w+=2*s_expand_px;params.h+=2*s_expand_px;
+    params.w+=s_expand_left+s_expand_right;params.h+=s_expand_top+s_expand_bottom;
     s_border_composite = pl_tex_create(gpu,&params);
     s_border_dispatch = pl_dispatch_create(s_log,gpu);
     return s_border_content && s_border_composite && s_border_dispatch;
+}
+
+static bool resize_expand_target(void)
+{
+    if(!s_expand_px || !s_border_composite)return true;
+    struct pl_tex_params params=s_border_composite->params;
+    int width=s_width+s_expand_left+s_expand_right,height=s_height+s_expand_top+s_expand_bottom;
+    if(params.w==width && params.h==height)return true;
+    params.w=width;params.h=height;
+    pl_tex replacement=pl_tex_create(s_device->gpu,&params);
+    if(!replacement)return false;
+    pl_tex_destroy(s_device->gpu,&s_border_composite);
+    s_border_composite=replacement;
+    return true;
 }
 
 static bool render_film_border(struct pl_frame source, const struct pl_frame *target,
@@ -1808,7 +1834,7 @@ static double render_once(bool report)
     bool border_visible=s_border_path && (!s_border_settings ||
         (s_border_list ? strcmp(s_border_choices[s_border_selection].mode,"OFF")!=0 : s_border_mode!=0));
     int px=border_visible?s_expand_px:0;
-    int view_w=s_width+2*px,view_h=s_height+2*px;
+    int view_w=s_width+(px?s_expand_left+s_expand_right:0),view_h=s_height+(px?s_expand_top+s_expand_bottom:0);
     if (s_pixel_view) {
         int shown_w = width < view_w ? width : view_w;
         int shown_h = height < view_h ? height : view_h;
@@ -2574,6 +2600,14 @@ static int audit_border_thumbnails(void)
 int wmain(int argc, wchar_t **argv)
 {
     QueryPerformanceFrequency(&s_frequency);
+    if(argc==2 && !wcscmp(argv[1],L"--audit-expand-geometry"))
+    {
+        int l,t,r,b;
+        if(!natural_expand_geometry(1920,1080,1684,970,&l,&t,&r,&b) || l!=132 || r!=132 || t!=62 || b!=62)return 9;
+        if(!natural_expand_geometry(1920,1080,1888,800,&l,&t,&r,&b) || l!=16 || r!=16 || t!=142 || b!=142)return 9;
+        if(!natural_expand_geometry(320,180,1680,990,&l,&t,&r,&b) || l!=22 || r!=22 || t!=8 || b!=8)return 9;
+        puts("PASS natural Expand Canvas geometry");return 0;
+    }
     if (argc == 2 && !wcscmp(argv[1], L"--audit-border-thumbnails")) return audit_border_thumbnails();
     if (argc == 2 && !wcscmp(argv[1], L"--audit-border-framing")) return audit_border_framing();
     if (argc == 2 && !wcscmp(argv[1], L"--audit-film-border")) return audit_film_border();
@@ -2733,7 +2767,6 @@ int wmain(int argc, wchar_t **argv)
         fprintf(stderr, "Invalid even dimensions, bit depth, bench count or timeline seconds\n");
         return 2;
     }
-    if(s_expand_px && (s_width+2*s_expand_px>16384 || s_height+2*s_expand_px>16384))return 2;
     if(s_border_settings && s_border_choices_file &&
        !load_border_choices(s_border_choices_file,s_initial_border_mode?
              s_initial_border_mode:L"OFF")) {
@@ -2743,6 +2776,7 @@ int wmain(int argc, wchar_t **argv)
         s_border_path=s_border_choices[s_border_selection].raw_path;
         s_border_weave=s_border_choices[s_border_selection].weave;
     }
+    if(!update_expand_geometry())return 2;
     s_frame_path=argv[1];s_frame_depth=depth;
     s_frame_seconds=s_pending_seconds=(double)timeline_ticks/10000000.0;
     if (s_duration_seconds>0 && s_frame_seconds>s_duration_seconds) return 2;

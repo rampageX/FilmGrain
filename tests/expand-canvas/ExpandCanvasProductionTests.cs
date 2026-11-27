@@ -38,18 +38,18 @@ internal static class ExpandCanvasProductionTests
             object plan=p[5];
             object[] c={plan,frame,resize,media,"X265",""};
             Check((bool)Call("ConfigureExpand",c),"ConfigureExpand: "+c[5]);
-            Check((int)Call("FinalWidth",plan,320)==448 && (int)Call("FinalHeight",plan,180)==308,"Canvas size");
+            Check((int)Call("FinalWidth",plan,320)==364 && (int)Call("FinalHeight",plan,180)==196,"Canvas size");
             var tmp=new List<string>();Call("StageExpandTexture",plan,work,tmp);
             Check(tmp.Count==1,"Texture cleanup registration");
             string art=(string)Get(plan,"ExpandTexture");
-            using(var image=new Bitmap(art)) Check(image.Width==448 && image.Height==308 && image.GetPixel(224,154).ToArgb()==Color.Black.ToArgb(),"Actual staged Dark texture");
+            using(var image=new Bitmap(art)) Check(image.Width==364 && image.Height==196 && image.GetPixel(182,98).ToArgb()==Color.Black.ToArgb(),"Actual staged Dark texture");
             File.Move(art,Path.Combine(work,id+".png"));
             string graph=(string)Call("AppendFilter","[0:v:0]format="+pix+"[vout]",plan,320,180,1,"25/1",media,pix);
             Check(graph.Contains("xstack=inputs=5"),"Missing final region copy");
             File.WriteAllText(Path.Combine(work,id+".graph"),graph,new UTF8Encoding(false));
             Set(plan,"GpuInputIndex",1);
             string gpu=(string)Call("AppendGpuFilter","[0:v:0]format=p010le,hwupload[fgsfilm_gpu_video]",plan);
-            Check(gpu.Contains("overlay_vulkan=x=64:y=64") && gpu.Contains("hwupload=derive_device=cuda") && !gpu.Contains("hwdownload"),"GPU region-copy route");
+            Check(gpu.Contains("overlay_vulkan=x=22:y=8") && gpu.Contains("hwupload=derive_device=cuda") && !gpu.Contains("hwdownload"),"GPU region-copy route");
             Console.WriteLine("PASS production plan and graph "+id);
         }
         return 0;

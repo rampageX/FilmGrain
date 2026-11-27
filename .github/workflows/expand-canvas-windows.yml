@@ -37,6 +37,16 @@ jobs:
           "%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /target:exe /reference:System.Drawing.dll /out:ExpandCanvasCoreTests.exe dotnet\FilmGrain_FilmBorderExpandCanvasCore.cs tests\expand-canvas\ExpandCanvasCoreTests.cs
           if errorlevel 1 exit /b 1
           ExpandCanvasCoreTests.exe
+      - name: Render all real bundled border stocks
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $stock = Join-Path $env:RUNNER_TEMP 'FGS_15_Stock'
+          $samples = Join-Path $env:RUNNER_TEMP 'FGS_Natural_Samples'
+          Expand-Archive -LiteralPath 'Utils\_FilmBorders\FGS_Bundled_15.zip' -DestinationPath $stock
+          & '.\ExpandCanvasCoreTests.exe' $stock $samples
+          if ($LASTEXITCODE -ne 0) { throw 'Bundled stock renderer failed.' }
+          'FGS_NATURAL_SAMPLES=' + $samples | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Set up verified UCRT64 GPU toolchain
         id: msys2
         uses: msys2/setup-msys2@v2
@@ -115,7 +125,7 @@ jobs:
           $previousPath = $env:PATH
           try {
             $env:PATH = (Join-Path $env:FGS_MSYS2_ROOT 'ucrt64\bin') + [IO.Path]::PathSeparator + $previousPath
-            foreach ($mode in @('--audit-border-modes','--audit-border-framing','--audit-border-thumbnails')) {
+            foreach ($mode in @('--audit-border-modes','--audit-border-framing','--audit-border-thumbnails','--audit-expand-geometry')) {
               & $exe $mode
               $code = $LASTEXITCODE
               if ($code -ne 0) { throw ('Native regression failed: ' + $mode + '; exit=' + $code) }
@@ -151,14 +161,15 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $deliver = Join-Path $env:RUNNER_TEMP 'FGS_ExpandCanvas_P6T9'
+          $deliver = Join-Path $env:RUNNER_TEMP 'FGS_ExpandCanvas_J7N3'
           [void](New-Item -ItemType Directory -Path $deliver -Force)
           $version = (Get-Content -LiteralPath '.github\release\version.txt' -Raw).Trim()
           $out = Join-Path $env:RUNNER_TEMP 'FGS_Border_Merge_Validation'
-          Copy-Item -LiteralPath (Join-Path $out ('FilmGrain_Studio_v' + $version + '_Stable.zip')) -Destination (Join-Path $deliver 'FGS_ExpandCanvas_P6T9_Test_Runtime.zip')
-          $source = Join-Path $deliver 'FGS_ExpandCanvas_P6T9_Full_Source.zip'
+          Copy-Item -LiteralPath (Join-Path $out ('FilmGrain_Studio_v' + $version + '_Stable.zip')) -Destination (Join-Path $deliver 'FGS_ExpandCanvas_J7N3_Test_Runtime.zip')
+          $source = Join-Path $deliver 'FGS_ExpandCanvas_J7N3_Full_Source.zip'
           & git -C $env:GITHUB_WORKSPACE archive --format=zip "--output=$source" HEAD
           if ($LASTEXITCODE -ne 0) { throw 'Matching full source ZIP creation failed.' }
+          Compress-Archive -LiteralPath $env:FGS_NATURAL_SAMPLES -DestinationPath (Join-Path $deliver 'FGS_Natural_Border_Visual_Samples.zip')
           $info = @('Commit=' + $env:GITHUB_SHA; 'Candidate only; GPU runtime and visual acceptance pending.')
           $info += @(Get-ChildItem -LiteralPath $deliver -Filter '*.zip' | Get-FileHash -Algorithm SHA256 | ForEach-Object { $_.Hash + '  ' + [IO.Path]::GetFileName($_.Path) })
           $info | Set-Content -Encoding Ascii -LiteralPath (Join-Path $deliver 'BUILD_PROOF.txt')
@@ -167,7 +178,7 @@ jobs:
       - name: Upload candidate runtime and complete source
         uses: actions/upload-artifact@v4
         with:
-          name: FGS_ExpandCanvas_P6T9_Test_and_Source
+          name: FGS_ExpandCanvas_J7N3_Test_and_Source
           path: ${{ env.FGS_EXPAND_DELIVERY }}
           if-no-files-found: error
           retention-days: 14
