@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.1.02 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.1.03 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 <table>
   <tr>
@@ -185,6 +185,8 @@ Stable 不附带开发源码、Legacy 历史实现或项目截图，也不预装
 Source 与 Stable 来自同一次已提交源码归档，`SOURCE_BUILD_INFO.txt` 记录源码 commit 和对应运行 EXE 的 SHA256。当前磁盘状态的 `Working_Source_日期时间.zip` 用于开发交接，按导出规则包含未提交修改和新文件，不会自动上传为 Release 附件。
 
 ## 胶片边框（Film Border）
+
+「添加边框」可选覆盖式或外扩式。外扩在原画四周添加片基，保留原视频尺寸，适用于已验证的逐行 HEVC NVENC、H.264 NVENC、x264、x265 路线。使用外扩时关闭裁切、缩放、电影画幅及插帧。
 
 S4 Vulkan/libplacebo→CUDA GPU 边框支持以下逐行素材的扫描 Grain Plate 组合：
 

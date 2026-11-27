@@ -166,6 +166,9 @@ jobs:
           } elseif ($version -eq '5.1.02') {
             $ref = 'heads/test/interpolation-start-time'
             $expected = '45205d866d12e6714421c50cf18252c082863a98'
+          } elseif ($version -eq '5.1.03') {
+            $ref = 'heads/test/expand-canvas'
+            $expected = 'b31cc9a014384d4e745893f90a4e47d3c43b4583'
           } else { exit 0 }
           $sha = gh api "repos/$env:GITHUB_REPOSITORY/git/ref/$ref" --jq '.object.sha'
           if ($LASTEXITCODE -ne 0) { throw 'Accepted test branch verification failed.' }
