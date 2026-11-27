@@ -221,7 +221,12 @@ namespace FilmGrainStudioPreview
             using(var stock=new Bitmap(1920,1080,PixelFormat.Format32bppPArgb))
             {
                 using(Graphics draw=Graphics.FromImage(stock))
-                {draw.Clear(Color.Black);draw.DrawImageUnscaled(source,0,0);}
+                {
+                    draw.Clear(Color.Black);
+                    // Film aperture coordinates are pixels. Ignore PNG print DPI.
+                    draw.DrawImage(source,new Rectangle(0,0,stock.Width,stock.Height),
+                        0,0,source.Width,source.Height,GraphicsUnit.Pixel);
+                }
                 byte[] pixels=ReadPixels(stock,PixelFormat.Format32bppPArgb);
                 Rectangle[] xMap=MapAxis(pixels,1920,sx,ex,sy,ey,1080,left,g.Width+2*guardX,right,scale,true);
                 Rectangle[] yMap=MapAxis(pixels,1080,sy,ey,sx,ex,1920,top,g.Height+2*guardY,bottom,scale,false);

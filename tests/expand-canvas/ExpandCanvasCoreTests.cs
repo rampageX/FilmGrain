@@ -45,6 +45,54 @@ internal static class ExpandCanvasCoreTests
             }
         }
     }
+    static void CheckImportedStockDpi()
+    {
+        const int aw=1680,ah=748;
+        var geometry=FilmBorderExpandCanvasCore.NaturalGeometry(1920,900,aw,ah);
+        using(var source=new Bitmap(1920,1080,PixelFormat.Format32bppArgb))
+        {
+            using(var draw=Graphics.FromImage(source))
+            {
+                draw.Clear(Color.Silver);
+                draw.FillRectangle(Brushes.Black,100,60,40,50);
+                draw.FillRectangle(Brushes.Black,1780,970,40,50);
+                draw.CompositingMode=System.Drawing.Drawing2D.CompositingMode.SourceCopy;
+                draw.FillRectangle(Brushes.Transparent,120,166,aw,ah);
+            }
+            using(var first=new MemoryStream())
+            using(var second=new MemoryStream())
+            {
+                source.SetResolution(96,96);
+                using(var baseline=FilmBorderExpandCanvasCore.RenderTexture(source,aw,ah,geometry))
+                    baseline.Save(first,ImageFormat.Png);
+                source.SetResolution(300,300);
+                using(var png=new MemoryStream())
+                {
+                    source.Save(png,ImageFormat.Png);
+                    png.Position=0;
+                    using(var imported=new Bitmap(png))
+                    {
+                        Check(imported.HorizontalResolution>290,"Imported PNG must retain high DPI");
+                        using(var legacy=new Bitmap(1920,1080))
+                        {
+                            using(var draw=Graphics.FromImage(legacy))
+                            {
+                                draw.Clear(Color.Black);
+                                draw.DrawImageUnscaled(imported,0,0);
+                            }
+                            Check(legacy.GetPixel(1900,20).R==0,"Legacy draw reproduces missing right-side stock");
+                        }
+                        using(var actual=FilmBorderExpandCanvasCore.RenderTexture(imported,aw,ah,geometry))
+                            actual.Save(second,ImageFormat.Png);
+                    }
+                }
+                Check(Convert.ToBase64String(first.ToArray())==Convert.ToBase64String(second.ToArray()),
+                    "Imported PNG print DPI must not change the output pixels");
+            }
+        }
+        Console.WriteLine("PASS imported 300 DPI PNG renders at the same pixel dimensions as 96 DPI");
+    }
+
     static void CheckPerforationPitch(bool horizontal)
     {
         using(var source=new Bitmap(1920,1080))
@@ -165,6 +213,7 @@ internal static class ExpandCanvasCoreTests
     }
     public static int Main(string[] args)
     {
+        CheckImportedStockDpi();
         CheckPerforationPitch(true);
         CheckPerforationPitch(false);
         var g=new FilmBorderExpandGeometry(1920,1080,64,64,64,64);
