@@ -1627,8 +1627,8 @@ static bool focus_view_point(HWND view,int mouse_x,int mouse_y,double *u,double 
     return *u>=0 && *u<=1 && *v>=0 && *v<=1;
 }
 
-// Expand keeps the picture rectangle fixed; eight aspect-fit stock regions use
-// the same integer partition and rounding as FilmBorderExpandCanvasCore.RenderTexture.
+// Expand keeps the picture rectangle fixed. Eight full-coverage stock regions
+// use the same integer nine-slice partitions as FilmBorderExpandCanvasCore.RenderTexture.
 static bool compose_film_expand(void)
 {
     pl_dispatch_reset_frame(s_border_dispatch);
@@ -1673,14 +1673,9 @@ static bool compose_film_expand(void)
         "            vec2 dlo=vec2(part.x==0?0.0:(part.x==1?fgsMargin.x:end.x),part.y==0?0.0:(part.y==1?fgsMargin.y:end.y));\n"
         "            vec2 dhi=vec2(part.x==0?fgsMargin.x:(part.x==1?end.x:fgsCanvasSize.x),part.y==0?fgsMargin.y:(part.y==1?end.y:fgsCanvasSize.y));\n"
         "            vec2 ss=shi-slo, ds=dhi-dlo;\n"
-        "            if(all(greaterThan(ss,vec2(0.0)))) {\n"
-        "                float scale=min(ds.x/ss.x,ds.y/ss.y);\n"
-        "                vec2 fit=clamp(floor(ss*scale+0.5),vec2(1.0),ds);\n"
-        "                vec2 start=dlo+floor((ds-fit)*0.5);\n"
-        "                if(all(greaterThanEqual(p,start)) && all(lessThan(p,start+fit))) {\n"
-        "                    vec2 uv=clamp(slo+(p-start)/fit*ss,slo+0.5,shi-0.5)/stockSize;\n"
-        "                    rgb=texture(fgsStock,uv).rgb;\n"
-        "                }\n"
+        "            if(all(greaterThan(ss,vec2(0.0))) && all(greaterThan(ds,vec2(0.0)))) {\n"
+        "                vec2 uv=clamp(slo+(p-dlo)/ds*ss,slo+0.5,shi-0.5)/stockSize;\n"
+        "                rgb=texture(fgsStock,uv).rgb;\n"
         "            }\n"
         "        }\n"
         "    }\n"

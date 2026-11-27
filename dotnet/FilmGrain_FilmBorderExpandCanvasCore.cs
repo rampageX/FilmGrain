@@ -72,7 +72,8 @@ namespace FilmGrainStudioPreview
         private static string N(int n) { return n.ToString(CultureInfo.InvariantCulture); }
 
         // Eight isolated pieces: no samples from the source aperture, including opaque scratches.
-        // Aspect-fit each piece; black film stock fills unused area. Alpha is resolved against black.
+        // Nine-slice mapping: each peripheral piece fills its destination rectangle.
+        // Adjacent pieces share boundaries. Only the stock is stretched; the picture stays fixed.
         internal static Bitmap RenderTexture(Bitmap source,int apertureWidth,int apertureHeight,FilmBorderExpandGeometry g)
         {
             if(source==null || source.Width!=1920 || source.Height!=1080 ||
@@ -90,26 +91,24 @@ namespace FilmGrainStudioPreview
                 {
                     target.Clear(Color.Black);
                     target.CompositingMode=CompositingMode.SourceOver;
-                    target.InterpolationMode=InterpolationMode.HighQualityBicubic;
-                    target.PixelOffsetMode=PixelOffsetMode.HighQuality;
+                    target.InterpolationMode=InterpolationMode.Bilinear;
+                    target.PixelOffsetMode=PixelOffsetMode.Half;
                     for(int y=0;y<3;y++) for(int x=0;x<3;x++)
                     {
                         if(x==1 && y==1) continue;
                         Rectangle src=new Rectangle(xs[x],ys[y],xs[x+1]-xs[x],ys[y+1]-ys[y]);
                         Rectangle dst=new Rectangle(xd[x],yd[y],xd[x+1]-xd[x],yd[y+1]-yd[y]);
                         if(src.Width==0 || src.Height==0) continue;
-                        double scale=Math.Min((double)dst.Width/src.Width,(double)dst.Height/src.Height);
-                        int w=Math.Min(dst.Width,Math.Max(1,(int)Math.Round(src.Width*scale,MidpointRounding.AwayFromZero)));
-                        int h=Math.Min(dst.Height,Math.Max(1,(int)Math.Round(src.Height*scale,MidpointRounding.AwayFromZero)));
-                        Rectangle fit=new Rectangle(dst.X+(dst.Width-w)/2,dst.Y+(dst.Height-h)/2,w,h);
-                        // Isolate the tile before interpolation. Clip the destination as a second guard.
+                        // Fill the full destination, without independently centering or
+                        // letterboxing edge pieces. Isolate the tile before interpolation
+                        // so a protected-aperture sample cannot leak into the stock.
                         using(Bitmap tile=source.Clone(src,PixelFormat.Format32bppPArgb))
                         using(ImageAttributes attrs=new ImageAttributes())
                         {
                             attrs.SetWrapMode(WrapMode.TileFlipXY);
                             GraphicsState saved=target.Save();
                             target.SetClip(dst);
-                            target.DrawImage(tile,fit,0,0,tile.Width,tile.Height,GraphicsUnit.Pixel,attrs);
+                            target.DrawImage(tile,dst,0,0,tile.Width,tile.Height,GraphicsUnit.Pixel,attrs);
                             target.Restore(saved);
                         }
                     }

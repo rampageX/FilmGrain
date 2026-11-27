@@ -15,6 +15,33 @@ internal static class ExpandCanvasCoreTests
         try { action(); } catch(ArgumentException) { failed=true; }
         Check(failed,"Invalid geometry accepted");
     }
+    // A fully opaque ring must fill every output perimeter pixel. A solid source
+    // detects gaps introduced by mapping, independently of artistic transparency.
+    static void CheckContinuousRing(int apertureWidth,int apertureHeight,FilmBorderExpandGeometry g)
+    {
+        using(var src=new Bitmap(1920,1080))
+        {
+            using(var draw=Graphics.FromImage(src))
+            {
+                draw.Clear(Color.Blue);
+                draw.FillRectangle(Brushes.Magenta,(1920-apertureWidth)/2,(1080-apertureHeight)/2,
+                    apertureWidth,apertureHeight);
+            }
+            using(var image=FilmBorderExpandCanvasCore.RenderTexture(src,apertureWidth,apertureHeight,g))
+            {
+                Rectangle picture=g.Picture;
+                for(int y=0;y<image.Height;y++) for(int x=0;x<image.Width;x++)
+                {
+                    Color actual=image.GetPixel(x,y);
+                    if(picture.Contains(x,y))
+                        Check(actual.ToArgb()==Color.Black.ToArgb(),"Protected picture at "+x+","+y);
+                    else
+                        Check(actual.B>=250 && actual.R==0 && actual.G==0 && actual.A==255,
+                            "Artificial stock gap or aperture contamination at "+x+","+y);
+                }
+            }
+        }
+    }
     public static int Main(string[] args)
     {
         var g=new FilmBorderExpandGeometry(1920,1080,64,64,64,64);
@@ -44,6 +71,11 @@ internal static class ExpandCanvasCoreTests
                     Check(image.GetPixel(x,y).R==0,"Source aperture contamination");
             }
         }
+        CheckContinuousRing(1680,748,new FilmBorderExpandGeometry(320,180,64,64,64,64));
+        CheckContinuousRing(1680,990,new FilmBorderExpandGeometry(180,320,16,32,48,64));
+        CheckContinuousRing(1680,748,new FilmBorderExpandGeometry(640,64,2,2,2,2));
+        CheckContinuousRing(1651,721,new FilmBorderExpandGeometry(64,640,32,32,32,32));
+        Console.WriteLine("PASS complete opaque ring coverage (landscape, portrait, thin and odd aperture)");
         foreach(string trc in new[]{"bt709","smpte2084","arib-std-b67"})
         {
             string tx=FilmBorderExpandCanvasCore.TextureFilter(trc,false,true);
