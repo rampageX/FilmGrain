@@ -578,6 +578,8 @@ namespace FilmGrainStudioPreview
 
                 if(hdrPreserve)SvtHdr10Core.Attach(request,input,info);
 
+                if(filmBorder!=null && filmBorder.ExpandGeometry!=null)
+                    request.ExecutionNotice=FilmBorderEncodingCore.ExpandNotice(filmBorder);
                 if(info.IsHdr && info.IsInterlaced && !deinterlace)request.ExecutionNotice="[Native .NET] 反交错 OFF：沿用不反交错的逐帧处理，不启用 bob/光流或双倍场率；不保证隔行编码标记。 / Deinterlace OFF: frame processing without bob/interpolation; no interlaced-encoding flags are added.";
             if(newCpu)request.ExecutionNotice=(request.ExecutionNotice??"")+Environment.NewLine+"[CPU] "+Get(state,"FG_MODE")+" "+(CpuEncoderCore.IsCrf(state)?"CRF "+Get(state,"FG_NVENC_CQ"):"VBR")+" preset="+CpuEncoderCore.Preset(state)+"; "+(grainEnabled?"pixel grain baked before encoding":"no added pixel grain")+"; GPU preprocessing may still be used.";
             if (fgsimMode) FgsimTextureCore.AttachVerifiedDevice(request, fgsimHook, false);

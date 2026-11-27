@@ -2909,9 +2909,17 @@ namespace FilmGrainStudioPreview
             MediaProbeInfo info = GetBitrateMediaContext();
             int width = info != null ? info.Width : 1920;
             int height = info != null ? info.Height : 1080;
-            if(info!=null && config.Get("RESIZE_MODE")!="OFF") {var state=PreprocessEnvironment();CinematicFramePlan frame;ResizePlan plan;string error;if(CinematicFrameCore.TryBuild(info,state,out frame,out error)&&ResizeCore.TryBuild(info,state,frame,out plan,out error)){width=plan.Width;height=plan.Height;}}
-            int borderPx=FilmBorderExpandPx();
-            if(borderPx>0 && config.Get("FILM_BORDER_MODE")!="OFF" && codecIndex!=0 && !(NewCpuSelected() && CpuCodec()=="SVT"))
+            bool expand=FilmBorderExpandPx()>0 && config.Get("FILM_BORDER_MODE")!="OFF" &&
+                codecIndex!=0 && !(NewCpuSelected() && CpuCodec()=="SVT");
+            if(info!=null && (expand || config.Get("RESIZE_MODE")!="OFF"))
+            {
+                var state=PreprocessEnvironment();
+                CinematicFramePlan frame;ResizePlan resize;string reason;
+                if(CinematicFrameCore.TryBuild(info,state,out frame,out reason) &&
+                    ResizeCore.TryBuild(info,state,frame,out resize,out reason))
+                {width=frame.ActiveWidth;height=frame.ActiveHeight;expand=expand && !frame.CinematicBars;}
+            }
+            if(expand)
             {
                 FilmBorderChoice choice;string choiceError;
                 if(FilmBorderCatalogCore.TryResolve(appRoot,config.Get("FILM_BORDER_MODE"),out choice,out choiceError))

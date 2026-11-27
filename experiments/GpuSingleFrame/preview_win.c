@@ -118,6 +118,7 @@ static bool s_window_shown = false, s_restore_maximized = false;
 static bool s_pixel_view = false, s_panning = false, s_frame_loading = false;
 static int s_pan_x = 0, s_pan_y = 0, s_pan_last_x, s_pan_last_y;
 static const wchar_t *s_video_path, *s_ffmpeg_path, *s_frame_path;
+static const wchar_t *s_picture_filter, *s_picture_device;
 static char *s_table_data;
 static int s_frame_depth;
 static double s_frame_seconds, s_pending_seconds, s_duration_seconds;
@@ -1280,6 +1281,8 @@ static bool start_frame_decoder(double seconds, bool plate, PROCESS_INFORMATION 
     const wchar_t *output = plate ? s_plate_frame_path : s_frame_path;
     if (!source || !output) return false;
     size_t capacity = wcslen(s_ffmpeg_path)+wcslen(source)+wcslen(output)+550;
+    if (s_picture_filter) capacity += wcslen(s_picture_filter);
+    if (s_picture_device) capacity += wcslen(s_picture_device);
     wchar_t *command = calloc(capacity,sizeof(wchar_t));
     if (!command) return false;
     if (plate) {
@@ -1293,6 +1296,14 @@ static bool start_frame_decoder(double seconds, bool plate, PROCESS_INFORMATION 
             L"-vf \"fps=%u/%u,scale=%d:%d:flags=bilinear,format=yuv420p10le\" "
             L"-f rawvideo \"%ls\"",
             s_ffmpeg_path,plate_seconds,source,s_fps_num,s_fps_den,s_width,s_height,output);
+    } else if (s_picture_filter) {
+        swprintf(command,capacity,
+            L"\"%ls\" -hide_banner -nostdin -v error -y %ls%ls%ls"
+            L"-ss %.6f -i \"%ls\" -map 0:v:0 -an -sn -dn -frames:v 1 "
+            L"-vf \"%ls\" -f rawvideo \"%ls\"",
+            s_ffmpeg_path,s_picture_device?L"-init_hw_device \"":L"",
+            s_picture_device?s_picture_device:L"",s_picture_device?L"\" -filter_hw_device vk ":L"",
+            seconds,source,s_picture_filter,output);
     } else {
         swprintf(command,capacity,
             L"\"%ls\" -hide_banner -nostdin -v error -y -ss %.6f -i \"%ls\" "
@@ -2669,6 +2680,8 @@ int wmain(int argc, wchar_t **argv)
         else if (!wcscmp(key, L"--lut-on")) {if (!int_arg(value, 0, 1, &flag)) return 2;lut_on = flag != 0;}
         else if (!wcscmp(key, L"--video")) s_video_path = value;
         else if (!wcscmp(key, L"--ffmpeg")) s_ffmpeg_path = value;
+        else if (!wcscmp(key, L"--picture-filter")) s_picture_filter = value;
+        else if (!wcscmp(key, L"--picture-device")) s_picture_device = value;
         else if (!wcscmp(key,L"--pixel-mode")) {
             if (!wcscmp(value,L"FGSIM")) s_fgsim_mode=true;
             else if (!wcscmp(value,L"DIGITAL")) s_digital_mode=true;

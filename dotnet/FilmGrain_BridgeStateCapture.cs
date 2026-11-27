@@ -176,6 +176,7 @@ namespace FilmGrainStudioPreview
             var framing = new Dictionary<string,string>();
             WriteCurrentFraming(framing);
             snapshot.CinematicFrame = framing["FG_CINEMATIC_FRAME"] == "1";
+            snapshot.CinematicBars = framing[CinematicFrameCore.CinematicBarsEnvironment] == "1";
             snapshot.FrameMode = framing["FG_FRAME_MODE"];
             snapshot.CropPerSide = framing["FG_CROP_PER_SIDE"];
             snapshot.CropHorizontal = framing["FG_CROP_HORIZONTAL"];

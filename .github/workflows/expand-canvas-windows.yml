@@ -2,7 +2,7 @@ name: FGS Expand Canvas Windows candidate
 
 on:
   push:
-    branches: [test/expand-canvas]
+    branches: [test/expand-canvas-geometry]
 
 permissions:
   contents: read
@@ -150,15 +150,24 @@ jobs:
           $harness = Join-Path $env:RUNNER_TEMP 'ExpandCanvasProductionTests.exe'
           & $csc /nologo /target:exe /reference:System.Drawing.dll /reference:System.Web.Extensions.dll "/out:$harness" 'tests\expand-canvas\ExpandCanvasProductionTests.cs'
           if ($LASTEXITCODE -ne 0) { throw 'Integration harness compilation failed.' }
-          $work = Join-Path $env:RUNNER_TEMP 'Expand Canvas & (test) ^ % !'
+          $work = Join-Path $env:RUNNER_TEMP 'Tester & (test) ^ % ! -='
           [void](New-Item -ItemType Directory -Path $work -Force)
           $ffprobe = Join-Path $ffmpeg[0].DirectoryName 'ffprobe.exe'
           $title = ([string][char]0x91c7)+[char]0x7528+'Blackmagic'+[char]0x62cd+[char]0x6444+[char]0x300a+'Nature'+[char]0x300b
-          $fixture = Join-Path $work (([string][char]0x6d4b)+[char]0x8bd5+' & (^) % !.mp4')
-          & $ffmpeg[0].FullName -hide_banner -loglevel error -y -f lavfi -i 'color=s=64x64:r=24' -t 1 -c:v mpeg4 -metadata ('title='+$title) $fixture
-          if ($LASTEXITCODE -ne 0) { throw 'Unicode metadata fixture creation failed.' }
-          & $harness $env:FGS_MERGE_RUNTIME $work $ffprobe $fixture
-          if ($LASTEXITCODE -ne 0) { throw 'Production graph generation failed.' }
+          if (Test-Path -LiteralPath 'I:\') { throw 'Drive I: must be free for the path fixture.' }
+          subst.exe I: $env:RUNNER_TEMP
+          if ($LASTEXITCODE -ne 0) { throw 'Path fixture drive mapping failed.' }
+          try {
+            $converter = 'I:\-=Converter=-\'
+            [void](New-Item -ItemType Directory -Path $converter -Force)
+            $fixture = Join-Path $converter (([string][char]0x6d4b)+[char]0x8bd5+' & (^) % !.mp4')
+            & $ffmpeg[0].FullName -hide_banner -loglevel error -y -f lavfi -i 'color=s=64x64:r=24' -t 1 -c:v mpeg4 -metadata ('title='+$title) $fixture
+            if ($LASTEXITCODE -ne 0) { throw 'Unicode metadata fixture creation failed.' }
+            & $harness $env:FGS_MERGE_RUNTIME $work $ffprobe $fixture
+            if ($LASTEXITCODE -ne 0) { throw 'Production graph generation failed.' }
+          } finally {
+            subst.exe I: /D
+          }
           python 'tests/expand-canvas/verify_production_graphs.py' $ffmpeg[0].FullName $work
           if ($LASTEXITCODE -ne 0) { throw 'Production CPU graph media verification failed.' }
 
@@ -166,13 +175,13 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $deliver = Join-Path $env:RUNNER_TEMP 'FGS_ExpandCanvas_P8D3'
+          $deliver = Join-Path $env:RUNNER_TEMP 'FGS_ExpandCanvas_Q7M4D2'
           [void](New-Item -ItemType Directory -Path $deliver -Force)
           $version = (Get-Content -LiteralPath '.github\release\version.txt' -Raw).Trim()
           $out = Join-Path $env:RUNNER_TEMP 'FGS_Border_Merge_Validation'
-          Copy-Item -LiteralPath (Join-Path $out ('FilmGrain_Studio_v' + $version + '_Stable.zip')) -Destination (Join-Path $deliver 'FGS_ExpandCanvas_P8D3_Test_Runtime.zip')
-          Copy-Item -LiteralPath (Join-Path $env:FGS_MERGE_RUNTIME 'FilmGrain_Studio.exe') -Destination (Join-Path $deliver 'FilmGrain_Studio_P8D3.exe')
-          $source = Join-Path $deliver 'FGS_ExpandCanvas_P8D3_Full_Source.zip'
+          Copy-Item -LiteralPath (Join-Path $out ('FilmGrain_Studio_v' + $version + '_Stable.zip')) -Destination (Join-Path $deliver 'FGS_ExpandCanvas_Q7M4D2_Test_Runtime.zip')
+          Copy-Item -LiteralPath (Join-Path $env:FGS_MERGE_RUNTIME 'FilmGrain_Studio.exe') -Destination (Join-Path $deliver 'FilmGrain_Studio_Q7M4D2.exe')
+          $source = Join-Path $deliver 'FGS_ExpandCanvas_Q7M4D2_Full_Source.zip'
           & git -C $env:GITHUB_WORKSPACE archive --format=zip "--output=$source" HEAD
           if ($LASTEXITCODE -ne 0) { throw 'Matching full source ZIP creation failed.' }
           Compress-Archive -LiteralPath $env:FGS_NATURAL_SAMPLES -DestinationPath (Join-Path $deliver 'FGS_Natural_Border_Visual_Samples.zip')
@@ -184,7 +193,7 @@ jobs:
       - name: Upload candidate runtime and complete source
         uses: actions/upload-artifact@v4
         with:
-          name: FGS_ExpandCanvas_P8D3_Test_and_Source
+          name: FGS_ExpandCanvas_Q7M4D2_Test_and_Source
           path: ${{ env.FGS_EXPAND_DELIVERY }}
           if-no-files-found: error
           retention-days: 14

@@ -40,3 +40,75 @@ for file in sorted(work.glob("*.graph")):
         if info.get(key)!=val: raise RuntimeError(f"{file.stem}: {key} expected {val}, got {info.get(key)}")
     print("PASS original samples/PTS and encoded canvas:",file.stem,flush=True)
 if len(list(work.glob("*.graph")))!=8: raise RuntimeError("Expected eight production graph cases")
+
+# A hosted Windows runner may lack a Vulkan device. A Vulkan workstation can
+# run the same matrix with FGS_TEST_VULKAN_DEVICE=0 (or the chosen device name).
+import os
+device = os.environ.get("FGS_TEST_VULKAN_DEVICE")
+gpu_args = ["-init_hw_device", f"vulkan=vk:{device or '0'},disable_multiplane=1",
+            "-filter_hw_device", "vk"]
+try:
+    run("-hide_banner", "-v", "error", *gpu_args, "-f", "lavfi", "-i", "testsrc2=s=64x64",
+        "-vf", "format=p010le,hwupload,hwdownload,format=p010le", "-frames:v", "1", "-f", "null", "-")
+    vulkan_available = True
+except RuntimeError:
+    if device is not None:
+        raise
+    vulkan_available = False
+    print("SKIP Vulkan execution of Resize and NVENC compositor graphs: no usable Vulkan device.", flush=True)
+
+def header(output, key, value):
+    if f"#{key} 0: {value}" not in output.splitlines():
+        raise RuntimeError(f"Expected {key} {value}\n{output}")
+
+def verify_geometry(meta, art, route, pix, base):
+    baseline, composite = meta[f"{route}Base"] if route == "gpu" else meta[f"{route}Base_{pix}"], meta[route] if route == "gpu" else meta[f"{route}_{pix}"]
+    crop = f"crop={meta['width']}:{meta['height']}:{meta['left']}:{meta['top']}:exact=1"
+    tail = ["-map", "[vout]", "-an", "-c:v", "rawvideo", "-threads:v", "1",
+            "-pix_fmt", pix, "-fps_mode", "passthrough", "-enc_time_base", "1/25", "-f", "framemd5", "-"]
+    expected = run(*base, "-filter_complex", baseline, *tail)
+    actual = run(*base, "-i", art, "-filter_complex",
+                 composite.replace("[vout]", f"[canvas];[canvas]{crop}[vout]"), *tail)
+    if len(frames(expected)) != 4 or frames(actual) != frames(expected):
+        raise RuntimeError(f"{art.stem} {route} {pix}: picture samples, PTS or frame count differ\n{expected}\n{actual}")
+    for output in (expected, actual):
+        header(output, "sar", f"{meta['sarNum']}/{meta['sarDen']}")
+        header(output, "dimensions", f"{meta['width']}x{meta['height']}")
+    # A lossless output checks signal tags from the graph without overriding
+    # them with output color flags. Two frames suffice to probe the metadata.
+    encoded = art.with_suffix(".geometry.mkv")
+    run(*base, "-i", art, "-filter_complex", composite, "-map", "[vout]", "-an",
+        "-frames:v", "2", "-c:v", "ffv1", "-threads:v", "1", "-pix_fmt", pix, encoded)
+    stream = json.loads(run("-v", "error", "-select_streams", "v:0", "-show_streams",
+                            "-of", "json", encoded, binary=probe))["streams"][0]
+    hdr = meta["transfer"] != "bt709"
+    tags = {"width": meta["canvasWidth"], "height": meta["canvasHeight"],
+            "sample_aspect_ratio": f"{meta['sarNum']}:{meta['sarDen']}",
+            "color_range": "tv", "color_transfer": meta["transfer"],
+            "color_primaries": "bt2020" if hdr else "bt709", "color_space": "bt2020nc" if hdr else "bt709"}
+    for key, value in tags.items():
+        if stream.get(key) != value:
+            raise RuntimeError(f"{art.stem} {route} {pix}: expected {key}={value}, got {stream.get(key)}")
+    encoded.unlink()
+    print("PASS processed picture samples, PTS, SAR and canvas tags:", art.stem, route, pix, flush=True)
+
+geometry_files = sorted(work.glob("*.geometry.json"))
+if len(geometry_files) != 48:
+    raise RuntimeError("Expected 48 processed picture cases")
+for case in geometry_files:
+    meta = json.loads(case.read_text(encoding="utf-8"))
+    if meta["resize"] and not vulkan_available:
+        continue
+    transfer = meta["transfer"]
+    hdr = transfer != "bt709"
+    signal = (f"setparams=range=limited:color_primaries={'bt2020' if hdr else 'bt709'}:"
+              f"color_trc={transfer}:colorspace={'bt2020nc' if hdr else 'bt709'}")
+    source = (f"testsrc2=s={meta['sourceWidth']}x{meta['sourceHeight']}:r=25:d=0.16,"
+              f"format=yuv420p10le,{signal},setsar=16/15,setpts='N+floor(N/2)'")
+    inp = ["-hide_banner", "-v", "error", "-nostdin", "-y", "-filter_complex_threads", "1"]
+    source_args = ["-f", "lavfi", "-i", source]
+    art = case.with_name(case.name.removesuffix(".geometry.json") + ".png")
+    for pix in (["yuv420p10le"] if hdr else ["yuv420p", "yuv420p10le"]):
+        verify_geometry(meta, art, "cpu", pix, inp + (gpu_args if meta["resize"] else []) + source_args)
+    if vulkan_available:
+        verify_geometry(meta, art, "gpu", "yuv420p10le", inp + gpu_args + source_args)

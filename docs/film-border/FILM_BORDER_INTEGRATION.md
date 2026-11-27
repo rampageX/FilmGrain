@@ -98,3 +98,17 @@ stock positions and distribute the rounding remainder along the aperture axis. K
 on both sides of the artwork so the translated print remains outside the fixed
 picture rectangle and inside the canvas. The preview and both encoding graphs
 use the same guards. The Vulkan overlays retain the U4C8 AVTB compensation.
+
+## Expand Canvas after picture crop and Resize
+
+Build the picture geometry with CinematicFrameCore and ResizeCore before
+calculating the film aperture. Crop-only retains the source SAR. Resize
+produces square pixels and applies pre- or post-scale crop according to the
+Resize plan. Preview initial and seek frames use that plan before uploading the
+picture to libplacebo. The independent Cinema Style option is still excluded.
+
+NVENC runs Resize before the S4 upload. A late crop on the Grain Plate route
+follows the existing grain blend, then the cropped frame is uploaded for
+Vulkan compositing. x264 and x265 append their existing Expand Canvas region
+copy to the fully processed picture. The candidate tests compare a readback
+of the aperture with the same geometry pipeline before compositing.

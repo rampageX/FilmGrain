@@ -414,20 +414,21 @@ namespace FilmGrainStudioPreview
                     (resize.Enabled || (cropAfterGrain && ((frame.ContentX | frame.ContentY) & 1) == 0)) &&
                     FilmBorderEncodingCore.ValidDimensions(frame.ActiveWidth, frame.ActiveHeight);
                 bool s4HdrGrade = hdrPreserve && plateMode && !interpolate && !string.IsNullOrEmpty(colorFilter);
+                bool expandGeometryChanged=expand && (resize.Enabled || frame.Filter.Length!=0);
                 bool expandPlainSdr=expand && !info.IsHdr && !grainEnabled;
                 bool s4GpuBorder = s4GpuRequested && filmBorder != null &&
                     ((hdrPreserve || (fgb02 && !info.IsHdr) || s4SdrPlate) || expandPlainSdr) &&
                     ((!h264 || s4SdrPlate) || expandPlainSdr) && (!interpolate || fgb02) &&
                     (!grainEnabled || plateMode) && durationSeconds > 0.0 && !info.IsInterlaced &&
-                    (s4PlateGeometry || (!resize.Enabled && !cropAfterGrain &&
+                    (expandGeometryChanged || s4PlateGeometry || (!resize.Enabled && !cropAfterGrain &&
                         frame.ActiveWidth == info.Width && frame.ActiveHeight == info.Height)) &&
-                    FilmBorderEncodingCore.ValidDimensions(info.Width, info.Height) && ParseFps(fps) > 0 &&
+                    (expand && !grainEnabled || FilmBorderEncodingCore.ValidDimensions(info.Width, info.Height)) && ParseFps(fps) > 0 &&
                     (string.IsNullOrEmpty(preprocessing) || (s4SdrPlate && PreprocessingCore.IsOnlyBilateral(state,preprocessing))) &&
-                    (string.IsNullOrEmpty(colorFilter) || s4SdrPlate || s4HdrGrade) &&
+                    (string.IsNullOrEmpty(colorFilter) || (expand && colorFilter==resize.Prefix) || s4SdrPlate || s4HdrGrade) &&
                     (string.IsNullOrEmpty(lutCompatName) || s4SdrPlate) && string.IsNullOrEmpty(subtitleFilter) &&
                     pixelPercent == 100;
-                if(expand && hdrPreserve && !s4GpuBorder)
-                { reason="Expand Canvas HDR NVENC candidate requires the existing GPU S4 route.";return false; }
+                if(expand && (hdrPreserve || expandGeometryChanged) && !s4GpuBorder)
+                { reason="Expand Canvas with HDR or Crop/Resize on NVENC requires S4 Vulkan/CUDA, supported color and dimensions, no subtitles or partial pixel-grain strength, and either no grain or a supported Grain Plate combination.";return false; }
                 if(expand)filmBorder.ExpandGpu=s4GpuBorder;
                 // Never silently use the CPU border when the explicitly requested combined GPU path is unavailable.
                 if (fgb02 && !s4GpuBorder)
@@ -466,8 +467,7 @@ namespace FilmGrainStudioPreview
                 {
                     if (s4GpuBorder)
                         filter = FilmBorderEncodingCore.AppendGpuFilter(
-                            expand ? "[0:v:0]" + deinterlaceFilter + fpsFilter + "format=p010le," + s4Signal +
-                                "hwupload[fgsfilm_gpu_video]" :
+                            expand ? FilmBorderEncodingCore.ExpandGpuPicture(deinterlaceFilter+fpsFilter+colorFilter,frame,s4Signal) :
                             "[0:v:0]" + deinterlaceFilter + fpsFilter + (s4Gpu4k30 ? "fps=30," : "fps=" + fps + ",") +
                             "format=p010le," + s4Signal + "setpts=PTS-STARTPTS,split[fgsfilm_gpu_src][fgsfilm_clock_src];" +
                             "[fgsfilm_gpu_src]hwupload[fgsfilm_gpu_video]", filmBorder);
@@ -497,7 +497,9 @@ namespace FilmGrainStudioPreview
 
                     if (s4GpuBorder)
                         filter = FilmBorderEncodingCore.AppendGpuFilter(
-                            baseFilter + ";" + grain + ";[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=" + grainOpacity + "[fgsfilm_gpu_video]",
+                            baseFilter + ";" + grain + ";[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=" + grainOpacity +
+                            (expand && frame.Filter.Length!=0 ? ",hwdownload,format=p010le" + frame.Filter + ",hwupload" : "") +
+                            "[fgsfilm_gpu_video]",
                             filmBorder);
                     else
                         filter = baseFilter + ";" + grain + ";[basevk][grainvk]blend_vulkan=all_mode=overlay:all_opacity=" + grainOpacity + ",hwdownload,format=p010le" + frame.Filter + subtitleFilter + (hdrPreserve ? BuildHdrFrameFilter(info) : "") + ",format=p010le[vout]";
@@ -643,9 +645,7 @@ namespace FilmGrainStudioPreview
 
                 request.Environment = new Dictionary<string,string>(state, StringComparer.OrdinalIgnoreCase);
                 if (s4GpuBorder) request.Environment["FG_S4_GPU_BORDER_ACTIVE"] = "1";
-                if(expand) request.ExecutionNotice="[Expand Canvas] "+filmBorder.ExpandGeometry.Width+"x"+filmBorder.ExpandGeometry.Height+
-                    " -> "+filmBorder.ExpandGeometry.CanvasWidth+"x"+filmBorder.ExpandGeometry.CanvasHeight+
-                    (s4GpuBorder?" / Vulkan region copy -> CUDA":" / CPU region copy; existing CPU effects route");
+                if(expand) request.ExecutionNotice=FilmBorderEncodingCore.ExpandNotice(filmBorder);
 
                 if (svp && File.Exists(Path.Combine(appRoot, "_OpenSVPFlow", "_UserConfig", "vapoursynth", "vapoursynth.toml")))
 
@@ -1800,10 +1800,10 @@ namespace FilmGrainStudioPreview
         {
             reason="";
             if(plan==null || plan.ExpandThickness==0)return true;
-            // The existing S4 GPU crop/black-bar path needs its own pixel-exact geometry
-            // proof before it can be expanded. Fail closed, not a software fallback.
-            if(resize.Enabled || !String.IsNullOrEmpty(frame.Filter))
-            { reason="Expand Canvas candidate: turn off Crop/Resize/Cinematic bars for this test.";return false; }
+            if(frame.CinematicBars)
+            { reason="Expand Canvas does not support the separate Cinematic bars option.";return false; }
+            if(!ValidDimensions(frame.ActiveWidth,frame.ActiveHeight))
+            { reason="Expand Canvas requires even picture dimensions in the range 32..16384.";return false; }
             try
             {
                 plan.ExpandGeometry=FilmBorderExpandCanvasCore.NaturalGeometry(frame.ActiveWidth,frame.ActiveHeight,
@@ -1811,13 +1811,30 @@ namespace FilmGrainStudioPreview
                 int max=codec=="H264"?4096:codec=="HEVC"?8192:16384;
                 if(plan.ExpandGeometry.CanvasWidth>max || plan.ExpandGeometry.CanvasHeight>max)
                 { reason="Expand Canvas exceeds codec dimension limit "+N(max)+".";return false; }
-                string[] sar=(media.SampleAspectRatio??"").Split(':');
-                int a,b;
-                if(sar.Length==2 && Int32.TryParse(sar[0],out a) && Int32.TryParse(sar[1],out b) && a>0 && b>0)
-                { plan.ExpandSarNum=a;plan.ExpandSarDen=b; }
+                ExpandPictureSar(media,resize,out plan.ExpandSarNum,out plan.ExpandSarDen);
                 return true;
             }
             catch(ArgumentException e){reason=e.Message;return false;}
+        }
+
+        internal static void ExpandPictureSar(MediaProbeInfo media,ResizePlan resize,out int numerator,out int denominator)
+        {
+            numerator=denominator=1;
+            if(resize.Enabled)return; // ResizeCore explicitly outputs square pixels.
+            string[] sar=(media.SampleAspectRatio??"").Split(':');
+            int a,b;
+            if(sar.Length==2 && Int32.TryParse(sar[0],out a) && Int32.TryParse(sar[1],out b) && a>0 && b>0)
+            { numerator=a;denominator=b; }
+        }
+
+        internal static string ExpandNotice(Plan plan)
+        {
+            var geometry=plan.ExpandGeometry;
+            return "[Expand Canvas] "+geometry.Width+"x"+geometry.Height+
+                " -> "+geometry.CanvasWidth+"x"+geometry.CanvasHeight+
+                " SAR="+plan.ExpandSarNum+":"+plan.ExpandSarDen+
+                " offset="+geometry.Left+","+geometry.Top+
+                (plan.ExpandGpu?" / Vulkan region copy -> CUDA":" / CPU region copy");
         }
 
         internal static void StageExpandTexture(Plan plan,string directory,List<string> temporaryFiles)
@@ -1943,6 +1960,11 @@ namespace FilmGrainStudioPreview
             }
             else graph+=";[fgsfilm_joined]setsar=1,format="+outputFormat+"[vout]";
             return graph;
+        }
+
+        internal static string ExpandGpuPicture(string prefix,CinematicFramePlan frame,string signal)
+        {
+            return "[0:v:0]"+prefix+"format=p010le"+frame.Filter+","+signal+"hwupload[fgsfilm_gpu_video]";
         }
 
         internal static string AppendGpuFilter(string graph,Plan plan)

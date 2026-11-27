@@ -68,6 +68,7 @@ namespace FilmGrainStudioPreview
         public string Deinterlace = "";
         public string DeintMethod = "";
         public bool CinematicFrame;
+        public bool CinematicBars;
         public string FrameMode = "";
         public string CropPerSide = "";
         public string CropHorizontal = "";
@@ -218,6 +219,7 @@ namespace FilmGrainStudioPreview
             state["FG_DEINTERLACE"] = snapshot.Deinterlace;
             state["FG_DEINT_METHOD"] = snapshot.DeintMethod;
             state["FG_CINEMATIC_FRAME"] = snapshot.CinematicFrame ? "1" : "0";
+            state[CinematicFrameCore.CinematicBarsEnvironment] = snapshot.CinematicBars ? "1" : "0";
             state["FG_FRAME_MODE"] = snapshot.FrameMode;
             state["FG_CROP_PER_SIDE"] = snapshot.CropPerSide;
             state["FG_CROP_HORIZONTAL"] = snapshot.CropHorizontal;

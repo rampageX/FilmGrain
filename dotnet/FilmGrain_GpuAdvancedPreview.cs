@@ -140,7 +140,8 @@ namespace FilmGrainStudioPreview
                 previewBorderChoice.Mode!=FilmBorderCatalogCore.Off;
             bool filmBorder = borderRoute && !chkInterpolation.Checked && selectedBorder;
             int expandPx=filmBorder?FilmBorderExpandPx():0;
-            if(expandPx>0 && !CheckExpandPreviewGeometry(media,expandPx))return;
+            ExpandPreviewPlan expandPreview=null;
+            if(expandPx>0 && !TryExpandPreviewPlan(media,out expandPreview))return;
             string borderAsset=filmBorder ? previewBorderChoice.PngPath : "";
             if (filmBorder && !File.Exists(borderAsset)) {
                 FgsMessageBox.Show(this,UiText("找不到胶片边框素材。","Film border asset is missing."));return;
@@ -216,8 +217,8 @@ namespace FilmGrainStudioPreview
             double seconds = NativeGrainPreviewForm.ChooseInitialSeconds(duration,
                 new Random(Guid.NewGuid().GetHashCode()).NextDouble());
             // Keep source pixels for a genuine 1:1 GPU inspection (up to the prototype limit).
-            int width = media.Width & ~1;
-            int height = media.Height & ~1;
+            int width = expandPreview==null ? media.Width & ~1 : expandPreview.Width;
+            int height = expandPreview==null ? media.Height & ~1 : expandPreview.Height;
             if (height < 2) height = 2;
             if (height > 8192 || width > 8192) {FgsMessageBox.Show(this,UiText("预览分辨率超出原型限制。","Preview dimensions exceed the prototype limit."));return;}
 
@@ -266,6 +267,7 @@ namespace FilmGrainStudioPreview
                         "scale="+width.ToString(CultureInfo.InvariantCulture)+":"+height.ToString(CultureInfo.InvariantCulture)+":flags=bicubic"+
                         (!media.IsHdr?"":fullRange?":in_range=full:out_range=full":":in_range=limited:out_range=limited")+",format=yuv420p10le",
                         "-f","rawvideo",frame};
+                    ApplyExpandPreviewFilter(ffArgs,expandPreview);
                     // Start both independent FFmpeg decoders before waiting for
                     // either. Keep their own files, arguments and error buffers.
                     Thread plateWorker = null;
@@ -361,7 +363,7 @@ namespace FilmGrainStudioPreview
                             "--film-focus-x",FilmBorderFramingCore.N(FilmBorderFramingCore.Parse(config.Get(FilmBorderFramingCore.FocusXKey),0.5,0,1)),
                             "--film-focus-y",FilmBorderFramingCore.N(FilmBorderFramingCore.Parse(config.Get(FilmBorderFramingCore.FocusYKey),0.5,0,1)),
                             "--film-zoom",FilmBorderFramingCore.N(FilmBorderFramingCore.Parse(config.Get(FilmBorderFramingCore.ZoomKey),1,1,3))});
-                        AddExpandPreviewArguments(args,media,expandPx);
+                        AddExpandPreviewArguments(args,expandPreview,expandPx);
                     }
                     if (plateCycle>0) args.AddRange(new[]{"--plate-cycle",plateCycle.ToString("0.#########",CultureInfo.InvariantCulture)});
                     // grav1synth advances AV1 grain seeds per output frame. Use the
@@ -511,7 +513,8 @@ namespace FilmGrainStudioPreview
                     "Border asset, FFmpeg or GPU preview executable is missing.")); return;
             }
             int expandPx=FilmBorderExpandPx();
-            if(expandPx>0 && !CheckExpandPreviewGeometry(media,expandPx))return;
+            ExpandPreviewPlan expandPreview=null;
+            if(expandPx>0 && !TryExpandPreviewPlan(media,out expandPreview))return;
             string saved = borderPreviewPendingMode ?? config.Get("FILM_BORDER_MODE");
             FilmBorderChoice selectedChoice;string resolveError;
             string mode = FilmBorderCatalogCore.TryResolve(appRoot,saved,out selectedChoice,out resolveError) ? selectedChoice.Mode : "OFF";
@@ -555,6 +558,7 @@ namespace FilmGrainStudioPreview
                         "-ss", seconds.ToString("0.######",CultureInfo.InvariantCulture), "-i", input,
                         "-map", "0:v:0", "-an", "-sn", "-dn", "-frames:v", "1", "-vf", filter,
                         "-f", "rawvideo", frame };
+                    ApplyExpandPreviewFilter(fargs,expandPreview);
                     int rc=NativeLibraryTools.RunProcessEnvironment(ffmpeg,fargs,work,null,120000,CancellationToken.None,null);
                     if(rc!=0 || !File.Exists(frame) || new FileInfo(frame).Length!=(long)width*height*3)
                         throw new InvalidDataException("胶片边框预览抽帧失败。");
@@ -572,7 +576,7 @@ namespace FilmGrainStudioPreview
                          "--film-focus-y",FilmBorderFramingCore.N(focusY),
                          "--film-zoom",FilmBorderFramingCore.N(zoom),
                          "--border-choices-file",choices};
-                    AddExpandPreviewArguments(args,media,expandPx);
+                    AddExpandPreviewArguments(args,expandPreview,expandPx);
                     if(duration>0)args.AddRange(new[]{"--video",input,"--ffmpeg",ffmpeg,"--duration",
                         Math.Min(86400,duration).ToString("0.######",CultureInfo.InvariantCulture)});
                     if(media.IsHdr)args.AddRange(new[]{"--source-color",
@@ -702,8 +706,9 @@ namespace FilmGrainStudioPreview
                 ? (expandPx>0?UiText("自然外扩 · ","Natural expand · "):UiText("添加边框 · ","Film Border · "))+choice.Label
                 : (expandPx>0?UiText("添加外扩边框","Add expanded border"):UiText("添加边框", "Film Border"));
             MediaProbeInfo expandMedia=GetSelectedMediaInfo();
-            FilmBorderExpandGeometry expandGeometry=active && expandPx>0 && expandMedia!=null?
-                TryNaturalBorderGeometry(expandMedia.Width,expandMedia.Height,choice):null;
+            ExpandPreviewPlan preview;
+            FilmBorderExpandGeometry expandGeometry=active && expandPx>0 && expandMedia!=null &&
+                TryExpandPreviewPlan(expandMedia,out preview,false)?TryNaturalBorderGeometry(preview.Width,preview.Height,choice):null;
             if(expandGeometry!=null)
                 lutToolTip.SetToolTip(btnFilmBorder,UiText("外扩画布：","Expanded canvas: ")+
                     expandGeometry.CanvasWidth+"×"+expandGeometry.CanvasHeight+
@@ -727,38 +732,71 @@ namespace FilmGrainStudioPreview
                 FilmBorderExpandCanvasCore.DefaultThickness:0;
         }
 
-        private static void AddExpandPreviewArguments(List<string> args,MediaProbeInfo media,int pixels)
+        private sealed class ExpandPreviewPlan
         {
-            if(pixels==0)return;
-            args.AddRange(new[]{"--film-expand-px",pixels.ToString(CultureInfo.InvariantCulture),
-                "--film-expand-sar",CinematicCropGeometry.SampleAspect(media).ToString("0.########",CultureInfo.InvariantCulture)});
+            internal int Width,Height,SarNum,SarDen;
+            internal string Filter="",Device="";
         }
 
-        private bool CheckExpandPreviewGeometry(MediaProbeInfo media,int pixels)
+        private static void ApplyExpandPreviewFilter(List<string> args,ExpandPreviewPlan plan)
         {
+            if(plan==null || plan.Filter.Length==0)return;
+            args[args.IndexOf("-vf")+1]=plan.Filter;
+            if(plan.Device.Length!=0)
+                args.InsertRange(0,new[]{"-init_hw_device",plan.Device,"-filter_hw_device","vk"});
+        }
+
+        private static void AddExpandPreviewArguments(List<string> args,ExpandPreviewPlan plan,int pixels)
+        {
+            if(plan==null)return;
+            args.AddRange(new[]{"--film-expand-px",pixels.ToString(CultureInfo.InvariantCulture),
+                "--film-expand-sar",(plan.SarNum/(double)plan.SarDen).ToString("0.########",CultureInfo.InvariantCulture)});
+            if(plan.Filter.Length!=0)args.AddRange(new[]{"--picture-filter",plan.Filter});
+            if(plan.Device.Length!=0)args.AddRange(new[]{"--picture-device",plan.Device});
+        }
+
+        private bool TryExpandPreviewPlan(MediaProbeInfo media,out ExpandPreviewPlan preview,bool showError=true)
+        {
+            preview=null;
             try
             {
                 if(media.IsInterlaced || chkInterpolation.Checked)
-                    throw new ArgumentException(UiText("外扩测试版仅支持逐行、不插帧。","Expand candidate requires progressive input without interpolation."));
+                    throw new ArgumentException(UiText("外扩仅支持逐行、不插帧。","Expand Canvas requires progressive input without interpolation."));
                 var state=PreprocessEnvironment();
-                CinematicFramePlan frame; ResizePlan resize;string reason;
+                string codec=cmbCodec.SelectedIndex==3?"H264":cmbCodec.SelectedIndex==1?"HEVC":
+                    cmbCodec.SelectedIndex==2?CpuCodec():"AV1";
+                state["FG_MODE"]=codec;
+                CinematicFramePlan frame;
+                ResizePlan resize;
+                string reason;
                 if(!CinematicFrameCore.TryBuild(media,state,out frame,out reason) ||
                     !ResizeCore.TryBuild(media,state,frame,out resize,out reason))
                     throw new ArgumentException(reason);
-                if(resize.Enabled || !String.IsNullOrEmpty(frame.Filter))
-                    throw new ArgumentException(UiText("外扩测试版请关闭裁切、缩放和电影画幅。","Disable crop, resize and cinematic bars for this candidate."));
-                int limit=cmbCodec.SelectedIndex==3?4096:cmbCodec.SelectedIndex==1?8192:16384;
-                FilmBorderChoice choice;string choiceError;
-                if(FilmBorderCatalogCore.TryResolve(appRoot,config.Get("FILM_BORDER_MODE"),out choice,out choiceError) &&
+                FilmBorderChoice choice;
+                string choiceError;
+                var border=new FilmBorderEncodingCore.Plan { ExpandThickness=FilmBorderExpandCanvasCore.DefaultThickness };
+                if(FilmBorderCatalogCore.TryResolve(appRoot,borderPreviewPendingMode ?? config.Get("FILM_BORDER_MODE"),out choice,out choiceError) &&
                     choice.Mode!=FilmBorderCatalogCore.Off)
                 {
-                    var geometry=FilmBorderExpandCanvasCore.NaturalGeometry(media.Width,media.Height,choice.ApertureWidth1080,choice.ApertureHeight1080);
-                    if(geometry.CanvasWidth>limit || geometry.CanvasHeight>limit)
-                        throw new ArgumentException(UiText("外扩后超过当前编码器尺寸限制。","Expanded canvas exceeds codec dimensions."));
+                    border.ApertureWidth1080=choice.ApertureWidth1080;
+                    border.ApertureHeight1080=choice.ApertureHeight1080;
                 }
+                if(!FilmBorderEncodingCore.ConfigureExpand(border,frame,resize,media,codec,out reason))
+                    throw new ArgumentException(reason);
+                if(frame.ActiveWidth>8192 || frame.ActiveHeight>8192)
+                    throw new ArgumentException(UiText("处理后的画面超出 GPU 预览尺寸限制。","Processed picture exceeds GPU preview dimensions."));
+                preview=new ExpandPreviewPlan { Width=frame.ActiveWidth,Height=frame.ActiveHeight,
+                    SarNum=border.ExpandSarNum,SarDen=border.ExpandSarDen };
+                if(resize.Enabled || frame.Filter.Length!=0)
+                    preview.Filter=resize.Prefix+"format=yuv420p10le"+frame.Filter;
+                if(resize.Enabled)preview.Device=VulkanDevicePolicy.Spec("vk");
                 return true;
             }
-            catch(ArgumentException ex){FgsMessageBox.Show(this,ex.Message,Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);return false;}
+            catch(ArgumentException ex)
+            {
+                if(showError)FgsMessageBox.Show(this,ex.Message,Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);
+                return false;
+            }
         }
 
         private void OpenFilmBorderCompositionSettings()
@@ -796,7 +834,8 @@ namespace FilmGrainStudioPreview
                 apply.Click+=delegate{
                     int p=mode.SelectedIndex==1?FilmBorderExpandCanvasCore.DefaultThickness:0;
                     MediaProbeInfo m=GetSelectedMediaInfo();
-                    if(p>0 && m!=null && !CheckExpandPreviewGeometry(m,p))return;
+                    ExpandPreviewPlan preview;
+                    if(p>0 && m!=null && !TryExpandPreviewPlan(m,out preview))return;
                     config.SaveValue(FilmBorderExpandCanvasCore.ThicknessKey,p.ToString(CultureInfo.InvariantCulture));
                     dlg.DialogResult=DialogResult.OK;dlg.Close();
                 };

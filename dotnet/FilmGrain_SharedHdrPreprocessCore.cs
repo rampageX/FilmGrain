@@ -674,11 +674,13 @@ namespace FilmGrainStudioPreview
         internal int ActiveWidth, ActiveHeight;
         internal int ContentX, ContentY, ContentWidth, ContentHeight;
         internal bool HasExplicitMargins;
+        internal bool CinematicBars;
     }
     internal static class CinematicFrameCore
     {
         private static string Get(IDictionary<string,string> state,string key)
         { string value;return state!=null && state.TryGetValue(key,out value)?value??"":""; }
+        internal const string CinematicBarsEnvironment = "FG_CINEMATIC_BARS";
         internal const string CropEnabledKey = "PRE_CROP_ENABLED";
         internal const string CropModeKey = "PRE_CROP_MODE";
 
@@ -692,6 +694,7 @@ namespace FilmGrainStudioPreview
         internal static void WriteState(IDictionary<string,string> state, bool cinema, bool cropEnabled,
             int mode, string margins, string vertical, string horizontal, string noCrop)
         {
+            state[CinematicBarsEnvironment] = cinema ? "1" : "0";
             state["FG_CINEMATIC_FRAME"] = cinema || cropEnabled ? "1" : "0";
             state["FG_FRAME_MODE"] = !cinema && mode == 1 ? "CROP" : "LETTERBOX";
             state[MarginsEnvironment] = cinema ? "" : margins;
@@ -739,7 +742,7 @@ namespace FilmGrainStudioPreview
 
         internal static bool TryBuild(MediaProbeInfo info, IDictionary<string,string> state, out CinematicFramePlan plan, out string reason)
         {
-            plan = new CinematicFramePlan();
+            plan = new CinematicFramePlan { CinematicBars = Get(state,CinematicBarsEnvironment) == "1" };
             plan.ActiveWidth = info.Width;
             plan.ActiveHeight = info.Height;
             plan.ContentWidth = info.Width; plan.ContentHeight = info.Height;
