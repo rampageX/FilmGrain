@@ -45,6 +45,59 @@ internal static class ExpandCanvasCoreTests
             }
         }
     }
+    static void CheckPerforationPitch(bool horizontal)
+    {
+        using(var source=new Bitmap(1920,1080))
+        {
+            using(var draw=Graphics.FromImage(source))
+            {
+                draw.Clear(Color.White);
+                int length=horizontal?1920:1080;
+                for(int i=25;i+40<length;i+=100)
+                {
+                    if(horizontal)
+                    {
+                        draw.FillRectangle(Brushes.Black,i,35,40,30);
+                        draw.FillRectangle(Brushes.Black,i,1015,40,30);
+                    }
+                    else
+                    {
+                        draw.FillRectangle(Brushes.Black,35,i,30,40);
+                        draw.FillRectangle(Brushes.Black,1855,i,30,40);
+                    }
+                }
+            }
+            var g=FilmBorderExpandCanvasCore.NaturalGeometry(horizontal?3200:960,horizontal?540:1920,1680,840);
+            using(var art=FilmBorderExpandCanvasCore.RenderTexture(source,1680,840,g))
+            {
+                int margin=horizontal?g.Top:g.Left;
+                int guard=horizontal?FilmBorderExpandCanvasCore.MotionGuard(g.Top,g.Bottom):
+                    FilmBorderExpandCanvasCore.MotionGuard(g.Left,g.Right);
+                double scale=(margin-2*guard)/120.0;
+                int across=margin-guard-(int)Math.Round(70*scale);
+                int start=horizontal?g.Left:g.Top;
+                int length=horizontal?g.Width:g.Height;
+                int black=0,white=0,holes=0;
+                for(int i=start;i<start+length;i++)
+                {
+                    Color pixel=horizontal?art.GetPixel(i,across):art.GetPixel(across,i);
+                    if(pixel.R<128)
+                    {
+                        black++;white=0;
+                        Check(black<=40*scale+5,"A perforation was stretched");
+                    }
+                    else
+                    {
+                        if(black>=5)holes++;
+                        black=0;white++;
+                        Check(white<=100*scale+8,"Perforation pitch contains a long empty run");
+                    }
+                }
+                Check(holes>10,"Expected repeated complete perforations");
+            }
+        }
+    }
+
     static void RenderCatalog(string root,string destination)
     {
         Assembly app=Assembly.LoadFrom(Path.Combine(root,"FilmGrain_Studio.exe"));
@@ -112,6 +165,8 @@ internal static class ExpandCanvasCoreTests
     }
     public static int Main(string[] args)
     {
+        CheckPerforationPitch(true);
+        CheckPerforationPitch(false);
         var g=new FilmBorderExpandGeometry(1920,1080,64,64,64,64);
         Check(g.CanvasWidth==2048 && g.CanvasHeight==1208,"1080p geometry");
         var portrait=new FilmBorderExpandGeometry(1080,1920,32,64,48,80);

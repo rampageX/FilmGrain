@@ -86,8 +86,9 @@ lower perforations. The alpha transition puts the split at row 904. A shared
 three-scanline check across the middle of each edge also handles similar
 asymmetry in other stocks.
 
-Fit the recovered rails at a shared scale and extend the existing quiet seams
-where the picture aspect needs extra width or height. Keep an even motion guard
+Fit the recovered rails at a shared scale. When the picture aspect needs
+extra width or height, repeat rail segments of the inferred pitch at matching
+stock positions and distribute the rounding remainder along the aperture axis. Keep an even motion guard
 on both sides of the artwork so the translated print remains outside the fixed
 picture rectangle and inside the canvas. The preview and both encoding graphs
 use the same guards. The Vulkan overlays retain the U4C8 AVTB compensation.

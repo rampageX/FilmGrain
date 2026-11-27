@@ -124,63 +124,85 @@ namespace FilmGrainStudioPreview
             return pixels;
         }
 
-        // Choose the quietest shared location on both opposing rails. Average
-        // local derivative over 13 pixels and mildly prefer solid bright stock.
-        // Only samples outside the declared original aperture participate.
-        private static int QuietSeam(byte[] pixels,int length,int start,int end,
-            int railStart,int railEnd,int across,bool horizontal)
+        // Compare full rail cross-sections. A repeat adds a complete stock
+        // segment between matching positions instead of enlarging one pixel.
+        private static double RailDifference(byte[] pixels,int a,int b,int railStart,int railEnd,int across,bool horizontal)
         {
-            const int stride=1920*4;
-            double[] delta=new double[length],mean=new double[length];
-            int samples=(railStart+across-railEnd)*3;
-            for(int pos=1;pos<length;pos++)
+            long difference=0;
+            int samples=0;
+            for(int v=0;v<across;v+=4)
             {
-                long diff=0,sum=0;
-                for(int v=0;v<across;v++)
+                if(v>=railStart && v<railEnd)continue;
+                int i=horizontal?(v*1920+a)*4:(a*1920+v)*4;
+                int j=horizontal?(v*1920+b)*4:(b*1920+v)*4;
+                for(int channel=0;channel<3;channel++)
+                    difference+=Math.Abs((int)pixels[i+channel]-pixels[j+channel]);
+                samples+=3;
+            }
+            return samples==0?0:(double)difference/samples;
+        }
+
+        private static Rectangle[] MapAxis(byte[] pixels,int total,int start,int end,int railStart,int railEnd,
+            int across,int first,int content,int last,double scale,bool horizontal)
+        {
+            int length=end-start;
+            int extra=content-(int)Math.Round(length*scale);
+            int pitch=0,begin=start;
+            if(extra>0 && length>=150)
+            {
+                int low=start+length/5, high=end-length/5;
+                double best=Double.MaxValue;
+                for(int lag=36;lag<=Math.Min(280,(high-low)/2);lag++)
                 {
-                    if(v>=railStart && v<railEnd)continue;
-                    int i=horizontal?v*stride+4*pos:pos*stride+4*v;
-                    int prev=i-(horizontal?4:stride);
-                    for(int ch=0;ch<3;ch++)
-                    {diff+=Math.Abs((int)pixels[i+ch]-pixels[prev+ch]);sum+=pixels[i+ch];}
+                    double difference=0;
+                    int count=0;
+                    for(int pos=low;pos+lag<high;pos+=11)
+                    {
+                        difference+=RailDifference(pixels,pos,pos+lag,railStart,railEnd,across,horizontal);
+                        count++;
+                    }
+                    double score=difference/count+0.008*lag;
+                    if(score<best){best=score;pitch=lag;}
                 }
-                delta[pos]=(double)diff/samples;
-                mean[pos]=(double)sum/samples;
+                best=Double.MaxValue;
+                for(int pos=low;pos+pitch<high;pos++)
+                {
+                    double score=0;
+                    for(int offset=-4;offset<=4;offset+=2)
+                    {
+                        score+=RailDifference(pixels,pos+offset,pos+pitch+offset,railStart,railEnd,across,horizontal);
+                        score+=RailDifference(pixels,pos+offset,pos+offset+1,railStart,railEnd,across,horizontal);
+                        score+=RailDifference(pixels,pos+pitch+offset,pos+pitch+offset+1,railStart,railEnd,across,horizontal);
+                    }
+                    score+=0.003*Math.Abs(pos+pitch/2-(low+high)/2);
+                    if(score<best){best=score;begin=pos;}
+                }
             }
-            int low=Math.Max(start+1,Math.Max(7,start+(end-start)/10));
-            int high=Math.Min(end-1,Math.Min(length-7,end-(end-start)/10));
-            if(low>=high)return (start+end)/2;
-            double bright=0;for(int i=low;i<high;i++)bright=Math.Max(bright,mean[i]);
-            double best=Double.MaxValue;int chosen=low;
-            for(int i=low;i<high;i++)
+            int repeats=pitch==0?0:(int)Math.Round((double)extra/Math.Max(1,pitch*scale));
+            repeats=Math.Max(0,Math.Min(repeats,content/2));
+            var slices=new System.Collections.Generic.List<Rectangle>();
+            slices.Add(new Rectangle(0,0,start,first));
+            if(repeats==0)
+                slices.Add(new Rectangle(start,first,length,content));
+            else
             {
-                double variation=0;for(int j=-6;j<=6;j++)variation+=delta[i+j];
-                double score=variation/13+0.03*(bright-mean[i])+0.1*Math.Abs(i-(start+end)/2.0)/(end-start);
-                if(score<best){best=score;chosen=i;}
+                int effectiveLength=length+repeats*pitch;
+                int sourceOffset=begin-start;
+                int destOffset=(int)Math.Round((double)sourceOffset*content/effectiveLength);
+                slices.Add(new Rectangle(start,first,sourceOffset,destOffset));
+                for(int repeat=0;repeat<repeats;repeat++)
+                {
+                    sourceOffset+=pitch;
+                    int next=(int)Math.Round((double)sourceOffset*content/effectiveLength);
+                    slices.Add(new Rectangle(begin,first+destOffset,pitch,next-destOffset));
+                    destOffset=next;
+                }
+                slices.Add(new Rectangle(begin,first+destOffset,end-begin,content-destOffset));
             }
-            return chosen;
+            slices.Add(new Rectangle(end,first+content,total-end,last));
+            return slices.ToArray();
         }
-        private sealed class Axis
-        {
-            internal int[] Source,Target;
-            internal int Insert=-1;
-            internal bool IsPicture(int i){return i>0 && i<Source.Length-2;}
-        }
-        private static Axis MapAxis(int total,int start,int end,int seam,int first,int content,int last,double scale)
-        {
-            int fitted=Math.Min(content,Math.Max(1,(int)Math.Floor((end-start)*scale+0.5)));
-            int extra=content-fitted;
-            if(extra==0 || fitted<3)return new Axis{Source=new[]{0,start,end,total},
-                Target=new[]{0,first,first+content,first+content+last}};
-            int one=Math.Min(fitted-2,Math.Max(1,(int)Math.Floor(scale+0.5)));
-            int before=Math.Max(1,Math.Min(fitted-one-1,(int)Math.Floor((seam-start)*scale+0.5)));
-            return new Axis{Source=new[]{0,start,seam,seam+1,end,total},
-                Target=new[]{0,first,first+before,first+before+one+extra,first+content,first+content+last},Insert=2};
-        }
-        // Isotropic scale of the stock; only a narrow quiet seam is extended
-        // when the aperture aspect differs. Corners, lettering and sprockets
-        // outside that seam retain shape, apart from integer pixel rounding.
-        // Preview and production consume the same rendered texture.
+
         internal static Bitmap RenderTexture(Bitmap source,int apertureWidth,int apertureHeight,FilmBorderExpandGeometry g)
         {
             if(source==null || source.Width!=1920 || source.Height!=1080)
@@ -201,10 +223,8 @@ namespace FilmGrainStudioPreview
                 using(Graphics draw=Graphics.FromImage(stock))
                 {draw.Clear(Color.Black);draw.DrawImageUnscaled(source,0,0);}
                 byte[] pixels=ReadPixels(stock,PixelFormat.Format32bppPArgb);
-                int seamX=QuietSeam(pixels,1920,sx,ex,sy,ey,1080,true);
-                int seamY=QuietSeam(pixels,1080,sy,ey,sx,ex,1920,false);
-                Axis xMap=MapAxis(1920,sx,ex,seamX,left,g.Width+2*guardX,right,scale);
-                Axis yMap=MapAxis(1080,sy,ey,seamY,top,g.Height+2*guardY,bottom,scale);
+                Rectangle[] xMap=MapAxis(pixels,1920,sx,ex,sy,ey,1080,left,g.Width+2*guardX,right,scale,true);
+                Rectangle[] yMap=MapAxis(pixels,1080,sy,ey,sx,ex,1920,top,g.Height+2*guardY,bottom,scale,false);
                 int originX=g.Left-guardX-left,originY=g.Top-guardY-top;
                 Bitmap canvas=new Bitmap(g.CanvasWidth,g.CanvasHeight,PixelFormat.Format32bppPArgb);
                 try
@@ -214,14 +234,14 @@ namespace FilmGrainStudioPreview
                         target.Clear(Color.Black);
                         target.CompositingMode=CompositingMode.SourceCopy;
                         target.PixelOffsetMode=PixelOffsetMode.Half;
-                        for(int y=0;y<yMap.Source.Length-1;y++)for(int x=0;x<xMap.Source.Length-1;x++)
+                        target.InterpolationMode=InterpolationMode.Bilinear;
+                        for(int y=0;y<yMap.Length;y++)for(int x=0;x<xMap.Length;x++)
                         {
-                            if(xMap.IsPicture(x) && yMap.IsPicture(y))continue;
-                            Rectangle src=Rectangle.FromLTRB(xMap.Source[x],yMap.Source[y],xMap.Source[x+1],yMap.Source[y+1]);
-                            Rectangle dst=Rectangle.FromLTRB(xMap.Target[x],yMap.Target[y],xMap.Target[x+1],yMap.Target[y+1]);
+                            if(x>0 && x<xMap.Length-1 && y>0 && y<yMap.Length-1)continue;
+                            Rectangle xSlice=xMap[x],ySlice=yMap[y];
+                            var src=new Rectangle(xSlice.X,ySlice.X,xSlice.Width,ySlice.Width);
+                            var dst=new Rectangle(xSlice.Y,ySlice.Y,xSlice.Height,ySlice.Height);
                             if(src.Width<=0 || src.Height<=0 || dst.Width<=0 || dst.Height<=0)continue;
-                            target.InterpolationMode=(x==xMap.Insert || y==yMap.Insert)?
-                                InterpolationMode.NearestNeighbor:InterpolationMode.Bilinear;
                             using(Bitmap tile=stock.Clone(src,PixelFormat.Format32bppPArgb))
                             using(ImageAttributes attrs=new ImageAttributes())
                             {

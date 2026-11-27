@@ -1794,8 +1794,21 @@ static bool resize_expand_target(void)
     params.w=width;params.h=height;
     pl_tex replacement=pl_tex_create(s_device->gpu,&params);
     if(!replacement)return false;
+    pl_dispatch dispatch=pl_dispatch_create(s_log,s_device->gpu);
+    pl_renderer renderer=pl_renderer_create(s_log,s_device->gpu);
+    if(!dispatch || !renderer) {
+        if(dispatch)pl_dispatch_destroy(&dispatch);
+        if(renderer)pl_renderer_destroy(&renderer);
+        pl_tex_destroy(s_device->gpu,&replacement);
+        return false;
+    }
+    // The dispatch and renderer may retain fixed-size state from the old canvas.
+    pl_dispatch_destroy(&s_border_dispatch);
+    pl_renderer_destroy(&s_renderer);
     pl_tex_destroy(s_device->gpu,&s_border_composite);
     s_border_composite=replacement;
+    s_border_dispatch=dispatch;
+    s_renderer=renderer;
     return true;
 }
 
