@@ -169,6 +169,9 @@ jobs:
           } elseif ($version -eq '5.1.03') {
             $ref = 'heads/test/expand-canvas'
             $expected = 'b31cc9a014384d4e745893f90a4e47d3c43b4583'
+          } elseif ($version -eq '5.1.04') {
+            $ref = 'heads/test/expand-canvas-geometry'
+            $expected = '0c535efdc7d7caa5b078d683a2b294e09e696d9a'
           } else { exit 0 }
           $sha = gh api "repos/$env:GITHUB_REPOSITORY/git/ref/$ref" --jq '.object.sha'
           if ($LASTEXITCODE -ne 0) { throw 'Accepted test branch verification failed.' }
