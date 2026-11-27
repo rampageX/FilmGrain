@@ -1,0 +1,43 @@
+name: FGS Expand Canvas candidate core
+on:
+  push:
+    branches:
+      - test/expand-canvas
+permissions:
+  contents: read
+jobs:
+  expand-canvas-core:
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile and exercise candidate geometry and graph contracts
+        shell: cmd
+        run: |
+          "%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /target:exe /reference:System.Drawing.dll /out:ExpandCanvasCoreTests.exe dotnet\FilmGrain_FilmBorderExpandCanvasCore.cs tests\expand-canvas\ExpandCanvasCoreTests.cs
+          if errorlevel 1 exit /b 1
+          ExpandCanvasCoreTests.exe
+      - name: Compile existing FGS runtime
+        shell: cmd
+        run: call dotnet\build_NET_Preview.bat
+      - name: Existing S4 regression
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & '.\dotnet\BuildTools\Test_S4_GpuBorder.ps1'
+          if (-not $?) { throw 'Existing S4 regression failed.' }
+      - name: Archive candidate source and test evidence
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git archive --format=zip --output=FGS_ExpandCanvas_Core_C9R2_Source.zip HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Source archive failed.' }
+          ('Commit=' + $env:GITHUB_SHA) | Set-Content -Encoding Ascii -LiteralPath 'ExpandCanvas_Core_C9R2_Proof.txt'
+          'Status=Core contract tests only; GUI and real GPU integration pending' | Add-Content -Encoding Ascii -LiteralPath 'ExpandCanvas_Core_C9R2_Proof.txt'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FGS_ExpandCanvas_Core_C9R2
+          path: |
+            FGS_ExpandCanvas_Core_C9R2_Source.zip
+            ExpandCanvas_Core_C9R2_Proof.txt
+          if-no-files-found: error
