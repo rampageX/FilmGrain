@@ -17,7 +17,13 @@ namespace FilmGrainStudioPreview
             // AV1 renders without a border; the original selection is kept
             // in the saved settings and restored when an eligible codec returns.
             if(snapshot.Mode=="AV1"||snapshot.Mode=="SVT"||snapshot.NoReencode)
+            {
+                int px;
+                if(snapshot.FilmBorderMode!=FilmBorderCatalogCore.Off &&
+                    FilmBorderExpandCanvasCore.TryParseThickness(snapshot.FilmBorderExpandPx,out px) && px>0)
+                {error=UiText("外扩边框尚未接入 AV1 路线；请改用 HEVC/H.264/x264/x265 或关闭边框。","Expand Canvas is not enabled on AV1 routes; choose HEVC/H.264/x264/x265 or clear the border.");return null;}
                 snapshot.FilmBorderMode=FilmBorderCatalogCore.Off;
+            }
             SortedDictionary<string,string> state;
             try {state=BridgeEnvironmentCore.Build(snapshot);}
             catch(NotSupportedException ex){error=ex.Message;return null;}

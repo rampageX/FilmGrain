@@ -1204,17 +1204,20 @@ namespace FilmGrainStudioPreview
                 Margin = new Padding(3,4,8,4) };
             btnFilmBorder.Click += delegate { OpenFilmBorderSettings(); };
             var borderMenu = new ContextMenuStrip();
+            var compositionBorder=borderMenu.Items.Add(UiText("合成模式 / 外扩厚度…","Composition / expand thickness..."),null,delegate {OpenFilmBorderCompositionSettings();});
             var clearBorder = borderMenu.Items.Add(UiText("清空边框","Clear film border"),null,delegate {
                 try {
                     config.SaveValue("FILM_BORDER_MODE",FilmBorderCatalogCore.Off);
                     borderPreviewPendingMode=null;
                     UpdateFilmBorderButton();
+                    UpdateBitrateDisplays();
                     UpdateHdrRouteStatus(GetSelectedMediaInfo());
                     UpdateFileSettingsLabels();
                 } catch(Exception ex) {FgsMessageBox.Show(this,ex.Message,Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);}
             });
             borderMenu.Opening += delegate {
                 clearBorder.Enabled=!string.Equals(config.Get("FILM_BORDER_MODE"),FilmBorderCatalogCore.Off,StringComparison.OrdinalIgnoreCase);
+                compositionBorder.Enabled=btnFilmBorder.Enabled && (bridgeTaskCoordinator==null || !bridgeTaskCoordinator.IsActive);
             };
             btnFilmBorder.ContextMenuStrip=borderMenu;
             lutToolTip.SetToolTip(btnFilmBorder, UiText(
@@ -2907,6 +2910,9 @@ namespace FilmGrainStudioPreview
             int width = info != null ? info.Width : 1920;
             int height = info != null ? info.Height : 1080;
             if(info!=null && config.Get("RESIZE_MODE")!="OFF") {var state=PreprocessEnvironment();CinematicFramePlan frame;ResizePlan plan;string error;if(CinematicFrameCore.TryBuild(info,state,out frame,out error)&&ResizeCore.TryBuild(info,state,frame,out plan,out error)){width=plan.Width;height=plan.Height;}}
+            int borderPx=FilmBorderExpandPx();
+            if(borderPx>0 && config.Get("FILM_BORDER_MODE")!="OFF" && codecIndex!=0 && !(NewCpuSelected() && CpuCodec()=="SVT"))
+            {width+=2*borderPx;height+=2*borderPx;}
             double fps = GetRecommendedOutputFps(info);
             bool highMotion = chkHighMotion != null && chkHighMotion.Checked;
 

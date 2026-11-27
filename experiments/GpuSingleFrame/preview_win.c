@@ -41,6 +41,8 @@ static pl_tex s_border_texture, s_border_content, s_border_composite;
 static pl_dispatch s_border_dispatch;
 static const wchar_t *s_border_path;
 static bool s_border_weave;
+static int s_expand_px;
+static double s_expand_sar=1.0;
 static bool s_border_settings;
 static int s_border_mode; /* legacy OFF/STATIC/WEAVE fallback */
 static const wchar_t *s_border_choices_file;
@@ -1137,11 +1139,11 @@ static void paint_sliders(HWND window)
         FillRect(dc,&compose,focus_brush);FillRect(dc,&reset,focus_gray);
         FrameRect(dc,&compose,focus_edge);FrameRect(dc,&reset,focus_edge);
         SetTextColor(dc,RGB(235,237,240));
-        DrawTextW(dc,s_compose_mode?L"画面构图 · 拖动画面":L"画面构图 · 点击启用",-1,&compose,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
-        DrawTextW(dc,L"恢复居中 1.00×",-1,&reset,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+        DrawTextW(dc,s_expand_px?L"外扩式 · 原画固定":s_compose_mode?L"画面构图 · 拖动画面":L"画面构图 · 点击启用",-1,&compose,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+        DrawTextW(dc,s_expand_px?L"构图不可用":L"恢复居中 1.00×",-1,&reset,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
         DeleteObject(focus_brush);DeleteObject(focus_gray);DeleteObject(focus_edge);
         wchar_t zoom_value[40];swprintf(zoom_value,40,L"%.3f x",s_focus_zoom);
-        draw_slider(dc,&client,panel.top+295+border_timeline_shift(),L"画面缩放",(s_focus_zoom-1)/2,true,zoom_value,false);
+        draw_slider(dc,&client,panel.top+295+border_timeline_shift(),L"画面缩放",(s_focus_zoom-1)/2,!s_expand_px,s_expand_px?L"固定 1:1":zoom_value,false);
         RECT label_x,edit_x,label_y,edit_y;
         focus_edit_rects(&client,&label_x,&edit_x,&label_y,&edit_y);
         DrawTextW(dc,L"X (0–1)",-1,&label_x,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
@@ -1478,6 +1480,7 @@ static void change_slider(int kind, int x)
     if (kind == 1 && !s_has_grain) return;
     if (kind == 3) {change_frame_position(x);return;}
     if(kind==8) {
+        if(s_expand_px)return;
         RECT client;GetClientRect(s_window,&client);
         int left,right,top;track_bounds(&client,&left,&right,&top);
         double fraction=fgs_focus_clamp((double)(x-left)/(right-left),0,1);
@@ -1583,7 +1586,7 @@ static bool border_has_classic_geometry(void)
         (!wcsncmp(s_initial_border_mode,L"CLASSIC_",8) ||
          !wcsncmp(s_initial_border_mode,L"USER_",5));
 }
-static void border_aperture(int *width,int *height)
+static void border_source_aperture(int *width,int *height)
 {
     int w=s_preview_aperture_width?s_preview_aperture_width:1680;
     int h=s_preview_aperture_height?s_preview_aperture_height:
@@ -1593,6 +1596,12 @@ static void border_aperture(int *width,int *height)
         w=s_border_choices[s_border_selection].aperture_width;
         h=s_border_choices[s_border_selection].aperture_height;
     }
+    *width=w;*height=h;
+}
+
+static void border_aperture(int *width,int *height)
+{
+    int w,h;border_source_aperture(&w,&h);
     *width=((s_width*w+960)/1920)&~1;
     *height=((s_height*h+540)/1080)&~1;
     if(*width>s_width)*width=s_width&~1;
@@ -1618,8 +1627,78 @@ static bool focus_view_point(HWND view,int mouse_x,int mouse_y,double *u,double 
     return *u>=0 && *u<=1 && *v>=0 && *v<=1;
 }
 
+// Expand keeps the picture rectangle fixed; eight aspect-fit stock regions use
+// the same integer partition and rounding as FilmBorderExpandCanvasCore.RenderTexture.
+static bool compose_film_expand(void)
+{
+    pl_dispatch_reset_frame(s_border_dispatch);
+    pl_shader sh=pl_dispatch_begin(s_border_dispatch);
+    int aw,ah;border_source_aperture(&aw,&ah);
+    struct fgs_film_motion motion=fgs_film_border_motion_adjusted(s_frame_seconds,s_border_weave,
+        s_motion_amp,s_motion_speed,s_motion_frequency);
+    const float content[]={(float)s_width,(float)s_height};
+    const float canvas[]={(float)(s_width+2*s_expand_px),(float)(s_height+2*s_expand_px)};
+    const float source_ap[]={(float)aw,(float)ah};
+    const float margin[]={(float)s_expand_px,(float)s_expand_px};
+    const float shift[]={(float)motion.shift_x,(float)motion.shift_y};
+    const struct pl_shader_var variables[]={
+        {.var=pl_var_vec2("fgsContentSize"),.data=content},
+        {.var=pl_var_vec2("fgsCanvasSize"),.data=canvas},
+        {.var=pl_var_vec2("fgsStockAperture"),.data=source_ap,.dynamic=true},
+        {.var=pl_var_vec2("fgsMargin"),.data=margin},
+        {.var=pl_var_vec2("fgsShift"),.data=shift,.dynamic=true},
+    };
+    const struct pl_shader_desc textures[]={
+        {.desc={.name="fgsStock",.type=PL_DESC_SAMPLED_TEX},
+         .binding={.object=s_border_texture,.address_mode=PL_TEX_ADDRESS_CLAMP,.sample_mode=PL_TEX_SAMPLE_LINEAR}},
+        {.desc={.name="fgsPicture",.type=PL_DESC_SAMPLED_TEX},
+         .binding={.object=s_border_content,.address_mode=PL_TEX_ADDRESS_CLAMP,.sample_mode=PL_TEX_SAMPLE_LINEAR}},
+    };
+    const char shader[]=
+        "vec2 q=gl_FragCoord.xy-fgsMargin;\n"
+        "vec3 rgb=vec3(0.0);\n"
+        "if(all(greaterThanEqual(q,vec2(0.0))) && all(lessThan(q,fgsContentSize))) {\n"
+        "    rgb=texture(fgsPicture,q/fgsContentSize).rgb;\n"
+        "} else {\n"
+        "    vec2 p=gl_FragCoord.xy-fgsShift;\n"
+        "    if(all(greaterThanEqual(p,vec2(0.0))) && all(lessThan(p,fgsCanvasSize))) {\n"
+        "        vec2 stockSize=vec2(1920.0,1080.0);\n"
+        "        vec2 a=floor((stockSize-fgsStockAperture)*0.5);\n"
+        "        vec2 b=a+fgsStockAperture;\n"
+        "        vec2 end=fgsMargin+fgsContentSize;\n"
+        "        ivec2 part=ivec2(p.x<fgsMargin.x?0:(p.x<end.x?1:2),p.y<fgsMargin.y?0:(p.y<end.y?1:2));\n"
+        "        if(part.x!=1 || part.y!=1) {\n"
+        "            vec2 slo=vec2(part.x==0?0.0:(part.x==1?a.x:b.x),part.y==0?0.0:(part.y==1?a.y:b.y));\n"
+        "            vec2 shi=vec2(part.x==0?a.x:(part.x==1?b.x:stockSize.x),part.y==0?a.y:(part.y==1?b.y:stockSize.y));\n"
+        "            vec2 dlo=vec2(part.x==0?0.0:(part.x==1?fgsMargin.x:end.x),part.y==0?0.0:(part.y==1?fgsMargin.y:end.y));\n"
+        "            vec2 dhi=vec2(part.x==0?fgsMargin.x:(part.x==1?end.x:fgsCanvasSize.x),part.y==0?fgsMargin.y:(part.y==1?end.y:fgsCanvasSize.y));\n"
+        "            vec2 ss=shi-slo, ds=dhi-dlo;\n"
+        "            if(all(greaterThan(ss,vec2(0.0)))) {\n"
+        "                float scale=min(ds.x/ss.x,ds.y/ss.y);\n"
+        "                vec2 fit=clamp(floor(ss*scale+0.5),vec2(1.0),ds);\n"
+        "                vec2 start=dlo+floor((ds-fit)*0.5);\n"
+        "                if(all(greaterThanEqual(p,start)) && all(lessThan(p,start+fit))) {\n"
+        "                    vec2 uv=clamp(slo+(p-start)/fit*ss,slo+0.5,shi-0.5)/stockSize;\n"
+        "                    rgb=texture(fgsStock,uv).rgb;\n"
+        "                }\n"
+        "            }\n"
+        "        }\n"
+        "    }\n"
+        "}\n"
+        "color=vec4(rgb,1.0);\n";
+    if(!pl_shader_custom(sh,&(struct pl_custom_shader){
+        .description="FGS Expand Canvas",
+        .input=PL_SHADER_SIG_NONE,.output=PL_SHADER_SIG_COLOR,
+        .output_w=s_width+2*s_expand_px,.output_h=s_height+2*s_expand_px,
+        .body=shader,.descriptors=textures,.num_descriptors=2,
+        .variables=variables,.num_variables=sizeof(variables)/sizeof(variables[0]),
+    })) {pl_dispatch_abort(s_border_dispatch,&sh);return false;}
+    return pl_dispatch_finish(s_border_dispatch,&(struct pl_dispatch_params){.shader=&sh,.target=s_border_composite});
+}
+
 static bool compose_film_border(void)
 {
+    if(s_expand_px)return compose_film_expand();
     pl_dispatch_reset_frame(s_border_dispatch);
     pl_shader sh = pl_dispatch_begin(s_border_dispatch);
     struct fgs_film_border_geometry geometry =
@@ -1689,6 +1768,7 @@ static bool init_film_border_targets(void)
         .w=s_width,.h=s_height,.format=format,.sampleable=true,.renderable=true,
     };
     s_border_content = pl_tex_create(gpu,&params);
+    params.w+=2*s_expand_px;params.h+=2*s_expand_px;
     s_border_composite = pl_tex_create(gpu,&params);
     s_border_dispatch = pl_dispatch_create(s_log,gpu);
     return s_border_content && s_border_composite && s_border_dispatch;
@@ -1730,23 +1810,31 @@ static double render_once(bool report)
     struct pl_frame target;
     pl_frame_from_swapchain(&target, &swap);
     struct pl_frame source = s_image;
+    bool border_visible=s_border_path && (!s_border_settings ||
+        (s_border_list ? strcmp(s_border_choices[s_border_selection].mode,"OFF")!=0 : s_border_mode!=0));
+    int px=border_visible?s_expand_px:0;
+    int view_w=s_width+2*px,view_h=s_height+2*px;
     if (s_pixel_view) {
-        int shown_w = width < s_width ? width : s_width;
-        int shown_h = height < s_height ? height : s_height;
-        int max_pan_x = (s_width-shown_w)/2;
-        int max_pan_y = (s_height-shown_h)/2;
+        int shown_w = width < view_w ? width : view_w;
+        int shown_h = height < view_h ? height : view_h;
+        int max_pan_x = (view_w-shown_w)/2;
+        int max_pan_y = (view_h-shown_h)/2;
         if (s_pan_x > max_pan_x) s_pan_x = max_pan_x;
         if (s_pan_x < -max_pan_x) s_pan_x = -max_pan_x;
         if (s_pan_y > max_pan_y) s_pan_y = max_pan_y;
         if (s_pan_y < -max_pan_y) s_pan_y = -max_pan_y;
-        int left = (s_width-shown_w)/2-s_pan_x;
-        int top = (s_height-shown_h)/2-s_pan_y;
+        int left = (view_w-shown_w)/2-s_pan_x;
+        int top = (view_h-shown_h)/2-s_pan_y;
         source.crop = (pl_rect2df){left,top,left+shown_w,top+shown_h};
         int dest_x = (width-shown_w)/2;
         int dest_y = (height-shown_h)/2;
         target.crop = (pl_rect2df){dest_x,dest_y,dest_x+shown_w,dest_y+shown_h};
     } else {
-        pl_rect2df_aspect_copy_rot(&target.crop, &s_image.crop, 0.0f, s_image.rotation);
+        if(px) {
+            source.crop=(pl_rect2df){0,0,view_w,view_h};
+            pl_rect2df display_crop={0,0,(float)(view_w*s_expand_sar),(float)view_h};
+            pl_rect2df_aspect_copy_rot(&target.crop,&display_crop,0.0f,s_image.rotation);
+        } else pl_rect2df_aspect_copy_rot(&target.crop, &s_image.crop, 0.0f, s_image.rotation);
     }
     /* PL_HOOK_NATIVE sees the cropped intermediate's local src_rect, not
      * original frame coordinates. Preserve the full-frame origin ourselves. */
@@ -1766,8 +1854,6 @@ static double render_once(bool report)
         }
         if (s_display_grain) {params.hooks=pixel_hooks;params.num_hooks=1;}
     }
-    bool border_visible=s_border_path && (!s_border_settings ||
-        (s_border_list ? strcmp(s_border_choices[s_border_selection].mode,"OFF")!=0 : s_border_mode!=0));
     bool okay = border_visible ? render_film_border(source,&target,&params) :
         pl_render_image(s_renderer,&source,&target,&params);
     if (!okay || !pl_swapchain_submit_frame(s_swapchain)) {
@@ -1786,7 +1872,11 @@ static double render_once(bool report)
     if (s_fgsim_mode) swprintf(grain_label,40,L"FGSIM %ls",s_display_grain?s_fgsim_names[s_strength]:L"Off");
     else if (s_digital_mode) swprintf(grain_label,40,L"Digital Grain %.2f",s_display_grain?s_strength/100.0:0.0);
     else swprintf(grain_label,40,L"%ls %d%%",s_plate_mode?L"Plate":L"Grain",s_display_grain?s_strength:0);
-    if(s_border_settings)
+    if(s_border_settings && px)
+        swprintf(title,256,L"FGS 外扩边框 | %ls | %d×%d | %ls | %.2f ms",
+            s_border_list?s_border_choices[s_border_selection].title:L"Expand",
+            view_w,view_h,s_pixel_view?L"1:1":L"Fit",delta);
+    else if(s_border_settings)
         swprintf(title,256,L"FGS 添加边框 | %ls | %ls | %.2f ms",
             s_border_list?s_border_choices[s_border_selection].title:
                 s_border_mode==2?L"动态":s_border_mode==1?L"静态":L"关闭",
@@ -1948,6 +2038,7 @@ static LRESULT CALLBACK window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM
             }
             RECT compose,reset;focus_buttons(&client,&compose,&reset);
             if(PtInRect(&compose,point)) {
+                if(s_expand_px)return 0;
                 s_compose_mode=!s_compose_mode;
                 if(s_compose_mode) {
                     s_compose_old_pixel_view=s_pixel_view;
@@ -1960,6 +2051,7 @@ static LRESULT CALLBACK window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM
                 redraw_controls();return 0;
             }
             if(PtInRect(&reset,point)) {
+                if(s_expand_px)return 0;
                 s_focus_x=s_focus_y=0.5;s_focus_zoom=1;
                 sync_focus_edits();redraw_controls();return 0;
             }
@@ -2550,6 +2642,13 @@ int wmain(int argc, wchar_t **argv)
             else if(!wcscmp(key,L"--film-focus-y"))s_focus_y=n;
             else s_focus_zoom=n;
         }
+        else if (!wcscmp(key, L"--film-expand-px")) {
+            if(!int_arg(value,0,512,&s_expand_px) || (s_expand_px&1))return 2;
+        }
+        else if (!wcscmp(key, L"--film-expand-sar")) {
+            wchar_t *end=NULL;s_expand_sar=wcstod(value,&end);
+            if(end==value||*end||!isfinite(s_expand_sar)||s_expand_sar<=0)return 2;
+        }
         else if (!wcscmp(key, L"--film-border")) s_border_path = value;
         else if (!wcscmp(key, L"--film-border-settings")) {
             if(!int_arg(value,0,1,&flag))return 2;
@@ -2639,6 +2738,7 @@ int wmain(int argc, wchar_t **argv)
         fprintf(stderr, "Invalid even dimensions, bit depth, bench count or timeline seconds\n");
         return 2;
     }
+    if(s_expand_px && (s_width+2*s_expand_px>16384 || s_height+2*s_expand_px>16384))return 2;
     if(s_border_settings && s_border_choices_file &&
        !load_border_choices(s_border_choices_file,s_initial_border_mode?
              s_initial_border_mode:L"OFF")) {
@@ -2777,6 +2877,7 @@ int wmain(int argc, wchar_t **argv)
         s_original_focus_edit_proc=(WNDPROC)SetWindowLongPtrW(s_focus_x_edit,GWLP_WNDPROC,(LONG_PTR)focus_edit_proc);
         SetWindowLongPtrW(s_focus_y_edit,GWLP_WNDPROC,(LONG_PTR)focus_edit_proc);
         sync_focus_edits();
+        if(s_expand_px){EnableWindow(s_focus_x_edit,FALSE);EnableWindow(s_focus_y_edit,FALSE);}
     }
     int view_height = client.bottom-panel_height();
     if (view_height < 1) view_height = 1;

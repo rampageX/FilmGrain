@@ -1950,11 +1950,11 @@ namespace FilmGrainStudioPreview
             if(plan!=null && plan.ExpandGeometry!=null)
             {
                 string transfer=ExpandSignal(plan);
-                string texture=FilmBorderExpandCanvasCore.TextureFilter(transfer,false,true);
-                string kernel=FilmBorderExpandCanvasCore.GpuGraph(plan.ExpandGeometry,plan.ExpandSarNum,plan.ExpandSarDen,transfer,false,
+                string expandTexture=FilmBorderExpandCanvasCore.TextureFilter(transfer,false,true);
+                string expandKernel=FilmBorderExpandCanvasCore.GpuGraph(plan.ExpandGeometry,plan.ExpandSarNum,plan.ExpandSarDen,transfer,false,
                     plan.Dynamic?plan.MoveX:"",plan.Dynamic?plan.MoveY:"",true);
-                if(plan.GpuH264)kernel=kernel.Replace("[vout]",",scale_cuda=format=nv12[vout]");
-                return graph+";["+N(plan.GpuInputIndex)+":v:0]"+texture+"[fgstexture];"+kernel;
+                if(plan.GpuH264)expandKernel=expandKernel.Replace("[vout]",",scale_cuda=format=nv12[vout]");
+                return graph+";["+N(plan.GpuInputIndex)+":v:0]"+expandTexture+"[fgstexture];"+expandKernel;
             }
             if (plan == null || plan.GpuRaw == null || (plan.HdrTransfer == "" && !plan.GpuSdr))
                 throw new InvalidOperationException("S4 GPU border called outside its validated route.");

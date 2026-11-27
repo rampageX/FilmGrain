@@ -568,7 +568,7 @@ namespace FilmGrainStudioPreview
         }
 
         internal static string CreatePreviewChoices(string appRoot,string ffmpeg,string temporary,
-            bool hdr,string transfer,CancellationToken token)
+            bool hdr,string transfer,CancellationToken token,bool expand=false)
         {
             var choices=List(appRoot);
             if(choices.Count<3)throw new InvalidDataException("没有可用的胶片边框素材。");
@@ -581,13 +581,15 @@ namespace FilmGrainStudioPreview
                 if(!cache.TryGetValue(actual.StyleId,out raw))
                 {
                     raw=Path.Combine(temporary,"border_"+cache.Count.ToString(CultureInfo.InvariantCulture)+".rgba");
-                    var args=new List<string>{"-hide_banner","-nostdin","-v","error","-y","-i",actual.PngPath,"-frames:v","1"};
+                    string previewStock=expand?FilmBorderExpandCanvasCore.WritePreviewStock(actual.PngPath,temporary):actual.PngPath;
+                    var args=new List<string>{"-hide_banner","-nostdin","-v","error","-y","-i",previewStock,"-frames:v","1"};
                     if(hdr)args.AddRange(new[]{"-vf","format=gbrap16le,zscale=matrixin=gbr:primariesin=709:transferin=iec61966-2-1:rangein=full"+
                         ":matrix=gbr:primaries=2020:transfer="+transfer+":range=full:npl=100:threads=1"});
                     args.AddRange(new[]{"-pix_fmt",hdr?"rgba64le":"rgba","-f","rawvideo",raw});
                     int rc=NativeLibraryTools.RunProcessEnvironment(ffmpeg,args,temporary,null,30000,token,null);
                     if(rc!=0 || !File.Exists(raw) || new FileInfo(raw).Length!=1920L*1080*(hdr?8:4))
                         throw new InvalidDataException("边框纹理转换失败："+actual.Label);
+                    if(expand)File.Delete(previewStock);
                     cache.Add(actual.StyleId,raw);
                 }
                 // Share one BMP thumbnail for the STATIC/WEAVE entries of each style.

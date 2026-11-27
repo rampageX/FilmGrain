@@ -139,6 +139,8 @@ namespace FilmGrainStudioPreview
                 out previewBorderChoice,out borderResolveError) &&
                 previewBorderChoice.Mode!=FilmBorderCatalogCore.Off;
             bool filmBorder = borderRoute && !chkInterpolation.Checked && selectedBorder;
+            int expandPx=filmBorder?FilmBorderExpandPx():0;
+            if(expandPx>0 && !CheckExpandPreviewGeometry(media,expandPx))return;
             string borderAsset=filmBorder ? previewBorderChoice.PngPath : "";
             if (filmBorder && !File.Exists(borderAsset)) {
                 FgsMessageBox.Show(this,UiText("找不到胶片边框素材。","Film border asset is missing."));return;
@@ -335,8 +337,9 @@ namespace FilmGrainStudioPreview
                     if (plateMode) args.AddRange(new[]{"--plate",platePath,"--plate-frame",plateFrame});
                     if (filmBorder) {
                         string borderRaw = Path.Combine(temporary,"film-border.rgba");
+                        string previewStock=expandPx>0?FilmBorderExpandCanvasCore.WritePreviewStock(borderAsset,temporary):borderAsset;
                         var borderArgs = new List<string> {"-hide_banner","-nostdin","-v","error","-y",
-                            "-i",borderAsset,"-frames:v","1"};
+                            "-i",previewStock,"-frames:v","1"};
                         if (media.IsHdr) borderArgs.AddRange(new[]{"-vf",
                             "format=gbrap16le,zscale=matrixin=gbr:primariesin=709:transferin=iec61966-2-1:rangein=full"+
                             ":matrix=gbr:primaries=2020:transfer="+media.ColorTransfer+":range=full:npl=100:threads=1"});
@@ -354,6 +357,7 @@ namespace FilmGrainStudioPreview
                             "--film-focus-x",FilmBorderFramingCore.N(FilmBorderFramingCore.Parse(config.Get(FilmBorderFramingCore.FocusXKey),0.5,0,1)),
                             "--film-focus-y",FilmBorderFramingCore.N(FilmBorderFramingCore.Parse(config.Get(FilmBorderFramingCore.FocusYKey),0.5,0,1)),
                             "--film-zoom",FilmBorderFramingCore.N(FilmBorderFramingCore.Parse(config.Get(FilmBorderFramingCore.ZoomKey),1,1,3))});
+                        AddExpandPreviewArguments(args,media,expandPx);
                     }
                     if (plateCycle>0) args.AddRange(new[]{"--plate-cycle",plateCycle.ToString("0.#########",CultureInfo.InvariantCulture)});
                     // grav1synth advances AV1 grain seeds per output frame. Use the
@@ -502,6 +506,8 @@ namespace FilmGrainStudioPreview
                 FgsMessageBox.Show(this, UiText("胶片边框素材、FFmpeg 或 GPU 预览程序缺失。",
                     "Border asset, FFmpeg or GPU preview executable is missing.")); return;
             }
+            int expandPx=FilmBorderExpandPx();
+            if(expandPx>0 && !CheckExpandPreviewGeometry(media,expandPx))return;
             string saved = borderPreviewPendingMode ?? config.Get("FILM_BORDER_MODE");
             FilmBorderChoice selectedChoice;string resolveError;
             string mode = FilmBorderCatalogCore.TryResolve(appRoot,saved,out selectedChoice,out resolveError) ? selectedChoice.Mode : "OFF";
@@ -549,7 +555,7 @@ namespace FilmGrainStudioPreview
                     if(rc!=0 || !File.Exists(frame) || new FileInfo(frame).Length!=(long)width*height*3)
                         throw new InvalidDataException("胶片边框预览抽帧失败。");
                     string choices = FilmBorderCatalogCore.CreatePreviewChoices(appRoot,ffmpeg,work,
-                        media.IsHdr,media.ColorTransfer,CancellationToken.None);
+                        media.IsHdr,media.ColorTransfer,CancellationToken.None,expandPx>0);
                     var args=new List<string>{frame,width.ToString(CultureInfo.InvariantCulture),
                         height.ToString(CultureInfo.InvariantCulture),"-","10","0",
                         seconds.ToString("0.######",CultureInfo.InvariantCulture),
@@ -562,6 +568,7 @@ namespace FilmGrainStudioPreview
                          "--film-focus-y",FilmBorderFramingCore.N(focusY),
                          "--film-zoom",FilmBorderFramingCore.N(zoom),
                          "--border-choices-file",choices};
+                    AddExpandPreviewArguments(args,media,expandPx);
                     if(duration>0)args.AddRange(new[]{"--video",input,"--ffmpeg",ffmpeg,"--duration",
                         Math.Min(86400,duration).ToString("0.######",CultureInfo.InvariantCulture)});
                     if(media.IsHdr)args.AddRange(new[]{"--source-color",
@@ -655,6 +662,7 @@ namespace FilmGrainStudioPreview
                                  });
                                 UpdateFilmBorderButton();
                                 AppendLog("[Film Border] "+selected+Environment.NewLine);
+                                UpdateBitrateDisplays();
                                 UpdateHdrRouteStatus(GetSelectedMediaInfo());
                             } catch(Exception ex){FgsMessageBox.Show(this,ex.Message);}
                         }
@@ -685,12 +693,109 @@ namespace FilmGrainStudioPreview
             FilmBorderChoice choice;string error;
             bool active=FilmBorderCatalogCore.TryResolve(appRoot,mode,out choice,out error) &&
                 choice.Mode!=FilmBorderCatalogCore.Off;
+            int expandPx=FilmBorderExpandPx();
             btnFilmBorder.Text=active
-                ? UiText("添加边框 · ","Film Border · ")+choice.Label
-                : UiText("添加边框", "Film Border");
+                ? (expandPx>0?UiText("外扩 · ","Expand · ")+expandPx+" px · ":UiText("添加边框 · ","Film Border · "))+choice.Label
+                : (expandPx>0?UiText("添加外扩边框","Add expanded border"):UiText("添加边框", "Film Border"));
+            MediaProbeInfo expandMedia=GetSelectedMediaInfo();
+            if(active && expandPx>0 && expandMedia!=null)
+                lutToolTip.SetToolTip(btnFilmBorder,UiText("外扩画布：","Expanded canvas: ")+
+                    (expandMedia.Width+2*expandPx)+"×"+(expandMedia.Height+2*expandPx)+
+                    UiText("；右键可设置合成模式。","; right-click to configure composition."));
+            else
+                lutToolTip.SetToolTip(btnFilmBorder,UiText("左键：打开边框预览；右键：合成模式或清空。","Left-click: border preview; right-click: composition or clear."));
             SetEffectButtonState(btnFilmBorder,active);
             btnFilmBorder.Enabled=!(gpuAdvancedPreviewBusy||filmBorderSettingsBusy);
         }
+        private int FilmBorderExpandPx()
+        {
+            int pixels;
+            return FilmBorderExpandCanvasCore.TryParseThickness(config.Get(FilmBorderExpandCanvasCore.ThicknessKey),out pixels)?pixels:0;
+        }
+
+        private static void AddExpandPreviewArguments(List<string> args,MediaProbeInfo media,int pixels)
+        {
+            if(pixels==0)return;
+            args.AddRange(new[]{"--film-expand-px",pixels.ToString(CultureInfo.InvariantCulture),
+                "--film-expand-sar",CinematicCropGeometry.SampleAspect(media).ToString("0.########",CultureInfo.InvariantCulture)});
+        }
+
+        private bool CheckExpandPreviewGeometry(MediaProbeInfo media,int pixels)
+        {
+            try
+            {
+                if(media.IsInterlaced || chkInterpolation.Checked)
+                    throw new ArgumentException(UiText("外扩测试版仅支持逐行、不插帧。","Expand candidate requires progressive input without interpolation."));
+                var state=PreprocessEnvironment();
+                CinematicFramePlan frame; ResizePlan resize;string reason;
+                if(!CinematicFrameCore.TryBuild(media,state,out frame,out reason) ||
+                    !ResizeCore.TryBuild(media,state,frame,out resize,out reason))
+                    throw new ArgumentException(reason);
+                if(resize.Enabled || !String.IsNullOrEmpty(frame.Filter))
+                    throw new ArgumentException(UiText("外扩测试版请关闭裁切、缩放和电影画幅。","Disable crop, resize and cinematic bars for this candidate."));
+                var geometry=new FilmBorderExpandGeometry(media.Width,media.Height,pixels,pixels,pixels,pixels);
+                int limit=cmbCodec.SelectedIndex==3?4096:cmbCodec.SelectedIndex==1?8192:16384;
+                if(geometry.CanvasWidth>limit || geometry.CanvasHeight>limit)
+                    throw new ArgumentException(UiText("外扩后超过当前编码器尺寸限制。","Expanded canvas exceeds codec dimensions."));
+                return true;
+            }
+            catch(ArgumentException ex){FgsMessageBox.Show(this,ex.Message,Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);return false;}
+        }
+
+        private void OpenFilmBorderCompositionSettings()
+        {
+            if(gpuAdvancedPreviewBusy || filmBorderSettingsBusy || (bridgeTaskCoordinator!=null && bridgeTaskCoordinator.IsActive))return;
+            int previous=FilmBorderExpandPx();
+            using(var dlg=new SettingsDialogForm())
+            {
+                dlg.Text=UiText("胶片边框 · 合成模式","Film Border · Composition");
+                dlg.StartPosition=FormStartPosition.CenterParent;
+                dlg.FormBorderStyle=FormBorderStyle.FixedDialog;
+                dlg.MaximizeBox=false;dlg.MinimizeBox=false;dlg.ShowInTaskbar=false;
+                dlg.ClientSize=new System.Drawing.Size(480,220);
+                dlg.BackColor=selectedDarkTheme?UiTheme.Surface:System.Drawing.SystemColors.Control;
+                dlg.ForeColor=selectedDarkTheme?UiTheme.TextColor:System.Drawing.SystemColors.ControlText;
+                var mode=new ThemeComboBox {DropDownStyle=ComboBoxStyle.DropDownList,
+                    Location=new System.Drawing.Point(134,24),Size=new System.Drawing.Size(320,27)};
+                mode.Items.AddRange(new object[]{UiText("覆盖式（默认）","Overlay (default)"),UiText("外扩式 · 原画面完整保留","Expand Canvas · keep picture")});
+                var thickness=new ThemeNumericUpDown {Minimum=2,Maximum=FilmBorderExpandCanvasCore.MaximumThickness,
+                    Increment=2,Value=previous>0?previous:FilmBorderExpandCanvasCore.DefaultThickness,
+                    Location=new System.Drawing.Point(134,65),Size=new System.Drawing.Size(100,27)};
+                var description=new ThemeLabel {Location=new System.Drawing.Point(18,108),
+                    Size=new System.Drawing.Size(436,50),ForeColor=selectedDarkTheme?UiTheme.Muted:System.Drawing.SystemColors.GrayText};
+                var apply=new ThemeButton {Text=UiText("应用并预览","Apply and preview"),Location=new System.Drawing.Point(238,172),Size=new System.Drawing.Size(122,32)};
+                var cancel=new ThemeButton {Text=UiText("取消","Cancel"),Location=new System.Drawing.Point(370,172),Size=new System.Drawing.Size(84,32),DialogResult=DialogResult.Cancel};
+                Action refresh=delegate {
+                    bool expand=mode.SelectedIndex==1;thickness.Enabled=expand;
+                    MediaProbeInfo m=GetSelectedMediaInfo();
+                    int p=expand?(int)thickness.Value:0;
+                    description.Text=expand?UiText("原画不裁切、不缩放，四周各扩展 ","No crop or scale. Add to each side: ")+p+" px"+
+                        (m==null?"":"  ·  "+(m.Width+2*p)+"×"+(m.Height+2*p)):
+                        UiText("沿用现有覆盖式边框及画面构图。","Keep existing overlay and framing.");
+                };
+                mode.SelectedIndexChanged+=delegate{refresh();};
+                thickness.ValueChanged+=delegate{refresh();};
+                mode.SelectedIndex=previous>0?1:0;
+                dlg.Controls.AddRange(new Control[]{
+                    new ThemeLabel{Text=UiText("合成模式","Composition"),Location=new System.Drawing.Point(18,30),AutoSize=true},
+                    mode,new ThemeLabel{Text=UiText("每边厚度 (px)","Per side (px)"),Location=new System.Drawing.Point(18,71),AutoSize=true},
+                    thickness,description,apply,cancel});
+                dlg.AcceptButton=apply;dlg.CancelButton=cancel;
+                apply.Click+=delegate{
+                    int p=mode.SelectedIndex==1?(int)thickness.Value:0;
+                    if((p&1)!=0){FgsMessageBox.Show(dlg,UiText("请输入偶数像素。","Enter an even number of pixels."));return;}
+                    MediaProbeInfo m=GetSelectedMediaInfo();
+                    if(p>0 && m!=null && !CheckExpandPreviewGeometry(m,p))return;
+                    config.SaveValue(FilmBorderExpandCanvasCore.ThicknessKey,p.ToString(CultureInfo.InvariantCulture));
+                    dlg.DialogResult=DialogResult.OK;dlg.Close();
+                };
+                AttachThemeWindow(dlg);
+                if(dlg.ShowDialog(this)!=DialogResult.OK)return;
+            }
+            UpdateFilmBorderButton();UpdateBitrateDisplays();UpdateHdrRouteStatus(GetSelectedMediaInfo());
+            OpenFilmBorderSettings();
+        }
+
         private void ImportFilmBorderFromPreview()
         {
             using(var picker=new OpenFileDialog()) {

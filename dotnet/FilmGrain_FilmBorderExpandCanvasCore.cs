@@ -36,6 +36,27 @@ namespace FilmGrainStudioPreview
             return String.IsNullOrEmpty(value) || (Int32.TryParse(value,NumberStyles.None,CultureInfo.InvariantCulture,out pixels)
                 && pixels>=0 && pixels<=MaximumThickness && (pixels&1)==0);
         }
+        // Preview remaps the same eight isolated rectangles in its shader. Resolve
+        // alpha against black in SDR before converting the artwork to PQ or HLG.
+        internal static string WritePreviewStock(string source,string directory)
+        {
+            string path=Path.Combine(directory,"expand_stock_"+Guid.NewGuid().ToString("N")+".png");
+            try
+            {
+                using(var input=new Bitmap(source))
+                using(var stock=new Bitmap(input.Width,input.Height,PixelFormat.Format32bppPArgb))
+                {
+                    using(Graphics draw=Graphics.FromImage(stock))
+                    {
+                        draw.Clear(Color.Black);
+                        draw.DrawImageUnscaled(input,0,0);
+                    }
+                    stock.Save(path,ImageFormat.Png);
+                }
+                return path;
+            }
+            catch { try { if(File.Exists(path)) File.Delete(path); } catch {} throw; }
+        }
         internal static string WriteTexture(string source,int apertureWidth,int apertureHeight,FilmBorderExpandGeometry geometry,string directory)
         {
             string path=Path.Combine(directory,"__FGS_EXPAND_"+Guid.NewGuid().ToString("N")+".png");
