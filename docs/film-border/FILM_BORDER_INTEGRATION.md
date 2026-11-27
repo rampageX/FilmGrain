@@ -27,11 +27,17 @@
 - 用户导入样式：`_FILMUSER_<边框名称>_S` / `_FILMUSER_<边框名称>_D`，不附加短 ID/GUID。导入名称必须唯一（不区分大小写，并检查文件名非法字符替换后的重名）。
 - H.264 NVENC、HEVC NVENC、x264、x265 统一使用 `FilmBorderEncodingCore.Plan.FileSuffix`；未开启边框时不添加后缀。文件名后缀与边框画面逻辑无关。
 
-### FGB-04 · SVT-AV1 胶片边框与 Film Grain 联合接入（TODO）
+### FGB-04 · AV1 颗粒与胶片边框联合接入（TODO）
 
-**状态：延期，未开放。** 待 SVT-AV1 的 Film Grain 能力进入可供 FGS 使用和验证的 Windows 构建后，再一起规划和测试 SVT-AV1 胶片边框。需要分别覆盖普通 SVT 编码、AV1 参数颗粒/像素颗粒、SDR/HDR、边框插入顺序、合成速度及音视频时间戳；现有 SVT 禁用边框的编码保护不得提前移除。
+**状态：延期，未开放（2026-11-27 更新）。** 将 SVT-AV1 自定义非烘焙颗粒与 AV1 胶片边框合并规划，以减少 AV1 编码流水线重复改动；二者不是必然的技术依赖。
 
-**当前交互：** NVENC_AV1、SVT-AV1、AV1 仅替换颗粒均禁用主界面“添加边框”，显示灰色“暂不可用”。AV1 编码的有效任务配置不携带之前保留的边框，切回 HEVC/H.264/x265/x264 后恢复用户原选择。此次不改任何实际编码滤镜。
+- 比较 SVT-AV1 原生外部 Grain Table / Film Grain API 与 grav1synth 后置注入方案。重点跟踪 SVT-AV1 4.3.0 的 timed `--fgs-table` / `FILM_GRAIN_EVENT`，核实实际 Windows 构建、FFmpeg libsvtav1 接入及参数传递能力；该版本与原始 TODO 所指上游补丁的对应关系尚未确认。参考 [SVT-AV1 CHANGELOG](https://github.com/AOMediaCodec/SVT-AV1/blob/main/CHANGELOG.md)。
+- 研究并验收 AV1 NVENC / SVT-AV1 的覆盖式（Overlay）和外扩式（Expand Canvas）胶片边框，分别覆盖静态/动态、普通编码、AV1 参数颗粒/像素颗粒、SDR/HDR、边框插入顺序、合成速度及音视频时间戳。
+- 保留已验收的 HDR、插帧和无损中转优化；GUI/CLI 同步。AV1 仅替换颗粒模式保持现有边框禁用规则，不改变其仅替换颗粒的语义。
+- 继续由现有 FGS 技术进展及开发技术周报跟踪上游；暂不实施，不新增定时任务。
+
+**当前交互：** NVENC_AV1、SVT-AV1、AV1 仅替换颗粒均禁用主界面“添加边框”，显示灰色“暂不可用”。AV1 编码的有效任务配置不携带之前保留的边框，切回 HEVC/H.264/x265/x264 后恢复用户原选择。完成验证前不得移除现有保护。
+
 ## 明确延期（不要在这次整理中开启）
 
 ### FGB-01 · HDR→SDR GPU 预览统一修复

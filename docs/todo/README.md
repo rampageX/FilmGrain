@@ -4,6 +4,7 @@
 
 - [P1：FFmpeg 9.1 HDR GPU 胶片边框兼容性](FGS_FFmpeg91_HDR_Border_GPU_Interop_TODO.md)（主干升级阻断，待定位修复）
 - [FGB-02：PC Full Range 插帧＋GPU 胶片边框](FGS_FGB02_Full_Range_TODO.md)（待研究，不开放）
+- [FGB-04：AV1 颗粒与胶片边框联合接入](../film-border/FILM_BORDER_INTEGRATION.md#fgb-04--av1-颗粒与胶片边框联合接入todo)（延期，待研究与验收）
 
 - **HDR→SDR 高级 GPU 预览**（低优先级，暂缓，待验证）
   - 复用现有滑动对比与同一解码帧。左侧显示 HDR 原片，右侧调用当前正式编码路线的 HDR→SDR 转换及参数，先处理再缩放显示。
