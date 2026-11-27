@@ -84,13 +84,14 @@ internal static class ExpandCanvasCoreTests
         foreach(string trc in new[]{"bt709","smpte2084","arib-std-b67"})
         {
             string tx=FilmBorderExpandCanvasCore.TextureFilter(trc,false,true);
-            Check(tx.StartsWith("trim=end_frame=1,setpts=0"),"Texture clock");
+            Check(tx.StartsWith("trim=end_frame=1,settb=AVTB,setpts=0"),"Texture clock");
+            Check(FilmBorderExpandCanvasCore.TextureFilter(trc,false,false).StartsWith("trim=end_frame=1,setpts=0"),"CPU texture clock unchanged");
             Check(tx.EndsWith("format=p010le,hwupload"),"Texture upload");
             foreach(bool moving in new[]{false,true})
             {
                 string x=moving?"if(gt(t,1),2,0)":"", y=moving?"-2":"";
                 string gpu=FilmBorderExpandCanvasCore.GpuGraph(g,16,15,trc,false,x,y,true);
-                Check(gpu.StartsWith("[fgsfilm_gpu_video]split=2[fgsexact][fgsclock]"),"Source-owned clock");
+                Check(gpu.StartsWith("[fgsfilm_gpu_video]settb=AVTB,split=2[fgsexact][fgsclock]"),"Source-owned clock aligned before split");
                 Check(gpu.Contains("[fgsbase][fgstexture]overlay_vulkan"),"Texture secondary");
                 Check(gpu.Contains("[fgsexact]overlay_vulkan=x=64:y=64"),"Final picture copy");
                 Check(gpu.EndsWith("setsar=sar=16/15:max=65535,hwupload=derive_device=cuda[vout]"),"SAR/CUDA");

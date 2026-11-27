@@ -50,6 +50,7 @@ internal static class ExpandCanvasProductionTests
             Set(plan,"GpuInputIndex",1);
             string gpu=(string)Call("AppendGpuFilter","[0:v:0]format=p010le,hwupload[fgsfilm_gpu_video]",plan);
             Check(gpu.Contains("overlay_vulkan=x=22:y=8") && gpu.Contains("hwupload=derive_device=cuda") && !gpu.Contains("hwdownload"),"GPU region-copy route");
+            Check(gpu.Contains("[fgsfilm_gpu_video]settb=AVTB,split=2[fgsexact][fgsclock]") && gpu.Contains("trim=end_frame=1,settb=AVTB,setpts=0"),"Production Vulkan framesync time bases aligned");
             Console.WriteLine("PASS production plan and graph "+id);
         }
         return 0;

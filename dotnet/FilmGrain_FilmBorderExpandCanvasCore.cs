@@ -187,7 +187,7 @@ namespace FilmGrainStudioPreview
             bool hdr=transfer!="bt709";
             if(hdr && fullRange) throw new ArgumentException("Full-range HDR border is not validated.");
             string p=hdr?"2020":"709", m=hdr?"2020_ncl":"709", r=fullRange?"full":"limited";
-            return "trim=end_frame=1,setpts=0,format=gbrp16le,zscale=matrixin=gbr:primariesin=709:"+
+            return "trim=end_frame=1,"+(gpu?"settb=AVTB,":"")+"setpts=0,format=gbrp16le,zscale=matrixin=gbr:primariesin=709:"+
                 "transferin=iec61966-2-1:rangein=full:matrix="+m+":primaries="+p+
                 ":transfer="+transfer+":range="+r+":npl=100:threads=1,format=yuv420p10le"+
                 (gpu?",format=p010le,hwupload":"");
@@ -213,7 +213,11 @@ namespace FilmGrainStudioPreview
             bool hdr=transfer!="bt709";
             if(hdr && fullRange) throw new ArgumentException("Full-range HDR border is not validated.");
             string w=N(g.CanvasWidth),h=N(g.CanvasHeight);
-            string graph="[fgsfilm_gpu_video]split=2[fgsexact][fgsclock];"+
+            // overlay_vulkan in the current Stable build copies framesync PTS
+            // without rescaling to the output link time base. Align both inputs
+            // to AVTB before framesync; this does not force a CFR or change N.
+            // T600 R9D2: 720/720 PTS match, 418/471 MiB static/dynamic NVENC.
+            string graph="[fgsfilm_gpu_video]settb=AVTB,split=2[fgsexact][fgsclock];"+
                 "[fgsclock]scale_vulkan=w="+w+":h="+h+":scaler=nearest[fgsbase];"+
                 "[fgsbase][fgstexture]overlay_vulkan=x=0:y=0[fgsart]";
             string art="fgsart";

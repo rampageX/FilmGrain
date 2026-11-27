@@ -161,12 +161,12 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $deliver = Join-Path $env:RUNNER_TEMP 'FGS_ExpandCanvas_J7N3'
+          $deliver = Join-Path $env:RUNNER_TEMP 'FGS_ExpandCanvas_R9T6'
           [void](New-Item -ItemType Directory -Path $deliver -Force)
           $version = (Get-Content -LiteralPath '.github\release\version.txt' -Raw).Trim()
           $out = Join-Path $env:RUNNER_TEMP 'FGS_Border_Merge_Validation'
-          Copy-Item -LiteralPath (Join-Path $out ('FilmGrain_Studio_v' + $version + '_Stable.zip')) -Destination (Join-Path $deliver 'FGS_ExpandCanvas_J7N3_Test_Runtime.zip')
-          $source = Join-Path $deliver 'FGS_ExpandCanvas_J7N3_Full_Source.zip'
+          Copy-Item -LiteralPath (Join-Path $out ('FilmGrain_Studio_v' + $version + '_Stable.zip')) -Destination (Join-Path $deliver 'FGS_ExpandCanvas_R9T6_Test_Runtime.zip')
+          $source = Join-Path $deliver 'FGS_ExpandCanvas_R9T6_Full_Source.zip'
           & git -C $env:GITHUB_WORKSPACE archive --format=zip "--output=$source" HEAD
           if ($LASTEXITCODE -ne 0) { throw 'Matching full source ZIP creation failed.' }
           Compress-Archive -LiteralPath $env:FGS_NATURAL_SAMPLES -DestinationPath (Join-Path $deliver 'FGS_Natural_Border_Visual_Samples.zip')
@@ -178,7 +178,7 @@ jobs:
       - name: Upload candidate runtime and complete source
         uses: actions/upload-artifact@v4
         with:
-          name: FGS_ExpandCanvas_J7N3_Test_and_Source
+          name: FGS_ExpandCanvas_R9T6_Test_and_Source
           path: ${{ env.FGS_EXPAND_DELIVERY }}
           if-no-files-found: error
           retention-days: 14
