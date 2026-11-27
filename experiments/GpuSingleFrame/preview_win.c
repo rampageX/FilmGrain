@@ -631,7 +631,1472 @@ static bool load_lut(const wchar_t *path)
         if (!data) return false;
         s_lut_storage[step-1] = data;
         float amount = step/4.0f;
-        for (int z=0; z<b; z++) for (int y=0; y…18386 tokens truncated… {
+        for (int z=0; z<b; z++) for (int y=0; y<g; y++) for (int x=0; x<r; x++) {
+            size_t i = ((size_t)(z*g+y)*r+x)*3;
+            float identity[3] = { (float)x/(r-1), (float)y/(g-1), (float)z/(b-1) };
+            for (int ch=0; ch<3; ch++)
+                data[i+ch] = s_lut_source->data[i+ch]*amount + identity[ch]*(1.0f-amount);
+        }
+        s_lut_variants[step-1] = *s_lut_source;
+        s_lut_variants[step-1].data = data;
+        s_lut_variants[step-1].signature ^= UINT64_C(0x9e3779b97f4a7c15)*(uint64_t)step;
+    }
+    s_lut_dynamic_data = malloc(count*3*sizeof(float));
+    if (!s_lut_dynamic_data) return false;
+    s_lut_dynamic = *s_lut_source;
+    s_lut_dynamic.data = s_lut_dynamic_data;
+    s_lut_enabled = true;
+    return true;
+}
+
+static void prepare_dynamic_lut(int percent)
+{
+    if (s_lut_dynamic_percent == percent) return;
+    int r = s_lut_size[0], g = s_lut_size[1], b = s_lut_size[2];
+    float amount = percent / 100.0f;
+    for (int z=0; z<b; z++) for (int y=0; y<g; y++) for (int x=0; x<r; x++) {
+        size_t i = ((size_t)(z*g+y)*r+x)*3;
+        float identity[3] = { (float)x/(r-1), (float)y/(g-1), (float)z/(b-1) };
+        for (int ch=0; ch<3; ch++)
+            s_lut_dynamic_data[i+ch] =
+                s_lut_source->data[i+ch]*amount + identity[ch]*(1.0f-amount);
+    }
+    /* The shader cache must see a distinct signature when data is replaced. */
+    s_lut_dynamic.signature = s_lut_source->signature ^
+                              (UINT64_C(0xd1b54a32d192ed03) + (uint64_t)percent);
+    s_lut_dynamic_percent = percent;
+}
+
+static const struct pl_custom_lut *selected_lut(void)
+{
+    if (!s_lut_source || !s_lut_enabled || !s_lut_strength) return NULL;
+    if (s_lut_strength == 100) return s_lut_source;
+    if (!(s_lut_strength%25)) return &s_lut_variants[s_lut_strength/25-1];
+    prepare_dynamic_lut(s_lut_strength);
+    return &s_lut_dynamic;
+}
+
+static void set_grain(int strength)
+{
+    struct pl_film_grain_data *fg = &s_image.film_grain;
+    memset(fg, 0, sizeof(*fg));
+    if (s_plate_mode || s_fgsim_mode || s_digital_mode) return;
+    if (!s_has_grain || !s_display_grain || strength == 0) return;
+    FgsGrainModel model;
+    fgs_scale_model(&s_original, strength, &model);
+    fg->type = PL_FILM_GRAIN_AV1;
+    /* Raw filmgrn1 presets often use seed=0. grav1synth increments that seed
+     * per video packet before applying AV1 grain; using 0 directly would lock
+     * libplacebo's luma LFSR to a constant instead of random noise. */
+    fg->seed = fgs_seed_for_frame(model.seed,
+        (uint64_t)llround(s_frame_seconds*10000000.0), s_grain_event_start,
+        s_fps_num, s_fps_den);
+    struct pl_av1_grain_data *p = &fg->params.av1;
+    p->ar_coeff_lag = model.lag;
+    p->ar_coeff_shift = model.ar_shift;
+    p->grain_scale_shift = model.grain_shift;
+    p->scaling_shift = model.scaling_shift;
+    p->chroma_scaling_from_luma = model.chroma_from_luma != 0;
+    p->overlap = model.overlap != 0;
+    p->num_points_y = model.points_count[0];
+    memcpy(p->points_y, model.points[0], sizeof(p->points_y));
+    memcpy(p->ar_coeffs_y, model.coefficients[0], sizeof(p->ar_coeffs_y));
+    for (int ch=0; ch<2; ch++) {
+        p->num_points_uv[ch] = model.points_count[ch+1];
+        for (int i=0; i<p->num_points_uv[ch]; i++) {
+            p->points_uv[ch][i][0] = model.points[ch+1][i][0];
+            p->points_uv[ch][i][1] = model.points[ch+1][i][1];
+        }
+        memcpy(p->ar_coeffs_uv[ch], model.coefficients[ch+1], sizeof(p->ar_coeffs_uv[ch]));
+        p->uv_mult[ch] = (int8_t)(model.uv_mult[ch] > 127 ? model.uv_mult[ch]-256 : model.uv_mult[ch]);
+        p->uv_mult_luma[ch] = (int8_t)(model.uv_luma_mult[ch] > 127 ? model.uv_luma_mult[ch]-256 : model.uv_luma_mult[ch]);
+        p->uv_offset[ch] = (int16_t)model.uv_offset[ch];
+    }
+}
+
+static bool upload_frame(const unsigned char *raw, int depth)
+{
+    const size_t bytes_per_sample = depth == 8 ? 1 : 2;
+    const int widths[3] = {s_width, s_width/2, s_width/2};
+    const int heights[3] = {s_height, s_height/2, s_height/2};
+    size_t offset = 0;
+    for (int i=0; i<3; i++) {
+        struct pl_plane_data plane = {
+            .type = PL_FMT_UNORM,
+            .width = widths[i], .height = heights[i],
+            .pixel_stride = bytes_per_sample,
+            .row_stride = (size_t)widths[i] * bytes_per_sample,
+            .pixels = raw + offset,
+        };
+        int sizes[4] = {depth == 8 ? 8 : 16, 0, 0, 0};
+        int shifts[4] = {0, 0, 0, 0};
+        pl_plane_data_from_comps(&plane, sizes, shifts);
+        if (!pl_upload_plane(s_device->gpu, &s_image.planes[i], &s_textures[i], &plane)) {
+            fprintf(stderr, "GPU upload failed for plane %d\n", i);
+            return false;
+        }
+        s_image.planes[i].components = 1;
+        s_image.planes[i].component_mapping[0] = i;
+        s_image.planes[i].shift_x = s_image.planes[i].shift_y = 0;
+        offset += (size_t)widths[i] * heights[i] * bytes_per_sample;
+    }
+    s_image.num_planes = 3;
+    s_image.repr = (struct pl_color_repr) {
+        .sys = s_hdr_transfer ? PL_COLOR_SYSTEM_BT_2020_NC : PL_COLOR_SYSTEM_BT_709,
+        .levels = s_source_full ? PL_COLOR_LEVELS_FULL : PL_COLOR_LEVELS_LIMITED,
+        .bits = { .sample_depth = depth == 8 ? 8 : 16,
+                  .color_depth = depth, .bit_shift = 0 },
+    };
+    s_image.color = (struct pl_color_space) {
+        .primaries = PL_COLOR_PRIM_BT_709, .transfer = PL_COLOR_TRC_BT_1886,
+    };
+    if (s_hdr_transfer)
+        s_image.color = s_hdr_transfer == PL_COLOR_TRC_PQ ? pl_color_space_hdr10 : pl_color_space_bt2020_hlg;
+    s_image.crop = (pl_rect2df) {0, 0, s_width, s_height};
+    pl_gpu_finish(s_device->gpu);
+    return true;
+}
+
+/* Plate planes live on the GPU alongside the source frame. FFmpeg is only
+ * involved on the initial load and explicit seeks, never on slider updates.
+ * Both sources arrive as right-justified 10-bit YUV420 (one R16 texture per
+ * plane); this is the same pre-normalization space as PL_HOOK_NATIVE. */
+static bool upload_plate(const unsigned char *raw)
+{
+    const int widths[3] = {s_width, s_width/2, s_width/2};
+    const int heights[3] = {s_height, s_height/2, s_height/2};
+    size_t offset = 0;
+    for (int i=0; i<3; i++) {
+        struct pl_plane_data plane = {
+            .type = PL_FMT_UNORM,
+            .width = widths[i], .height = heights[i],
+            .pixel_stride = 2, .row_stride = (size_t)widths[i]*2,
+            .pixels = raw+offset,
+        };
+        int sizes[4] = {16,0,0,0};
+        int shifts[4] = {0,0,0,0};
+        struct pl_plane uploaded = {0};
+        pl_plane_data_from_comps(&plane,sizes,shifts);
+        if (!pl_upload_plane(s_device->gpu,&uploaded,&s_plate_textures[i],&plane)) {
+            fprintf(stderr,"Plate GPU upload failed for plane %d\n",i);
+            return false;
+        }
+        offset += (size_t)widths[i]*heights[i]*2;
+    }
+    pl_gpu_finish(s_device->gpu);
+    return true;
+}
+
+/* FFmpeg blend_vulkan overlay: source video is TOP, plate is BOTTOM. Apply
+ * the Overlay operation independently to Y/U/V before BT.709 conversion.
+ * libplacebo has already expanded the source's right-justified 10-bit samples
+ * to 10-bit signal range at PL_HOOK_NATIVE. The separate plate textures still
+ * need the 64x expansion because they are sampled directly as R16 UNORM. */
+static float s_plate_origin_x = 0.0f;
+static float s_plate_origin_y = 0.0f;
+static struct pl_hook_res plate_overlay_hook(void *priv, const struct pl_hook_params *params)
+{
+    (void)priv;
+    const struct pl_shader_desc samplers[3] = {
+        {.desc={.name="fgsPlateY",.type=PL_DESC_SAMPLED_TEX},
+         .binding={.object=s_plate_textures[0],.address_mode=PL_TEX_ADDRESS_CLAMP,.sample_mode=PL_TEX_SAMPLE_LINEAR}},
+        {.desc={.name="fgsPlateU",.type=PL_DESC_SAMPLED_TEX},
+         .binding={.object=s_plate_textures[1],.address_mode=PL_TEX_ADDRESS_CLAMP,.sample_mode=PL_TEX_SAMPLE_LINEAR}},
+        {.desc={.name="fgsPlateV",.type=PL_DESC_SAMPLED_TEX},
+         .binding={.object=s_plate_textures[2],.address_mode=PL_TEX_ADDRESS_CLAMP,.sample_mode=PL_TEX_SAMPLE_LINEAR}},
+    };
+    float opacity = s_display_grain ? (float)s_strength/100.0f : 0.0f;
+    const float dimensions[2] = {(float)s_width,(float)s_height};
+    /* The 1:1 viewer renders a crop, not the whole frame. Sample the plate
+     * at the original full-frame coordinates to prevent pan misalignment. */
+    const float offset[2] = {s_plate_origin_x,s_plate_origin_y};
+    const struct pl_shader_var uniforms[3] = {
+        {.var=pl_var_float("fgsPlateOpacity"),.data=&opacity,.dynamic=true},
+        {.var=pl_var_vec2("fgsPlateDimensions"),.data=dimensions},
+        {.var=pl_var_vec2("fgsPlateOffset"),.data=offset,.dynamic=true},
+    };
+    const char shader[] =
+        "vec2 fgsUV = clamp((gl_FragCoord.xy + fgsPlateOffset) / fgsPlateDimensions, vec2(0.0), vec2(1.0));\n"
+        "vec3 fgsTop = color.rgb;\n"
+        "vec3 fgsBottom = vec3(texture(fgsPlateY,fgsUV).r,"
+        " texture(fgsPlateU,fgsUV).r,texture(fgsPlateV,fgsUV).r) * 64.0;\n"
+        "vec3 fgsOverlay = mix(2.0*fgsTop*fgsBottom,"
+        " 1.0-2.0*(1.0-fgsTop)*(1.0-fgsBottom),step(vec3(0.5),fgsTop));\n"
+        "color.rgb = mix(fgsTop,fgsOverlay,fgsPlateOpacity);\n";
+    bool okay = pl_shader_custom(params->sh,&(struct pl_custom_shader){
+        .description="FGS Grain Plate Overlay (GPU)",
+        .input=PL_SHADER_SIG_COLOR,.output=PL_SHADER_SIG_COLOR,
+        .body=shader,.descriptors=samplers,.num_descriptors=3,
+        .variables=uniforms,.num_variables=3,
+    });
+    if (!okay) return (struct pl_hook_res){.failed=true};
+    return (struct pl_hook_res){
+        .output=PL_HOOK_SIG_COLOR,.sh=params->sh,
+        .repr=params->repr,.color=params->color,
+        .components=params->components,.rect=params->rect,
+    };
+}
+
+static struct pl_hook_res pixel_grain_hook(void *priv, const struct pl_hook_params *params)
+{
+    (void)priv;
+    const struct pl_shader_desc texture = {
+        .desc={.name=s_fgsim_mode?"FGS_NOISE":"fgsNoise",.type=PL_DESC_SAMPLED_TEX},
+        .binding={.object=s_pixel_noise,.address_mode=PL_TEX_ADDRESS_CLAMP,.sample_mode=PL_TEX_SAMPLE_NEAREST},
+    };
+    const float strengths[] = {0.10f,0.15f,0.20f,0.30f};
+    float strength = s_fgsim_mode ? strengths[s_strength] : s_strength/100.0f;
+    float frame = (float)((uint64_t)llround(s_frame_seconds*s_fps_num/s_fps_den)%512);
+    float offset[] = {s_plate_origin_x,s_plate_origin_y};
+    const struct pl_shader_var uniforms[] = {
+        {.var=pl_var_float("fgsStrength"),.data=&strength,.dynamic=true},
+        {.var=pl_var_float("fgsFrame"),.data=&frame,.dynamic=true},
+        {.var=pl_var_vec2("fgsOffset"),.data=offset,.dynamic=true},
+    };
+    // RGB here is still in the source transfer function, before display mapping.
+    const char fgsim_sdr[] =
+        "color = fgsim_apply(color, ivec2(floor(gl_FragCoord.xy + fgsOffset)), int(fgsFrame), fgsStrength);\n";
+    const char fgsim_hdr[] =
+        "vec4 effected = fgsim_apply(color, ivec2(floor(gl_FragCoord.xy + fgsOffset)), int(fgsFrame), fgsStrength);\n"
+        "vec3 weights = vec3(0.2627, 0.6780, 0.0593);\n"
+        "float span = FGS_Y_SPAN, black = FGS_Y_BLACK;\n"
+        "float y = floor(clamp(dot(color.rgb, weights)*span+black,0.0,1023.0)+0.5);\n"
+        "float fy = floor(clamp(dot(effected.rgb, weights)*span+black,0.0,1023.0)+0.5);\n"
+        "float delta = clamp(512.0+y-fy,0.0,1023.0)-512.0;\n"
+        "color.rgb += vec3((clamp(y+delta,0.0,1023.0)-y)/span);\n";
+    const char digital[] =
+        "ivec2 px = ivec2(floor(gl_FragCoord.xy + fgsOffset));\n"
+        "px = clamp(px, ivec2(0), textureSize(fgsNoise,0)-ivec2(1));\n"
+        "float n = floor(texelFetch(fgsNoise,px,0).r*255.0+0.5);\n"
+        "vec3 weights = FGS_WEIGHTS;\n"
+        "float luma = dot(color.rgb,weights);\n"
+        "float maskY = clamp(floor(luma*219.0+16.5),0.0,255.0);\n"
+        "float mask = floor(fgsStrength*(182.0-abs(75.0-maskY))+0.0001);\n"
+        "float alpha8 = 255.0-floor(n*mask/255.0);\n"
+        "#if FGS_HDR\n"
+        "float alpha10 = floor(clamp((alpha8-16.0)*1023.0/219.0,0.0,1023.0)+0.5);\n"
+        "float y = floor(clamp(luma*FGS_Y_SPAN+FGS_Y_BLACK,0.0,1023.0)+0.5);\n"
+        "float outY = floor(FGS_Y_BLACK+(y-FGS_Y_BLACK)*alpha10/1023.0);\n"
+        "color.rgb += vec3((outY-y)/FGS_Y_SPAN);\n"
+        "#else\n"
+        "color.rgb *= alpha8/255.0;\n"
+        "#endif\n";
+    char prelude[256];
+    snprintf(prelude,sizeof(prelude),
+        "#define FGS_Y_SPAN %s\n#define FGS_Y_BLACK %s\n#define FGS_HDR %d\n#define FGS_WEIGHTS %s\n",
+        s_source_full?"1023.0":"876.0", s_source_full?"0.0":"64.0", !!s_hdr_transfer,
+        s_hdr_transfer?"vec3(0.2627,0.6780,0.0593)":"vec3(0.2126,0.7152,0.0722)");
+    bool okay = pl_shader_custom(params->sh,&(struct pl_custom_shader){
+        .description=s_fgsim_mode?"FGSIM preview":"Digital Grain preview",
+        .input=PL_SHADER_SIG_COLOR,.output=PL_SHADER_SIG_COLOR,.prelude=prelude,
+        .header=s_fgsim_shader,
+        .body=s_fgsim_mode ? (s_hdr_transfer?fgsim_hdr:fgsim_sdr) : digital,
+        .descriptors=&texture,.num_descriptors=1,
+        .variables=uniforms,.num_variables=sizeof(uniforms)/sizeof(uniforms[0]),
+    });
+    if (!okay) return (struct pl_hook_res){.failed=true};
+    return (struct pl_hook_res){
+        .output=PL_HOOK_SIG_COLOR,.sh=params->sh,.repr=params->repr,
+        .color=params->color,.components=params->components,.rect=params->rect,
+    };
+}
+
+static bool upload_pixel_noise(const unsigned char *raw, bool rgba)
+{
+    int components = rgba ? 4 : 1;
+    int width = rgba ? 512 : s_width;
+    int height = rgba ? 512 : s_height;
+    struct pl_plane_data plane = {
+        .type=PL_FMT_UNORM,.width=width,.height=height,
+        .pixel_stride=components,.row_stride=(size_t)width*components,.pixels=raw,
+    };
+    int sizes[] = {8,rgba?8:0,rgba?8:0,rgba?8:0};
+    int shifts[] = {0,8,16,24};
+    pl_plane_data_from_comps(&plane,sizes,shifts);
+    struct pl_plane uploaded;
+    return pl_upload_plane(s_device->gpu,&uploaded,&s_pixel_noise,&plane);
+}
+
+/* A separate D3D11 child window keeps GDI slider painting completely outside
+ * the GPU swapchain. Border-only view reserves a left GDI thumbnail sidebar.
+ * No GDI-over-D3D overlays or repeated video uploads. */
+static void track_bounds(RECT *client, int *left, int *right, int *top)
+{
+    *left = 144;
+    *right = client->right - 150;
+    if (*right < *left+24) *right = *left+24;
+    *top = client->bottom-panel_height();
+}
+
+/* Center the frame controls in the space left of the action buttons. */
+static void bottom_frame_controls(const RECT *client, RECT *edit,
+                                  RECT *random_btn, RECT *seek_btn, int *hint_left)
+{
+    int height=s_time_edit_height>32?s_time_edit_height:32;
+    // The border settings timeline toolbar lives immediately under its frame slider.
+    bool border_toolbar=s_border_settings && s_video_path;
+    int bottom=border_toolbar?client->bottom-panel_height()+66+height:client->bottom-12;
+    int group_width=s_time_edit_width+12+106+12+106;
+    int area_right=s_result_path && !border_toolbar?client->right-256:client->right-14;
+    int x=14+(area_right-14-group_width)/2;
+    int edit_top=bottom-height+(height-s_time_edit_height)/2;
+    *edit=(RECT){x,edit_top,x+s_time_edit_width,edit_top+s_time_edit_height};
+    *random_btn=(RECT){edit->right+12,bottom-height,edit->right+118,bottom};
+    *seek_btn=(RECT){random_btn->right+12,bottom-height,random_btn->right+118,bottom};
+    *hint_left=x;
+}
+
+static void action_buttons(const RECT *client, RECT *apply, RECT *cancel)
+{
+    int bottom = client->bottom-12;
+    int height = s_time_edit_height > 32 ? s_time_edit_height : 32;
+    *apply = (RECT){client->right-244,bottom-height,client->right-134,bottom};
+    *cancel = (RECT){client->right-123,bottom-height,client->right-13,bottom};
+}
+
+/* Match the FGS dark ThemeTrackBar: green rail and a light rectangular thumb. */
+static void draw_slider(HDC dc, RECT *client, int y, const wchar_t *name,
+                        double fraction, bool enabled, const wchar_t *value, bool round_thumb)
+{
+    int left, right, top;
+    track_bounds(client, &left, &right, &top);
+    (void)top;
+    if (fraction < 0) fraction = 0;
+    if (fraction > 1) fraction = 1;
+    SetBkMode(dc, TRANSPARENT);
+    SetTextColor(dc, enabled ? RGB(235,237,240) : RGB(162,167,174));
+    RECT label = {14, y-15, left-14, y+15};
+    DrawTextW(dc, name, -1, &label, DT_RIGHT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS);
+    RECT rail = {left,y-2,right,y+2};
+    HBRUSH border=CreateSolidBrush(RGB(64,66,71));
+    FillRect(dc,&rail,border);DeleteObject(border);
+    int handle_x=left+(int)((right-left)*fraction+0.5);
+    if (enabled) {
+        RECT filled={left,y-2,handle_x,y+2};
+        HBRUSH accent=CreateSolidBrush(RGB(0,151,111));
+        FillRect(dc,&filled,accent);DeleteObject(accent);
+    }
+    if (round_thumb) {
+        HBRUSH handle=CreateSolidBrush(enabled?RGB(0,151,111):RGB(162,167,174));
+        HGDIOBJ old_brush=SelectObject(dc,handle),old_pen=SelectObject(dc,GetStockObject(NULL_PEN));
+        Ellipse(dc,handle_x-7,y-7,handle_x+7,y+7);
+        SelectObject(dc,old_pen);SelectObject(dc,old_brush);DeleteObject(handle);
+    } else {
+        RECT thumb={handle_x-6,y-10,handle_x+6,y+10};
+        HBRUSH handle=CreateSolidBrush(enabled?RGB(235,237,240):RGB(162,167,174));
+        FillRect(dc,&thumb,handle);DeleteObject(handle);
+    }
+    RECT amount={right+16,y-15,client->right-12,y+15};
+    DrawTextW(dc,value,-1,&amount,DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS);
+}
+
+static void redraw_controls(void);
+/* Separate composition controls; they do not change the existing 1:1 inspection mode. */
+static void focus_buttons(const RECT *client,RECT *compose,RECT *reset)
+{
+    int y=client->bottom-panel_height()+244+border_timeline_shift();
+    *compose=(RECT){144,y,client->right-160,y+28};
+    *reset=(RECT){client->right-147,y,client->right-13,y+28};
+}
+/* Center the X/Y labels and fields as a single row; mirror the frame-time EDIT height. */
+static void focus_edit_rects(const RECT *client,RECT *label_x,RECT *edit_x,
+                             RECT *label_y,RECT *edit_y)
+{
+    const int label_width=68,field_width=110,label_gap=6,pair_gap=24;
+    const int group_width=2*(label_width+label_gap+field_width)+pair_gap;
+    const int left=(client->right-group_width)/2;
+    const int top=client->bottom-panel_height()+318+border_timeline_shift();
+    const int row_height=s_time_edit_height>25?s_time_edit_height:25;
+    const int edit_top=top+(row_height-s_time_edit_height)/2;
+    *label_x=(RECT){left,top,left+label_width,top+row_height};
+    *edit_x=(RECT){label_x->right+label_gap,edit_top,
+                    label_x->right+label_gap+field_width,edit_top+s_time_edit_height};
+    *label_y=(RECT){edit_x->right+pair_gap,top,
+                    edit_x->right+pair_gap+label_width,top+row_height};
+    *edit_y=(RECT){label_y->right+label_gap,edit_top,
+                    label_y->right+label_gap+field_width,edit_top+s_time_edit_height};
+}
+static void focus_edit_layout(const RECT *client)
+{
+    RECT label_x,edit_x,label_y,edit_y;
+    focus_edit_rects(client,&label_x,&edit_x,&label_y,&edit_y);
+    if(s_focus_x_edit)MoveWindow(s_focus_x_edit,edit_x.left,edit_x.top,
+        edit_x.right-edit_x.left,edit_x.bottom-edit_x.top,TRUE);
+    if(s_focus_y_edit)MoveWindow(s_focus_y_edit,edit_y.left,edit_y.top,
+        edit_y.right-edit_y.left,edit_y.bottom-edit_y.top,TRUE);
+}
+static void sync_focus_edits(void)
+{
+    wchar_t value[48];
+    if(s_focus_x_edit && GetFocus()!=s_focus_x_edit) {
+        swprintf(value,48,L"%.4f",s_focus_x);
+        SetWindowTextW(s_focus_x_edit,value);
+    }
+    if(s_focus_y_edit && GetFocus()!=s_focus_y_edit) {
+        swprintf(value,48,L"%.4f",s_focus_y);
+        SetWindowTextW(s_focus_y_edit,value);
+    }
+}
+static void commit_focus_edit(HWND edit)
+{
+    if(edit!=s_focus_x_edit && edit!=s_focus_y_edit)return;
+    wchar_t input[64];
+    GetWindowTextW(edit,input,64);
+    wchar_t *end=NULL;
+    double value=wcstod(input,&end);
+    if(end!=input && !*end && isfinite(value)) {
+        value=fgs_focus_clamp(value,0,1);
+        if(edit==s_focus_x_edit)s_focus_x=value;
+        else s_focus_y=value;
+    }
+    sync_focus_edits();
+    redraw_controls();
+}
+static LRESULT CALLBACK focus_edit_proc(HWND edit,UINT msg,WPARAM wparam,LPARAM lparam)
+{
+    if(msg==WM_KEYDOWN && wparam==VK_RETURN) {
+        SetFocus(s_window); /* EN_KILLFOCUS commits; never applies the whole window. */
+        return 0;
+    }
+    if(msg==WM_KEYDOWN && wparam==VK_ESCAPE) {
+        wchar_t value[48];
+        swprintf(value,48,L"%.4f",edit==s_focus_x_edit?s_focus_x:s_focus_y);
+        SetWindowTextW(edit,value);
+        SetFocus(s_window);
+        return 0;
+    }
+    return CallWindowProcW(s_original_focus_edit_proc,edit,msg,wparam,lparam);
+}
+
+static void paint_sliders(HWND window)
+{
+    PAINTSTRUCT ps;
+    HDC target = BeginPaint(window, &ps);
+    RECT client;
+    GetClientRect(window, &client);
+    RECT panel = {0, client.bottom-panel_height(), client.right, client.bottom};
+    /* Buffer only the panel, leaving the D3D child and video untouched. */
+    HDC memory=CreateCompatibleDC(target);
+    HBITMAP bitmap=memory?CreateCompatibleBitmap(target,client.right,panel_height()):NULL;
+    HGDIOBJ old_bitmap=bitmap?SelectObject(memory,bitmap):NULL;
+    HDC dc=bitmap?memory:target;
+    if (bitmap) SetWindowOrgEx(dc,0,panel.top,NULL);
+    FillRect(dc, &panel, s_panel_brush);
+    HGDIOBJ old_font = s_panel_font ? SelectObject(dc, s_panel_font) : NULL;
+    int y = panel.top+28;
+    if (s_video_path) {
+        wchar_t duration[80];
+        swprintf(duration,80,L"%.1f / %.1f s",s_pending_seconds,s_duration_seconds);
+        draw_slider(dc,&client,y,L"选择视频帧",
+                    s_duration_seconds>0?s_pending_seconds/s_duration_seconds:0.0,true,duration,true);
+        y+=40;
+    }
+    if (s_border_settings && s_border_list) {
+        RECT import,remove,edit,rebuild;
+        border_choice_buttons(&client,&import,&remove,&edit,&rebuild);
+        RECT label={14,import.top,133,import.bottom};
+        SetBkMode(dc,TRANSPARENT);
+        SetTextColor(dc,RGB(235,237,240));
+        DrawTextW(dc,L"边框模式",-1,&label,DT_RIGHT|DT_VCENTER|DT_SINGLELINE);
+        RECT static_btn,weave_btn,off_btn;
+        border_mode_buttons(&client,&static_btn,&weave_btn,&off_btn);
+        HBRUSH normal=CreateSolidBrush(RGB(27,28,30));
+        HBRUSH disabled=CreateSolidBrush(RGB(47,48,50));
+        HBRUSH selected=CreateSolidBrush(RGB(0,111,85));
+        HBRUSH edge=CreateSolidBrush(RGB(64,66,71));
+        FillRect(dc,&static_btn,s_border_selection && !s_border_weave?selected:normal);
+        FillRect(dc,&weave_btn,s_border_selection && s_border_weave?selected:normal);
+        FillRect(dc,&off_btn,!s_border_selection?selected:normal);
+        FrameRect(dc,&static_btn,edge);FrameRect(dc,&weave_btn,edge);FrameRect(dc,&off_btn,edge);
+        SetTextColor(dc,RGB(235,237,240));
+        DrawTextW(dc,L"静态",-1,&static_btn,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+        DrawTextW(dc,L"动态",-1,&weave_btn,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+        DrawTextW(dc,L"关闭",-1,&off_btn,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+        FillRect(dc,&rebuild,normal);
+        FillRect(dc,&import,normal);
+        bool can_delete=s_border_selection>=0 && s_border_selection<s_border_choices_count &&
+            s_border_choices[s_border_selection].user;
+        FillRect(dc,&remove,can_delete?normal:disabled);
+        bool classic=!strncmp(s_border_choices[s_border_selection].mode,"CLASSIC_",8);
+        FillRect(dc,&edit,classic?normal:disabled);
+        FrameRect(dc,&rebuild,edge);FrameRect(dc,&import,edge);
+        FrameRect(dc,&remove,edge);FrameRect(dc,&edit,edge);
+        SetTextColor(dc,RGB(235,237,240));
+        DrawTextW(dc,L"重建缩略图",-1,&rebuild,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+        DrawTextW(dc,L"导入...",-1,&import,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+        SetTextColor(dc,can_delete?RGB(235,237,240):RGB(135,139,143));
+        DrawTextW(dc,L"删除",-1,&remove,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+        SetTextColor(dc,classic?RGB(235,237,240):RGB(135,139,143));
+        DrawTextW(dc,L"编辑边印文字",-1,&edit,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+        DeleteObject(normal);DeleteObject(disabled);DeleteObject(selected);DeleteObject(edge);
+        wchar_t motion_value[40];
+        swprintf(motion_value,40,L"%.2f x",s_motion_amp);
+        draw_slider(dc,&client,panel.top+130+border_timeline_shift(),L"晃动幅度",s_motion_amp/3.,true,motion_value,false);
+        swprintf(motion_value,40,L"%.2f x",s_motion_speed);
+        draw_slider(dc,&client,panel.top+170+border_timeline_shift(),L"晃动速度",(s_motion_speed-.25)/2.75,true,motion_value,false);
+        swprintf(motion_value,40,L"%.2f x",s_motion_frequency);
+        draw_slider(dc,&client,panel.top+210+border_timeline_shift(),L"随机频率",(s_motion_frequency-.25)/2.75,true,motion_value,false);
+        RECT compose,reset;focus_buttons(&client,&compose,&reset);
+        HBRUSH focus_brush=CreateSolidBrush(s_compose_mode?RGB(0,111,85):RGB(27,28,30));
+        HBRUSH focus_gray=CreateSolidBrush(RGB(27,28,30));
+        HBRUSH focus_edge=CreateSolidBrush(RGB(64,66,71));
+        FillRect(dc,&compose,focus_brush);FillRect(dc,&reset,focus_gray);
+        FrameRect(dc,&compose,focus_edge);FrameRect(dc,&reset,focus_edge);
+        SetTextColor(dc,RGB(235,237,240));
+        DrawTextW(dc,s_expand_px?L"外扩式 · 原画固定":s_compose_mode?L"画面构图 · 拖动画面":L"画面构图 · 点击启用",-1,&compose,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+        DrawTextW(dc,s_expand_px?L"构图不可用":L"恢复居中 1.00×",-1,&reset,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+        DeleteObject(focus_brush);DeleteObject(focus_gray);DeleteObject(focus_edge);
+        wchar_t zoom_value[40];swprintf(zoom_value,40,L"%.3f x",s_focus_zoom);
+        draw_slider(dc,&client,panel.top+295+border_timeline_shift(),L"画面缩放",(s_focus_zoom-1)/2,!s_expand_px,s_expand_px?L"固定 1:1":zoom_value,false);
+        RECT label_x,edit_x,label_y,edit_y;
+        focus_edit_rects(&client,&label_x,&edit_x,&label_y,&edit_y);
+        DrawTextW(dc,L"X (0–1)",-1,&label_x,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+        DrawTextW(dc,L"Y (0–1)",-1,&label_y,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+    } else if (s_border_settings) {
+        const wchar_t *mode=s_border_mode==2?L"动态 · Gate Weave":s_border_mode==1?L"静态 · Dark":L"关闭";
+        draw_slider(dc,&client,y,L"添加边框",s_border_mode/2.0,true,mode,false);
+    } else {
+    wchar_t grain_value[32];
+    if (s_fgsim_mode) swprintf(grain_value,32,L"%ls",s_display_grain?s_fgsim_names[s_strength]:L"关闭 · G");
+    else if (s_digital_mode) {
+        if (s_display_grain) swprintf(grain_value,32,L"%.2f",s_strength/100.0);
+        else swprintf(grain_value,32,L"关闭 · G");
+    } else swprintf(grain_value,32,L"%d%%",s_display_grain?s_strength:0);
+    int grain_position = s_fgsim_mode ? s_strength*100/3 :
+        s_digital_mode ? (s_strength-15)*100/85 : s_strength;
+    draw_slider(dc,&client,y,s_fgsim_mode?L"FGSIM 档位":L"颗粒强度",
+                (s_display_grain?grain_position:0)/100.0,s_has_grain,grain_value,false);
+    wchar_t lut_value[32];
+    swprintf(lut_value,32,L"%d%%",s_lut_source && s_lut_enabled?s_lut_strength:0);
+    draw_slider(dc,&client,y+40,s_combined_grade?L"LUT 强度 *":L"LUT 强度",
+                (s_lut_source && s_lut_enabled?s_lut_strength:0)/100.0,
+                s_lut_source!=NULL,lut_value,false);
+    }
+    RECT edit, random_btn, seek_btn;
+    int hint_left = 14;
+    if (s_video_path) {
+        bottom_frame_controls(&client,&edit,&random_btn,&seek_btn,&hint_left);
+        HBRUSH gray=CreateSolidBrush(RGB(27,28,30));
+        FillRect(dc,&random_btn,gray);FillRect(dc,&seek_btn,gray);
+        SetTextColor(dc,RGB(235,237,240));
+        DrawTextW(dc,L"随机一帧",-1,&random_btn,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+        DrawTextW(dc,L"跳转",-1,&seek_btn,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+        DeleteObject(gray);
+    }
+    // Place the 1:1 hint above the timeline controls, rather than at the panel foot.
+    bool border_toolbar=s_border_settings && s_video_path;
+    RECT info=border_toolbar
+        ? (RECT){14,panel.top+44,client.right-14,panel.top+62}
+        : (RECT){14,panel.top+(s_border_settings?348:126),
+                 s_result_path?client.right-256:client.right-14,client.bottom-50};
+    SetBkMode(dc,TRANSPARENT);
+    if (s_combined_grade) {
+        RECT notice=info;notice.bottom=notice.top+17;
+        SetTextColor(dc,RGB(255,181,83));
+        DrawTextW(dc,s_hint_en
+            ? L"* Combined grade: LUT controls are preview-only. Apply saves grain settings."
+            : L"* 合成调色：LUT 强度与开关仅供预览，应用时回传颗粒设置。",
+            -1,&notice,DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+        info.top=notice.bottom;
+    }
+    SetTextColor(dc,s_frame_loading?RGB(255,181,83):RGB(162,167,174));
+    const wchar_t *hint_text = s_frame_loading ? L"正在抽取所选视频帧…" :
+        s_border_settings && s_compose_mode ? L"构图模式：拖动透明画窗中的视频；滚轮以鼠标位置缩放" :
+        s_hint_en ? (s_pixel_view ? L"Double-click: fit  |  Drag: pan 1:1" : L"Double-click: 1:1 preview") :
+        (s_pixel_view ? L"双击：适应窗口  |  拖动：平移 1:1" : L"双击画面：切换 1:1 预览");
+    DrawTextW(dc,hint_text,-1,&info,DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+    if (s_result_path) {
+        RECT apply,cancel;action_buttons(&client,&apply,&cancel);
+        HBRUSH green=CreateSolidBrush(RGB(0,151,111));
+        HBRUSH gray=CreateSolidBrush(RGB(27,28,30));
+        HBRUSH border=CreateSolidBrush(RGB(64,66,71));
+        FillRect(dc,&apply,green);FillRect(dc,&cancel,gray);FrameRect(dc,&cancel,border);
+        SetTextColor(dc,RGB(235,237,240));
+        DrawTextW(dc,L"应用到 FGS",-1,&apply,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+        DrawTextW(dc,L"取消",-1,&cancel,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+        DeleteObject(green);DeleteObject(gray);DeleteObject(border);
+    }
+    if (old_font) SelectObject(dc, old_font);
+    if (bitmap) {
+        BitBlt(target,0,panel.top,client.right,panel_height(),dc,0,panel.top,SRCCOPY);
+        SelectObject(memory,old_bitmap);DeleteObject(bitmap);
+    }
+    if (memory) DeleteDC(memory);
+    if(s_border_settings && s_border_list)paint_border_sidebar(target,&client);
+    EndPaint(window, &ps);
+}
+
+static void redraw_controls(void)
+{
+    if (s_window) {
+        RECT client; GetClientRect(s_window, &client);
+        RECT panel = {0, client.bottom-panel_height(), client.right, client.bottom};
+        InvalidateRect(s_window, &panel, FALSE);
+    }
+    if (s_view) InvalidateRect(s_view, NULL, FALSE);
+}
+
+static void format_frame_time(double seconds, wchar_t *text, size_t capacity)
+{
+    long long milliseconds=(long long)llround(seconds*1000.0);
+    if (milliseconds<0) milliseconds=0;
+    long long hours=milliseconds/3600000;
+    int minutes=(int)(milliseconds/60000%60);
+    int secs=(int)(milliseconds/1000%60);
+    int fraction=(int)(milliseconds%1000);
+    swprintf(text,capacity,L"%02lld:%02d:%02d.%03d",hours,minutes,secs,fraction);
+}
+
+static void update_frame_time_text(double seconds)
+{
+    if (!s_time_edit) return;
+    wchar_t value[64];
+    format_frame_time(seconds,value,64);
+    SetWindowTextW(s_time_edit,value);
+}
+
+static bool parse_frame_time(const wchar_t *text, double *seconds)
+{
+    int hours,minutes;double last;wchar_t extra;
+    if (swscanf(text,L"%d:%d:%lf%lc",&hours,&minutes,&last,&extra)==3) {
+        if (hours<0 || minutes<0 || minutes>=60 || !isfinite(last) || last<0 || last>=60)
+            return false;
+        *seconds=hours*3600.0+minutes*60.0+last;
+        return true;
+    }
+    wchar_t *end;
+    double value=wcstod(text,&end);
+    if (end==text || *end || !isfinite(value) || value<0) return false;
+    *seconds=value;
+    return true;
+}
+
+/* FFmpeg starts only on explicit frame changes. Launch the source and plate
+ * decoders before waiting for either, to avoid serial seek/decode latency.
+ * Paths go directly to CreateProcessW, without CMD parsing. */
+static bool start_frame_decoder(double seconds, bool plate, PROCESS_INFORMATION *process)
+{
+    const wchar_t *source = plate ? s_plate_path : s_video_path;
+    const wchar_t *output = plate ? s_plate_frame_path : s_frame_path;
+    if (!source || !output) return false;
+    size_t capacity = wcslen(s_ffmpeg_path)+wcslen(source)+wcslen(output)+550;
+    wchar_t *command = calloc(capacity,sizeof(wchar_t));
+    if (!command) return false;
+    if (plate) {
+        /* ProRes short loops seek within one cycle. Keep -stream_loop for
+         * frame-boundary safety and for all other plate formats. */
+        double plate_seconds = s_plate_cycle_seconds>0 ?
+            fmod(seconds,s_plate_cycle_seconds) : seconds;
+        swprintf(command,capacity,
+            L"\"%ls\" -hide_banner -nostdin -v error -y -stream_loop -1 "
+            L"-ss %.6f -i \"%ls\" -map 0:v:0 -an -sn -dn -frames:v 1 "
+            L"-vf \"fps=%u/%u,scale=%d:%d:flags=bilinear,format=yuv420p10le\" "
+            L"-f rawvideo \"%ls\"",
+            s_ffmpeg_path,plate_seconds,source,s_fps_num,s_fps_den,s_width,s_height,output);
+    } else {
+        swprintf(command,capacity,
+            L"\"%ls\" -hide_banner -nostdin -v error -y -ss %.6f -i \"%ls\" "
+            L"-map 0:v:0 -an -sn -dn -frames:v 1 "
+            L"-vf \"%lsscale=%d:%d:flags=bicubic%ls,format=yuv420p%ls\" "
+            L"-f rawvideo \"%ls\"",
+            s_ffmpeg_path,seconds,source,s_deinterlace,s_width,s_height,
+            !s_hdr_transfer ? L"" : s_source_full ? L":in_range=full:out_range=full" : L":in_range=limited:out_range=limited",
+            s_frame_depth==10?L"10le":L"",output);
+    }
+    STARTUPINFOW startup={0};
+    startup.cb=sizeof(startup);
+    bool okay=CreateProcessW(s_ffmpeg_path,command,NULL,NULL,FALSE,CREATE_NO_WINDOW,
+                            NULL,NULL,&startup,process)!=0;
+    free(command);
+    return okay;
+}
+
+/* Windows records each child's creation/exit times, so measurements remain
+ * accurate even if the second child finishes before we wait on its handle. */
+static bool finish_frame_decoder(PROCESS_INFORMATION *process, double *elapsed_ms)
+{
+    DWORD waited=WaitForSingleObject(process->hProcess,120000);
+    DWORD exit_code=1;
+    if (waited==WAIT_TIMEOUT) {
+        TerminateProcess(process->hProcess,1);
+        WaitForSingleObject(process->hProcess,INFINITE);
+    } else if (waited==WAIT_OBJECT_0) GetExitCodeProcess(process->hProcess,&exit_code);
+    FILETIME created,exited,kernel,user;
+    *elapsed_ms=-1.0;
+    if (GetProcessTimes(process->hProcess,&created,&exited,&kernel,&user)) {
+        ULARGE_INTEGER beginning,ending;
+        beginning.LowPart=created.dwLowDateTime;
+        beginning.HighPart=created.dwHighDateTime;
+        ending.LowPart=exited.dwLowDateTime;
+        ending.HighPart=exited.dwHighDateTime;
+        if (ending.QuadPart>=beginning.QuadPart)
+            *elapsed_ms=(double)(ending.QuadPart-beginning.QuadPart)/10000.0;
+    }
+    CloseHandle(process->hThread);
+    CloseHandle(process->hProcess);
+    return waited==WAIT_OBJECT_0 && exit_code==0;
+}
+
+/* The formal noise branch has a constant input. Generate it independently
+ * of video, and keep only its luma texture for all strength adjustments. */
+static bool load_digital_noise(double seconds)
+{
+    unsigned seed = 1u+(unsigned)((uint64_t)llround(seconds*s_fps_num/s_fps_den)%2147483646u);
+    int width = (((s_width*4+2)/3)+1)&~1;
+    int height = (((s_height*4+2)/3)+1)&~1;
+    size_t capacity = wcslen(s_noise_ffmpeg)+wcslen(s_digital_path)+600;
+    wchar_t *command = calloc(capacity,sizeof(*command));
+    if (!command) return false;
+    swprintf(command,capacity,
+        L"\"%ls\" -hide_banner -nostdin -v error -y -f lavfi -i "
+        L"\"nullsrc=s=%dx%d,format=yuv420p,lutyuv=y=128:u=128:v=128,"
+        L"noise=all_seed=%u:c0s=100:c0f=t+u,deflate=threshold0=15,"
+        L"dilation=threshold0=10,eq=contrast=3,scale=%d:%d,format=yuv420p\" "
+        L"-frames:v 1 -f rawvideo \"%ls\"",
+        s_noise_ffmpeg,width,height,seed,s_width,s_height,s_digital_path);
+    STARTUPINFOW startup={0};
+    startup.cb=sizeof(startup);
+    PROCESS_INFORMATION process={0};
+    bool okay=CreateProcessW(s_noise_ffmpeg,command,NULL,NULL,FALSE,CREATE_NO_WINDOW,
+                            NULL,NULL,&startup,&process)!=0;
+    free(command);
+    double elapsed_ms;
+    if (!okay || !finish_frame_decoder(&process,&elapsed_ms)) return false;
+    size_t bytes=(size_t)s_width*s_height*3/2;
+    unsigned char *raw=NULL;
+    okay=read_file(s_digital_path,bytes,bytes,&raw,NULL) && upload_pixel_noise(raw,false);
+    free(raw);
+    DeleteFileW(s_digital_path);
+    return okay;
+}
+
+static bool decode_selected_frame(double seconds)
+{
+    if (!s_video_path || !s_ffmpeg_path || !s_frame_path || s_frame_loading) return false;
+    if (seconds<0 || seconds>s_duration_seconds) return false;
+    if (s_duration_seconds>0 && seconds>=s_duration_seconds)
+        seconds=fmax(0.0,s_duration_seconds-0.05);
+    if (fabs(seconds-s_frame_seconds)<0.0005) return true;
+
+    FgsGrainModel next_model;
+    uint64_t next_event_start = 0;
+    char error[256];
+    if (s_table_data && !fgs_parse_table_at_event(s_table_data,
+            (uint64_t)llround(seconds*10000000.0),&next_model,
+            &next_event_start,error,sizeof(error))) {
+        s_pending_seconds=s_frame_seconds;
+        update_frame_time_text(s_frame_seconds);
+        InvalidateRect(s_window,NULL,FALSE);
+        MessageBoxW(s_window,L"选定时间没有有效的 AV1 颗粒模型，请选择其他时间。",
+                    L"FGS GPU Preview",MB_OK|MB_ICONWARNING);
+        return false;
+    }
+
+    s_frame_loading=true;
+    double started=timer_ms();
+    InvalidateRect(s_window,NULL,FALSE);UpdateWindow(s_window);
+    PROCESS_INFORMATION source_process={0},plate_process={0};
+    bool source_started=start_frame_decoder(seconds,false,&source_process);
+    bool plate_started=!s_plate_mode || start_frame_decoder(seconds,true,&plate_process);
+    double source_ms=-1.0,plate_ms=-1.0;
+    bool source_ok=source_started && finish_frame_decoder(&source_process,&source_ms);
+    bool plate_ok=plate_started;
+    if (s_plate_mode && plate_started)
+        plate_ok=finish_frame_decoder(&plate_process,&plate_ms);
+    bool okay=source_ok && plate_ok;
+    double decode_ms=timer_ms()-started;
+    printf("FRAME_DECODE,%.3f,%.3f,%.3f\n",source_ms,plate_ms,decode_ms);
+    fflush(stdout);
+    if (okay) {
+        size_t expected=(size_t)s_width*s_height*3/2*(s_frame_depth==10?2:1);
+        unsigned char *raw=NULL;
+        if (read_file(s_frame_path,expected,expected,&raw,NULL)) {
+            unsigned char *plate_raw=NULL;
+            if (s_plate_mode && !read_file(s_plate_frame_path,expected,expected,&plate_raw,NULL))
+                okay=false;
+            if (okay && s_plate_mode) okay=upload_plate(plate_raw);
+            if (okay && s_digital_mode) okay=load_digital_noise(seconds);
+            if (okay) okay=upload_frame(raw,s_frame_depth);
+            free(plate_raw);
+            free(raw);
+        } else okay=false;
+    }
+    if (okay) {
+        if (s_table_data) {s_original=next_model;s_grain_event_start=next_event_start;}
+        s_frame_seconds=s_pending_seconds=seconds;
+        update_frame_time_text(seconds);
+        printf("FRAME,0,%.3f,%.1f,%.1f\n",timer_ms()-started,process_memory_mb(),process_cpu_ms());
+        fflush(stdout);
+    } else {
+        s_pending_seconds=s_frame_seconds;
+        update_frame_time_text(s_frame_seconds);
+        MessageBoxW(s_window,L"视频抽帧失败，仍显示上一帧。请检查 FFmpeg、时间点及源文件。",
+                    L"FGS GPU Preview",MB_OK|MB_ICONWARNING);
+    }
+    s_frame_loading=false;
+    redraw_controls();
+    return okay;
+}
+
+static void change_frame_position(int x)
+{
+    if (!s_video_path || s_duration_seconds<=0) return;
+    RECT client;GetClientRect(s_window,&client);
+    int left,right,top;track_bounds(&client,&left,&right,&top);
+    double fraction=(double)(x-left)/(right-left);
+    if (fraction<0) fraction=0;
+    if (fraction>1) fraction=1;
+    s_pending_seconds=s_duration_seconds*fraction;
+    update_frame_time_text(s_pending_seconds);
+    InvalidateRect(s_window,NULL,FALSE);
+}
+
+static void seek_frame_from_edit(void)
+{
+    if (!s_time_edit) return;
+    wchar_t value[80];double seconds;
+    GetWindowTextW(s_time_edit,value,80);
+    if (!parse_frame_time(value,&seconds) || seconds>s_duration_seconds) {
+        MessageBoxW(s_window,L"时间格式应为 时:分:秒.毫秒，且不能超出视频时长。",
+                    L"FGS GPU Preview",MB_OK|MB_ICONWARNING);
+        return;
+    }
+    s_pending_seconds=seconds;
+    decode_selected_frame(seconds);
+}
+
+static LRESULT CALLBACK frame_edit_proc(HWND window,UINT msg,WPARAM wparam,LPARAM lparam)
+{
+    if (msg==WM_KEYDOWN && wparam==VK_RETURN) {
+        PostMessageW(s_window,MSG_SEEK_FRAME,0,0);
+        return 0;
+    }
+    if (msg==WM_KEYDOWN && wparam==VK_ESCAPE) {
+        PostMessageW(s_window,WM_KEYDOWN,VK_ESCAPE,0);
+        return 0;
+    }
+    return CallWindowProcW(s_original_edit_proc,window,msg,wparam,lparam);
+}
+
+static void change_slider(int kind, int x)
+{
+    if (kind == 2 && !s_lut_source) return;
+    if (kind == 1 && !s_has_grain) return;
+    if (kind == 3) {change_frame_position(x);return;}
+    if(kind==8) {
+        if(s_expand_px)return;
+        RECT client;GetClientRect(s_window,&client);
+        int left,right,top;track_bounds(&client,&left,&right,&top);
+        double fraction=fgs_focus_clamp((double)(x-left)/(right-left),0,1);
+        s_focus_zoom=floor((1+2*fraction)*1000.+0.5)/1000.;
+        redraw_controls();return;
+    }
+    if(kind>=5 && kind<=7) {
+        RECT client;GetClientRect(s_window,&client);
+        int left,right,top;track_bounds(&client,&left,&right,&top);
+        double fraction=(double)(x-left)/(right-left);
+        if(fraction<0)fraction=0;
+        if(fraction>1)fraction=1;
+        double value=kind==5?fraction*3:0.25+fraction*2.75;
+        value=floor(value*100.+.5)/100.;
+        if(kind==5)s_motion_amp=value;
+        else if(kind==6)s_motion_speed=value;
+        else s_motion_frequency=value;
+        redraw_controls();return;
+    }
+    if (kind == 4) {
+        RECT client;GetClientRect(s_window,&client);
+        int left,right,top;track_bounds(&client,&left,&right,&top);
+        int mode=((x-left)*2+(right-left)/2)/(right-left);
+        if(mode<0)mode=0;
+        if(mode>2)mode=2;
+        if(s_border_mode!=mode) {
+            s_border_mode=mode;s_border_weave=mode==2;redraw_controls();
+        }
+        return;
+    }
+    RECT client; GetClientRect(s_window, &client);
+    int left, right, top;
+    track_bounds(&client, &left, &right, &top);
+    (void)top;
+    int percent = ((x-left)*100+(right-left)/2)/(right-left);
+    if (percent < 0) percent = 0;
+    if (percent > 100) percent = 100;
+    if (kind == 1) {
+        if (s_fgsim_mode) percent=(percent*3+50)/100;
+        if (s_digital_mode) percent=15+5*((percent*17+50)/100);
+        if (s_strength == percent && s_display_grain) return;
+        s_strength = percent; s_display_grain = true;
+    } else {
+        if (s_lut_strength == percent && s_lut_enabled) return;
+        s_lut_strength = percent; s_lut_enabled = true;
+    }
+    redraw_controls();
+}
+
+static void update_hdr_display(void)
+{
+    if (!s_hdr_transfer) return;
+    bool hdr = false;
+    IDXGISwapChain *chain = pl_d3d11_swapchain_unwrap(s_swapchain);
+    if (chain) {
+        IDXGIOutput *output = NULL;
+        if (SUCCEEDED(IDXGISwapChain_GetContainingOutput(chain, &output))) {
+            IDXGIOutput6 *output6 = NULL;
+            if (SUCCEEDED(IDXGIOutput_QueryInterface(output, &IID_IDXGIOutput6, (void **)&output6))) {
+                DXGI_OUTPUT_DESC1 desc;
+                if (SUCCEEDED(IDXGIOutput6_GetDesc1(output6, &desc)))
+                    hdr = desc.ColorSpace == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020;
+                IDXGIOutput6_Release(output6);
+            }
+            IDXGIOutput_Release(output);
+        }
+        IDXGISwapChain_Release(chain);
+    }
+    if (hdr != s_hdr_display) {
+        pl_swapchain_colorspace_hint(s_swapchain, hdr ? &pl_color_space_hdr10 : &pl_color_space_srgb);
+        s_hdr_display = hdr;
+    }
+}
+
+static int natural_even_margin(int margin,double scale)
+{
+    int value=2*(int)floor(margin*scale/2+0.5);
+    return value<2?2:value;
+}
+static bool natural_expand_geometry(int width,int height,int aw,int ah,int *l,int *t,int *r,int *b)
+{
+    if(width<32 || height<32 || (width&1) || (height&1) ||
+        aw<=0 || aw>=1920 || ah<=0 || ah>=1080)return false;
+    double scale=fmin((double)width/aw,(double)height/ah);
+    int x=(1920-aw)/2,y=(1080-ah)/2;
+    *l=natural_even_margin(x,scale);*t=natural_even_margin(y,scale);
+    *r=natural_even_margin(1920-x-aw,scale);*b=natural_even_margin(1080-y-ah,scale);
+    return width+*l+*r<=16384 && height+*t+*b<=16384;
+}
+static bool update_expand_geometry(void)
+{
+    if(!s_expand_px)return true;
+    int aw=s_preview_aperture_width?s_preview_aperture_width:1680;
+    int ah=s_preview_aperture_height?s_preview_aperture_height:990;
+    if(s_border_choices_count && s_border_selection>=0 && s_border_selection<s_border_choices_count)
+    {aw=s_border_choices[s_border_selection].aperture_width;ah=s_border_choices[s_border_selection].aperture_height;}
+    return natural_expand_geometry(s_width,s_height,aw,ah,&s_expand_left,&s_expand_top,&s_expand_right,&s_expand_bottom);
+}
+static bool upload_border_texture(void)
+{
+    unsigned char *rgba = NULL;
+    const int component_bits = s_hdr_transfer ? 16 : 8;
+    const int stride = component_bits / 2;
+    int width=s_expand_px?s_width+s_expand_left+s_expand_right:1920;
+    int height=s_expand_px?s_height+s_expand_top+s_expand_bottom:1080;
+    const size_t bytes = (size_t)width * height * stride;
+    if (!read_file(s_border_path, bytes, bytes, &rgba, NULL)) return false;
+    struct pl_plane plane;
+    struct pl_plane_data data = {
+        .type=PL_FMT_UNORM, .width=width, .height=height,
+        .pixel_stride=stride, .row_stride=width*stride, .pixels=rgba,
+    };
+    // libplacebo may normalize these component descriptors in place.
+    int sizes[4] = {component_bits,component_bits,component_bits,component_bits};
+    int shifts[4] = {0,component_bits,2*component_bits,3*component_bits};
+    pl_plane_data_from_comps(&data, sizes, shifts);
+    bool okay = pl_upload_plane(s_device->gpu, &plane, &s_border_texture, &data);
+    free(rgba);
+    return okay;
+}
+
+static bool border_has_classic_geometry(void)
+{
+    if (s_border_settings && s_border_list &&
+        s_border_selection>=0 && s_border_selection<s_border_choices_count)
+        return !strncmp(s_border_choices[s_border_selection].mode,"CLASSIC_",8) ||
+               s_border_choices[s_border_selection].user;
+    return s_initial_border_mode &&
+        (!wcsncmp(s_initial_border_mode,L"CLASSIC_",8) ||
+         !wcsncmp(s_initial_border_mode,L"USER_",5));
+}
+static void border_source_aperture(int *width,int *height)
+{
+    int w=s_preview_aperture_width?s_preview_aperture_width:1680;
+    int h=s_preview_aperture_height?s_preview_aperture_height:
+          (border_has_classic_geometry()?FGS_CLASSIC_APERTURE_HEIGHT_1080:990);
+    if(s_border_settings && s_border_list &&
+       s_border_selection>=0 && s_border_selection<s_border_choices_count) {
+        w=s_border_choices[s_border_selection].aperture_width;
+        h=s_border_choices[s_border_selection].aperture_height;
+    }
+    *width=w;*height=h;
+}
+
+static void border_aperture(int *width,int *height)
+{
+    int w,h;border_source_aperture(&w,&h);
+    *width=((s_width*w+960)/1920)&~1;
+    *height=((s_height*h+540)/1080)&~1;
+    if(*width>s_width)*width=s_width&~1;
+    if(*height>s_height)*height=s_height&~1;
+}
+
+/* Translate a cursor position from the fitted D3D11 child into aperture UVs. */
+static bool focus_view_point(HWND view,int mouse_x,int mouse_y,double *u,double *v)
+{
+    if(!s_border_settings || !s_compose_mode || !s_border_list ||
+       !strcmp(s_border_choices[s_border_selection].mode,"OFF"))return false;
+    RECT client;GetClientRect(view,&client);
+    if(!s_width||!s_height||!client.right||!client.bottom)return false;
+    double display=fmin((double)client.right/s_width,(double)client.bottom/s_height);
+    double left=(client.right-s_width*display)/2.0,top=(client.bottom-s_height*display)/2.0;
+    double px=(mouse_x-left)/display,py=(mouse_y-top)/display;
+    int aw,ah;border_aperture(&aw,&ah);
+    struct fgs_film_motion motion=fgs_film_border_motion_adjusted(s_frame_seconds,s_border_weave,
+        s_motion_amp,s_motion_speed,s_motion_frequency);
+    px-=motion.shift_x;py-=motion.shift_y;
+    *u=(px-(s_width-aw)/2.0)/aw;
+    *v=(py-(s_height-ah)/2.0)/ah;
+    return *u>=0 && *u<=1 && *v>=0 && *v<=1;
+}
+
+// Load the exact artwork prepared by the production managed renderer.
+// Only the stock moves. The original picture always wins in its fixed rectangle.
+static bool compose_film_expand(void)
+{
+    pl_dispatch_reset_frame(s_border_dispatch);
+    pl_shader sh=pl_dispatch_begin(s_border_dispatch);
+    struct fgs_film_motion motion=fgs_film_border_motion_adjusted(s_frame_seconds,s_border_weave,
+        s_motion_amp,s_motion_speed,s_motion_frequency);
+    int width=s_width+s_expand_left+s_expand_right,height=s_height+s_expand_top+s_expand_bottom;
+    const float content[]={(float)s_width,(float)s_height};
+    const float canvas[]={(float)width,(float)height};
+    const float margin[]={(float)s_expand_left,(float)s_expand_top};
+    // Match the even motion guards used by FilmBorderExpandCanvasCore.
+    double guard_x=fmin(10,2*floor(fmin(s_expand_left,s_expand_right)/12));
+    double guard_y=fmin(10,2*floor(fmin(s_expand_top,s_expand_bottom)/12));
+    const float shift[]={(float)fmax(-guard_x,fmin(guard_x,motion.shift_x)),
+                         (float)fmax(-guard_y,fmin(guard_y,motion.shift_y))};
+    const struct pl_shader_var variables[]={
+        {.var=pl_var_vec2("fgsContentSize"),.data=content},
+        {.var=pl_var_vec2("fgsCanvasSize"),.data=canvas},
+        {.var=pl_var_vec2("fgsMargin"),.data=margin},
+        {.var=pl_var_vec2("fgsShift"),.data=shift,.dynamic=true},
+    };
+    const struct pl_shader_desc textures[]={
+        {.desc={.name="fgsStock",.type=PL_DESC_SAMPLED_TEX},
+         .binding={.object=s_border_texture,.address_mode=PL_TEX_ADDRESS_CLAMP,.sample_mode=PL_TEX_SAMPLE_LINEAR}},
+        {.desc={.name="fgsPicture",.type=PL_DESC_SAMPLED_TEX},
+         .binding={.object=s_border_content,.address_mode=PL_TEX_ADDRESS_CLAMP,.sample_mode=PL_TEX_SAMPLE_LINEAR}},
+    };
+    const char shader[]=
+        "vec2 q=gl_FragCoord.xy-fgsMargin;\n"
+        "vec3 rgb=vec3(0.0);\n"
+        "if(all(greaterThanEqual(q,vec2(0.0))) && all(lessThan(q,fgsContentSize))) {\n"
+        "    rgb=texture(fgsPicture,q/fgsContentSize).rgb;\n"
+        "} else {\n"
+        "    vec2 p=gl_FragCoord.xy-fgsShift;\n"
+        "    if(all(greaterThanEqual(p,vec2(0.0))) && all(lessThan(p,fgsCanvasSize)))\n"
+        "        rgb=texture(fgsStock,p/fgsCanvasSize).rgb;\n"
+        "}\n"
+        "color=vec4(rgb,1.0);\n";
+    if(!pl_shader_custom(sh,&(struct pl_custom_shader){
+        .description="FGS Natural Expand Canvas",
+        .input=PL_SHADER_SIG_NONE,.output=PL_SHADER_SIG_COLOR,
+        .output_w=width,.output_h=height,
+        .body=shader,.descriptors=textures,.num_descriptors=2,
+        .variables=variables,.num_variables=sizeof(variables)/sizeof(variables[0]),
+    })) {pl_dispatch_abort(s_border_dispatch,&sh);return false;}
+    return pl_dispatch_finish(s_border_dispatch,&(struct pl_dispatch_params){.shader=&sh,.target=s_border_composite});
+}
+
+static bool compose_film_border(void)
+{
+    if(s_expand_px)return compose_film_expand();
+    pl_dispatch_reset_frame(s_border_dispatch);
+    pl_shader sh = pl_dispatch_begin(s_border_dispatch);
+    struct fgs_film_border_geometry geometry =
+        fgs_film_border_geometry_adjusted(s_width,s_height,s_frame_seconds,s_border_weave,
+            s_motion_amp,s_motion_speed,s_motion_frequency);
+    border_aperture(&geometry.aperture_width,&geometry.aperture_height);
+    geometry.aperture_x=(s_width-geometry.aperture_width)/2;
+    geometry.aperture_y=(s_height-geometry.aperture_height)/2;
+    const float frame[] = {(float)s_width,(float)s_height};
+    const float aperture[] = {(float)geometry.aperture_width,(float)geometry.aperture_height};
+    const float inset[] = {(float)geometry.aperture_x,(float)geometry.aperture_y};
+    const float shift[] = {(float)geometry.shift_x,(float)geometry.shift_y};
+    const float focus[] = {(float)s_focus_x,(float)s_focus_y};
+    const float zoom[] = {(float)s_focus_zoom,(float)s_focus_zoom};
+    const struct pl_shader_var variables[] = {
+        {.var=pl_var_vec2("fgsBorderSize"),.data=frame},
+        {.var=pl_var_vec2("fgsBorderAperture"),.data=aperture},
+        {.var=pl_var_vec2("fgsBorderInset"),.data=inset},
+        {.var=pl_var_vec2("fgsBorderShift"),.data=shift,.dynamic=true},
+        {.var=pl_var_vec2("fgsBorderFocus"),.data=focus,.dynamic=true},
+        {.var=pl_var_vec2("fgsBorderZoom"),.data=zoom,.dynamic=true},
+    };
+    const struct pl_shader_desc textures[] = {
+        {.desc={.name="fgsBorderPng",.type=PL_DESC_SAMPLED_TEX},
+         .binding={.object=s_border_texture,.address_mode=PL_TEX_ADDRESS_CLAMP,.sample_mode=PL_TEX_SAMPLE_LINEAR}},
+        {.desc={.name="fgsBorderContent",.type=PL_DESC_SAMPLED_TEX},
+         .binding={.object=s_border_content,.address_mode=PL_TEX_ADDRESS_CLAMP,.sample_mode=PL_TEX_SAMPLE_LINEAR}},
+    };
+    const char shader[] =
+        "vec2 p = gl_FragCoord.xy - fgsBorderShift;\n"
+        "vec2 inset = p - fgsBorderInset;\n"
+        "vec3 rgb = vec3(0.0);\n"
+        "if (all(greaterThanEqual(p, vec2(0.0))) && all(lessThan(p, fgsBorderSize))) {\n"
+        "    if (all(greaterThanEqual(inset, vec2(0.0))) && all(lessThan(inset, fgsBorderAperture))) {\n"
+        "        float scale = max(fgsBorderAperture.x / fgsBorderSize.x, fgsBorderAperture.y / fgsBorderSize.y) * fgsBorderZoom.x;\n"
+        "        vec2 extent = fgsBorderAperture / (fgsBorderSize * scale);\n"
+        "        vec2 origin = clamp(fgsBorderFocus - 0.5 * extent, vec2(0.0), vec2(1.0) - extent);\n"
+        "        vec2 uv = origin + (inset / fgsBorderAperture) * extent;\n"
+        "        rgb = texture(fgsBorderContent, uv).rgb;\n"
+        "    }\n"
+        "    vec4 border = texture(fgsBorderPng, p / fgsBorderSize);\n"
+        "    rgb = mix(rgb, border.rgb, border.a);\n"
+        "}\n"
+        "color = vec4(rgb, 1.0);\n";
+    if (!pl_shader_custom(sh,&(struct pl_custom_shader){
+        .description="FGS Film Border",
+        .input=PL_SHADER_SIG_NONE,.output=PL_SHADER_SIG_COLOR,
+        .output_w=s_width,.output_h=s_height,
+        .body=shader,.descriptors=textures,.num_descriptors=2,
+        .variables=variables,.num_variables=sizeof(variables)/sizeof(variables[0]),
+    })) {
+        pl_dispatch_abort(s_border_dispatch, &sh);
+        return false;
+    }
+    return pl_dispatch_finish(s_border_dispatch, &(struct pl_dispatch_params){
+        .shader=&sh,.target=s_border_composite,
+    });
+}
+
+static bool init_film_border_targets(void)
+{
+    pl_gpu gpu = s_device->gpu;
+    pl_fmt format = pl_find_fmt(gpu, PL_FMT_FLOAT, 4, 16, 0,
+                               PL_FMT_CAP_SAMPLEABLE | PL_FMT_CAP_LINEAR | PL_FMT_CAP_RENDERABLE);
+    if (!format) return false;
+    struct pl_tex_params params = {
+        .w=s_width,.h=s_height,.format=format,.sampleable=true,.renderable=true,
+    };
+    s_border_content = pl_tex_create(gpu,&params);
+    params.w+=s_expand_left+s_expand_right;params.h+=s_expand_top+s_expand_bottom;
+    s_border_composite = pl_tex_create(gpu,&params);
+    s_border_dispatch = pl_dispatch_create(s_log,gpu);
+    return s_border_content && s_border_composite && s_border_dispatch;
+}
+
+static bool resize_expand_target(void)
+{
+    if(!s_expand_px || !s_border_composite)return true;
+    struct pl_tex_params params=s_border_composite->params;
+    int width=s_width+s_expand_left+s_expand_right,height=s_height+s_expand_top+s_expand_bottom;
+    if(params.w==width && params.h==height)return true;
+    params.w=width;params.h=height;
+    pl_tex replacement=pl_tex_create(s_device->gpu,&params);
+    if(!replacement)return false;
+    pl_tex_destroy(s_device->gpu,&s_border_composite);
+    s_border_composite=replacement;
+    return true;
+}
+
+static bool render_film_border(struct pl_frame source, const struct pl_frame *target,
+                               const struct pl_render_params *params)
+{
+    struct pl_frame intermediate = {
+        .num_planes=1,.planes={{.texture=s_border_content,.components=4,.component_mapping={0,1,2,3}}},
+        .repr=pl_color_repr_rgb,.color=source.color,.crop=s_image.crop,
+    };
+    pl_rect2df output_crop = source.crop;
+    s_plate_origin_x = s_plate_origin_y = 0;
+    source.crop = s_image.crop;
+    if (!pl_render_image(s_renderer,&source,&intermediate,params) || !compose_film_border())
+        return false;
+    intermediate.planes[0].texture = s_border_composite;
+    intermediate.crop = output_crop;
+    return pl_render_image(s_renderer,&intermediate,target,&pl_render_default_params);
+}
+
+static double render_once(bool report)
+{
+    if (!s_renderer || !s_view) return -1;
+    RECT rect;
+    GetClientRect(s_view, &rect);
+    int width = rect.right - rect.left, height = rect.bottom - rect.top;
+    if (width < 1 || height < 1) return -1;
+    if (width != s_swap_width || height != s_swap_height) {
+        if (!pl_swapchain_resize(s_swapchain, &width, &height)) return -1;
+        s_swap_width = width; s_swap_height = height;
+    }
+    update_hdr_display();
+    double start = timer_ms();
+    set_grain(s_strength);
+    struct pl_swapchain_frame swap;
+    if (!pl_swapchain_start_frame(s_swapchain, &swap)) return -1;
+    struct pl_frame target;
+    pl_frame_from_swapchain(&target, &swap);
+    struct pl_frame source = s_image;
+    bool border_visible=s_border_path && (!s_border_settings ||
+        (s_border_list ? strcmp(s_border_choices[s_border_selection].mode,"OFF")!=0 : s_border_mode!=0));
+    int px=border_visible?s_expand_px:0;
+    int view_w=s_width+(px?s_expand_left+s_expand_right:0),view_h=s_height+(px?s_expand_top+s_expand_bottom:0);
+    if (s_pixel_view) {
+        int shown_w = width < view_w ? width : view_w;
+        int shown_h = height < view_h ? height : view_h;
+        int max_pan_x = (view_w-shown_w)/2;
+        int max_pan_y = (view_h-shown_h)/2;
+        if (s_pan_x > max_pan_x) s_pan_x = max_pan_x;
+        if (s_pan_x < -max_pan_x) s_pan_x = -max_pan_x;
+        if (s_pan_y > max_pan_y) s_pan_y = max_pan_y;
+        if (s_pan_y < -max_pan_y) s_pan_y = -max_pan_y;
+        int left = (view_w-shown_w)/2-s_pan_x;
+        int top = (view_h-shown_h)/2-s_pan_y;
+        source.crop = (pl_rect2df){left,top,left+shown_w,top+shown_h};
+        int dest_x = (width-shown_w)/2;
+        int dest_y = (height-shown_h)/2;
+        target.crop = (pl_rect2df){dest_x,dest_y,dest_x+shown_w,dest_y+shown_h};
+    } else {
+        if(px) {
+            source.crop=(pl_rect2df){0,0,view_w,view_h};
+            pl_rect2df display_crop={0,0,(float)(view_w*s_expand_sar),(float)view_h};
+            pl_rect2df_aspect_copy_rot(&target.crop,&display_crop,0.0f,s_image.rotation);
+        } else pl_rect2df_aspect_copy_rot(&target.crop, &s_image.crop, 0.0f, s_image.rotation);
+    }
+    /* PL_HOOK_NATIVE sees the cropped intermediate's local src_rect, not
+     * original frame coordinates. Preserve the full-frame origin ourselves. */
+    s_plate_origin_x = source.crop.x0;
+    s_plate_origin_y = source.crop.y0;
+    struct pl_render_params params = pl_render_default_params;
+    params.lut = selected_lut();
+    params.lut_type = PL_LUT_NATIVE;
+    const struct pl_hook *plate_hooks[] = {&s_plate_hook};
+    const struct pl_hook *pixel_hooks[] = {&s_pixel_hook};
+    if (s_plate_mode) {params.hooks=plate_hooks;params.num_hooks=1;}
+    if (s_fgsim_mode || s_digital_mode) {
+        if (!s_hdr_transfer) {
+            source.lut=params.lut;
+            source.lut_type=PL_LUT_NORMALIZED;
+            params.lut=NULL;
+        }
+        if (s_display_grain) {params.hooks=pixel_hooks;params.num_hooks=1;}
+    }
+    bool okay = border_visible ? render_film_border(source,&target,&params) :
+        pl_render_image(s_renderer,&source,&target,&params);
+    if (!okay || !pl_swapchain_submit_frame(s_swapchain)) {
+        if (s_border_path) {
+            fprintf(stderr,"Film border GPU render failed\n");
+            PostQuitMessage(7);
+        }
+        return -1;
+    }
+    pl_swapchain_swap_buffers(s_swapchain);
+    /* Completion latency, not merely CPU command-submission time. */
+    pl_gpu_finish(s_device->gpu);
+    double delta = timer_ms() - start;
+    wchar_t title[256];
+    wchar_t grain_label[40];
+    if (s_fgsim_mode) swprintf(grain_label,40,L"FGSIM %ls",s_display_grain?s_fgsim_names[s_strength]:L"Off");
+    else if (s_digital_mode) swprintf(grain_label,40,L"Digital Grain %.2f",s_display_grain?s_strength/100.0:0.0);
+    else swprintf(grain_label,40,L"%ls %d%%",s_plate_mode?L"Plate":L"Grain",s_display_grain?s_strength:0);
+    if(s_border_settings && px)
+        swprintf(title,256,L"FGS 外扩边框 | %ls | %d×%d | %ls | %.2f ms",
+            s_border_list?s_border_choices[s_border_selection].title:L"Expand",
+            view_w,view_h,s_pixel_view?L"1:1":L"Fit",delta);
+    else if(s_border_settings)
+        swprintf(title,256,L"FGS 添加边框 | %ls | %ls | %.2f ms",
+            s_border_list?s_border_choices[s_border_selection].title:
+                s_border_mode==2?L"动态":s_border_mode==1?L"静态":L"关闭",
+            s_pixel_view?L"1:1":L"Fit",delta);
+    else swprintf(title, 256, L"FGS GPU Preview%ls%ls | %ls | %ls | LUT %d%% | %.2f ms | G / L / ESC",
+             s_border_path ? (s_border_weave ? L" [Dark Weave]" : L" [Dark Static]") : L"",
+             !s_hdr_transfer ? L"" : pl_color_transfer_is_hdr(swap.color_space.transfer) ? L" [HDR display]" : L" [HDR to SDR display]",
+             s_pixel_view?L"1:1":L"Fit",
+             grain_label,
+             s_lut_enabled && s_lut_source ? s_lut_strength : 0, delta);
+    SetWindowTextW(s_window, title);
+    if (report) {
+        printf("%s,%d,%.3f,%.1f,%.1f\n", s_first ? "FIRST" : "ADJUST",
+               s_display_grain ? s_strength : 0, delta, process_memory_mb(), process_cpu_ms());
+        fflush(stdout);
+        s_first = false;
+    }
+    return delta;
+}
+
+static LRESULT CALLBACK view_proc(HWND window, UINT msg, WPARAM wparam, LPARAM lparam)
+{
+    switch (msg) {
+    case WM_ERASEBKGND: return 1;
+    case WM_PAINT: {
+        PAINTSTRUCT paint;
+        BeginPaint(window, &paint);
+        EndPaint(window, &paint);
+        if (!s_benchmark) render_once(true);
+        return 0;
+    }
+    case WM_SIZE:
+        InvalidateRect(window, NULL, FALSE);
+        return 0;
+    case WM_KEYDOWN:
+        return SendMessageW(s_window, msg, wparam, lparam);
+    case WM_LBUTTONDOWN:
+        SetFocus(s_window);
+        if(s_border_settings && s_compose_mode) {
+            double u,v;
+            int x=(short)LOWORD(lparam),y=(short)HIWORD(lparam);
+            if(focus_view_point(window,x,y,&u,&v)) {
+                s_focus_dragging=true;s_focus_last_x=x;s_focus_last_y=y;
+                SetCapture(window);
+            }
+            return 0;
+        }
+        if (s_pixel_view) {
+            s_panning=true;
+            s_pan_last_x=(short)LOWORD(lparam);s_pan_last_y=(short)HIWORD(lparam);
+            SetCapture(window);
+        }
+        return 0;
+    case WM_LBUTTONDBLCLK:
+        if(s_border_settings && s_compose_mode)return 0;
+        if (s_panning && GetCapture()==window)ReleaseCapture();
+        s_panning=false;s_pixel_view=!s_pixel_view;s_pan_x=s_pan_y=0;
+        redraw_controls();
+        return 0;
+    case WM_MOUSEMOVE:
+        if(s_focus_dragging && GetCapture()==window && (wparam&MK_LBUTTON)) {
+            int x=(short)LOWORD(lparam),y=(short)HIWORD(lparam);
+            RECT client;GetClientRect(window,&client);
+            double scale=fmin((double)client.right/s_width,(double)client.bottom/s_height);
+            if(scale>0) {
+                int aw,ah;border_aperture(&aw,&ah);
+                fgs_focus_pan(s_width,s_height,aw,ah,
+                    (x-s_focus_last_x)/scale,(y-s_focus_last_y)/scale,
+                    &s_focus_x,&s_focus_y,s_focus_zoom);
+                s_focus_last_x=x;s_focus_last_y=y;
+                sync_focus_edits();redraw_controls();
+            }
+            return 0;
+        }
+        if (s_panning && GetCapture()==window && (wparam&MK_LBUTTON)) {
+            int x=(short)LOWORD(lparam),y=(short)HIWORD(lparam);
+            if (x!=s_pan_last_x || y!=s_pan_last_y) {
+                s_pan_x+=x-s_pan_last_x;s_pan_y+=y-s_pan_last_y;
+                s_pan_last_x=x;s_pan_last_y=y;
+                InvalidateRect(window,NULL,FALSE);
+            }
+        }
+        return 0;
+    case WM_LBUTTONUP:
+        if(s_focus_dragging) {
+            s_focus_dragging=false;
+            if(GetCapture()==window)ReleaseCapture();
+            return 0;
+        }
+        if (s_panning && GetCapture()==window)ReleaseCapture();
+        s_panning=false;
+        return 0;
+    case WM_CAPTURECHANGED:
+        s_panning=false;s_focus_dragging=false;
+        return 0;
+    case WM_MOUSEWHEEL:
+        if(s_border_settings && s_compose_mode) {
+            POINT pt={(short)LOWORD(lparam),(short)HIWORD(lparam)};
+            ScreenToClient(window,&pt);
+            double u,v;
+            if(focus_view_point(window,pt.x,pt.y,&u,&v)) {
+                double amount=(double)GET_WHEEL_DELTA_WPARAM(wparam)/WHEEL_DELTA;
+                double new_zoom=fgs_focus_clamp(s_focus_zoom*pow(1.15,amount),1,3);
+                int aw,ah;border_aperture(&aw,&ah);
+                fgs_focus_zoom_at(s_width,s_height,aw,ah,u,v,new_zoom,
+                    &s_focus_x,&s_focus_y,&s_focus_zoom);
+                sync_focus_edits();redraw_controls();
+            }
+            return 0;
+        }
+        return DefWindowProcW(window,msg,wparam,lparam);
+    default:
+        return DefWindowProcW(window, msg, wparam, lparam);
+    }
+}
+
+static LRESULT CALLBACK window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM lparam)
+{
+    switch (msg) {
+    case WM_LBUTTONDOWN: {
+        if(s_border_settings && (GetFocus()==s_focus_x_edit || GetFocus()==s_focus_y_edit))
+            SetFocus(window);
+        RECT client; GetClientRect(window, &client);
+        int top = client.bottom-panel_height();
+        int y = (short)HIWORD(lparam);
+        int x = (short)LOWORD(lparam);
+        POINT point={x,y};
+        if (s_result_path) {
+            RECT apply,cancel;action_buttons(&client,&apply,&cancel);
+            if (PtInRect(&apply,point)) {
+                if (write_result()) DestroyWindow(window);
+                else MessageBoxW(window, L"无法写入调整结果，请检查临时目录权限。",
+                                 L"FGS GPU 预览", MB_ICONERROR|MB_OK);
+                return 0;
+            }
+            if (PtInRect(&cancel,point)) {DestroyWindow(window);return 0;}
+        }
+        if(s_border_settings && s_border_list) {
+            int arrow=border_sidebar_hit(&client,point);
+            if(arrow) {
+                s_border_arrow_hover=arrow;
+                s_border_arrow_pressed=arrow;
+                SetCapture(window);
+                border_sidebar_redraw();
+                UpdateWindow(window); // Draw the depressed state before mouse release.
+                return 0;
+            }
+            RECT static_btn,weave_btn,off_btn;
+            border_mode_buttons(&client,&static_btn,&weave_btn,&off_btn);
+            if(PtInRect(&static_btn,point) || PtInRect(&weave_btn,point)) {
+                if(!border_mode_apply(PtInRect(&weave_btn,point)))
+                    MessageBoxW(window,L"切换边框模式失败。",L"添加边框",MB_OK|MB_ICONERROR);
+                return 0;
+            }
+            if(PtInRect(&off_btn,point)) {
+                if(!border_choice_apply(0,true))
+                    MessageBoxW(window,L"关闭边框时恢复默认纹理失败，保留原样式。",L"添加边框",MB_OK|MB_ICONERROR);
+                return 0;
+            }
+            RECT compose,reset;focus_buttons(&client,&compose,&reset);
+            if(PtInRect(&compose,point)) {
+                if(s_expand_px)return 0;
+                s_compose_mode=!s_compose_mode;
+                if(s_compose_mode) {
+                    s_compose_old_pixel_view=s_pixel_view;
+                    s_compose_old_pan_x=s_pan_x;s_compose_old_pan_y=s_pan_y;
+                    s_pixel_view=false;s_pan_x=s_pan_y=0;
+                } else {
+                    s_pixel_view=s_compose_old_pixel_view;
+                    s_pan_x=s_compose_old_pan_x;s_pan_y=s_compose_old_pan_y;
+                }
+                redraw_controls();return 0;
+            }
+            if(PtInRect(&reset,point)) {
+                if(s_expand_px)return 0;
+                s_focus_x=s_focus_y=0.5;s_focus_zoom=1;
+                sync_focus_edits();redraw_controls();return 0;
+            }
+            RECT import,remove,edit,rebuild;
+            border_choice_buttons(&client,&import,&remove,&edit,&rebuild);
+            if(PtInRect(&rebuild,point)) {
+                if(MessageBoxW(window,L"重新生成所有胶片边框缩略图？\n原始边框和编码设置不会修改。",
+                   L"FGS 添加边框",MB_YESNO|MB_ICONQUESTION)==IDYES) {
+                    s_border_action="REBUILD";
+                    if(write_result())DestroyWindow(window);
+                }
+                return 0;
+            }
+            if(PtInRect(&import,point)) {
+                s_border_action="IMPORT";
+                if(write_result())DestroyWindow(window);
+                return 0;
+            }
+            if(PtInRect(&edit,point)) {
+                if(!strncmp(s_border_choices[s_border_selection].mode,"CLASSIC_",8)) {
                     s_border_action="EDIT";
                     if(write_result())DestroyWindow(window);
                 }

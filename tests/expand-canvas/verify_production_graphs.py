@@ -35,6 +35,7 @@ for file in sorted(work.glob("*.graph")):
     run(*inp,"-filter_complex",graph,"-map","[vout]","-an","-c:v",codec,"-threads","1","-preset","ultrafast","-pix_fmt",pix,"-fps_mode","passthrough","-enc_time_base","1/25","-color_range","tv","-color_primaries","bt2020" if hdr else "bt709","-color_trc",trc,"-colorspace","bt2020nc" if hdr else "bt709",out)
     info = json.loads(run("-v","error","-select_streams","v:0","-count_frames","-show_streams","-of","json",out,binary=probe))["streams"][0]
     expected = {"width":364,"height":196,"sample_aspect_ratio":"16:15","color_transfer":trc,"color_range":"tv","nb_read_frames":"8"}
+    expected.update(color_primaries="bt2020" if hdr else "bt709", color_space="bt2020nc" if hdr else "bt709")
     for key,val in expected.items():
         if info.get(key)!=val: raise RuntimeError(f"{file.stem}: {key} expected {val}, got {info.get(key)}")
     print("PASS original samples/PTS and encoded canvas:",file.stem,flush=True)

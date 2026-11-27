@@ -76,3 +76,18 @@
 2. 保持 `master`、正式 Release、旧 Stable 不变。当前 S3/S4 专用 GitHub Actions 属于测试分支的验证设施，正式合并前应评估是否排除或移入持续回归。
 3. Dark 原版素材归档已经完成；完成完整新目录安装的集成候选验收后，未经明确确认不合并 master / 不创建 Release。
 4. FGB-01、FGB-02、FGB-03 均为已记录的延期项，不应在本轮以未经验证的代码绕过限制。
+
+## Expand Canvas artwork mapping
+
+The catalog aperture remains the canvas geometry contract. The artwork renderer
+uses the PNG alpha to find where stock intrudes into that nominal aperture.
+Lumen Ice 320 declares a bottom split at source row 942, inside its complete
+lower perforations. The alpha transition puts the split at row 904. A shared
+three-scanline check across the middle of each edge also handles similar
+asymmetry in other stocks.
+
+Fit the recovered rails at a shared scale and extend the existing quiet seams
+where the picture aspect needs extra width or height. Keep an even motion guard
+on both sides of the artwork so the translated print remains outside the fixed
+picture rectangle and inside the canvas. The preview and both encoding graphs
+use the same guards. The Vulkan overlays retain the U4C8 AVTB compensation.
