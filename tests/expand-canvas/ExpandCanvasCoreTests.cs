@@ -1,5 +1,8 @@
 using System;
 using System.Drawing;
+using System.Drawing.Imaging;
+using System.Collections;
+using System.Reflection;
 using System.IO;
 using FilmGrainStudioPreview;
 
@@ -36,11 +39,76 @@ internal static class ExpandCanvasCoreTests
                     if(picture.Contains(x,y))
                         Check(actual.ToArgb()==Color.Black.ToArgb(),"Protected picture at "+x+","+y);
                     else
-                        Check(actual.B>=250 && actual.R==0 && actual.G==0 && actual.A==255,
-                            "Artificial stock gap or aperture contamination at "+x+","+y);
+                        Check(actual.R==0 && actual.G==0 && actual.A==255,
+                            "Aperture contamination at "+x+","+y);
                 }
             }
         }
+    }
+    static void RenderCatalog(string root,string destination)
+    {
+        Assembly app=Assembly.LoadFrom(Path.Combine(root,"FilmGrain_Studio.exe"));
+        Type catalog=app.GetType("FilmGrainStudioPreview.FilmBorderCatalogCore",true);
+        var choices=(IEnumerable)catalog.GetMethod("List",BindingFlags.Static|BindingFlags.NonPublic)
+            .Invoke(null,new object[]{root});
+        int styles=0;
+        foreach(object choice in choices)
+        {
+            Type type=choice.GetType();
+            Func<string,object> field=delegate(string name)
+            {return type.GetField(name,BindingFlags.Instance|BindingFlags.NonPublic).GetValue(choice);};
+            string mode=(string)field("Mode");
+            if(!mode.EndsWith("_STATIC",StringComparison.Ordinal))continue;
+            string label=(string)field("UserName") ?? ((string)field("StyleId")=="DARK"?"Dark 35mm":"FGS Classic Black");
+            string directory=Path.Combine(destination,label);
+            Directory.CreateDirectory(directory);
+            int aw=(int)field("ApertureWidth1080"),ah=(int)field("ApertureHeight1080");
+            using(var stock=new Bitmap((string)field("PngPath")))
+            {
+                stock.Save(Path.Combine(directory,"Original.png"),ImageFormat.Png);
+                Rectangle aperture=FilmBorderExpandCanvasCore.ArtworkAperture(stock,aw,ah);
+                Console.WriteLine(label+" declared "+aw+"x"+ah+" artwork "+aperture);
+                if(label=="FGS Lumen Ice 320")Check(aperture.Bottom<=909,"Lumen bottom split must precede complete perforations");
+                foreach(Size size in new[]{new Size(1920,1080),new Size(2520,1080),new Size(1440,1080),new Size(1080,1920),
+                    new Size(3840,2160),new Size(5040,2160),new Size(2880,2160),new Size(2160,3840)})
+                {
+                    var g=FilmBorderExpandCanvasCore.NaturalGeometry(size.Width,size.Height,aw,ah);
+                    int dx=FilmBorderExpandCanvasCore.MotionGuard(g.Left,g.Right);
+                    int dy=FilmBorderExpandCanvasCore.MotionGuard(g.Top,g.Bottom);
+                    using(var art=FilmBorderExpandCanvasCore.RenderTexture(stock,aw,ah,g))
+                    using(var sheet=new Bitmap(1500,335))
+                    using(var draw=Graphics.FromImage(sheet))
+                    {
+                        Check(art.Width==g.CanvasWidth && art.Height==g.CanvasHeight,"Catalog canvas size");
+                        Check(g.Picture.Size==size,"Catalog picture size");
+                        Check(art.GetPixel(g.Left-dx,g.Top-dy).ToArgb()==Color.Black.ToArgb(),"Inner motion guard");
+                        draw.Clear(Color.FromArgb(28,28,28));
+                        int index=0;
+                        foreach(Point move in new[]{Point.Empty,new Point(-dx,-dy),new Point(dx,-dy),new Point(-dx,dy),new Point(dx,dy)})
+                        {
+                            using(var frame=new Bitmap(g.CanvasWidth,g.CanvasHeight))
+                            using(var compose=Graphics.FromImage(frame))
+                            {
+                                compose.Clear(Color.Black);
+                                compose.DrawImageUnscaled(art,move.X,move.Y);
+                                compose.FillRectangle(Brushes.DimGray,g.Picture);
+                                double scale=Math.Min(296.0/frame.Width,296.0/frame.Height);
+                                int w=(int)Math.Round(frame.Width*scale),h=(int)Math.Round(frame.Height*scale);
+                                draw.DrawImage(frame,index*300+(300-w)/2,27+(296-h)/2,w,h);
+                            }
+                            string tag=index==0?"Static":String.Format("Weave ({0}, {1})",move.X,move.Y);
+                            draw.DrawString(tag,SystemFonts.DefaultFont,Brushes.White,index*300+8,8);
+                            index++;
+                        }
+                        sheet.Save(Path.Combine(directory,size.Width+"x"+size.Height+".png"),ImageFormat.Png);
+                        if(label=="FGS Lumen Ice 320" && size.Width==1920 && size.Height==1080)
+                            art.Save(Path.Combine(directory,"1920x1080_Artwork.png"),ImageFormat.Png);
+                    }
+                }
+            }
+            styles++;
+        }
+        Check(styles==17,"Expected 17 styles from the production catalog");
     }
     public static int Main(string[] args)
     {
@@ -67,7 +135,7 @@ internal static class ExpandCanvasCoreTests
                 Check(image.GetPixel(artGeometry.Left,artGeometry.Top).ToArgb()==Color.Black.ToArgb(),"Protected top-left");
                 Check(image.GetPixel(artGeometry.Left+1919,artGeometry.Top+1079).ToArgb()==Color.Black.ToArgb(),"Protected bottom-right");
                 Check(image.GetPixel(artGeometry.Left+960,artGeometry.Top+540).ToArgb()==Color.Black.ToArgb(),"Protected center");
-                Check(image.GetPixel(2,2).B>128,"Corner texture preserved");
+                Check(image.GetPixel(artGeometry.Left/2,artGeometry.Top/2).B>128,"Corner texture preserved");
                 for(int y=0;y<image.Height;y+=7) for(int x=0;x<image.Width;x+=7)
                     Check(image.GetPixel(x,y).R==0,"Source aperture contamination");
             }
@@ -80,7 +148,7 @@ internal static class ExpandCanvasCoreTests
         var vista=FilmBorderExpandCanvasCore.NaturalGeometry(1920,1080,1888,800);
         Check(chroma.Left==132 && chroma.Top==62 && chroma.CanvasWidth==2184 && chroma.CanvasHeight==1204,"Chroma native aspect");
         Check(vista.Left==16 && vista.Top==142 && vista.CanvasWidth==1952 && vista.CanvasHeight==1364,"Vistalux native aspect");
-        Console.WriteLine("PASS complete opaque ring coverage (landscape, portrait, thin and odd aperture)");
+        Console.WriteLine("PASS opaque stock aperture isolation (landscape, portrait, thin and odd aperture)");
         foreach(string trc in new[]{"bt709","smpte2084","arib-std-b67"})
         {
             string tx=FilmBorderExpandCanvasCore.TextureFilter(trc,false,true);
@@ -103,28 +171,7 @@ internal static class ExpandCanvasCoreTests
                 Check(cpu.Contains("color_trc="+trc),"CPU signal");
             }
         }
-        if(args.Length==2)
-        {
-            string[] files=Directory.GetFiles(args[0],"*.png");Array.Sort(files,StringComparer.Ordinal);
-            Check(files.Length==15,"Expected all 15 stock textures");
-            Directory.CreateDirectory(args[1]);
-            foreach(string file in files)
-            {
-                string stem=Path.Combine(Path.GetDirectoryName(file),Path.GetFileNameWithoutExtension(file));
-                string[] aperture=File.ReadAllText(stem+".aperture").Trim().Split('\t');
-                int aw=Int32.Parse(aperture[0]),ah=Int32.Parse(aperture[1]);
-                var geo=FilmBorderExpandCanvasCore.NaturalGeometry(1920,1080,aw,ah);
-                using(var stock=new Bitmap(file))
-                using(var result=FilmBorderExpandCanvasCore.RenderTexture(stock,aw,ah,geo))
-                {
-                    Check(result.GetPixel(geo.Left+960,geo.Top+540).ToArgb()==Color.Black.ToArgb(),"Stock aperture isolation");
-                    using(Graphics draw=Graphics.FromImage(result))draw.FillRectangle(Brushes.DimGray,geo.Picture);
-                    string label=File.ReadAllText(stem+".label").Trim();
-                    result.Save(Path.Combine(args[1],label+"_"+geo.CanvasWidth+"x"+geo.CanvasHeight+".png"),System.Drawing.Imaging.ImageFormat.Png);
-                    Console.WriteLine("PASS "+label+" "+geo.CanvasWidth+"x"+geo.CanvasHeight);
-                }
-            }
-        }
+        if(args.Length==2)RenderCatalog(args[0],args[1]);
         Console.WriteLine("PASS Expand Canvas geometry, texture isolation, source-clock graph contracts");
         return 0;
     }

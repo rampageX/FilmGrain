@@ -50,6 +50,9 @@ namespace FilmGrainStudioPreview
         private static int EvenMargin(int margin,double scale)
         {return Math.Max(2,2*(int)Math.Floor(margin*scale/2+0.5));}
 
+        private static int RailSize(int size,double scale)
+        {return Math.Max(1,(int)Math.Floor(size*scale+0.5));}
+
         internal static string WriteTexture(string source,int apertureWidth,int apertureHeight,FilmBorderExpandGeometry geometry,string directory)
         {
             string path=Path.Combine(directory,"__FGS_EXPAND_"+Guid.NewGuid().ToString("N")+".png");
@@ -63,6 +66,63 @@ namespace FilmGrainStudioPreview
             catch { try { if(File.Exists(path)) File.Delete(path); } catch {} throw; }
         }
         private static string N(int n) { return n.ToString(CultureInfo.InvariantCulture); }
+
+        // Keep an even guard band so subsampled CPU overlay rounding stays inside it.
+        internal static int MotionGuard(int first,int last)
+        {return Math.Min(10,2*(Math.Min(first,last)/12));}
+
+        private static string LimitMotion(string expression,int guard)
+        {return String.IsNullOrEmpty(expression)?"0":"clip("+expression+",-"+N(guard)+","+N(guard)+")";}
+
+        // Find the first open scanline towards the centre. The middle half of
+        // the opposite aperture axis excludes rounded corners and side rails.
+        // Require a run of open lines so isolated defects cannot move the split.
+        private static int StockEdge(byte[] alpha,int start,int direction,int crossStart,int crossLength,bool horizontal)
+        {
+            int open=0;
+            int length=horizontal?1080:1920;
+            for(int offset=0;offset<64;offset++)
+            {
+                int position=start+offset*direction;
+                if(position<0 || position>=length)break;
+                int transparent=0;
+                for(int i=crossStart;i<crossStart+crossLength;i++)
+                {
+                    int index=horizontal?position*1920+i:i*1920+position;
+                    if(alpha[index*4+3]<128)transparent++;
+                }
+                open=transparent>crossLength/2?open+1:0;
+                if(open==3)return position-2*direction+(direction<0?1:0);
+            }
+            return direction<0?start+1:start;
+        }
+        internal static Rectangle ArtworkAperture(Bitmap source,int width,int height)
+        {
+            int x=(1920-width)/2,y=(1080-height)/2;
+            int crossX=x+width/4,crossY=y+height/4;
+            using(var rgba=source.Clone(new Rectangle(0,0,1920,1080),PixelFormat.Format32bppArgb))
+            {
+                byte[] pixels=ReadPixels(rgba,PixelFormat.Format32bppArgb);
+                return Rectangle.FromLTRB(
+                    StockEdge(pixels,x,1,crossY,height/2,false),
+                    StockEdge(pixels,y,1,crossX,width/2,true),
+                    StockEdge(pixels,x+width-1,-1,crossY,height/2,false),
+                    StockEdge(pixels,y+height-1,-1,crossX,width/2,true));
+            }
+        }
+
+        private static byte[] ReadPixels(Bitmap bitmap,PixelFormat format)
+        {
+            const int stride=1920*4;
+            byte[] pixels=new byte[stride*1080];
+            BitmapData data=bitmap.LockBits(new Rectangle(0,0,1920,1080),ImageLockMode.ReadOnly,format);
+            try
+            {
+                for(int y=0;y<1080;y++)Marshal.Copy(IntPtr.Add(data.Scan0,y*data.Stride),pixels,y*stride,stride);
+            }
+            finally {bitmap.UnlockBits(data);}
+            return pixels;
+        }
 
         // Choose the quietest shared location on both opposing rails. Average
         // local derivative over 13 pixels and mildly prefer solid bright stock.
@@ -128,23 +188,24 @@ namespace FilmGrainStudioPreview
             FilmBorderExpandGeometry expected=NaturalGeometry(g.Width,g.Height,apertureWidth,apertureHeight);
             if(g.Left!=expected.Left || g.Top!=expected.Top || g.Right!=expected.Right || g.Bottom!=expected.Bottom)
                 throw new ArgumentException("Natural film border geometry mismatch.");
-            int sx=(1920-apertureWidth)/2,sy=(1080-apertureHeight)/2,ex=sx+apertureWidth,ey=sy+apertureHeight;
-            double scale=Math.Min((double)g.Width/apertureWidth,(double)g.Height/apertureHeight);
+            Rectangle aperture=ArtworkAperture(source,apertureWidth,apertureHeight);
+            int sx=aperture.Left,sy=aperture.Top,ex=aperture.Right,ey=aperture.Bottom;
+            int guardX=MotionGuard(g.Left,g.Right),guardY=MotionGuard(g.Top,g.Bottom);
+            double scale=Math.Min((double)g.Width/aperture.Width,(double)g.Height/aperture.Height);
+            scale=Math.Min(scale,Math.Min((double)(g.Left-2*guardX)/sx,(double)(g.Right-2*guardX)/(1920-ex)));
+            scale=Math.Min(scale,Math.Min((double)(g.Top-2*guardY)/sy,(double)(g.Bottom-2*guardY)/(1080-ey)));
+            int left=RailSize(sx,scale),right=RailSize(1920-ex,scale);
+            int top=RailSize(sy,scale),bottom=RailSize(1080-ey,scale);
             using(var stock=new Bitmap(1920,1080,PixelFormat.Format32bppPArgb))
             {
                 using(Graphics draw=Graphics.FromImage(stock))
                 {draw.Clear(Color.Black);draw.DrawImageUnscaled(source,0,0);}
-                byte[] pixels=new byte[1920*1080*4];
-                BitmapData data=stock.LockBits(new Rectangle(0,0,1920,1080),ImageLockMode.ReadOnly,PixelFormat.Format32bppPArgb);
-                try
-                {
-                    for(int y=0;y<1080;y++)Marshal.Copy(IntPtr.Add(data.Scan0,y*data.Stride),pixels,y*1920*4,1920*4);
-                }
-                finally {stock.UnlockBits(data);}
+                byte[] pixels=ReadPixels(stock,PixelFormat.Format32bppPArgb);
                 int seamX=QuietSeam(pixels,1920,sx,ex,sy,ey,1080,true);
                 int seamY=QuietSeam(pixels,1080,sy,ey,sx,ex,1920,false);
-                Axis xMap=MapAxis(1920,sx,ex,seamX,g.Left,g.Width,g.Right,scale);
-                Axis yMap=MapAxis(1080,sy,ey,seamY,g.Top,g.Height,g.Bottom,scale);
+                Axis xMap=MapAxis(1920,sx,ex,seamX,left,g.Width+2*guardX,right,scale);
+                Axis yMap=MapAxis(1080,sy,ey,seamY,top,g.Height+2*guardY,bottom,scale);
+                int originX=g.Left-guardX-left,originY=g.Top-guardY-top;
                 Bitmap canvas=new Bitmap(g.CanvasWidth,g.CanvasHeight,PixelFormat.Format32bppPArgb);
                 try
                 {
@@ -166,6 +227,7 @@ namespace FilmGrainStudioPreview
                             {
                                 attrs.SetWrapMode(WrapMode.TileFlipXY);
                                 GraphicsState saved=target.Save();
+                                dst.Offset(originX,originY);
                                 target.SetClip(dst);
                                 target.DrawImage(tile,dst,0,0,tile.Width,tile.Height,GraphicsUnit.Pixel,attrs);
                                 target.Restore(saved);
@@ -227,8 +289,8 @@ namespace FilmGrainStudioPreview
                 graph+=";[fgsart]libplacebo=inputs=1:w="+w+":h="+h+
                     ":format=p010le:color_primaries="+p+":colorspace="+m+":color_trc="+transfer+
                     ":range="+(fullRange?"full":"limited")+":crop_x=0:crop_y=0:crop_w=iw:crop_h=ih"+
-                    ":pos_w=iw:pos_h=ih:pos_x='"+(String.IsNullOrEmpty(moveX)?"0":moveX)+
-                    "':pos_y='"+(String.IsNullOrEmpty(moveY)?"0":moveY)+
+                    ":pos_w=iw:pos_h=ih:pos_x='"+LimitMotion(moveX,MotionGuard(g.Left,g.Right))+
+                    "':pos_y='"+LimitMotion(moveY,MotionGuard(g.Top,g.Bottom))+
                     "':tonemapping=clip:peak_detect=false:dithering=none:fillcolor=black[fgsmoved]";
                 art="fgsmoved";
             }
@@ -248,7 +310,8 @@ namespace FilmGrainStudioPreview
             if(hdr && fullRange) throw new ArgumentException("Full-range HDR border is not validated.");
             string w=N(g.CanvasWidth),h=N(g.CanvasHeight),l=N(g.Left),t=N(g.Top);
             string bottom=N(g.Top+g.Height),right=N(g.Left+g.Width);
-            string x=String.IsNullOrEmpty(moveX)?"0":moveX,y=String.IsNullOrEmpty(moveY)?"0":moveY;
+            string x=LimitMotion(moveX,MotionGuard(g.Left,g.Right));
+            string y=LimitMotion(moveY,MotionGuard(g.Top,g.Bottom));
             return "[fgsfilm_src]split=2[fgsexact][fgsclock];"+
                 "[fgsclock]pad="+w+":"+h+":"+l+":"+t+":color=black[fgsbase];"+
                 "[fgsbase][fgstexture]overlay=x='"+x+"':y='"+y+
