@@ -416,8 +416,8 @@ namespace FilmGrainStudioPreview
                 bool s4HdrGrade = hdrPreserve && plateMode && !interpolate && !string.IsNullOrEmpty(colorFilter);
                 bool expandPlainSdr=expand && !info.IsHdr && !grainEnabled;
                 bool s4GpuBorder = s4GpuRequested && filmBorder != null &&
-                    (hdrPreserve || (fgb02 && !info.IsHdr) || s4SdrPlate || expandPlainSdr) &&
-                    (!h264 || s4SdrPlate || expandPlainSdr) && (!interpolate || fgb02) &&
+                    ((hdrPreserve || (fgb02 && !info.IsHdr) || s4SdrPlate) || expandPlainSdr) &&
+                    ((!h264 || s4SdrPlate) || expandPlainSdr) && (!interpolate || fgb02) &&
                     (!grainEnabled || plateMode) && durationSeconds > 0.0 && !info.IsInterlaced &&
                     (s4PlateGeometry || (!resize.Enabled && !cropAfterGrain &&
                         frame.ActiveWidth == info.Width && frame.ActiveHeight == info.Height)) &&

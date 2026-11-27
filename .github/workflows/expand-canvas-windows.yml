@@ -1,43 +1,173 @@
-name: FGS Expand Canvas candidate core
+name: FGS Expand Canvas Windows candidate
+
 on:
   push:
-    branches:
-      - test/expand-canvas
+    branches: [test/expand-canvas]
+
 permissions:
   contents: read
+
+concurrency:
+  group: fgs-expand-canvas-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  expand-canvas-core:
+  verify:
     runs-on: windows-2022
-    timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Parse PowerShell scripts before installing GPU toolchain
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($path in @('.github/release/build_release.ps1', '.github/release/release_layout.ps1', 'dotnet/BuildTools/Install_Bundled_FilmBorders.ps1', 'tests/archive/Test_FilmBorderIntegrationReadiness.ps1')) {
+            $tokens = $null; $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path -LiteralPath $path).Path, [ref]$tokens, [ref]$errors)
+            if ($errors.Count -ne 0) { throw ('PowerShell syntax error in ' + $path + ': ' + ($errors | Out-String)) }
+            Write-Host ('PASS: PowerShell syntax ' + $path)
+          }
+
       - name: Compile and exercise candidate geometry and graph contracts
         shell: cmd
         run: |
           "%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /target:exe /reference:System.Drawing.dll /out:ExpandCanvasCoreTests.exe dotnet\FilmGrain_FilmBorderExpandCanvasCore.cs tests\expand-canvas\ExpandCanvasCoreTests.cs
           if errorlevel 1 exit /b 1
           ExpandCanvasCoreTests.exe
-      - name: Compile existing FGS runtime
-        shell: cmd
-        run: call dotnet\build_NET_Preview.bat
-      - name: Existing S4 regression
-        shell: powershell
-        run: |
-          $ErrorActionPreference = 'Stop'
-          & '.\dotnet\BuildTools\Test_S4_GpuBorder.ps1'
-          if (-not $?) { throw 'Existing S4 regression failed.' }
-      - name: Archive candidate source and test evidence
-        shell: powershell
-        run: |
-          $ErrorActionPreference = 'Stop'
-          git archive --format=zip --output=FGS_ExpandCanvas_Core_C9R2_Source.zip HEAD
-          if ($LASTEXITCODE -ne 0) { throw 'Source archive failed.' }
-          ('Commit=' + $env:GITHUB_SHA) | Set-Content -Encoding Ascii -LiteralPath 'ExpandCanvas_Core_C9R2_Proof.txt'
-          'Status=Core contract tests only; GUI and real GPU integration pending' | Add-Content -Encoding Ascii -LiteralPath 'ExpandCanvas_Core_C9R2_Proof.txt'
-      - uses: actions/upload-artifact@v4
+      - name: Set up verified UCRT64 GPU toolchain
+        id: msys2
+        uses: msys2/setup-msys2@v2
         with:
-          name: FGS_ExpandCanvas_Core_C9R2
-          path: |
-            FGS_ExpandCanvas_Core_C9R2_Source.zip
-            ExpandCanvas_Core_C9R2_Proof.txt
+          msystem: UCRT64
+          release: false
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-binutils
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-libplacebo
+
+      - name: Build full FGS runtime without publishing
+        shell: powershell
+        env:
+          FGS_MSYS2_ROOT: ${{ steps.msys2.outputs.msys2-location }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = (Get-Content -LiteralPath '.github\release\version.txt' -Raw).Trim()
+          $out = Join-Path $env:RUNNER_TEMP 'FGS_Border_Merge_Validation'
+          New-Item -ItemType Directory -Path $out -Force | Out-Null
+          & '.\.github\release\build_release.ps1' -RepositoryRoot $env:GITHUB_WORKSPACE -Version $version -OutputDirectory $out
+          if (-not $?) { throw 'FGS Windows build failed.' }
+          $zip = Join-Path $out ('FilmGrain_Studio_v' + $version + '_Stable.zip')
+          if (-not (Test-Path -LiteralPath $zip -PathType Leaf)) { throw 'Runtime ZIP missing.' }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $runtime = Join-Path $env:RUNNER_TEMP 'FGS_Border_Merge_Runtime'
+          [IO.Compression.ZipFile]::ExtractToDirectory($zip,$runtime)
+          $exe = Join-Path $runtime 'FilmGrain_Studio.exe'
+          if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw 'Built GUI EXE missing.' }
+          'FGS_MERGE_RUNTIME=' + $runtime | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host 'PASS: Windows full build and staging'
+
+      - name: Verify GPU HLG and PQ graph generation
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $script = Join-Path $env:GITHUB_WORKSPACE 'dotnet\BuildTools\Test_HLG_GPU_L4Q6.ps1'
+          $tokens = $null
+          $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile($script,[ref]$tokens,[ref]$errors)
+          if ($errors.Count -ne 0) { throw ('PowerShell parse error: ' + ($errors | Out-String)) }
+          $exe = Join-Path $env:FGS_MERGE_RUNTIME 'FilmGrain_Studio.exe'
+          & $script -Exe $exe
+          if (-not $?) { throw 'HLG/PQ graph regression failed.' }
+
+      - name: Verify null log callback never crashes FGS
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $script = Join-Path $env:GITHUB_WORKSPACE 'dotnet\BuildTools\Test_NullLogCallback.ps1'
+          $tokens = $null
+          $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile($script, [ref]$tokens, [ref]$errors)
+          if ($errors.Count -ne 0) { throw ('PowerShell parse error: ' + ($errors | Out-String)) }
+          & $script -Exe (Join-Path $env:FGS_MERGE_RUNTIME 'FilmGrain_Studio.exe')
+          if (-not $?) { throw 'Null logger regression failed.' }
+
+      - name: Verify existing S4 GPU border regression
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Copy-Item -LiteralPath (Join-Path $env:FGS_MERGE_RUNTIME 'FilmGrain_Studio.exe') -Destination (Join-Path $env:GITHUB_WORKSPACE 'FilmGrain_Studio.exe') -Force
+          & '.\dotnet\BuildTools\Test_S4_GpuBorder.ps1'
+          if (-not $?) { throw 'Existing GPU border regression failed.' }
+
+      - name: Verify native UI modes, framing and thumbnails
+        shell: powershell
+        env:
+          FGS_MSYS2_ROOT: ${{ steps.msys2.outputs.msys2-location }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = Join-Path $env:FGS_MERGE_RUNTIME 'GpuAdvancedPreview\fgs_gpu_preview.exe'
+          if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw 'Native preview EXE missing.' }
+          $previousPath = $env:PATH
+          try {
+            $env:PATH = (Join-Path $env:FGS_MSYS2_ROOT 'ucrt64\bin') + [IO.Path]::PathSeparator + $previousPath
+            foreach ($mode in @('--audit-border-modes','--audit-border-framing','--audit-border-thumbnails')) {
+              & $exe $mode
+              $code = $LASTEXITCODE
+              if ($code -ne 0) { throw ('Native regression failed: ' + $mode + '; exit=' + $code) }
+              Write-Host ('PASS: ' + $mode)
+            }
+          } finally {
+            $env:PATH = $previousPath
+          }
+
+      - name: Verify production Expand Canvas CPU graphs with FGS Stable FFmpeg
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tools = Join-Path $env:RUNNER_TEMP 'FGS_FFmpeg_Stable'
+          $zip = Join-Path $env:RUNNER_TEMP 'FGS_FFmpeg_Stable.zip'
+          curl.exe -fL --retry 3 -o $zip 'https://github.com/rampageX/FFmpeg/releases/download/fgs-2026.11.22-hdr/FGS-FFmpeg-Stable-Windows-x64-Static.zip'
+          if ($LASTEXITCODE -ne 0) { throw 'FFmpeg download failed.' }
+          if ((Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash -ne '8af79a2acf9c314eb3ab335721fd8766ff1ed75772a9614f591c549164667c33') { throw 'FFmpeg asset hash mismatch.' }
+          Expand-Archive -LiteralPath $zip -DestinationPath $tools
+          $ffmpeg = @(Get-ChildItem -LiteralPath $tools -Filter ffmpeg.exe -Recurse -File)
+          if ($ffmpeg.Count -ne 1) { throw 'Expected exactly one FFmpeg binary.' }
+          $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+          $harness = Join-Path $env:RUNNER_TEMP 'ExpandCanvasProductionTests.exe'
+          & $csc /nologo /target:exe /reference:System.Drawing.dll "/out:$harness" 'tests\expand-canvas\ExpandCanvasProductionTests.cs'
+          if ($LASTEXITCODE -ne 0) { throw 'Integration harness compilation failed.' }
+          $work = Join-Path $env:RUNNER_TEMP 'Expand Canvas & (test) ^ % !'
+          & $harness $env:FGS_MERGE_RUNTIME $work
+          if ($LASTEXITCODE -ne 0) { throw 'Production graph generation failed.' }
+          python 'tests/expand-canvas/verify_production_graphs.py' $ffmpeg[0].FullName $work
+          if ($LASTEXITCODE -ne 0) { throw 'Production CPU graph media verification failed.' }
+
+      - name: Stage candidate runtime and exact complete source
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $deliver = Join-Path $env:RUNNER_TEMP 'FGS_ExpandCanvas_X8M4'
+          [void](New-Item -ItemType Directory -Path $deliver -Force)
+          $version = (Get-Content -LiteralPath '.github\release\version.txt' -Raw).Trim()
+          $out = Join-Path $env:RUNNER_TEMP 'FGS_Border_Merge_Validation'
+          Copy-Item -LiteralPath (Join-Path $out ('FilmGrain_Studio_v' + $version + '_Stable.zip')) -Destination (Join-Path $deliver 'FGS_ExpandCanvas_X8M4_Test_Runtime.zip')
+          $source = Join-Path $deliver 'FGS_ExpandCanvas_X8M4_Full_Source.zip'
+          & git -C $env:GITHUB_WORKSPACE archive --format=zip "--output=$source" HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Matching full source ZIP creation failed.' }
+          $info = @('Commit=' + $env:GITHUB_SHA; 'Candidate only; GPU runtime and visual acceptance pending.')
+          $info += @(Get-ChildItem -LiteralPath $deliver -Filter '*.zip' | Get-FileHash -Algorithm SHA256 | ForEach-Object { $_.Hash + '  ' + [IO.Path]::GetFileName($_.Path) })
+          $info | Set-Content -Encoding Ascii -LiteralPath (Join-Path $deliver 'BUILD_PROOF.txt')
+          'FGS_EXPAND_DELIVERY=' + $deliver | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Upload candidate runtime and complete source
+        uses: actions/upload-artifact@v4
+        with:
+          name: FGS_ExpandCanvas_X8M4_Test_and_Source
+          path: ${{ env.FGS_EXPAND_DELIVERY }}
           if-no-files-found: error
+          retention-days: 14
