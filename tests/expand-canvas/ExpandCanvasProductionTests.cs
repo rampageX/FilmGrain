@@ -21,6 +21,24 @@ internal static class ExpandCanvasProductionTests
         string root=args[0], work=args[1];
         Directory.CreateDirectory(work);
         asm=Assembly.LoadFrom(Path.Combine(root,"FilmGrain_Studio.exe"));
+        if(args.Length==4)
+        {
+            Type preview=T("SharedEncodePreviewCore");
+            string probeArgs=(string)preview.GetMethod("KeyframeProbeArguments",S).Invoke(null,new object[]{args[3],0.0});
+            string json=(string)preview.GetMethod("RunTool",S).Invoke(null,new object[]{args[2],probeArgs,new Func<bool>(delegate{return false;}),30000});
+            var parser=new System.Web.Script.Serialization.JavaScriptSerializer();
+            var metadata=(Dictionary<string,object>)parser.DeserializeObject(json);
+            var format=(Dictionary<string,object>)metadata["format"];
+            var packets=(object[])metadata["packets"];
+            Check(format.ContainsKey("start_time") && !format.ContainsKey("tags") && packets.Length>0,"Keyframe probe must exclude arbitrary metadata");
+            Check(Convert.ToString(((Dictionary<string,object>)packets[0])["flags"]).Contains("K"),"Keyframe preserved");
+            string all=(string)preview.GetMethod("RunTool",S).Invoke(null,new object[]{args[2],"-v error -show_entries format_tags=title -of json "+(string)preview.GetMethod("Quote",S).Invoke(null,new object[]{args[3]}),new Func<bool>(delegate{return false;}),30000});
+            var titleRoot=(Dictionary<string,object>)parser.DeserializeObject(all);
+            var titleFormat=(Dictionary<string,object>)titleRoot["format"];
+            var tags=(Dictionary<string,object>)titleFormat["tags"];
+            Check(Convert.ToString(tags["title"])=="\u91c7\u7528Blackmagic\u62cd\u6444\u300aNature\u300b","UTF-8 metadata survives process capture");
+            Console.WriteLine("PASS UTF-8 keyframe probe and metadata exclusion");
+        }
         foreach(string trc in new[]{"bt709","smpte2084","arib-std-b67"})
         foreach(string pix in trc=="bt709"?new[]{"yuv420p","yuv420p10le"}:new[]{"yuv420p10le"})
         foreach(string motion in new[]{"STATIC","WEAVE"})

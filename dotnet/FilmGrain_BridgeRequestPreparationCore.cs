@@ -390,9 +390,7 @@ namespace FilmGrainStudioPreview
             // Resolve a real video key packet on the worker thread; no UI blocking and no exact-frame trimming.
             cut.PrepareWithCancellation = delegate(Func<bool> cancelled) {
                 Directory.CreateDirectory(directory);
-                string json = RunTool(ffprobe, "-v error -select_streams v:0 -read_intervals " + Quote(Number(start) + "%+#4096") +
-                    " -show_packets -show_format -show_entries packet=pts_time,flags:format=start_time -of json " + Quote(input),
-                    cancelled, 30000);
+                string json = RunTool(ffprobe, KeyframeProbeArguments(input,start), cancelled, 30000);
                 var parser = new System.Web.Script.Serialization.JavaScriptSerializer(); parser.MaxJsonLength = 16777216;
                 var root = parser.DeserializeObject(json) as Dictionary<string,object>;
                 object raw; var packets = root != null && root.TryGetValue("packets",out raw) ? raw as object[] : null;
@@ -485,12 +483,20 @@ namespace FilmGrainStudioPreview
                 return result.Info;
             }
         }
+        internal static string KeyframeProbeArguments(string input,double start)
+        {
+            // Explicit entries already request the format section. -show_format
+            // additionally emits arbitrary metadata, which is not needed here.
+            return "-v error -select_streams v:0 -read_intervals " + Quote(Number(start) + "%+#4096") +
+                " -show_packets -show_entries packet=pts_time,flags:format=start_time -of json " + Quote(input);
+        }
         private static string RunTool(string tool, string arguments, Func<bool> cancelled, int timeout)
         {
             var text = new System.Text.StringBuilder(); var errors = new System.Text.StringBuilder();
             using (var process = new System.Diagnostics.Process()) {
                 process.StartInfo = new System.Diagnostics.ProcessStartInfo(tool, arguments) {
-                    UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true
+                    UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true,
+                    StandardOutputEncoding = new System.Text.UTF8Encoding(false), StandardErrorEncoding = new System.Text.UTF8Encoding(false)
                 };
                 process.OutputDataReceived += delegate(object sender, System.Diagnostics.DataReceivedEventArgs e) { if (e.Data != null) lock(text) text.AppendLine(e.Data); };
                 process.ErrorDataReceived += delegate(object sender, System.Diagnostics.DataReceivedEventArgs e) { if (e.Data != null) lock(errors) errors.AppendLine(e.Data); };
