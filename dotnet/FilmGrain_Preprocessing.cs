@@ -405,6 +405,7 @@ namespace FilmGrainStudioPreview
         {
             UpdateCinematicCropLabels();
             RefreshPreprocessButton();
+            UpdateFilmBorderButton();
             UpdateBitrateDisplays();
             RefreshAv1GrainTableForMedia();
             UpdateHdrRouteStatus(GetSelectedMediaInfo());
