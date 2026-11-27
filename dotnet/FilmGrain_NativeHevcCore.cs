@@ -424,7 +424,7 @@ namespace FilmGrainStudioPreview
                         frame.ActiveWidth == info.Width && frame.ActiveHeight == info.Height)) &&
                     (expand && !grainEnabled || FilmBorderEncodingCore.ValidDimensions(info.Width, info.Height)) && ParseFps(fps) > 0 &&
                     (string.IsNullOrEmpty(preprocessing) || (s4SdrPlate && PreprocessingCore.IsOnlyBilateral(state,preprocessing))) &&
-                    (string.IsNullOrEmpty(colorFilter) || (expand && colorFilter==resize.Prefix) || s4SdrPlate || s4HdrGrade) &&
+                    ((string.IsNullOrEmpty(colorFilter) || s4SdrPlate || s4HdrGrade) || (expand && colorFilter==resize.Prefix)) &&
                     (string.IsNullOrEmpty(lutCompatName) || s4SdrPlate) && string.IsNullOrEmpty(subtitleFilter) &&
                     pixelPercent == 100;
                 if(expand && (hdrPreserve || expandGeometryChanged) && !s4GpuBorder)
