@@ -118,7 +118,7 @@ static bool s_window_shown = false, s_restore_maximized = false;
 static bool s_pixel_view = false, s_panning = false, s_frame_loading = false;
 static int s_pan_x = 0, s_pan_y = 0, s_pan_last_x, s_pan_last_y;
 static const wchar_t *s_video_path, *s_ffmpeg_path, *s_frame_path;
-static const wchar_t *s_picture_filter, *s_picture_device;
+static const wchar_t *s_picture_filter, *s_picture_device, *s_picture_plate_filter;
 static char *s_table_data;
 static int s_frame_depth;
 static double s_frame_seconds, s_pending_seconds, s_duration_seconds;
@@ -1283,6 +1283,7 @@ static bool start_frame_decoder(double seconds, bool plate, PROCESS_INFORMATION 
     size_t capacity = wcslen(s_ffmpeg_path)+wcslen(source)+wcslen(output)+550;
     if (s_picture_filter) capacity += wcslen(s_picture_filter);
     if (s_picture_device) capacity += wcslen(s_picture_device);
+    if (s_picture_plate_filter) capacity += wcslen(s_picture_plate_filter);
     wchar_t *command = calloc(capacity,sizeof(wchar_t));
     if (!command) return false;
     if (plate) {
@@ -1290,12 +1291,14 @@ static bool start_frame_decoder(double seconds, bool plate, PROCESS_INFORMATION 
          * frame-boundary safety and for all other plate formats. */
         double plate_seconds = s_plate_cycle_seconds>0 ?
             fmod(seconds,s_plate_cycle_seconds) : seconds;
+        wchar_t default_filter[100];
+        swprintf(default_filter,100,L"scale=%d:%d:flags=bilinear,format=yuv420p10le",s_width,s_height);
         swprintf(command,capacity,
             L"\"%ls\" -hide_banner -nostdin -v error -y -stream_loop -1 "
             L"-ss %.6f -i \"%ls\" -map 0:v:0 -an -sn -dn -frames:v 1 "
-            L"-vf \"fps=%u/%u,scale=%d:%d:flags=bilinear,format=yuv420p10le\" "
-            L"-f rawvideo \"%ls\"",
-            s_ffmpeg_path,plate_seconds,source,s_fps_num,s_fps_den,s_width,s_height,output);
+            L"-vf \"fps=%u/%u,%ls\" -f rawvideo \"%ls\"",
+            s_ffmpeg_path,plate_seconds,source,s_fps_num,s_fps_den,
+            s_picture_plate_filter?s_picture_plate_filter:default_filter,output);
     } else if (s_picture_filter) {
         swprintf(command,capacity,
             L"\"%ls\" -hide_banner -nostdin -v error -y %ls%ls%ls"
@@ -2682,6 +2685,7 @@ int wmain(int argc, wchar_t **argv)
         else if (!wcscmp(key, L"--ffmpeg")) s_ffmpeg_path = value;
         else if (!wcscmp(key, L"--picture-filter")) s_picture_filter = value;
         else if (!wcscmp(key, L"--picture-device")) s_picture_device = value;
+        else if (!wcscmp(key, L"--picture-plate-filter")) s_picture_plate_filter = value;
         else if (!wcscmp(key,L"--pixel-mode")) {
             if (!wcscmp(value,L"FGSIM")) s_fgsim_mode=true;
             else if (!wcscmp(value,L"DIGITAL")) s_digital_mode=true;

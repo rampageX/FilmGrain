@@ -282,8 +282,9 @@ namespace FilmGrainStudioPreview
                                 double plateSeconds = plateCycle>0 ? seconds%plateCycle : seconds;
                                 plateArgs.AddRange(new[]{"-ss",plateSeconds.ToString("0.######",CultureInfo.InvariantCulture),
                                     "-i",platePath,"-map","0:v:0","-an","-sn","-dn","-frames:v","1",
-                                    "-vf","fps="+fps+",scale="+width.ToString(CultureInfo.InvariantCulture)+":"+
-                                        height.ToString(CultureInfo.InvariantCulture)+":flags=bilinear,format=yuv420p10le",
+                                    "-vf","fps="+fps+","+(expandPreview!=null && expandPreview.PlateFilter.Length!=0 ?
+                                        expandPreview.PlateFilter : "scale="+width.ToString(CultureInfo.InvariantCulture)+":"+
+                                        height.ToString(CultureInfo.InvariantCulture)+":flags=bilinear,format=yuv420p10le"),
                                     "-f","rawvideo",plateFrame});
                                 int plateRc = NativeLibraryTools.RunProcessEnvironment(ffmpeg,plateArgs,temporary,null,120000,
                                     CancellationToken.None,delegate(string line) {
@@ -735,7 +736,7 @@ namespace FilmGrainStudioPreview
         private sealed class ExpandPreviewPlan
         {
             internal int Width,Height,SarNum,SarDen;
-            internal string Filter="",Device="";
+            internal string Filter="",Device="",PlateFilter="";
         }
 
         private static void ApplyExpandPreviewFilter(List<string> args,ExpandPreviewPlan plan)
@@ -753,6 +754,7 @@ namespace FilmGrainStudioPreview
                 "--film-expand-sar",(plan.SarNum/(double)plan.SarDen).ToString("0.########",CultureInfo.InvariantCulture)});
             if(plan.Filter.Length!=0)args.AddRange(new[]{"--picture-filter",plan.Filter});
             if(plan.Device.Length!=0)args.AddRange(new[]{"--picture-device",plan.Device});
+            if(plan.PlateFilter.Length!=0)args.AddRange(new[]{"--picture-plate-filter",plan.PlateFilter});
         }
 
         private bool TryExpandPreviewPlan(MediaProbeInfo media,out ExpandPreviewPlan preview,bool showError=true)
@@ -790,6 +792,8 @@ namespace FilmGrainStudioPreview
                 if(resize.Enabled || frame.Filter.Length!=0)
                     preview.Filter=resize.Prefix+"format=yuv420p10le"+frame.Filter;
                 if(resize.Enabled)preview.Device=VulkanDevicePolicy.Spec("vk");
+                else if(frame.Filter.StartsWith(",crop=",StringComparison.Ordinal))
+                    preview.PlateFilter="scale="+media.Width+":"+media.Height+":flags=bilinear,format=yuv420p10le"+frame.Filter;
                 return true;
             }
             catch(ArgumentException ex)
@@ -821,8 +825,8 @@ namespace FilmGrainStudioPreview
                 var cancel=new ThemeButton {Text=UiText("取消","Cancel"),Location=new System.Drawing.Point(370,172),Size=new System.Drawing.Size(84,32),DialogResult=DialogResult.Cancel};
                 Action refresh=delegate {
                     description.Text=mode.SelectedIndex==1?
-                        UiText("原画不裁切、不缩放。保留胶片边框原始比例，厚度随素材自动调整。",
-                            "Keep the original picture. Preserve the stock proportions and calculate the border thickness automatically."):
+                        UiText("完整保留裁剪和缩放后的画面，按胶片素材比例外扩画布。",
+                            "Expand the canvas around the processed picture using the film stock proportions."):
                         UiText("沿用现有覆盖式边框及画面构图。","Keep existing overlay and framing.");
                 };
                 mode.SelectedIndexChanged+=delegate{refresh();};

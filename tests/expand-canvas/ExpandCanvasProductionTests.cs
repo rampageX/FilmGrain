@@ -139,7 +139,6 @@ internal static class ExpandCanvasProductionTests
             {
                 string suffix=(string)Get(frame,"Filter")+",format="+pixel;
                 string baseline=(string)T("SharedGrainCore").GetMethod("BuildWithoutGrain",S).Invoke(null,new object[]{prefix,"","",suffix});
-                graphs["cpuBase_"+pixel]=baseline;
                 graphs["cpu_"+pixel]=Call("AppendFilter",baseline,plan,width,height,1,"25/1",media,pixel);
             }
             string signal="setparams=range=limited:color_primaries="+(hdr?"bt2020":"bt709")+
@@ -155,7 +154,6 @@ internal static class ExpandCanvasProductionTests
                 string h264=(string)Call("AppendGpuFilter",gpuBase,plan);
                 Check(h264.EndsWith(",hwupload=derive_device=cuda,scale_cuda=format=nv12[vout]"),"H.264 NVENC handoff "+id);
             }
-            graphs["gpuBase"]=gpuBase.Replace("hwupload[fgsfilm_gpu_video]","format=yuv420p10le[vout]");
             graphs["gpu"]=gpu.Replace(",hwupload=derive_device=cuda[vout]",",hwdownload,format=p010le,format=yuv420p10le[vout]");
             File.WriteAllText(Path.Combine(work,id+".geometry.json"),serializer.Serialize(graphs),new UTF8Encoding(false));
             Set(frame,"CinematicBars",true);

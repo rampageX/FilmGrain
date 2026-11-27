@@ -62,13 +62,28 @@ def header(output, key, value):
         raise RuntimeError(f"Expected {key} {value}\n{output}")
 
 def verify_geometry(meta, art, route, pix, base):
-    baseline, composite = meta[f"{route}Base"] if route == "gpu" else meta[f"{route}Base_{pix}"], meta[route] if route == "gpu" else meta[f"{route}_{pix}"]
+    if route == "gpu":
+        composite = meta["gpu"]
+        split_label = "[fgsfilm_gpu_video]"
+        split = (",split=2[fgsfilm_gpu_video][reference_hw];"
+                 "[reference_hw]hwdownload,format=p010le,format=yuv420p10le[reference]")
+    else:
+        composite = meta[f"cpu_{pix}"]
+        split_label = "[fgs_expand_input]"
+        split = ",split=2[fgs_expand_input][reference]"
+    # Split the same prepared frame. Separate Vulkan executions can dither
+    # differently before either graph reaches the compositor.
     crop = f"crop={meta['width']}:{meta['height']}:{meta['left']}:{meta['top']}:exact=1"
-    tail = ["-map", "[vout]", "-an", "-c:v", "rawvideo", "-threads:v", "1",
-            "-pix_fmt", pix, "-fps_mode", "passthrough", "-enc_time_base", "1/25", "-f", "framemd5", "-"]
-    expected = run(*base, "-filter_complex", baseline, *tail)
-    actual = run(*base, "-i", art, "-filter_complex",
-                 composite.replace("[vout]", f"[canvas];[canvas]{crop}[vout]"), *tail)
+    comparison = composite.replace(split_label, split, 1).replace(
+        "[vout]", f"[canvas];[canvas]{crop}[vout]")
+    tail = ["-an", "-c:v", "rawvideo", "-threads:v", "1", "-pix_fmt", pix,
+            "-fps_mode", "passthrough", "-enc_time_base", "1/25", "-f", "framemd5"]
+    reference_md5 = art.with_suffix(".reference.framemd5")
+    actual = run(*base, "-i", art, "-filter_complex", comparison,
+        "-map", "[reference]", *tail, reference_md5, "-map", "[vout]", *tail, "-")
+    # The result over stdout is from the canvas aperture.
+    expected = reference_md5.read_text(encoding="utf-8")
+    reference_md5.unlink()
     if len(frames(expected)) != 4 or frames(actual) != frames(expected):
         raise RuntimeError(f"{art.stem} {route} {pix}: picture samples, PTS or frame count differ\n{expected}\n{actual}")
     for output in (expected, actual):
