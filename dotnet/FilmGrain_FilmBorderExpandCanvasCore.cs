@@ -3,6 +3,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Globalization;
+using System.IO;
 
 namespace FilmGrainStudioPreview
 {
@@ -26,6 +27,27 @@ namespace FilmGrainStudioPreview
 
     internal static class FilmBorderExpandCanvasCore
     {
+        internal const string ThicknessKey="FILM_BORDER_EXPAND_PX";
+        internal const int DefaultThickness=64;
+        internal const int MaximumThickness=512;
+        internal static bool TryParseThickness(string value,out int pixels)
+        {
+            pixels=0;
+            return String.IsNullOrEmpty(value) || (Int32.TryParse(value,NumberStyles.None,CultureInfo.InvariantCulture,out pixels)
+                && pixels>=0 && pixels<=MaximumThickness && (pixels&1)==0);
+        }
+        internal static string WriteTexture(string source,int apertureWidth,int apertureHeight,FilmBorderExpandGeometry geometry,string directory)
+        {
+            string path=Path.Combine(directory,"__FGS_EXPAND_"+Guid.NewGuid().ToString("N")+".png");
+            try
+            {
+                using(var input=new Bitmap(source))
+                using(var texture=RenderTexture(input,apertureWidth,apertureHeight,geometry))
+                    texture.Save(path,ImageFormat.Png);
+                return path;
+            }
+            catch { try { if(File.Exists(path)) File.Delete(path); } catch {} throw; }
+        }
         private static string N(int n) { return n.ToString(CultureInfo.InvariantCulture); }
 
         // Eight isolated pieces: no samples from the source aperture, including opaque scratches.
@@ -56,8 +78,8 @@ namespace FilmGrainStudioPreview
                         Rectangle dst=new Rectangle(xd[x],yd[y],xd[x+1]-xd[x],yd[y+1]-yd[y]);
                         if(src.Width==0 || src.Height==0) continue;
                         double scale=Math.Min((double)dst.Width/src.Width,(double)dst.Height/src.Height);
-                        int w=Math.Min(dst.Width,Math.Max(1,(int)Math.Round(src.Width*scale)));
-                        int h=Math.Min(dst.Height,Math.Max(1,(int)Math.Round(src.Height*scale)));
+                        int w=Math.Min(dst.Width,Math.Max(1,(int)Math.Round(src.Width*scale,MidpointRounding.AwayFromZero)));
+                        int h=Math.Min(dst.Height,Math.Max(1,(int)Math.Round(src.Height*scale,MidpointRounding.AwayFromZero)));
                         Rectangle fit=new Rectangle(dst.X+(dst.Width-w)/2,dst.Y+(dst.Height-h)/2,w,h);
                         // Isolate the tile before interpolation. Clip the destination as a second guard.
                         using(Bitmap tile=source.Clone(src,PixelFormat.Format32bppPArgb))

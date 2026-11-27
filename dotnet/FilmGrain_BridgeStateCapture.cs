@@ -184,6 +184,7 @@ namespace FilmGrainStudioPreview
             snapshot.TonemapAlgo = config.Get("TONE_MAP_ALGO");
             snapshot.TonemapOptions = config.Get(HdrToneSettings.Key(snapshot.TonemapAlgo));
             snapshot.FilmBorderMode = config.Get("FILM_BORDER_MODE");
+            snapshot.FilmBorderExpandPx=config.Get(FilmBorderExpandCanvasCore.ThicknessKey);
             snapshot.FilmBorderAmplitude=config.Get(FilmBorderMotionCore.AmpKey);
             snapshot.FilmBorderSpeed=config.Get(FilmBorderMotionCore.SpeedKey);
             snapshot.FilmBorderFrequency=config.Get(FilmBorderMotionCore.FrequencyKey);

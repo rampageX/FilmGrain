@@ -33,7 +33,7 @@ namespace FilmGrainStudioPreview
             new KeyValuePair<string, string[]>("Advanced.Interpolation", new string[] { "SVP_ALGO", "SVP_ANALYSE", "SVP_MASK_AREA", "SVP_SPEED", "SVP_TUNING", "SVP_BLOCK_SIZE", "SVP_HDR_BACKEND", "SVP_EXACT", "SVP_LEAN", "SVP_DEDUP", "SVP_STILL", "SVP_STILL_LIMIT", "SVP_STILL_EDGE", "SVP_STILL_TOLERANCE", "SVP_PEEL", "SVP_PEEL_LIMIT", "NVENC_AI_MODE", "FRUC_PERF", "FRUC_GRID", "INTERPOLATION_TARGET_FPS" }),
             new KeyValuePair<string, string[]>("Advanced.HDR", new string[] { "HDR_POLICY", "TONE_MAP_ALGO", HdrToneSettings.Key("hable"), HdrToneSettings.Key("mobius"),
                 HdrToneSettings.Key("reinhard"), HdrToneSettings.Key("gamma"), HdrToneSettings.Key("linear"), HdrToneSettings.Key("clip") }),
-            new KeyValuePair<string, string[]>("Advanced.Other", new string[] { "QUEUE_SKIP_FAILED", "CINEMATIC_CROP_PER_SIDE", "CINEMATIC_CROP_HORIZONTAL", CinematicFrameCore.MarginsKey, CinematicFrameCore.CropEnabledKey, CinematicFrameCore.CropModeKey, CinematicCropGeometry.PresetKey, "CINEMATIC_NO_CROP", "COLOR_PREVIEW_LARGE_UI", "FILM_BORDER_MODE", "FILM_BORDER_AMP", "FILM_BORDER_SPEED", "FILM_BORDER_FREQUENCY" }),
+            new KeyValuePair<string, string[]>("Advanced.Other", new string[] { "QUEUE_SKIP_FAILED", "CINEMATIC_CROP_PER_SIDE", "CINEMATIC_CROP_HORIZONTAL", CinematicFrameCore.MarginsKey, CinematicFrameCore.CropEnabledKey, CinematicFrameCore.CropModeKey, CinematicCropGeometry.PresetKey, "CINEMATIC_NO_CROP", "COLOR_PREVIEW_LARGE_UI", "FILM_BORDER_MODE", FilmBorderExpandCanvasCore.ThicknessKey, "FILM_BORDER_AMP", "FILM_BORDER_SPEED", "FILM_BORDER_FREQUENCY" }),
             new KeyValuePair<string, string[]>("ColorCorrection", new string[] { "COLOR_CORRECTION_ENABLED", "COLOR_CONTRAST", "COLOR_BRIGHTNESS", "COLOR_SATURATION", "COLOR_GAMMA", "COLOR_BLACK_WHITE", ColorGrade.ConfigKey, "COLOR_MATCH_STRENGTH" })
         };
 
@@ -211,6 +211,7 @@ defaults["CPU_X265_CQ_AUTO"] = "false";
             defaults["CINEMATIC_NO_CROP"] = "0";
             defaults["COLOR_PREVIEW_LARGE_UI"] = "false";
             defaults["FILM_BORDER_MODE"] = "OFF";
+            defaults[FilmBorderExpandCanvasCore.ThicknessKey] = "0";
             defaults[FilmBorderCatalogCore.ImportLastWidthKey] = FilmBorderCatalogCore.ImportDialogDefaultWidth.ToString(CultureInfo.InvariantCulture);
             defaults[FilmBorderCatalogCore.ImportLastHeightKey] = FilmBorderCatalogCore.ImportDialogDefaultHeight.ToString(CultureInfo.InvariantCulture);
             defaults[FilmBorderMotionCore.AmpKey] = "1";

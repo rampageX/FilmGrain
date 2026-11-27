@@ -311,12 +311,13 @@ namespace FilmGrainStudioPreview
             if (!CinematicFrameCore.TryBuild(info, state, out frame, out reason)) return false;
             ResizePlan resize;
             if(!ResizeCore.TryBuild(info,state,frame,out resize,out reason,hdrPreserve))return false;
+            if(!FilmBorderEncodingCore.ConfigureExpand(filmBorder,frame,resize,info,newCpu?Get(state,"FG_MODE"):"X264",out reason))return false;
             int processingWidth=resize.Enabled?resize.Width:info.Width, processingHeight=resize.Enabled?resize.Height:info.Height;
             bool highMotion = Get(state, "FG_HIGH_MOTION") == "1";
             if (!(newCpu&&CpuEncoderCore.IsCrf(state)) && Eq(state, "FG_BITRATE_MODE", "AUTO"))
             {
                 double rateFps = ParseFps(fps);
-                bitrate = BitrateRecommendationCore.GetRecommendedBitrate(newCpu?(Eq(state,"FG_MODE","SVT")?0:1):2, frame.ActiveWidth, frame.ActiveHeight, rateFps, highMotion);
+                bitrate = BitrateRecommendationCore.GetRecommendedBitrate(newCpu?(Eq(state,"FG_MODE","SVT")?0:1):2, FilmBorderEncodingCore.FinalWidth(filmBorder,frame.ActiveWidth), FilmBorderEncodingCore.FinalHeight(filmBorder,frame.ActiveHeight), rateFps, highMotion);
             }
 
             string colorFilter, colorSuffix;
@@ -457,6 +458,11 @@ namespace FilmGrainStudioPreview
                 if (svp && plateMode) filter = filter.Replace("[1:v:0]", "[2:v:0]");
                 // Apply the border after all CPU effects and grain blending, and before encoding.
                 // SVP, FRUC and multi-stage pre-render are rejected above when a border is active.
+                if(filmBorder!=null && filmBorder.ExpandGeometry!=null)
+                {
+                    string root;if(!TryResolveTempRoot(input,state,out root,out reason))return false;
+                    FilmBorderEncodingCore.StageExpandTexture(filmBorder,root,temporaryFiles);
+                }
                 if(filmBorder!=null)
                     filter=FilmBorderEncodingCore.AppendFilter(filter,filmBorder,frame.ActiveWidth,frame.ActiveHeight,
                         plateMode?2:1,fps,info,high10?"yuv420p10le":"yuv420p");
@@ -580,10 +586,12 @@ namespace FilmGrainStudioPreview
                 lutCompatPath = "";
                 subtitleAss = "";
                 subtitleFilterPath="";
+                if(filmBorder!=null)filmBorder.ExpandTexture=null;
                 return true;
             }
             finally
             {
+                if(filmBorder!=null)TryDelete(filmBorder.ExpandTexture);
                 if (!string.IsNullOrEmpty(lutCompatPath)) TryDelete(lutCompatPath);
                 if (!string.IsNullOrEmpty(subtitleAss)) TryDelete(subtitleAss);
                 if(!string.IsNullOrEmpty(subtitleFilterPath))TryDelete(subtitleFilterPath);
@@ -672,7 +680,9 @@ namespace FilmGrainStudioPreview
                 a.Add("-t"); a.Add(duration);
                 a.Add("-i"); a.Add(grainInput);
             }
-            if(filmBorder!=null) {a.Add("-loop");a.Add("1");a.Add("-i");a.Add(filmBorder.Path);}
+            bool expand=filmBorder!=null && filmBorder.ExpandGeometry!=null;
+            if(expand) {a.Add("-framerate");a.Add(fps);a.Add("-i");a.Add(filmBorder.ExpandTexture);}
+            else if(filmBorder!=null) {a.Add("-loop");a.Add("1");a.Add("-i");a.Add(filmBorder.Path);}
             a.Add("-filter_complex"); a.Add(filter);
             a.Add("-map"); a.Add("[vout]");
             if (finalOutput)
@@ -696,11 +706,12 @@ namespace FilmGrainStudioPreview
                 a.Add("-passlogfile"); a.Add(passlog);
             }
             }
-            if (!filter.Contains("fruc_vulkan=") && (autoFps || deinterlace || plateMode || passNumber > 0)) { a.Add("-r"); a.Add(fps); }
+            if (!expand && !filter.Contains("fruc_vulkan=") && (autoFps || deinterlace || plateMode || passNumber > 0)) { a.Add("-r"); a.Add(fps); }
             bool svtHdr=(Eq(audioState,"FG_MODE","SVT")||Eq(audioState,"FG_MODE","X265"))&&audioInfo!=null&&audioInfo.IsHdr&&!SharedGrainCore.CpuHdrToSdr(audioInfo,audioState);
             bool sourceClock=svtHdr&&!autoFps&&!deinterlace&&!filter.Contains("fruc_vulkan=");
-            a.Add("-fps_mode:v"); a.Add(sourceClock||filter.Contains("fruc_vulkan=") ? "passthrough" : "cfr");
-            if(sourceClock)a.AddRange(new[]{"-enc_time_base:v","demux"});
+            a.Add("-fps_mode:v"); a.Add(expand||sourceClock||filter.Contains("fruc_vulkan=") ? "passthrough" : "cfr");
+            if(expand)a.AddRange(new[]{"-enc_time_base:v","filter"});
+            else if(sourceClock)a.AddRange(new[]{"-enc_time_base:v","demux"});
             if(svtHdr)SvtHdr10Core.AddColorArguments(a,audioInfo);
             if ((plateMode || filmBorder!=null || passNumber>0) && !string.IsNullOrEmpty(duration)) { a.Add("-t"); a.Add(duration); }
             if (finalOutput)
