@@ -225,3 +225,4 @@ G00 下一步：逐条追踪入口、共享 helper、执行器和最终参数，
 
 - 从 v5.1.08 整合包核对正式 Release SHA256、生产源码及 master 文档提交。用户已授权 test/g06c-hdr-gpu-direct 和 Windows CI。仅共享 HEVC Main10 原帧率软件解码的 RTX 4080 普通路线、BT.2020 Limited PQ/HLG 10-bit、Hable/Spline/BT.2390；无 Plate 或已探测实际尺寸的偶数宽高 Plate，保留 bilinear。排除 LUT/CC/缩放裁剪/边框/插帧/其它滤镜组合，保留 G04/S4/FRUC 原路线。合并时间轴及参数生成后才启用双标志并移除传输，Hable 保留原 CPU 回退。颗粒区复用主题标签，异步探测实际尺寸，动态判断当前选中视频及完整状态。新增 G06c Windows 静态契约和受保护路线回归。未进行 GPU 实机或用户验收，未发布，G06 未关闭。
 - M9K6 Windows CI：C# 编译及 Framework API 3053/3053 通过；新增 G06c 图契约发现 gamut_mode 前的 libplacebo 选项分隔符应为冒号，候选不交付。R7Q2 仅修正该边界及测试包后缀，重跑同一套契约。
+- G06c R7Q2：Windows 编译、36 组 G06c 滤镜图契约以及 G04/R08/R07/R02/S4/R03/R04c/时间轴契约通过；旧 UI 启动测试仍以单参数反射调用已增加可选第二参数的 ShowTrueHdrDialog，触发 TargetParameterCountException。V4N8 仅修正测试调用及交付后缀，生产代码与 R7Q2 相同，重新运行 Windows CI；待实机验收，不关闭 G06。

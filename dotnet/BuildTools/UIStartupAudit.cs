@@ -268,7 +268,7 @@ internal static class UIStartupSmoke {
     }
    };
    timer.Start();
-   type.GetMethod("ShowTrueHdrDialog",flags).Invoke(main,new[]{source});
+   type.GetMethod("ShowTrueHdrDialog",flags).Invoke(main,new object[]{source,false});
    if(!appeared)throw new Exception("TrueHDR dialog did not reveal its controls");
   }
   source.GetType().GetField("ColorTransfer",flags).SetValue(source,"smpte2084");
