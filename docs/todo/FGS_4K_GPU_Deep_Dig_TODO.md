@@ -153,3 +153,9 @@ G00 下一步：逐条追踪入口、共享 helper、执行器和最终参数，
 - 已核对 v5.1.07/72f498b2 与 master/6ff4cbd3，仅 TODO 文档和索引变更；完整读取 AGENTS.md 和本卡。用户提供原 FGS_G04b_V8L2_Test(1).zip，继承其 CPU tetrahedral、GPU normalized、Plate blend、MH 双标志和 L8R2 启动器，不重新下载依赖。
 - 交付 FGS_G04c_M9K4_Test.zip（SHA256 8a4306d3f43f5986d3cabde2db053c45d596830fb9b6e620a60c984482db8552）。选择多个真实 SDR BT.709 Limited progressive YUV420 8/10-bit 源、一个实际 FGS standalone 3D CUBE、可选真实 Plate（取消使用 V8L2 固定种子 Plate），每个源默认三个可指定的时间位置，每处连续四帧；0% 真 bypass，25/75/100% CPU blend 与 GPU 节点预混合。仅标准 [0,1] 输入域和有限 [0,1] 节点，非标准 LUT 不裁切或静默替换。单独 LUT 和 LUT+Plate 35% 分别测试；Plate CPU/GPU 各自比较默认 Vulkan 下载与 MH CUDA 直通后下载采样，要求 hash/PTS 等价。无损 FFV1 保留本地，第二帧统一 BT.709 YUV→RGB 16-bit PNG 供 localhost 浏览器盲测，屏幕实际显示精度另计；随机 A/B、滑动、单张、1:1、拖动及备注。回传仅日志、PSNR、帧 hash/PTS、局部 4×4 区域及 nominal range 统计、盲测答案和映射，不含实际媒体。50 dB 仅初筛。该包不进行生产 NVENC 编码或测速。
 - 本地 Linux CPU 代理输出、10-bit 标签、帧 hash/PSNR、PNG、LUT/滤镜图矩阵、局部码值统计、特殊字符路径及 localhost API 验证通过；Python/JS 语法、BAT/PS1 BOM、ZIP 检查通过。Windows GPU、浏览器实际交互及 PowerShell 启动器待验收。G04c 第一阶段尚未关闭，等待 Results_G04c_*.zip。无生产源码变动，未创建分支或 PR；文档更新使用 skip ci。
+
+### 9.6 M9K4 第一轮真实素材实测（2026-11-28）
+
+- 证据 Results_G04c_20261128_163415_a08080.zip；FFmpeg SHA256 同 K6P3/V8L2。AV1_SDR.mp4，1920×1080/60fps/10-bit BT.709 Limited，缺 transfer/primaries 经用户确认 SDR，取 2/5/8 秒各4帧；Fujiflex-Crystal-Archive-New-Version.cube，33³；使用自动生成的固定 Plate，35%。66 个无损输出的格式/色彩标签均为 yuv420p10le/BT.709 Limited。
+- 24/24 盲测答案 same（含6组零强度控制），45/45 PTS 一致；27/27 严格等价比较通过（108/108 帧 hash 一致，含21组显存传输）。18组非零强度 CPU/GPU 比较中17组综合 PSNR ≥50dB，范围49.901986–62.362243dB。单独 LUT 25/75/100% 最低分别58.622404/52.254194/49.901986dB；Plate 后最低58.968583/55.619903/53.545125dB。
+- S02_LUT_100：综合49.901986dB，Y/U/V 56.186662/44.174551/48.695926dB；第二帧 Y/U/V 平均绝对误差1.045/2.651/1.498码值，最大55/84/61码值，U 最大误差区域平均8.062码值。该帧两边均无 nominal range 越界；盲测 same。全组累计 Y 越界计数两边均991340，U/V 均0；不将累计计数相同解释为逐像素裁切等价。保留低于初筛门槛的记录，不单凭0.1dB差距否决创意 LUT。首轮视觉验收通过，未覆盖不同真实源、真实扫描 Plate 和4K视觉验收；复用 M9K4 补测，无须开发新包。完成后进入生产最小接入，未改生产源码/分支/PR，文档提交使用 skip ci。
