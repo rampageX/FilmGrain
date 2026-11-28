@@ -77,3 +77,12 @@ G00 下一步：逐条追踪入口、共享 helper、执行器和最终参数，
 - 首批 A/B：A 现有 CPU LUT+Vulkan Plate+下载；B libplacebo GPU LUT+相同 Plate+下载；C 在 B 基础上复用 Vulkan→CUDA 直通；D 无 LUT 的 Plate 控制组。可另加 CPU LUT+直通以隔离两个变量。全部保持相同编码参数、输出格式、颗粒输入、强度、PTS/帧数。
 - GPU LUT 的插值、色度重采样、范围、强度混合、DOMAIN_MIN/MAX 和越界裁切可能不同；先用标准 [0,1] standalone 3D CUBE 及预混合节点，强度 25/75/100，独立检查编码前画面。实际比较若不满足精度，不以速度替代画质；研究 tetrahedral shader 或保留原实现。HDR 的 LUT 前缀另行验证，禁止直接套 SDR native LUT。
 - 先使用无新依赖的自动测试脚本收集滤镜选项、同源性能及编码前差异。测试方向不等于生产实现，FGSIM 不进入首批矩阵。
+
+## 7. G04 T4K8 首轮实机记录（2026-11-28）
+
+- 证据：`Results_G04_20261128_144443_e2b9ff.zip`；FFmpeg `9.1.git-FGS-47b92841e33b-20261122`。
+- 15 轮中 9 成功、6 失败；成功组均通过 360 帧独立解码检查。端到端 FPS 中位数：A CPU LUT+Plate+下载 4.9535；B GPU LUT+Plate+下载 5.0844（+2.64%）；D 无 LUT+Plate+下载 5.3594。C/E 直通均 0 帧，`cuExternalMemoryGetMappedMipmappedArray` / `CUDA_ERROR_INVALID_VALUE`。
+- 编码前 FFV1 8 帧对照：LUT PSNR 31.557318 dB / SSIM 0.988887（V 28.829117 dB）；Plate 后 31.587256 dB / 0.988786。GPU LUT 当前不满足等价替换要求。
+- **实验设计偏差**：T4K8 给全部组强制 `vulkan=vk:0,disable_multiplane=1`，而生产普通 Plate 使用 VulkanDevicePolicy.Spec，不加该标志；S4 按适用条件添加 disable_multiplane、探测 disable_host_image_copy，并在 blend_vulkan 后经过 libplacebo/边框输出才派生 CUDA。因此 5 FPS 原因未明，T4K8 不能作为生产性能基线。不能直接认定互操作底层补丁失效。
+- 下一轮 G04a：使用明确的 NVIDIA 设备名并保存 verbose 设备日志；先以默认 Vulkan 配置复现生产普通 Plate，短片探针比较 disable_multiplane、支持时 disable_host_image_copy、blend_vulkan 后直接派生 vs libplacebo P010 中继（S4 参考），再跑成功路线。纯 NVENC、上传/下载、Plate 原尺寸/缩放、blend、完整编码分开计时，查清异常低速。对比 10-bit 编码前帧的 hash/像素差异；中继不得改变颗粒/色彩。失败路线不重复长测。
+- 下一轮 G04b：使用 identity LUT、0/75/100% 和灰阶/色条，分别比较 CPU 与 GPU 的矩阵/范围、4:2:0 重采样、LUT 插值、量化及裁切；先验证无 LUT/identity 对照，避免直接将差异归咎于插值。G04a 优先，FGSIM 仍延期。没有生产源码修改。
