@@ -30,7 +30,7 @@ vidpipe 上游提交 `d7d317fff55fa5acdbc130ffe73eb0b5f1508c58`，MIT。参考 [
 | G01 | P0 | 待执行 | 建立真实 FGS 4K 性能基准；单项/组合及纯编码对照、4K 30/60、SDR/PQ/HLG；记录日志、实际滤镜图、全任务耗时与稳态 FPS、CPU/GPU 编解码和显存、输出及时间轴；按瓶颈重排 G02–G08。 |
 | G02 | P1 | 候选 | 消除不必要 CPU/CUDA/Vulkan 主机帧传输及中间工作文件；先复用已有 S4、R01/R02/R07/R08 路线，证明画质与时间轴等价。不得把 GPU 间映射等同于零复制。 |
 | G03 | P1 | 候选 | 消除重复像素格式、位深、色彩转换；核对自动插入转换、chroma siting、范围、矩阵、量化及抖动，保留必要精度。 |
-| G04 | P1（首项） | G04a/G04b 独立验证完成；G04c 待接入 | LUT/色彩纠正融合：先审计现有 CPU LUT 与 GPU 预览/libplacebo 实现；验证插值、强度混合、顺序、HDR 保留，再决定是否需新内核。 |
+| G04 | P1（首项） | G04a/G04b 独立验证完成；G04c 待真实视觉验收及默认路线接入 | LUT/色彩纠正融合：先审计现有 CPU LUT 与 GPU 预览/libplacebo 实现；验证插值、强度混合、顺序、HDR 保留，再决定是否需新内核。 |
 | G05 | P2（FGSIM 延后） | 候选 | Digital Grain、Grain Plate、FGSIM 分开研究；优先避免 GPU 后下载及重复合成，保留随机性、时序、纹理、HDR luma delta 与边框/字幕顺序。 |
 | G06 | P2 | 候选 | HDR→SDR 色调映射与后续 GPU 滤镜衔接，保持现有曲线、参数、HLG/PQ、亮度、色域及预览一致性。 |
 | G07 | P2 | 候选 | 跨进程插帧 GPU 显存直通可行性；验证进程/设备支持、资源生命周期、同步、PTS/VFR/音频、取消及尾帧；无安全等价机制则关闭。 |
@@ -139,3 +139,11 @@ G00 下一步：逐条追踪入口、共享 helper、执行器和最终参数，
 - 中位 FPS（wall，包含启动和 flush、不含独立解码）：CPU_DL 36.6652、CPU_DIRECT 44.3094、RGB_DL 31.6647、RGB_DIRECT 36.1858、NORM_DL 62.7364、NORM_DIRECT 80.2645。CPU_DIRECT 对 CPU_DL +20.85%；RGB_DIRECT 对 CPU_DIRECT -18.33%。RGB bridge 不具备净性能收益，关闭此实现。Normalized 保留后续研究价值，但不得替换生产 LUT。
 - quality.json：CPU_DIRECT 对 CPU_DL 编码前 32/32 hash 相同、Y/U/V PSNR inf；RGB_DL/DIRECT 均 0/32，平均 PSNR 66.373389 dB；NORM_DL/DIRECT 均 0/32，平均 53.763366 dB（V 48.588465 dB）；全部 PTS 相同。未开展真实素材的主观画质验收，不放行两种 GPU LUT。G04b 现有 libplacebo 候选评估完成，后续融合颜色转换/重采样与 LUT 的等价 GPU 实现另列研究，不阻塞 G04a。
 - 下一阶段 G04c：仅准备 G04a 已验证路线的生产最小接入及实机验收，普通 SDR BT.709 Limited progressive HEVC Main10 Grain Plate（无 LUT/原 CPU LUT），双标志同时启用，blend_vulkan 后直接派生 CUDA，不加 libplacebo 中继；严格检查末端 CPU 滤镜、像素颗粒强度、帧率、输入范围等边界，不适用则保持原图与参数。旧 S4/HDR/FRUC、H264/AV1、字幕、复杂几何、其它颗粒、既有设备策略不动；真实素材及音轨、4K30/60、1080p、PTS/帧数/色彩、取消及特殊路径回归后再考虑发布。GUI/CLI 共用核心。生产源码本轮未改，未建分支/PR；后续 Windows CI 或分支须明确授权。
+
+### 9.4 用户决策：Normalized GPU LUT 拟作为默认，修订 G04c 验收目标（2026-11-28）
+
+- 本节取代 9.3 中“Normalized 不得替换生产 LUT”的阶段性决定，以及原 G04c 仅接入 CPU LUT + CUDA 的范围限制。历史实验数据不变。用户同意将创意 LUT 与无损传输分别验收：创意 LUT 不强求 CPU/GPU 逐像素一致，GPU Normalized 经真实素材视觉验收及兼容性验收后作为适用路线默认；原 CPU tetrahedral 保留为可选精确模式。显存传输优化仍须逐像素等价。
+- 依据 V8L2：CPU_DL 36.6652、CPU_DIRECT 44.3094、NORM_DIRECT 80.2645 FPS；Normalized 相对原链 +118.91%，相对 CPU_DIRECT +81.15%；编码前综合 PSNR 53.763366 dB、V 48.588465 dB，H3N8/J4C7 平坦色块中心平均偏差不超过 1 个 10-bit 码值。50 dB 综合 PSNR 是建议的 FGS 初筛门槛而非行业标准或自动放行条件；低于门槛或局部/分量异常须专项分析，不能仅凭均值否决或接受。色度重采样为剩余偏差的主要待验证解释，不声明肉眼不可见。
+- G04c 第一步：独立真实素材 A/B（先 LUT 单独，后 LUT+Plate），使用 FGS 实际 CUBE 与强度 0/25/75/100%，覆盖肤色、灰阶、高光暗部、天空、霓虹、高饱和边缘、渐变及细纹理；同帧无损输出、随机 A/B/滑动及 1:1 对照，保存 PSNR 分量、局部异常、范围/矩阵/标签、裁切、PTS；0% 应按既有 LUT bypass 语义处理。核对实际 LUT DOMAIN_MIN/MAX、越界、兼容 LUT 转换、预混合节点强度与预览，确认适用边界。只有用户确认视觉表现后接入默认路线。
+- G04c 第二步：初期范围限已验证的普通 SDR BT.709 Limited progressive HEVC Main10 Grain Plate，含无 LUT/CPU 精确/GPU 高速；单独 LUT 的 GPU 路线也先独立验证，未通过不得扩大默认适用范围。GPU 用 FFmpeg libplacebo lut_type=normalized 与既有预混合节点技术；不采用已淘汰的 RGB16 桥接或 native YUV LUT。直接 CUDA 使用 disable_multiplane=1,disable_host_image_copy=1，严禁全局修改、删减或重排既有成功设备策略。GUI/CLI 同核心、预览与编码一致性需验收；不支持的 LUT、色彩、硬件或流程组合沿用原 CPU 路线，明确显示实际模式。HDR PQ/HLG、S4、FRUC、H264/AV1、FGSIM、复杂几何/字幕等不擅自扩展。4K30/60、1080p、音画同步、取消、特殊路径及旧路线回归通过后才发布。
+- 交接时仅更新文档，无生产源码、分支或 PR 变动。下一窗先读取 AGENTS.md 及本总卡，核对 v5.1.07/72f498b2 与最新 master；先交付独立视觉验收包，未经明确授权不创建分支/PR/触发 Windows CI。测试素材优先复用既有全自动合成测试并提供真实片段选择机制，不强制下载依赖。
