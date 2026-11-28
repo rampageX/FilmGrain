@@ -105,3 +105,11 @@ G00 下一步：逐条追踪入口、共享 helper、执行器和最终参数，
 - D/H 直通和中继均失败，日志为一张多平面图像对应两平面不能映射 CUDA；M 两种直通均 CUDA_ERROR_INVALID_VALUE / cuExternalMemoryGetMappedMipmappedArray；MH 两者均 8/8 帧编码及独立解码通过，日志明确 Transferred Vulkan image to CUDA! / Using input frames context (format cuda)。不能将 transfer 等同严格零复制。
 - 所有配置仍宣告 VK_EXT_host_image_copy；MH 成功与静态源代码未读取选项存在待核实差异，不能断言 host flag 无效或已禁用该 feature。R9V4 以扩展是否消失作为 H/MH 长测门槛，误跳过成功的 MH 路线。M/D 下载 8/8 hash 与 PTS 一致；单输入 libplacebo 中继 0/8 hash 相同，PTS 一致，Y/U/V/avg PSNR 70.652452/42.769296/38.265134/44.721546 dB，不选为普通 Plate 等价路线。
 - K6P3 独立复验包 FGS_G04a_K6P3_Test.zip：直接复用 R9V4 全自动素材/编码/启动器；三轮交替 8 帧 M、M0（host=0）、MH（host=1）直接 CUDA 探针，记录实际成功而不以扩展日志筛选；成功过的路线及 D/MH 下载基准进入 360 帧×3 长测，连续两次失败停止重试；32 帧 FFV1 编码前 hash/PTS/PSNR（CUDA 直通额外下载仅用于质量采样），完整命令与独立输出解码计数。已验证 Python 语法及 ZIP/BOM，待 Windows 实机。G04a 未关闭，G04b 继续延后，不改生产源码，不创建分支或 PR。
+
+### 8.3 K6P3 实机复验：G04a 独立诊断通过（2026-11-28）
+
+- 证据：Results_G04a_20261128_152031_339544.zip；FFmpeg 9.1.git-FGS-47b92841e33b-20261122，SHA256 2dcfa6d24b5076ab9f92b22655d241d76d549fdbe0e3ae7805cf5af9b5d29331。4K30 SDR BT.709 Limited，1080p Plate，35%，HEVC Main10 P5，360帧×3轮。
+- M、M0、MH 交替短探针分别 0/3、0/3、3/3 成功；M/M0 为 cuExternalMemoryGetMappedMipmappedArray / CUDA_ERROR_INVALID_VALUE；MH 日志记录 Transferred Vulkan image to CUDA!，NVENC 输入 cuda frames context。9/9 长测成功，全部独立解码 360 帧。P06 67.1103 FPS（5.3643s），MH 下载 66.7993 FPS（5.3893s），MH 直通 82.7985 FPS（4.3479s），对 P06 吞吐 +23.38%。两标志同时启用消除 M 单标志的异常低速；不宣称已证实底层耗时机制或严格零复制。
+- MH 下载及 MH 直通编码前采样均为 32/32 hash 相同、PTS 相同、Y/U/V PSNR inf；FFprobe 一致为 10-bit BT.709 Limited，长测 3840×2160、30fps、12s。三条路线首轮输出文件均 41,207,971 字节（未保存输出文件 hash，不声明码流完全相同）。不使用 libplacebo 中继。
+- 修正先前对 disable_host_image_copy 可能无效的推测：三个交替探针明确显示参数值影响实测结果，即使设备日志均宣告 VK_EXT_host_image_copy；静态源代码与二进制行为差异尚待追溯，不据此移除任何标志。用户特别要求保留此前耗费大量实机验证的两个参数及既有成功路线。禁止全局修改 Vulkan 设备策略、S4、HDR PQ/HLG、FRUC 等已有验收路径。
+- G04a 独立诊断目标完成；仅登记候选路线：普通 SDR HEVC Main10 Plate blend_vulkan 后直接 hwupload=derive_device=cuda，显式同时启用两标志，省去 CPU 下载；尚未接入生产。G04b 优先验证 LUT 色彩等价性；生产接入前需真实素材、有音轨、4K60/1080p、组合及完整时间轴回归。保持旧路线不变，不擅自扩展 H264/HDR/AV1。无生产源码改动、无新分支/PR。
