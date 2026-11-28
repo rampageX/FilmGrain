@@ -194,6 +194,10 @@ namespace FilmGrainStudioPreview
             if(info.Identity==null || !info.Identity.IsCurrent(input,currentProbe)) { reason="Input or FFprobe changed; reselect and probe again: "+input;return false; }
             if(!info.HasVideo){reason="input has no usable video stream: "+input;return false;}
             if(state==null){reason="missing execution state";return false;}
+            if(!state.ContainsKey(G04cLutCore.StateKey)){
+                state=new Dictionary<string,string>(state,StringComparer.OrdinalIgnoreCase);
+                state[G04cLutCore.StateKey]=probeConfig.Get(G04cLutCore.ConfigKey);
+            }
             try { AudioOutputCore.EstimateMissing(input,currentProbe,info,state); }
             catch(Exception ex){reason=ex.Message;return false;}
 

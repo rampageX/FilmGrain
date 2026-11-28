@@ -172,6 +172,8 @@ namespace FilmGrainStudioPreview
                 FgsMessageBox.Show(this,UiText("扫描颗粒文件不存在，请重新选择。","Grain Plate is missing. Select a valid plate."));return;
             }
             bool hasLut = !string.IsNullOrEmpty(selectedLutPath) && File.Exists(selectedLutPath);
+            if(hasLut&&cmbCodec.SelectedIndex==1&&config.Get(G04cLutCore.ConfigKey)=="GPU"&&!media.IsHdr)
+                AppendLog("[G04c] "+UiText("高级实时预览仍使用原渲染器；精确 Normalized LUT 请使用 LUT 四档对照或输出预览。","Advanced live preview retains its renderer; use LUT strength comparison or encoded output preview for the exact Normalized route.")+Environment.NewLine);
             string gradeRecipe=config.Get(ColorGrade.ConfigKey);
             bool hasGrade=ReadStudioGrade().IsActive;
             if (!hasGrain && !hasLut && !hasGrade && !media.IsHdr && !filmBorder) {

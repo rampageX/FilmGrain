@@ -165,3 +165,7 @@ G00 下一步：逐条追踪入口、共享 helper、执行器和最终参数，
 - 证据 Results_G04c_20261128_165102_35e8cc.zip；FFmpeg SHA256 同 V8L2。真实 VP9 UHD SDR 3840×2160 24000/1001 8-bit BT.709 Limited，缺 transfer/primaries 经用户确认 SDR；取22.097/55.242/88.388秒各4帧。VEL_Warm_Film.cube 33³，35% Plate 仍为固定种子合成素材（make_plate.argv.json）。特殊字符路径 H:\\Tester & ( ) ^ % ! -=\\。
 - 24组视觉对照，18组 same、6组 skip（用户说明全黑内容跳过），无可见差异报告；非零强度中14组 same、4组 skip。45/45 PTS 一致，27/27 严格等价比较108/108帧 hash一致。18组非零强度 CPU/GPU 综合PSNR 59.975215–69.046313dB，均超过50dB初筛线。第一轮用户补充：素材有重颗粒，使用屏幕放大镜仍看不出差异。
 - 两轮独立真实素材视觉验收通过，结束 G04c 第一阶段，不再提高画质门槛或重启 RGB16 桥接。实际扫描 Plate、生产 NVENC 编码、4K30/60、1080p、预览一致性、音画同步、取消、特殊字符路径、GUI/CLI 核心及旧路线回归仍属于第二阶段验收。按9.4严格限定初期适用范围，保留CPU精确模式及两项 Vulkan 标志；未经授权不建分支、PR或触发Windows CI。生产源码尚未改动。
+
+### 9.8 G04c Q8V6 生产候选（待 CI 和实机）
+
+- 用户授权 test/g04c-gpu-lut 和 Windows CI。核对 v5.1.07 完整源码及后续文档提交。仅对 RTX 4080、HEVC Main10、BT.709 Limited progressive、原帧率、软件解码、无其它滤镜组合的普通路线放行。默认 GPU Normalized；右键 LUT 勾选框可选 CPU tetrahedral，LUT_PROCESSING_MODE / FG_LUT_PROCESSING_MODE。标准独立 CUBE 节点 [0,1]、2–65 阶，0% bypass；超出条件保留原 CPU 路线。无 LUT/CPU/GPU 的普通 Plate 直通均保留两标志；LUT 单独 GPU 下载。颗粒采样图保留 CPU 帧。LUT 四档预览使用原尺寸 FFV1 取帧和共同 Normalized 图；输出预览沿用生产计划；独立高级实时预览保留旧渲染器并提示差异。无版本变更，无正式发布；CI 和 RTX 4080 实机验收待执行。

@@ -107,6 +107,90 @@ namespace FilmGrainStudioPreview
         }
     }
 
+    // G04c: measured adapter and ordinary HEVC Main10 only. Never alter global Vulkan policy.
+    internal static class G04cLutCore
+    {
+        internal const string ConfigKey="LUT_PROCESSING_MODE", StateKey="FG_LUT_PROCESSING_MODE";
+        internal const string Signal="setparams=range=limited:color_primaries=bt709:color_trc=bt709:colorspace=bt709";
+        internal const string Download=",hwdownload,format=p010le", Direct=",hwupload=derive_device=cuda";
+        internal const string DirectDeviceFlags=",disable_multiplane=1,disable_host_image_copy=1";
+        private static string Get(IDictionary<string,string> s,string k)
+        {string v;return s!=null&&s.TryGetValue(k,out v)?v??"":"";}
+        internal static bool WantsGpu(IDictionary<string,string> s)
+        {string v=Get(s,StateKey);return v==""||v.Equals("GPU",StringComparison.OrdinalIgnoreCase);}
+        private static bool Known(string v,string expected)
+        {return string.IsNullOrEmpty(v)||v=="unknown"||v=="unspecified"||v==expected;}
+        internal static bool MediaEligible(MediaProbeInfo m)
+        {
+            return m!=null&&m.HasVideo&&!m.IsHdr&&!m.IsInterlaced&&Known(m.FieldOrder,"progressive")&&
+                m.ColorRange=="tv"&&m.ColorSpace=="bt709"&&Known(m.ColorPrimaries,"bt709")&&Known(m.ColorTransfer,"bt709")&&
+                (m.PixelFormat=="yuv420p"||m.PixelFormat=="yuv420p10le"||m.PixelFormat=="nv12"||m.PixelFormat=="p010le")&&
+                (string.IsNullOrEmpty(m.SampleAspectRatio)||m.SampleAspectRatio=="1:1"||m.SampleAspectRatio=="0:1"||m.SampleAspectRatio=="N/A")&&
+                m.Width>=8&&m.Height>=8&&((m.Width|m.Height)&1)==0;
+        }
+        internal static bool RouteEligible(MediaProbeInfo m,HardwareCapabilitySnapshot c,IDictionary<string,string> s)
+        {
+            if(!MediaEligible(m)||c==null||!c.Ready||!c.HevcAvailable||
+                !string.Equals(c.GpuName,"NVIDIA GeForce RTX 4080",StringComparison.OrdinalIgnoreCase)||Get(s,"FG_MODE")!="HEVC")return false;
+            string fps=Get(s,"FG_FPS_MODE"),border=Get(s,"FG_FILM_BORDER_MODE");
+            return Get(s,"FG_GPU_DECODE")!="1"&&Get(s,"FG_HWD_BACKEND")==""&&
+                Get(s,"FG_SVP_INTERPOLATE")!="1"&&(fps=="SOURCE"||fps=="KEEP")&&
+                (!SharedGrainCore.IsEnabled(s)||SharedGrainCore.Engine(s)=="NATIVE")&&
+                !PreprocessingCore.Enabled(s)&&!ResizeCore.Enabled(s)&&Get(s,"FG_CINEMATIC_FRAME")!="1"&&
+                Get(s,"FG_SUBTITLE")!="1"&&(border==""||border=="OFF")&&Get(s,"FG_COLOR_ENABLED")!="1"&&
+                Get(s,ColorGradeCore.OriginalLutKey)==""&&!ColorGrade.Parse(Get(s,ColorGrade.StateKey)).IsActive;
+        }
+        private static bool ValueIs(string text,double expected)
+        {double n;return double.TryParse(text,NumberStyles.Float,CultureInfo.InvariantCulture,out n)&&n==expected;}
+        // Canonical [0,1] standalone 3D table; same node mixing as M9K4. Do not clip unsupported LUTs.
+        internal static bool TryCanonicalCube(string path,int percent,out string text)
+        {
+            text="";if(percent<1||percent>100||string.IsNullOrEmpty(path)||!File.Exists(path)||new FileInfo(path).Length>32L*1024*1024)return false;
+            int size=0,index=0;var headers=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var nodes=new StringBuilder();double a=percent/100.0;
+            foreach(string line in File.ReadLines(path)){
+                string[] p=line.Split('#')[0].Trim().Split((char[])null,StringSplitOptions.RemoveEmptyEntries);
+                if(p.Length==0)continue;string key=p[0].ToUpperInvariant();
+                if(key=="TITLE")continue;
+                if(key=="LUT_3D_SIZE"||key=="DOMAIN_MIN"||key=="DOMAIN_MAX"||key=="LUT_3D_INPUT_RANGE"){
+                    if(index!=0||!headers.Add(key))return false;
+                    if(key=="LUT_3D_SIZE"){
+                        if(p.Length!=2||!int.TryParse(p[1],NumberStyles.None,CultureInfo.InvariantCulture,out size)||size<2||size>65)return false;
+                    }else if(key=="LUT_3D_INPUT_RANGE"){
+                        if(p.Length!=3||!ValueIs(p[1],0)||!ValueIs(p[2],1)||headers.Contains("DOMAIN_MIN")||headers.Contains("DOMAIN_MAX"))return false;
+                    }else{
+                        if(p.Length!=4||headers.Contains("LUT_3D_INPUT_RANGE"))return false;
+                        for(int c=1;c<4;c++)if(!ValueIs(p[c],key=="DOMAIN_MIN"?0:1))return false;
+                    }
+                    continue;
+                }
+                if(size==0||p.Length!=3||index>=size*size*size)return false;
+                int[] cell={index%size,index/size%size,index/(size*size)};
+                for(int c=0;c<3;c++){
+                    double v;if(!double.TryParse(p[c],NumberStyles.Float,CultureInfo.InvariantCulture,out v)||double.IsNaN(v)||double.IsInfinity(v)||v<0||v>1)return false;
+                    if(c>0)nodes.Append(' ');
+                    nodes.Append(((1-a)*cell[c]/(size-1)+a*v).ToString("F10",CultureInfo.InvariantCulture));
+                }
+                nodes.Append('\n');index++;
+            }
+            if(size==0||index!=size*size*size)return false;
+            text="LUT_3D_SIZE "+size.ToString(CultureInfo.InvariantCulture)+"\n"+nodes.ToString();return true;
+        }
+        internal static string NormalizedFilter(string simpleName)
+        {
+            if(string.IsNullOrEmpty(simpleName)||simpleName.IndexOfAny(new[]{'\\','/',':','\'','[',']',',',';','\r','\n'})>=0)
+                throw new ArgumentException("G04c requires a staged relative CUBE name.");
+            return "format=p010le,"+Signal+",setpts=PTS-STARTPTS,hwupload,libplacebo=lut="+simpleName+
+                ":lut_type=normalized:format=p010le:colorspace=bt709:range=limited:color_primaries=bt709:color_trc=bt709:peak_detect=0:dithering=none";
+        }
+        internal static string PlateDirectGraph(string graph)
+        {
+            const string tail=",hwdownload,format=p010le,format=p010le[vout]";
+            if(!graph.EndsWith(tail,StringComparison.Ordinal))throw new InvalidOperationException("G04c unexpected Plate graph tail.");
+            return graph.Substring(0,graph.Length-tail.Length)+Direct+"[vout]";
+        }
+    }
+
     // Phase 3.7.4: existing LUT record and preview path rules without WinForms.
     internal static class LutCatalogCore
     {

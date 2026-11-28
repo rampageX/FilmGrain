@@ -1916,6 +1916,17 @@ namespace FilmGrainStudioPreview
             box.Controls.Add(t);
 
             chkLut = Check(lang.T("lut.enable"), false);
+            var lutModeMenu=new ContextMenuStrip();
+            var gpuLutItem=new ToolStripMenuItem(UiText("GPU 高速（默认）","GPU fast (default)"));
+            var cpuLutItem=new ToolStripMenuItem(UiText("CPU 精确","CPU precise"));
+            lutModeMenu.Items.Add(gpuLutItem);lutModeMenu.Items.Add(cpuLutItem);
+            lutModeMenu.Opening+=delegate {
+                gpuLutItem.Checked=config.Get(G04cLutCore.ConfigKey)=="GPU";
+                cpuLutItem.Checked=!gpuLutItem.Checked;
+            };
+            gpuLutItem.Click+=delegate {try{config.SaveValue(G04cLutCore.ConfigKey,"GPU");UpdateLutUi();}catch(Exception ex){FgsMessageBox.Show(this,ex.Message);}};
+            cpuLutItem.Click+=delegate {try{config.SaveValue(G04cLutCore.ConfigKey,"CPU");UpdateLutUi();}catch(Exception ex){FgsMessageBox.Show(this,ex.Message);}};
+            chkLut.ContextMenuStrip=lutModeMenu;
             btnLutGallery = new ThemeButton(); btnLutGallery.Text = UiText("LUT 图库","LUT Gallery"); btnLutGallery.Dock = DockStyle.Fill; btnLutGallery.Margin = new Padding(3);
             btnColorCorrection = new ThemeButton(); btnColorCorrection.Text = UiText("LUT 工坊","LUT Studio"); btnColorCorrection.Dock = DockStyle.Fill; btnColorCorrection.Margin = new Padding(3);
             btnLutGallery.Click += delegate { OpenLutGallery(); };
@@ -4659,6 +4670,9 @@ namespace FilmGrainStudioPreview
             UpdateLutCompoundHint(hasLut);
             UpdateColorCorrectionUi();
             bool enabled = chkLut.Checked;
+            lutToolTip.SetToolTip(chkLut,config.Get(G04cLutCore.ConfigKey)=="GPU"?
+                UiText("右键：GPU 高速（适用路线）／CPU 精确。实际路线见编码日志。","Right-click: GPU fast (eligible routes) / CPU precise. See encoding log for effective route."):
+                UiText("右键：CPU 精确／GPU 高速。","Right-click: CPU precise / GPU fast."));
             trackLutStrength.Enabled = enabled;
             lblLutStrength.Enabled = enabled;
             UpdateHdrRouteStatus(GetSelectedMediaInfo());
@@ -4691,7 +4705,11 @@ namespace FilmGrainStudioPreview
             string video=GetPreviewVideoPath();MediaProbeInfo media=null;
             if(!string.IsNullOrEmpty(video))mediaProbeCache.TryGetValue(video,out media);
             if(string.IsNullOrEmpty(video)||media==null){FgsMessageBox.Show(this,UiText("请选择一个已完成探测的视频。","Select one fully probed video."));return;}
-            using(var window=new NativeLutStrengthPreviewForm(Path.Combine(config.Get("FFMPEG_DIR"),"ffmpeg.exe"),selectedLutPath,video,lang.Code,media,UsesHdrColorPreview(media),config.Get("TONE_MAP_ALGO"),config.Get(HdrToneSettings.Key(config.Get("TONE_MAP_ALGO"))))) {
+            string previewError,canonical;
+            var previewState=BuildBridgeEnvironment(out previewError);
+            bool normalizedPreview=previewState!=null&&G04cLutCore.RouteEligible(media,hardwareCaps,previewState)&&
+                G04cLutCore.WantsGpu(previewState)&&G04cLutCore.TryCanonicalCube(selectedLutPath,100,out canonical);
+            using(var window=new NativeLutStrengthPreviewForm(Path.Combine(config.Get("FFMPEG_DIR"),"ffmpeg.exe"),selectedLutPath,video,lang.Code,media,UsesHdrColorPreview(media),config.Get("TONE_MAP_ALGO"),config.Get(HdrToneSettings.Key(config.Get("TONE_MAP_ALGO"))),normalizedPreview)) {
                 AttachOwnedTheme(window,this,log);window.ShowDialog(this);
                 if(window.SelectedStrength>0){
                     try{lutSessionReference.Set(window.SelectedReference);}

@@ -27,6 +27,7 @@ namespace FilmGrainStudioPreview
             SortedDictionary<string,string> state;
             try {state=BridgeEnvironmentCore.Build(snapshot);}
             catch(NotSupportedException ex){error=ex.Message;return null;}
+            state[G04cLutCore.StateKey]=config.Get(G04cLutCore.ConfigKey);
             state["FG_AV1_COPY_FAST"]=config.Get("AV1_COPY_FAST");
             state["FG_AV1_COPY_FULL_VERIFY"]=config.Get("AV1_COPY_FULL_VERIFY");
             

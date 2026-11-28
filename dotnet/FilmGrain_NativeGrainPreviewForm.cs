@@ -1162,6 +1162,7 @@ namespace FilmGrainStudioPreview
         private readonly string ffmpeg,lut,video;
         private readonly MediaProbeInfo media;
         private readonly bool preserveHdr;
+        private readonly bool normalizedLut;
         private readonly string tone, toneSettings;
         private readonly string temporary=Path.Combine(Path.GetTempPath(),"FilmGrain_Studio","LutCompare_"+Guid.NewGuid().ToString("N"));
         private readonly bool zh;
@@ -1169,10 +1170,11 @@ namespace FilmGrainStudioPreview
         internal int SelectedStrength {get;private set;}
         internal byte[] SelectedReference {get;private set;}
         private string T(string a,string b){return zh?a:b;}
-        internal NativeLutStrengthPreviewForm(string tool,string selectedLut,string source,string language,MediaProbeInfo info=null,bool preserve=false,string tonemap="hable",string settings="")
+        internal NativeLutStrengthPreviewForm(string tool,string selectedLut,string source,string language,MediaProbeInfo info=null,bool preserve=false,string tonemap="hable",string settings="",bool normalized=false)
         {
             ffmpeg=tool;lut=selectedLut;video=source;media=info;zh=language=="zh-CN";
             preserveHdr=preserve&&media!=null&&media.IsHdr;tone=tonemap;toneSettings=settings;
+            normalizedLut=normalized&&!preserveHdr;
             Text=T("LUT 四档对照","LUT strength comparison");Size=new Size(1180,860);MinimumSize=new Size(900,680);StartPosition=FormStartPosition.CenterParent;
             var layout=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=2,RowCount=5,Padding=new Padding(8)};
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,50));layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,50));
@@ -1251,11 +1253,26 @@ namespace FilmGrainStudioPreview
                 try {
                     if(media!=null&&media.Identity!=null)media.Identity.RequireCurrent();Directory.CreateDirectory(dir);
                     Action<List<string>> run=delegate(List<string> args) {var log=new StringBuilder();int rc=NativeLibraryTools.RunProcess(ffmpeg,args,dir,cancel.Token,delegate(string line){lock(log)log.AppendLine(line);});if(rc!=0)throw new InvalidOperationException(log.ToString());};
+                    if(normalizedLut){
+                        string sample=Path.Combine(dir,"source.sdr.mkv");
+                        run(new List<string>{"-hide_banner","-v","error","-y","-ss",position.ToString("0.######",CultureInfo.InvariantCulture),"-i",video,
+                            "-map","0:v:0","-an","-sn","-dn","-frames:v","1","-vf","format=yuv420p10le,"+G04cLutCore.Signal,"-c:v","ffv1",sample});
+                        run(new List<string>{"-hide_banner","-v","error","-y","-i",sample,"-frames:v","1","-vf","format=p010le,scale=in_color_matrix=bt709:in_range=tv:out_range=pc,format=rgb24",Path.Combine(dir,"original.png")});
+                        for(int i=0;i<4;i++){
+                            cancel.Token.ThrowIfCancellationRequested();string name="strength"+levels[i]+".cube",table;
+                            if(!G04cLutCore.TryCanonicalCube(lut,levels[i],out table))throw new InvalidDataException("LUT no longer qualifies for GPU preview.");
+                            File.WriteAllText(Path.Combine(dir,name),table,Encoding.ASCII);
+                            run(new List<string>{"-hide_banner","-v","error","-y","-init_hw_device",VulkanDevicePolicy.Spec("vk"),"-filter_hw_device","vk",
+                                "-i",sample,"-frames:v","1","-vf",G04cLutCore.NormalizedFilter(name)+G04cLutCore.Download+
+                                ",scale=in_color_matrix=bt709:in_range=tv:out_range=pc,format=rgb24",Path.Combine(dir,"preview"+i+".png")});
+                        }
+                    }else{
                     string frame=Path.Combine(dir,preserveHdr?"source.hdr.mkv":"original.png");run(SnapshotArguments(video,media,position,frame,preserveHdr,tone,toneSettings));
                     if(preserveHdr)run(FrameArguments(frame,"","1.00",Path.Combine(dir,"original.png"),1920,media,tone,toneSettings));
                     for(int i=0;i<4;i++) {
                         cancel.Token.ThrowIfCancellationRequested();string cube=Path.Combine(dir,"strength"+levels[i]+".cube");
                         string opacity=LutStrengthCore.CreateFile(lut,cube,levels[i]);run(FrameArguments(frame,cube,opacity,Path.Combine(dir,"preview"+i+".png"),1920,preserveHdr?media:null,tone,toneSettings));
+                    }
                     }
                     if(media!=null&&media.Identity!=null)media.Identity.RequireCurrent();
                 }catch(OperationCanceledException){}catch(Exception ex){error=ex.Message;}
@@ -1271,7 +1288,8 @@ namespace FilmGrainStudioPreview
                             try {
                                 nextOriginal=LoadCopy(Path.Combine(dir,"original.png"));for(int i=0;i<4;i++)next.Add(LoadCopy(Path.Combine(dir,"preview"+i+".png")));
                                 ReleaseImages();original=nextOriginal;nextOriginal=null;rendered.AddRange(next);next.Clear();ShowImages();foreach(var b in apply)b.Enabled=true;
-                                status.Text=T("视频取帧时刻：","Video frame time: ")+NativeSeekStrip.FormatTime(position)+(preserveHdr?T("；先在HDR上应用LUT，再转SDR显示；不含CC，非HDR亮度校准。","; LUT on HDR before SDR display; CC excluded, not HDR luminance calibration."):T("；同一基础帧，仅比较 LUT。HDR 输入先转为 SDR 供预览。","; one shared frame, LUT only. HDR input is converted to SDR for preview."));
+                                status.Text=T("视频取帧时刻：","Video frame time: ")+NativeSeekStrip.FormatTime(position)+(normalizedLut?
+                                    T("；GPU Normalized，原始分辨率，和编码使用同一 LUT 核心。","; GPU Normalized, native resolution, same LUT core as encoding."):preserveHdr?T("；先在HDR上应用LUT，再转SDR显示；不含CC，非HDR亮度校准。","; LUT on HDR before SDR display; CC excluded, not HDR luminance calibration."):T("；同一基础帧，仅比较 LUT。HDR 输入先转为 SDR 供预览。","; one shared frame, LUT only. HDR input is converted to SDR for preview."));
                             }finally {if(nextOriginal!=null)nextOriginal.Dispose();foreach(var b in next)b.Dispose();}
                         }catch(Exception ex){status.Text=ex.Message;}finally {Cleanup(dir);if(closing)Cleanup(temporary);}
                     }));}catch{Cleanup(dir);cancel.Dispose();}

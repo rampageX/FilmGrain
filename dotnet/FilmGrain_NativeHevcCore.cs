@@ -368,6 +368,7 @@ namespace FilmGrainStudioPreview
             if(!NativeSubtitlePrepareCore.TryStageForFilter(subtitleAss,workingDirectory,out subtitleFilterPath,out reason))
             {TryDelete(lutCompatPath);TryDelete(subtitleAss);return false;}
             List<string> temporaryFiles = new List<string>();
+            string gpuCubePath="";
 
             if (!string.IsNullOrEmpty(lutCompatPath)) temporaryFiles.Add(lutCompatPath);
 
@@ -461,6 +462,21 @@ namespace FilmGrainStudioPreview
                 if (s4GpuBorder && (s4GpuFfmpeg.Length == 0 || !File.Exists(s4GpuFfmpeg)))
                 { reason = "S4 GPU route requires FGS_S4_GPU_FFMPEG pointing to the verified FFmpeg build: " + s4GpuFfmpeg; return false; }
 
+                bool g04cEligible=G04cLutCore.RouteEligible(info,caps,state)&&!h264&&!interpolate&&!hdrToSdr&&!hdrPreserve&&
+                    !deinterlace&&!s4GpuBorder&&filmBorder==null&&!resize.Enabled&&pixelPercent==100&&
+                    string.IsNullOrEmpty(deinterlaceFilter)&&string.IsNullOrEmpty(fpsFilter)&&string.IsNullOrEmpty(colorFilter)&&
+                    string.IsNullOrEmpty(frame.Filter)&&string.IsNullOrEmpty(subtitleFilter);
+                bool g04cDirect=g04cEligible&&plateMode;
+                string gpuCubeName="",gpuCubeText="";
+                bool g04cGpu=g04cEligible&&G04cLutCore.WantsGpu(state)&&!string.IsNullOrEmpty(lutCompatName)&&
+                    G04cLutCore.TryCanonicalCube(Get(state,"FG_LUT_PATH"),NormalizeLutStrength(Get(state,"FG_LUT_STRENGTH")),out gpuCubeText);
+                if(g04cGpu){
+                    gpuCubeName="__FGS_G04C_"+Guid.NewGuid().ToString("N")+".cube";
+                    gpuCubePath=Path.Combine(workingDirectory,gpuCubeName);
+                    temporaryFiles.Add(gpuCubePath);
+                    File.WriteAllText(gpuCubePath,gpuCubeText,Encoding.ASCII);
+                }
+
                 string filter;
 
                 if (!grainEnabled)
@@ -471,6 +487,8 @@ namespace FilmGrainStudioPreview
                             "[0:v:0]" + deinterlaceFilter + fpsFilter + (s4Gpu4k30 ? "fps=30," : "fps=" + fps + ",") +
                             "format=p010le," + s4Signal + "setpts=PTS-STARTPTS,split[fgsfilm_gpu_src][fgsfilm_clock_src];" +
                             "[fgsfilm_gpu_src]hwupload[fgsfilm_gpu_video]", filmBorder);
+                    else if(g04cGpu)
+                        filter="[0:v:0]"+G04cLutCore.NormalizedFilter(gpuCubeName)+G04cLutCore.Download+"[vout]";
                     else
                         filter = SharedGrainCore.BuildWithoutGrain(deinterlaceFilter + fpsFilter + colorFilter,
                             EscapeFilterPath(lutCompatName), lutOpacity,
@@ -484,7 +502,9 @@ namespace FilmGrainStudioPreview
 
                     string baseFilter;
 
-                    if (!string.IsNullOrEmpty(lutCompatName))
+                    if(g04cGpu)
+                        baseFilter="[0:v:0]"+G04cLutCore.NormalizedFilter(gpuCubeName)+"[basevk]";
+                    else if (!string.IsNullOrEmpty(lutCompatName))
 
                         baseFilter = s4GpuBorder && s4SdrPlate
                             ? BuildSdrPlateLutGpuBaseFilter(deinterlaceFilter, fpsFilter, colorFilter, lutCompatName, lutOpacity, fps, s4Signal)
@@ -600,9 +620,13 @@ namespace FilmGrainStudioPreview
                 string pixelFull = grainEnabled ? filter : null;
                 string pixelClean = grainEnabled ? SharedGrainCore.BuildWithoutGrain(deinterlaceFilter + fpsFilter + colorFilter,
                     EscapeFilterPath(lutCompatName), lutOpacity, frame.Filter + subtitleFilter + (hdrPreserve ? BuildHdrFrameFilter(info) : "") + ",format=p010le") : null;
-                if (grainEnabled && (plateMode || (fgsimMode && hdrPreserve))) pixelClean=pixelClean.Replace("[0:v:0]","[0:v:0]setpts=PTS-STARTPTS,");
+                if(g04cGpu&&grainEnabled)
+                    pixelClean="[0:v:0]"+G04cLutCore.NormalizedFilter(gpuCubeName)+G04cLutCore.Download+"[vout]";
+                else if (grainEnabled && (plateMode || (fgsimMode && hdrPreserve))) pixelClean=pixelClean.Replace("[0:v:0]","[0:v:0]setpts=PTS-STARTPTS,");
                 pixelClean=LutStrengthCore.OptimizeGraph(pixelClean);
                 if (grainEnabled) filter = PixelGrainStrengthCore.Wrap(filter,pixelClean,pixelPercent);
+                // The sampling graph remains CPU-frame output; only the encoder receives CUDA frames.
+                if(g04cDirect)filter=G04cLutCore.PlateDirectGraph(filter);
 
                 if (fruc )
 
@@ -694,6 +718,13 @@ namespace FilmGrainStudioPreview
                     if (filmBorder != null && !s4GpuBorder)
                         filter = FilmBorderEncodingCore.AppendFilter(filter,filmBorder,frame.ActiveWidth,frame.ActiveHeight,filmInputIndex,fps,info);
                     List<string> hevcArgs = BuildHevcArgs(encodeInput, grainInput, filter, output, preset, highMotion, bitrate, max, buf, fps, duration, plateMode, mkv, caps, state, hdrPreserve ? info : null, fruc, info, filmBorder);
+                    if(g04cDirect){
+                        int device=hevcArgs.IndexOf("-init_hw_device");
+                        if(device<0||device+1>=hevcArgs.Count)throw new InvalidOperationException("G04c Vulkan device missing.");
+                        hevcArgs[device+1]+=G04cLutCore.DirectDeviceFlags;
+                    }
+                    if(g04cGpu)
+                        hevcArgs.InsertRange(hevcArgs.Count-1,new[]{"-color_range","tv","-color_primaries","bt709","-color_trc","bt709","-colorspace","bt709"});
                     // Only patched FFmpeg builds accept the host-copy workaround; keep old binaries unchanged.
                     if (s4GpuBorder && SupportsHostImageCopyOption(s4GpuFfmpeg))
                     {
@@ -754,9 +785,16 @@ namespace FilmGrainStudioPreview
             if (s4GpuRequested && filmBorder != null && !s4GpuBorder && !expand)
                 request.ExecutionNotice = (request.ExecutionNotice ?? "") +
                     " [S4 GPU border unavailable for this configuration: validated CPU border retained.]";
+            if(!h264&&(g04cDirect||!string.IsNullOrEmpty(lutCompatName))){
+                string route=string.IsNullOrEmpty(lutCompatName)?"off":g04cGpu?"GPU Normalized":"CPU tetrahedral";
+                request.ExecutionNotice=(request.ExecutionNotice??"")+Environment.NewLine+"[G04c] LUT="+route+
+                    "; Plate transport="+(g04cDirect?"Vulkan -> CUDA":"existing")+
+                    (!g04cGpu&&!string.IsNullOrEmpty(lutCompatName)&&G04cLutCore.WantsGpu(state)?"; GPU not eligible, original LUT route retained":"");
+            }
             prepared = new BridgePreparedExecution(request, false, ffmpeg, requestInputs);
 
                 lutCompatPath = "";
+                gpuCubePath=""; // ownership transferred to request.TemporaryFiles
 
                 subtitleAss = "";
                 subtitleFilterPath="";
@@ -771,6 +809,7 @@ namespace FilmGrainStudioPreview
             {
 
                 if (!string.IsNullOrEmpty(lutCompatPath)) TryDelete(lutCompatPath);
+                if (!string.IsNullOrEmpty(gpuCubePath)) TryDelete(gpuCubePath);
 
                 if (!string.IsNullOrEmpty(subtitleAss)) TryDelete(subtitleAss);
                 if(!string.IsNullOrEmpty(subtitleFilterPath))TryDelete(subtitleFilterPath);
@@ -1029,7 +1068,8 @@ namespace FilmGrainStudioPreview
 
             a.Add("-c:v"); a.Add(h264?"h264_nvenc":"hevc_nvenc");
             // CUDA hardware frames preserve the verified Vulkan->CUDA path; no CPU pix_fmt conversion.
-            if (filmBorder == null || (filmBorder.GpuRaw == null && !filmBorder.ExpandGpu))
+            if ((filmBorder == null || (filmBorder.GpuRaw == null && !filmBorder.ExpandGpu)) &&
+                !filter.EndsWith(G04cLutCore.Direct+"[vout]",StringComparison.Ordinal))
             { a.Add("-pix_fmt"); a.Add(h264?"yuv420p":"p010le"); }
             a.Add("-gpu"); a.Add("0"); a.Add("-profile:v"); a.Add(h264?"high":"main10");
 
@@ -1406,6 +1446,7 @@ namespace FilmGrainStudioPreview
             if (string.IsNullOrWhiteSpace(path)) return "";
 
             int strength = NormalizeLutStrength(Get(state, "FG_LUT_STRENGTH"));
+            if(Eq(state,"FG_MODE","HEVC")&&strength==0)return "";
 
             return "_LUT_" + Path.GetFileNameWithoutExtension(path) + "_" + strength.ToString(CultureInfo.InvariantCulture);
 
@@ -1417,7 +1458,7 @@ namespace FilmGrainStudioPreview
 
             compatPath = ""; compatName = ""; opacity = ""; reason = "";
 
-            if (bypassLut) return true;
+            if (bypassLut||(Eq(state,"FG_MODE","HEVC")&&NormalizeLutStrength(Get(state,"FG_LUT_STRENGTH"))==0)) return true;
 
             string path = Get(state, "FG_LUT_PATH");
 
