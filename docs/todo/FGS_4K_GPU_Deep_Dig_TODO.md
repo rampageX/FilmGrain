@@ -113,3 +113,10 @@ G00 下一步：逐条追踪入口、共享 helper、执行器和最终参数，
 - MH 下载及 MH 直通编码前采样均为 32/32 hash 相同、PTS 相同、Y/U/V PSNR inf；FFprobe 一致为 10-bit BT.709 Limited，长测 3840×2160、30fps、12s。三条路线首轮输出文件均 41,207,971 字节（未保存输出文件 hash，不声明码流完全相同）。不使用 libplacebo 中继。
 - 修正先前对 disable_host_image_copy 可能无效的推测：三个交替探针明确显示参数值影响实测结果，即使设备日志均宣告 VK_EXT_host_image_copy；静态源代码与二进制行为差异尚待追溯，不据此移除任何标志。用户特别要求保留此前耗费大量实机验证的两个参数及既有成功路线。禁止全局修改 Vulkan 设备策略、S4、HDR PQ/HLG、FRUC 等已有验收路径。
 - G04a 独立诊断目标完成；仅登记候选路线：普通 SDR HEVC Main10 Plate blend_vulkan 后直接 hwupload=derive_device=cuda，显式同时启用两标志，省去 CPU 下载；尚未接入生产。G04b 优先验证 LUT 色彩等价性；生产接入前需真实素材、有音轨、4K60/1080p、组合及完整时间轴回归。保持旧路线不变，不擅自扩展 H264/HDR/AV1。无生产源码改动、无新分支/PR。
+
+## 9. G04b H3N8 LUT 色彩等价性诊断（2026-11-28，待实机）
+
+- 开工读取 AGENTS.md 和总卡，生产仍为 v5.1.07/72f498b2；重读预览 preview_win.c 的 LUT 节点预混合及 PL_LUT_NATIVE 设置，并对照 T4K8 原脚本、K6P3 运行环境及实际 libplacebo 选项。上游 renderer.h 区分 renderer LUT 的 native gamma RGB、normalized linear RGB；不将 frame LUT 的 raw image 语义混同。
+- 独立包 FGS_G04b_H3N8_Test.zip，复用 K6P3 自动定位、Python 和 T4K8 固定合成素材；生成 576×288 10-bit BT.709 Limited 色块、灰阶、斜坡、色度棋盘格，另测原 4K30 前4帧。CPU gbrp16le tetrahedral、0/25/75/100% 逐像素混合、identity 和预混合25/75%节点；GPU libplacebo native/normalized、无 LUT、identity、默认及 bilinear/disable_linear/sigmoid=0 组合，显式 BT.709 CPU 矩阵/范围往返、RGB16 桥接；RGB16 输入输出隔离和 5^3 非线性交叉项 LUT 的三线性/四面体对照。
+- FFV1 无损输出，逐帧 SHA256/PTS、分量 PSNR、色块中心码值、ffprobe 标签/帧数、日志与实际命令；失败组合保留日志，不影响其余组。OK 仅是命令成功，非画质放行。先定位差异，之后明确候选的画质标准再长测，不以单一 PSNR 放行。
+- 本地 Linux FFmpeg CPU 色块对照、显式矩阵、RGB16 插值、hash/PTS/PSNR 与色块采样检查通过；Python 语法、BAT 无 BOM/PS1 BOM、ZIP 校验通过。Windows GPU 未执行。双击 Run_G04b_H3N8.bat，回传 Results_G04b_*.zip。无生产源码或全局设备策略改动，无新分支/PR；G04a 双标志直通路线不参与本轮颜色诊断，FGSIM 仍延后。
