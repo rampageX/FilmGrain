@@ -226,3 +226,8 @@ G00 下一步：逐条追踪入口、共享 helper、执行器和最终参数，
 - 从 v5.1.08 整合包核对正式 Release SHA256、生产源码及 master 文档提交。用户已授权 test/g06c-hdr-gpu-direct 和 Windows CI。仅共享 HEVC Main10 原帧率软件解码的 RTX 4080 普通路线、BT.2020 Limited PQ/HLG 10-bit、Hable/Spline/BT.2390；无 Plate 或已探测实际尺寸的偶数宽高 Plate，保留 bilinear。排除 LUT/CC/缩放裁剪/边框/插帧/其它滤镜组合，保留 G04/S4/FRUC 原路线。合并时间轴及参数生成后才启用双标志并移除传输，Hable 保留原 CPU 回退。颗粒区复用主题标签，异步探测实际尺寸，动态判断当前选中视频及完整状态。新增 G06c Windows 静态契约和受保护路线回归。未进行 GPU 实机或用户验收，未发布，G06 未关闭。
 - M9K6 Windows CI：C# 编译及 Framework API 3053/3053 通过；新增 G06c 图契约发现 gamut_mode 前的 libplacebo 选项分隔符应为冒号，候选不交付。R7Q2 仅修正该边界及测试包后缀，重跑同一套契约。
 - G06c R7Q2：Windows 编译、36 组 G06c 滤镜图契约以及 G04/R08/R07/R02/S4/R03/R04c/时间轴契约通过；旧 UI 启动测试仍以单参数反射调用已增加可选第二参数的 ShowTrueHdrDialog，触发 TargetParameterCountException。V4N8 仅修正测试调用及交付后缀，生产代码与 R7Q2 相同，重新运行 Windows CI；待实机验收，不关闭 G06。
+
+### 10.7 G06c V4N8 实机日志及 HDR 快捷设置（2026-11-28）
+
+- Windows CI 46154455433 全部通过。用户回传任务日志：8/8 G06c 编码成功，包括 4K PQ59.94 无 Plate / 同尺寸 / 1080p Plate，以及 1920×804 HLG 与 1080p/4K Plate、Hable/Spline/BT.2390 非默认参数；均记录双标志与 CUDA 派生，保留 AAC。4K 同尺寸 32.020s、1080p Plate 22.528s；HLG 宽银幕两尺寸 Plate 5.405s/10.139s。G04 GPU Normalized / CPU tetrahedral 独立 LUT、S4 内框及外扩 GPU 路线成功。NVEncC FRUC 10-bit SDR 按原安全门槛拒绝，换 8-bit VFR 素材成功；FRUC Vulkan HDR 保留成功（未测试 HDR→SDR + FRUC）。日志未证明播放同步、取消后清理、CLI 实机或 Plate UI 提示验收，G06 未关闭。
+- 用户要求 HDR→SDR 快捷高级设置增加 HDR 输入处理。K8H3 在已验收候选 V4N8 基础上仅复用主高级设置的 ThemeComboBox、现有语言键和 HDR_POLICY 值映射；确定保存主编码策略及曲线参数，取消不写，独立开始编码仍明确 HDR→SDR，不改变独立工具语义。下移 HDR 专用控件 30px 保留原窗口大小，SDR→TrueHDR 不变。新增实际窗口三策略读回及 OK/Cancel 审计；待 Windows CI 与用户 UI 验收。

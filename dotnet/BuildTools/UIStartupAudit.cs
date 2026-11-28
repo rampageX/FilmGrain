@@ -274,9 +274,64 @@ internal static class UIStartupSmoke {
   source.GetType().GetField("ColorTransfer",flags).SetValue(source,"smpte2084");
   update.Invoke(main,new[]{source});
   if(!shortcut.Visible||shortcut.Text!="...")throw new Exception("HDR shortcut changed");
+  // Test the real shortcut, not a duplicate policy mapping. All writes use the
+  // isolated configuration installed by Main, including the cancel case.
+  var cfg=type.GetField("config",flags).GetValue(main);
+  var get=cfg.GetType().GetMethod("Get",flags);
+  var save=cfg.GetType().GetMethod("SaveValue",flags);
+  string original=(string)get.Invoke(cfg,new object[]{"HDR_POLICY"});
+  string[] policies={"AUTO","PRESERVE","SDR"};
+  try{
+   for(int i=0;i<3;i++){
+    save.Invoke(cfg,new object[]{"HDR_POLICY",policies[i]});
+    CheckHdrPolicyDialog(main,type,flags,source,i,(i+1)%3,false);
+    if((string)get.Invoke(cfg,new object[]{"HDR_POLICY"})!=policies[i])throw new Exception("HDR policy changed on Cancel");
+    CheckHdrPolicyDialog(main,type,flags,source,i,(i+1)%3,true);
+    if((string)get.Invoke(cfg,new object[]{"HDR_POLICY"})!=policies[(i+1)%3])throw new Exception("HDR policy not saved on OK");
+    using(var shared=(ComboBox)type.GetMethod("CreateHdrPolicyCombo",flags).Invoke(main,null)){
+     if(shared.SelectedIndex!=(i+1)%3)throw new Exception("Main advanced policy does not reflect shortcut selection");
+    }
+   }
+  }finally{save.Invoke(cfg,new object[]{"HDR_POLICY",original});}
+  lines.Add("PASS HDR shortcut policy AUTO/PRESERVE/SDR: shared config and choices, OK/Cancel, tone and standalone controls");
   update.Invoke(main,new object[]{null});
   if(shortcut.Visible)throw new Exception("Shortcut visible without media");
   lines.Add("PASS TrueHDR dialog and SDR/HDR/no-source shortcut");
+ }
+
+ private static void CheckHdrPolicyDialog(Form main,Type type,BindingFlags flags,object source,int initial,int changed,bool confirm)
+ {
+  bool appeared=false;Exception failure=null;
+  using(var timer=new System.Windows.Forms.Timer{Interval=100}){
+   timer.Tick+=delegate{
+    foreach(Form window in Application.OpenForms){
+     if(window==main||!window.Text.Contains("HDR")||window.Controls.Find("HDR_TO_SDR_OK",true).Length!=1)continue;
+     timer.Stop();
+     try{
+      var policy=(ComboBox)window.Controls.Find("HDR_POLICY",true)[0];
+      var tone=(ComboBox)window.Controls.Find("TONE_MAP_ALGO",true)[0];
+      using(var shared=(ComboBox)type.GetMethod("CreateHdrPolicyCombo",flags).Invoke(main,null)){
+       if(policy.Items.Count!=3||policy.SelectedIndex!=initial||shared.SelectedIndex!=initial)throw new Exception("Initial HDR policy mismatch");
+       for(int j=0;j<3;j++)if(policy.Items[j].ToString()!=shared.Items[j].ToString())throw new Exception("HDR policy labels differ");
+      }
+      if(!policy.Visible||!window.Visible||window.Opacity!=1||policy.Bounds.IntersectsWith(tone.Bounds)||policy.Bottom>tone.Top||
+         !window.Controls.Find("TRUEHDR_START",true)[0].Visible)throw new Exception("HDR shortcut controls missing or overlapping");
+      var live=(CheckBox)window.Controls.Find("TRUEHDR_LIVE",true)[0];live.Checked=false;
+      int oldTone=tone.SelectedIndex;
+      policy.SelectedIndex=changed;
+      if(tone.SelectedIndex!=oldTone||!tone.Enabled)throw new Exception("HDR input policy unexpectedly changed independent tone controls");
+      appeared=true;
+      if(confirm)((Button)window.Controls.Find("HDR_TO_SDR_OK",true)[0]).PerformClick();
+      else window.DialogResult=DialogResult.Cancel;
+     }catch(Exception ex){failure=ex;window.DialogResult=DialogResult.Cancel;}
+     return;
+    }
+   };
+   timer.Start();
+   type.GetMethod("ShowTrueHdrDialog",flags).Invoke(main,new object[]{source,true});
+  }
+  if(failure!=null)throw failure;
+  if(!appeared)throw new Exception("HDR policy dialog did not reveal controls");
  }
 
  private static void CheckAqCapabilities(Form main,Type type,BindingFlags flags,List<string> lines){
