@@ -86,7 +86,7 @@ namespace FilmGrainStudioPreview
 
         internal static string Number(int value) { return value.ToString(CultureInfo.InvariantCulture); }
 
-        private static Dictionary<string, string> RateState(TrueHdrOptions options)
+        internal static Dictionary<string, string> RateState(TrueHdrOptions options)
         {
             string prefix = "NVENC_" + options.Codec;
             return new Dictionary<string, string> {
@@ -321,12 +321,12 @@ namespace FilmGrainStudioPreview
             return args;
         }
 
-        private static MediaProbeInfo Probe(string executable, string path)
+        internal static MediaProbeInfo Probe(string executable, string path)
         {
             string json, error;
             if (!SharedFrucCore.Run(executable, SharedFrucCore.JoinArguments(new[] {
                 "-v", "error", "-show_entries", MediaProbeInfo.ProbeEntries, "-of", "json", path }), 30000, out json, out error))
-                throw new InvalidDataException("TrueHDR media probe failed: " + error);
+                throw new InvalidDataException("Media probe failed: " + error);
             return MediaProbeInfo.Parse(path, json);
         }
 
@@ -471,6 +471,194 @@ namespace FilmGrainStudioPreview
                 }
             }
             catch (Exception error) { NativeStartupCore.WriteProtocolLine(error.Message); return 1; }
+        }
+    }
+}
+
+namespace FilmGrainStudioPreview
+{
+    internal static class HdrToSdrCore
+    {
+        internal static bool Eligible(MediaProbeInfo source)
+        {
+            return source != null && source.HasVideo && source.IsHdr &&
+                source.Width > 0 && source.Height > 0 && source.Width % 2 == 0 && source.Height % 2 == 0;
+        }
+
+        private static List<string> Conversion(MediaProbeInfo source, string output, string algorithm, string settings)
+        {
+            string deinterlace = source.IsInterlaced ? SharedHdrPreprocessCore.DeinterlaceFilter("BWDIF_CUDA") : "";
+            return SharedHdrPreprocessCore.BuildTunedToSdr(source.PathValue, output, source, algorithm, false, deinterlace, settings);
+        }
+
+        internal static Tuple<System.Drawing.Bitmap, System.Drawing.Bitmap> RenderLiveFrame(string ffmpeg, MediaProbeInfo source,
+            double position, string algorithm, string settings, bool cpuReference, CancellationToken token)
+        {
+            if (!File.Exists(ffmpeg)) throw new FileNotFoundException("Configure ffmpeg.exe in FGS settings.", ffmpeg);
+            var tuned = Conversion(source, "-", algorithm, settings);
+            string notice;
+            var selected = SharedHdrPreprocessCore.SelectTunedAutomatic(ffmpeg, tuned, algorithm, out notice, settings: settings);
+            token.ThrowIfCancellationRequested();
+            bool vulkan = selected[selected.IndexOf("-vf") + 1].Contains("libplacebo=");
+            bool vulkanReference = vulkan && !cpuReference;
+            var reference = Conversion(source, "-", "hable", "");
+            if (vulkanReference) reference = SharedHdrPreprocessCore.BuildTunedGpuArguments(reference, "");
+            var original = RenderStill(ffmpeg, reference, position, token);
+            try
+            {
+                var output = algorithm == "hable" && string.IsNullOrEmpty(settings) && vulkan == vulkanReference
+                    ? new System.Drawing.Bitmap(original) :
+                    RenderStill(ffmpeg, selected, position, token);
+                original.Tag = vulkanReference ? "Vulkan Hable" : "CPU Hable";
+                output.Tag = (vulkan ? "Vulkan " : "CPU ") + algorithm;
+                return Tuple.Create(original, output);
+            }
+            catch { original.Dispose(); throw; }
+        }
+
+        private static System.Drawing.Bitmap RenderStill(string ffmpeg, List<string> args, double position, CancellationToken token)
+        {
+            string png = Path.Combine(Path.GetTempPath(), "fgs-sdr-" + Guid.NewGuid().ToString("N") + ".png");
+            try
+            {
+                args.RemoveRange(args.IndexOf("-c:v"), args.Count - args.IndexOf("-c:v"));
+                args.Remove("-copyts");
+                args.Remove("-start_at_zero");
+                args.InsertRange(args.IndexOf("-i"), new[] { "-ss", position.ToString("0.######", CultureInfo.InvariantCulture) });
+                int filter = args.IndexOf("-vf") + 1;
+                args[filter] += ",scale=in_range=tv:out_range=pc:in_color_matrix=bt709,format=rgb24";
+                args.AddRange(new[] { "-frames:v", "1", "-threads:v", "1", "-c:v", "png", "-f", "image2", "-update", "1", png });
+                var log = new System.Text.StringBuilder();
+                int exit = NativeLibraryTools.RunProcessEnvironment(ffmpeg, args, Path.GetDirectoryName(ffmpeg), null,
+                    30000, token, line => { lock (log) if (log.Length < 16384) log.AppendLine(line); });
+                token.ThrowIfCancellationRequested();
+                if (exit != 0 || !File.Exists(png)) throw new IOException("HDR → SDR preview failed.\n" + log);
+                using (var image = System.Drawing.Image.FromFile(png)) return new System.Drawing.Bitmap(image);
+            }
+            finally { File.Delete(png); }
+        }
+
+        internal static BridgeExecutionRequest Prepare(FgsConfig config, string input, MediaProbeInfo source, TrueHdrOptions options,
+            string algorithm, string settings, out string finalOutput)
+        {
+            if (!Eligible(source)) throw new InvalidDataException("HDR → SDR requires HDR10 PQ or HLG video with even dimensions.");
+            input = Path.GetFullPath(input);
+            string ffmpeg = Path.Combine(config.Get("FFMPEG_DIR"), "ffmpeg.exe");
+            string probe = Path.Combine(config.Get("FFMPEG_DIR"), "ffprobe.exe");
+            if (!File.Exists(ffmpeg)) throw new FileNotFoundException("Configure ffmpeg.exe in FGS settings.", ffmpeg);
+            if (!File.Exists(probe)) throw new FileNotFoundException("Configure ffprobe.exe in FGS settings.", probe);
+            if (source.Identity != null && !source.Identity.IsCurrent(input, probe))
+                throw new IOException("Source changed; reselect and probe it again: " + input);
+            var original = new FileInfo(input);
+            long length = original.Length;
+            DateTime modified = original.LastWriteTimeUtc;
+
+            double duration, start = 0;
+            double.TryParse(source.Duration, NumberStyles.Float, CultureInfo.InvariantCulture, out duration);
+            int seconds = options.PreviewSeconds;
+            bool wholeSource = false, resetStart = false;
+            if (seconds != 0)
+            {
+                if (seconds < 1 || seconds > 86400 || !SharedEncodePreviewCore.TryParseStart(options.PreviewStart, out start))
+                    throw new InvalidDataException("Invalid HDR → SDR preview start or duration: " + input);
+                wholeSource = SharedEncodePreviewCore.UseWholeSource(source.Duration, seconds);
+                if (wholeSource) seconds = 0;
+                else if (duration > 0 && start >= duration)
+                {
+                    resetStart = true;
+                    start = 0;
+                }
+            }
+
+            var audio = new Dictionary<string, string> {
+                { "FG_AUDIO_MODE", config.Get("AUDIO_MODE") }, { "FG_AUDIO_BITRATE", config.Get("AUDIO_BITRATE") }
+            };
+            string directory = string.Equals(config.Get("OUTPUT_MODE"), "CUSTOM", StringComparison.OrdinalIgnoreCase)
+                ? config.Get("OUTPUT_CUSTOM_DIR") : Path.GetDirectoryName(input);
+            if (!Directory.Exists(directory)) throw new DirectoryNotFoundException(directory);
+            string ext = options.Mp4 ? ".mp4" : ".mkv";
+            string codec = options.Codec;
+            if (codec != "HEVC" && codec != "AV1") throw new InvalidDataException("Invalid HDR → SDR codec.");
+            string preset = options.Preset;
+            if (Array.IndexOf(new[] { "p1", "p2", "p3", "p4", "p5", "p6", "p7" }, preset) < 0)
+                throw new InvalidDataException("Invalid NVENC preset.");
+            bool mp4 = options.Mp4;
+            bool faststart = mp4 && config.GetBool("MP4_FASTSTART");
+            var rate = TrueHdrCore.RateState(options);
+            int bitrate = TrueHdrCore.Bitrate(options, source);
+            string output = Path.Combine(directory, Path.GetFileNameWithoutExtension(input) + "_HDRtoSDR_" + codec + "_" +
+                NvencRateControlCore.FileToken(rate, bitrate) + (seconds > 0 ? "_Preview_" + (resetStart ? "000000" : options.PreviewStart.Replace(":", "")) +
+                "_" + TrueHdrCore.Number(seconds) + "s" : "") + ext);
+            finalOutput = output;
+            if (File.Exists(output)) throw new IOException("Output already exists: " + output);
+            string staging = Path.Combine(directory, ".fgs-hdr-sdr-" + Guid.NewGuid().ToString("N") + ext);
+            var conversion = Conversion(source, staging, algorithm, settings);
+            conversion[conversion.IndexOf("-i") + 1] = input;
+            var stage = new BridgeExecutionStage {
+                ToolPath = ffmpeg, WorkingDirectory = Path.GetDirectoryName(ffmpeg),
+                ProgressDurationSeconds = seconds > 0 ? seconds : duration, StageCurrent = 1, StageTotal = 1,
+                StageText = "HDR → SDR → " + codec + " NVENC"
+            };
+            stage.BeforeRunPreparation = delegate {
+                var current = new FileInfo(input);
+                if (!current.Exists || current.Length != length || current.LastWriteTimeUtc != modified ||
+                    (source.Identity != null && !source.Identity.IsCurrent(input, probe)))
+                    throw new IOException("Source changed: " + input);
+                if (File.Exists(output)) throw new IOException("Output already exists: " + output);
+                if (AudioOutputCore.Get(audio, "FG_AUDIO_BITRATE", "256") == "SOURCE")
+                    AudioOutputCore.EstimateMissing(input, probe, source, audio);
+                string notice;
+                var args = SharedHdrPreprocessCore.SelectTunedAutomatic(ffmpeg, conversion, algorithm, out notice, settings: settings);
+                if (seconds > 0)
+                {
+                    args.Remove("-copyts");
+                    args.Remove("-start_at_zero");
+                    args.InsertRange(args.IndexOf("-i"), new[] { "-ss", start.ToString(CultureInfo.InvariantCulture) });
+                    // Stream-copied audio can include packets from the previous video keyframe.
+                    args.InsertRange(args.Count - 1, new[] { "-t", TrueHdrCore.Number(seconds), "-copypriorss", "0" });
+                }
+                args.InsertRange(args.IndexOf("-map") + 2, new[] { "-map", "0:a?", "-map_chapters", seconds > 0 ? "-1" : "0" });
+                args[args.IndexOf("-c:v") + 1] = codec.ToLowerInvariant() + "_nvenc";
+                args[args.IndexOf("-profile:v") + 1] = codec == "HEVC" ? "main10" : "main";
+                args[args.IndexOf("-preset") + 1] = preset;
+                args.RemoveRange(args.IndexOf("-tune"), 2);
+                args.Remove("-an");
+                args.InsertRange(args.Count - 1, new[] { "-rc", "vbr", "-b:v", TrueHdrCore.Number(bitrate) + "k" });
+                NvencRateControlCore.RequireSupport(ffmpeg, rate);
+                string destination = args[args.Count - 1];
+                args.RemoveAt(args.Count - 1);
+                NvencRateControlCore.Apply(args, rate);
+                args.Add(destination);
+                args.InsertRange(args.Count - 1, mp4 ? new[] { "-c:a", "aac", "-b:a", "256k" } : new[] { "-c:a", "copy" });
+                AudioOutputCore.Apply(args, audio, source, !mp4, false, false);
+                if (faststart) args.InsertRange(args.Count - 1, new[] { "-movflags", "+faststart" });
+                stage.DirectArguments = SharedFrucCore.JoinArguments(args);
+                return notice;
+            };
+            var request = new BridgeExecutionRequest {
+                ToolPath = ffmpeg, WorkingDirectory = stage.WorkingDirectory, DirectProcess = true,
+                InputFiles = new[] { input }, DirectStages = new[] { stage }, SkipPreviewSpool = true,
+                Environment = new Dictionary<string, string> {
+                    { "FG_MODE", "HDR-to-SDR " + codec }, { "FG_HDR_TO_SDR", "1" },
+                    { "FG_TRUEHDR_CLIP", seconds > 0 ? "1" : "0" }
+                },
+                OutputFiles = new List<string> { staging }, TemporaryFiles = new[] { staging },
+                ProgressDurationSeconds = stage.ProgressDurationSeconds,
+                ExecutionNotice = (wholeSource ? "[Preview] Source shorter than requested clip; encoding the whole source.\n" : "") +
+                    (resetStart ? "[Preview] Requested start is outside this source; encoding the requested duration from 00:00:00.\n" : "") +
+                    "[HDR-to-SDR] Output: " + output
+            };
+            request.PostRunValidation = delegate {
+                var actual = TrueHdrCore.Probe(probe, staging);
+                if (actual.IsInterlaced || actual.VideoCodec != codec.ToLowerInvariant() || actual.PixelFormat != "yuv420p10le" ||
+                    actual.ColorRange != "tv" || actual.ColorSpace != "bt709" || actual.ColorTransfer != "bt709" ||
+                    actual.ColorPrimaries != "bt709" || actual.Width != source.Width || actual.Height != source.Height ||
+                    AudioOutputCore.Tracks(actual).Count != AudioOutputCore.Tracks(source).Count)
+                    return "HDR → SDR output validation failed: codec, resolution, BT.709 tags, or audio track count.";
+                return null;
+            };
+            request.PostRunCommit = delegate { File.Move(staging, output); request.OutputFiles[0] = output; };
+            return request;
         }
     }
 }

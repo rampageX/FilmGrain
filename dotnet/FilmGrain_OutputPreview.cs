@@ -221,7 +221,8 @@ namespace FilmGrainStudioPreview
     internal sealed class OutputComparisonCanvas : Control
     {
         private Bitmap left,right;
-        private readonly string original,final;
+        private readonly string final;
+        internal string OriginalCaption { get; set; }
         private float divider=0.5f;
         private Rectangle viewport;
         private Point pan, dragStart, panStart;
@@ -236,7 +237,7 @@ namespace FilmGrainStudioPreview
 
         internal OutputComparisonCanvas(string original,string final)
         {
-            this.original=original;this.final=final;
+            OriginalCaption=original;this.final=final;
             BackColor=Color.Black;
             SetStyle(ControlStyles.UserPaint|ControlStyles.AllPaintingInWmPaint|
                 ControlStyles.OptimizedDoubleBuffer|ControlStyles.ResizeRedraw,true);
@@ -343,7 +344,7 @@ namespace FilmGrainStudioPreview
                     g.DrawLines(Pens.Black,new[]{new Point(x+3,y-3),new Point(x+6,y),new Point(x+3,y+3)});
                 }
             }
-            if (!SingleOutput) DrawLabel(g,original,false);
+            if (!SingleOutput) DrawLabel(g,OriginalCaption,false);
             DrawLabel(g,final,true);
         }
 

@@ -16,14 +16,14 @@ namespace FilmGrainStudioPreview
         {
             MediaProbeInfo source = GetSelectedMediaInfo();
             if (source == null || !source.HasVideo) return;
-            if (source.IsHdr) ShowProcessingQuickSettings(true);
+            if (source.IsHdr) ShowTrueHdrDialog(source, true);
             else if (TrueHdrCore.Eligible(source) && bridgeTaskCoordinator != null && !bridgeTaskCoordinator.IsActive)
                 ShowTrueHdrDialog(source);
         }
 
-        private void ShowTrueHdrDialog(MediaProbeInfo source)
+        private void ShowTrueHdrDialog(MediaProbeInfo source, bool toSdr = false)
         {
-            string settingsPath = Path.Combine(appRoot, "Utils", "TrueHDR.settings.json");
+            string settingsPath = Path.Combine(appRoot, "Utils", toSdr ? "HdrToSdr.settings.json" : "TrueHDR.settings.json");
             var serializer = new JavaScriptSerializer();
             var options = new TrueHdrOptions();
             try
@@ -38,11 +38,13 @@ namespace FilmGrainStudioPreview
                 options.Picture = (int[])TrueHdrOptions.Defaults.Clone();
             if (options.Advanced == null) options.Advanced = new Dictionary<string, string>();
 
+            if (toSdr) config.Load();
+
             using (var dlg = new SettingsDialogForm())
             using (var tips = new ThemeToolTip())
             using (var refresh = new System.Windows.Forms.Timer { Interval = 250 })
             {
-                dlg.Text = "SDR → TrueHDR";
+                dlg.Text = toSdr ? "HDR → SDR" : "SDR → TrueHDR";
                 dlg.BackColor = selectedDarkTheme ? UiTheme.Surface : SystemColors.Control;
                 dlg.ForeColor = selectedDarkTheme ? UiTheme.TextColor : SystemColors.ControlText;
                 dlg.Font = UiFont(9f, FontStyle.Regular);
@@ -59,7 +61,8 @@ namespace FilmGrainStudioPreview
                 settings.Controls.Add(new ThemeLabel { Text = Path.GetFileName(source.PathValue), AutoEllipsis = true,
                     Location = new Point(16, 14), Size = new Size(465, 24) });
                 var codec = new ThemeComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(16, 44), Size = new Size(238, 26) };
-                codec.Items.AddRange(new object[] { "HEVC NVENC · HDR10 Main10", "AV1 NVENC · HDR10 10-bit" });
+                codec.Items.AddRange(toSdr ? new object[] { "HEVC NVENC · SDR Main10", "AV1 NVENC · SDR 10-bit" } :
+                    new object[] { "HEVC NVENC · HDR10 Main10", "AV1 NVENC · HDR10 10-bit" });
                 codec.SelectedIndex = options.Codec == "AV1" ? 1 : 0;
                 var preset = new ThemeComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(266, 44), Size = new Size(95, 26) };
                 preset.Items.AddRange(new object[] { "p1", "p2", "p3", "p4", "p5", "p6", "p7" });
@@ -74,7 +77,7 @@ namespace FilmGrainStudioPreview
                 var target = new ThemeTextBox { Text = options.Target, Location = new Point(176, 80), Size = new Size(94, 26), AutoSize = false };
                 var auto = new ThemeCheckBox { Text = lang.T("encode.auto"), Checked = options.Auto, Location = new Point(281, 80), Size = new Size(78, 26) };
                 var motion = new ThemeCheckBox { Text = UiText("高动态", "High motion"), Checked = options.HighMotion, Location = new Point(373, 80), Size = new Size(78, 26) };
-                var pending = PendingQueueInputs();
+                var pending = PendingQueueInputs(toSdr);
                 bool hasQueue = listFiles.Items.Count > 1;
                 var ai = new ThemeCheckBox { Name = "TRUEHDR_AI", Text = UiText("AI 插帧 2×", "AI interpolation 2×"),
                     Location = new Point(125, 581), Size = new Size(140, 28), Enabled = TrueHdrCore.CanInterpolate(source) };
@@ -85,11 +88,11 @@ namespace FilmGrainStudioPreview
                 settings.Controls.AddRange(new Control[] { ai, route });
                 Action updateRate = delegate {
                     bool batchRoute = hasQueue;
-                    bool useAi = TrueHdrCore.CanInterpolate(source) && (batchRoute || ai.Checked);
+                    bool useAi = !toSdr && TrueHdrCore.CanInterpolate(source) && (batchRoute || ai.Checked);
                     ai.Enabled = !batchRoute && TrueHdrCore.CanInterpolate(source);
                     string processing = source.IsInterlaced ? UiText("反交错 · CUDA Bob 2×", "Deinterlace · CUDA Bob 2×") :
                         useAi ? UiText("插帧 · NVEncC AI 2×", "NVEncC AI 2×") : UiText("直接转换", "Direct conversion");
-                    route.Text = processing + " → HDR";
+                    route.Text = processing + (toSdr ? " → SDR" : " → HDR");
                     tips.SetToolTip(route, route.Text);
                     target.Enabled = !auto.Checked;
                     if (!auto.Checked) return;
@@ -106,10 +109,62 @@ namespace FilmGrainStudioPreview
                 codec.SelectedIndexChanged += delegate { updateRate(); };
                 updateRate();
 
+                var tone = new ThemeComboBox { Name = "TONE_MAP_ALGO", DropDownStyle = ComboBoxStyle.DropDownList,
+                    Location = new Point(198, 125), Size = new Size(271, 26) };
+                var toneValues = HdrToneSettings.Algorithms;
+                var toneSliders = new TrackBar[toneValues.Length][];
+                var tonePanels = new Panel[toneValues.Length];
                 var sliders = new TrackBar[TrueHdrOptions.Names.Length];
+                Func<string> algorithm = () => toneValues[tone.SelectedIndex];
+                Func<string> toneOptions = () => HdrToneSettings.Serialize(algorithm(),
+                    Array.ConvertAll(toneSliders[tone.SelectedIndex], slider => slider.Value));
+                ThemeCheckBox cpuReference = null;
+                if (toSdr)
+                {
+                    cpuReference = new ThemeCheckBox { Name = "HDR_TO_SDR_CPU_REFERENCE",
+                        Text = UiText("CPU Hable 参照", "CPU Hable reference"),
+                        Location = new Point(16, 343), Size = new Size(250, 28) };
+                    settings.Controls.Add(cpuReference);
+                    tips.SetToolTip(cpuReference, UiText("左图使用 CPU Hable 默认参数，右图仍显示当前处理方式和参数。",
+                        "Use default CPU Hable for the left image. The right image shows the current processing and settings."));
+                    ai.Visible = false;
+                    route.Left = 128;
+                    settings.Controls.Add(new ThemeLabel { Text = UiText("色调映射", "Tone mapping"),
+                        Location = new Point(16, 129), Size = new Size(175, 24) });
+                    tone.Items.AddRange(new object[] { lang.T("advanced.hable"), "Mobius", "Reinhard", "Gamma", "Linear", "Clip" });
+                    settings.Controls.Add(tone);
+                    for (int i = 0; i < toneValues.Length; i++)
+                    {
+                        var panel = new Panel { Location = new Point(16, 164), Size = new Size(470, 185), Visible = false };
+                        tonePanels[i] = panel;
+                        var fields = HdrToneSettings.For(toneValues[i]);
+                        var initial = HdrToneSettings.Read(toneValues[i], config.Get(HdrToneSettings.Key(toneValues[i])));
+                        toneSliders[i] = new TrackBar[fields.Length];
+                        for (int row = 0; row < fields.Length; row++)
+                        {
+                            var field = fields[row];
+                            int y = row * 34;
+                            string caption = UiText(field.Chinese, field.English);
+                            var slider = new ThemeTrackBar { AccessibleName = caption, AutoSize = false, TickStyle = TickStyle.None,
+                                Minimum = field.Minimum, Maximum = field.Maximum, Value = initial[row],
+                                Location = new Point(182, y), Size = new Size(206, 28) };
+                            var value = new ThemeLabel { Text = field.Format(slider.Value), Location = new Point(400, y + 4), Size = new Size(64, 24) };
+                            slider.ValueChanged += delegate { value.Text = field.Format(slider.Value); };
+                            toneSliders[i][row] = slider;
+                            panel.Controls.AddRange(new Control[] { new ThemeLabel { Text = caption,
+                                Location = new Point(0, y + 4), Size = new Size(180, 24) }, slider, value });
+                        }
+                        settings.Controls.Add(panel);
+                    }
+                    tone.SelectedIndexChanged += delegate {
+                        for (int i = 0; i < tonePanels.Length; i++) tonePanels[i].Visible = i == tone.SelectedIndex;
+                        cpuReference.Visible = algorithm() == "hable";
+                    };
+                    tone.SelectedIndex = Math.Max(0, Array.IndexOf(toneValues, config.Get("TONE_MAP_ALGO").ToLowerInvariant()));
+                }
                 string[] names = { UiText("对比度", "Contrast"), UiText("饱和度", "Saturation"),
                     UiText("中间调亮度", "Middle gray"), UiText("峰值亮度 (nit)", "Peak luminance (nit)") };
-                for (int i = 0; i < sliders.Length; i++)
+                for (int i = 0; !toSdr && i < sliders.Length; i++)
                 {
                     int y = 125 + i * 37;
                     var label = new ThemeLabel { Text = names[i], Location = new Point(16, y + 4), Size = new Size(145, 25) };
@@ -132,19 +187,28 @@ namespace FilmGrainStudioPreview
                 Action updatePreview = delegate { start.Enabled = seconds.Enabled = preview.Checked; };
                 preview.CheckedChanged += delegate { updatePreview(); };
                 updatePreview();
-                tips.SetToolTip(preview, UiText("按关键帧定位后使用当前 TrueHDR 参数编码，实际起点和时长可能略有偏差。",
+                if (toSdr) tips.SetToolTip(preview, UiText("短于截取时长的素材处理整段。起点越界时，该素材从片头截取。",
+                    "Encode shorter sources in full. If the start is outside a source, clip from its beginning."));
+                else tips.SetToolTip(preview, UiText("按关键帧定位后使用当前 TrueHDR 参数编码，实际起点和时长可能略有偏差。",
                     "Seek near a keyframe and encode using current TrueHDR settings. Start and duration may vary."));
                 settings.Controls.AddRange(new Control[] { preview, start, seconds,
                     new ThemeLabel { Text = UiText("起始", "Start"), Location = new Point(154, 496), Size = new Size(53, 24) },
                     new ThemeLabel { Text = UiText("持续", "Length"), Location = new Point(327, 496), Size = new Size(65, 24) },
                     new ThemeLabel { Text = UiText("秒", "s"), Location = new Point(473, 496), Size = new Size(28, 24) } });
                 var reset = new ThemeButton { Text = UiText("恢复画面默认值", "Reset picture"), Location = new Point(16, 533), Size = new Size(150, 31) };
-                reset.Click += delegate { for (int i = 0; i < sliders.Length; i++) sliders[i].Value = TrueHdrOptions.Defaults[i]; };
+                reset.Click += delegate {
+                    if (toSdr)
+                    {
+                        var fields = HdrToneSettings.For(algorithm());
+                        for (int i = 0; i < fields.Length; i++) toneSliders[tone.SelectedIndex][i].Value = fields[i].Default;
+                    }
+                    else for (int i = 0; i < sliders.Length; i++) sliders[i].Value = TrueHdrOptions.Defaults[i];
+                };
                 var begin = new ThemeButton { Text = UiText("开始编码", "Start encoding"), Name = "TRUEHDR_START",
                     Location = new Point(244, 533), Size = new Size(114, 31) };
                 var cancel = new ThemeButton { Text = lang.T("config.cancel"), Location = new Point(369, 533), Size = new Size(104, 31), DialogResult = DialogResult.Cancel };
 
-                var editors = new[] { BuildEncoderOptions("HEVC", false, tips), BuildEncoderOptions("AV1", false, tips) };
+                var editors = toSdr ? new EncoderOptionsEditor[0] : new[] { BuildEncoderOptions("HEVC", false, tips), BuildEncoderOptions("AV1", false, tips) };
                 foreach (var editor in editors)
                 {
                     editor.Surface.Location = new Point(4, 273);
@@ -166,13 +230,13 @@ namespace FilmGrainStudioPreview
                     }
                     settings.Controls.Add(editor.Surface);
                 }
-                Action showEditor = delegate { editors[0].Surface.Visible = codec.SelectedIndex == 0; editors[1].Surface.Visible = codec.SelectedIndex == 1; };
+                Action showEditor = delegate { if (toSdr) return; editors[0].Surface.Visible = codec.SelectedIndex == 0; editors[1].Surface.Visible = codec.SelectedIndex == 1; };
                 codec.SelectedIndexChanged += delegate { showEditor(); };
                 showEditor();
 
                 var live = new ThemeCheckBox { Name = "TRUEHDR_LIVE", Checked = true, Text = UiText("实时画面", "Live preview"),
                     Location = new Point(16, 581), Size = new Size(108, 28) };
-                var screen = new OutputComparisonCanvas(UiText("原片", "Original"), "TrueHDR") { Name = "TRUEHDR_LIVE_FRAME",
+                var screen = new OutputComparisonCanvas(toSdr ? UiText("源片 · 默认 Hable", "Source · default Hable") : UiText("原片", "Original"), toSdr ? "HDR → SDR" : "TrueHDR") { Name = "TRUEHDR_LIVE_FRAME",
                     SampleAspect = CinematicCropGeometry.SampleAspect(source),
                     Location = new Point(12, 12), Size = new Size(800, 500) };
                 double mediaLength;
@@ -234,6 +298,7 @@ namespace FilmGrainStudioPreview
                 settings.Controls.Add(live);
                 dlg.Controls.AddRange(new Control[] { screen, seek, displayStatus, view, zoom, scale });
                 CancellationTokenSource render = null;
+                bool startAfterRender = false;
                 int revision = 0;
                 Action schedule = delegate {
                     revision++;
@@ -248,16 +313,29 @@ namespace FilmGrainStudioPreview
                     var job = new CancellationTokenSource();
                     render = job;
                     var values = new int[sliders.Length];
-                    for (int i = 0; i < values.Length; i++) values[i] = sliders[i].Value;
+                    if (!toSdr) for (int i = 0; i < values.Length; i++) values[i] = sliders[i].Value;
+                    string selectedAlgorithm = toSdr ? algorithm() : null;
+                    string tuning = toSdr ? toneOptions() : null;
+                    bool useCpuReference = selectedAlgorithm == "hable" && cpuReference.Checked;
+                    string ffmpeg = Path.Combine(config.Get("FFMPEG_DIR"), "ffmpeg.exe");
                     string nvenc = NvencInterpolationCore.Exe(config.Get("NVENC_DIR"));
                     double position = seek.Position;
                     previewInfo = null;
                     displayStatus.Text = UiText("正在刷新画面…", "Refreshing preview…");
                     try {
-                        var image = await Task.Run(() => TrueHdrCore.RenderLiveFrame(nvenc, source, position, values, job.Token));
+                        var image = await Task.Run(() => toSdr
+                            ? HdrToSdrCore.RenderLiveFrame(ffmpeg, source, position, selectedAlgorithm, tuning, useCpuReference, job.Token)
+                            : TrueHdrCore.RenderLiveFrame(nvenc, source, position, values, job.Token));
                         if (dlg.IsDisposed || requested != revision) { image.Item1.Dispose(); image.Item2.Dispose(); return; }
+                        if (toSdr) screen.OriginalCaption = image.Item1.Tag + UiText(" · 默认", " · default");
                         screen.SetFrames(image.Item1, image.Item2);
                         scaleText();
+                        if (toSdr)
+                        {
+                            displayStatus.Text = NativeSeekStrip.FormatTime(position) + " · " + image.Item2.Width + "×" +
+                                image.Item2.Height + " · BT.709 SDR · " + image.Item2.Tag;
+                            return;
+                        }
                         string fps = TrueHdrCore.OutputFps(source).ToString("0.###", CultureInfo.InvariantCulture);
                         string output = (string)image.Item2.Tag;
                         int depthStart = output.LastIndexOf(' ') + 1;
@@ -277,7 +355,17 @@ namespace FilmGrainStudioPreview
                             tips.SetToolTip(displayStatus, error.Message);
                         }
                     }
-                    finally { render = null; job.Dispose(); }
+                    finally
+                    {
+                        render = null;
+                        job.Dispose();
+                        if (startAfterRender && !dlg.IsDisposed && dlg.Visible)
+                        {
+                            startAfterRender = false;
+                            settings.Enabled = true;
+                            begin.PerformClick();
+                        }
+                    }
                 };
                 live.CheckedChanged += delegate {
                     view.Enabled = zoom.Enabled = live.Checked;
@@ -286,8 +374,16 @@ namespace FilmGrainStudioPreview
                     schedule();
                 };
                 seek.PositionChanged += delegate { schedule(); };
-                foreach (TrackBar slider in sliders) slider.ValueChanged += delegate { schedule(); };
+                if (toSdr)
+                {
+                    tone.SelectedIndexChanged += delegate { schedule(); };
+                    cpuReference.CheckedChanged += delegate { schedule(); };
+                    foreach (var row in toneSliders)
+                        foreach (var slider in row) slider.ValueChanged += delegate { schedule(); };
+                }
+                else foreach (TrackBar slider in sliders) slider.ValueChanged += delegate { schedule(); };
                 dlg.FormClosed += delegate {
+                    startAfterRender = false;
                     revision++;
                     refresh.Stop();
                     if (render != null) render.Cancel();
@@ -300,7 +396,9 @@ namespace FilmGrainStudioPreview
                 };
                 preview.CheckedChanged += delegate { updateStartLabel(); };
                 updateStartLabel();
-                if (hasQueue) tips.SetToolTip(begin, UiText("队列使用当前统一配置。HDR 跳过，隔行 Bob，符合条件的逐行 SDR 用 AI 2×，其余可转换 SDR 直接转 HDR。预览编码对每个待处理素材使用同一截取范围。",
+                if (toSdr && hasQueue) tips.SetToolTip(begin, UiText("队列中的 HDR 素材使用当前统一参数，跳过 SDR。",
+                    "Apply these settings to pending HDR sources and skip SDR."));
+                if (!toSdr && hasQueue) tips.SetToolTip(begin, UiText("队列使用当前统一配置。HDR 跳过，隔行 Bob，符合条件的逐行 SDR 用 AI 2×，其余可转换 SDR 直接转 HDR。预览编码对每个待处理素材使用同一截取范围。",
                     "Queue uses these shared settings. Skip HDR, Bob interlaced SDR, AI 2× for eligible progressive SDR, direct conversion for other supported SDR. Clip preview applies the same range to every pending source."));
 
                 begin.Click += delegate {
@@ -310,6 +408,12 @@ namespace FilmGrainStudioPreview
                         if (preview.Checked && !seconds.ValidateInput()) return;
                         if (render != null) {
                             live.Checked = false;
+                            if (toSdr)
+                            {
+                                startAfterRender = true;
+                                settings.Enabled = false;
+                                return;
+                            }
                             FgsMessageBox.Show(dlg, UiText("正在停止实时预览，请稍后开始编码。", "Stopping live preview. Start encoding once it stops."), dlg.Text);
                             return;
                         }
@@ -320,11 +424,16 @@ namespace FilmGrainStudioPreview
                         options.Cq = rate.SelectedIndex == 1;
                         options.Auto = auto.Checked;
                         options.HighMotion = motion.Checked;
-                        options.AiInterpolation = ai.Checked;
+                        options.AiInterpolation = !toSdr && ai.Checked;
                         options.Target = target.Text.Trim();
                         options.Mp4 = container.SelectedIndex == 1;
-                        for (int i = 0; i < sliders.Length; i++) options.Picture[i] = sliders[i].Value;
-                        foreach (var setting in editors[codec.SelectedIndex].ReadValues()) options.Advanced[setting.Key] = setting.Value;
+                        if (!toSdr)
+                        {
+                            for (int i = 0; i < sliders.Length; i++) options.Picture[i] = sliders[i].Value;
+                            foreach (var setting in editors[codec.SelectedIndex].ReadValues()) options.Advanced[setting.Key] = setting.Value;
+                        }
+                        string selectedAlgorithm = toSdr ? algorithm() : null;
+                        string tuning = toSdr ? toneOptions() : null;
                         config.Load();
                         bool batch = hasQueue;
                         var inputs = batch ? pending : new List<string> { source.PathValue };
@@ -336,21 +445,26 @@ namespace FilmGrainStudioPreview
                             MediaProbeInfo media = source;
                             if (batch && !mediaProbeCache.TryGetValue(input, out media))
                                 throw new InvalidOperationException(UiText("队列媒体信息未就绪：", "Queue media info is unavailable: ") + input);
-                            var itemOptions = batch ? options.ForQueueItem(media) : options;
+                            var itemOptions = toSdr ? (HdrToSdrCore.Eligible(media) ? options : null) :
+                                batch ? options.ForQueueItem(media) : options;
                             if (itemOptions == null)
                             {
-                                skipped[input] = media.IsHdr ? UiText("跳过 HDR", "Skipped HDR") : UiText("跳过 · 素材不符合条件", "Skipped · unsupported source");
+                                skipped[input] = toSdr && !media.IsHdr ? UiText("跳过 SDR", "Skipped SDR") : !toSdr && media.IsHdr ? UiText("跳过 HDR", "Skipped HDR") : UiText("跳过 · 素材不符合条件", "Skipped · unsupported source");
                                 continue;
                             }
                             string output;
-                            var request = TrueHdrCore.Prepare(config, input, media, itemOptions, out output);
+                            var request = toSdr
+                                ? HdrToSdrCore.Prepare(config, input, media, itemOptions, selectedAlgorithm, tuning, out output)
+                                : TrueHdrCore.Prepare(config, input, media, itemOptions, out output);
                             if (!finalOutputs.Add(Path.GetFullPath(output)))
                                 throw new InvalidOperationException(UiText("队列输出路径重复：", "Duplicate queue output: ") + output);
                             tasks.Add(new BridgeTaskRequest { ExecutionRequest = request,
                                 RecommendedOutputFps = TrueHdrCore.OutputFps(media, itemOptions.AiInterpolation) });
                         }
                         if (tasks.Count == 0)
-                            throw new InvalidOperationException(UiText("队列里没有符合条件的 SDR 素材。", "No eligible SDR sources in the queue."));
+                            throw new InvalidOperationException(toSdr
+                                ? UiText("队列里没有符合条件的 HDR 素材。", "No eligible HDR sources in the queue.")
+                                : UiText("队列里没有符合条件的 SDR 素材。", "No eligible SDR sources in the queue."));
                         Directory.CreateDirectory(Path.GetDirectoryName(settingsPath));
                         string temporary = settingsPath + "." + Guid.NewGuid().ToString("N");
                         try {
@@ -367,7 +481,8 @@ namespace FilmGrainStudioPreview
                         taskLog = new FullLogFileCore(appRoot, "Task", GetLogEntryLimit());
                         fullLogErrorReported = false;
                         AppendTaskLog("[Task log] " + taskLog.FilePath + Environment.NewLine);
-                        foreach (var skip in skipped) AppendTaskLog("[TrueHDR queue] " + skip.Value + " " + skip.Key + Environment.NewLine);
+                        string logLabel = toSdr ? "HDR-to-SDR" : "TrueHDR";
+                        foreach (var skip in skipped) AppendTaskLog("[" + logLabel + " queue] " + skip.Value + " " + skip.Key + Environment.NewLine);
                         foreach (ListViewItem item in listFiles.Items)
                         {
                             string reason;
@@ -379,7 +494,7 @@ namespace FilmGrainStudioPreview
                         {
                             string input = task.ExecutionRequest.InputFiles[0];
                             submittedQueueFiles.Add(input);
-                            AppendTaskLog("[TrueHDR input] " + input + Environment.NewLine);
+                            AppendTaskLog("[" + logLabel + " input] " + input + Environment.NewLine);
                         }
                         lock (queueClockSync) { queueClock.Restart(); queueClockStatus = ""; }
                         tracking = true;
@@ -400,6 +515,33 @@ namespace FilmGrainStudioPreview
                     }
                 };
                 settings.Controls.AddRange(new Control[] { codec, preset, container, rate, target, auto, motion, reset, begin, cancel });
+                if (toSdr)
+                {
+                    var confirm = new ThemeButton { Name = "HDR_TO_SDR_OK", Text = lang.T("advanced.ok"),
+                        Location = new Point(174, 533), Size = new Size(78, 31) };
+                    begin.Left = 258;
+                    begin.Width = 111;
+                    cancel.Left = 375;
+                    cancel.Width = 98;
+                    begin.Enabled = bridgeTaskCoordinator != null && !bridgeTaskCoordinator.IsActive;
+                    confirm.Click += delegate {
+                        try
+                        {
+                            var updates = new Dictionary<string, string> { { "TONE_MAP_ALGO", algorithm() } };
+                            for (int i = 0; i < toneValues.Length; i++)
+                                updates[HdrToneSettings.Key(toneValues[i])] = HdrToneSettings.Serialize(toneValues[i],
+                                    Array.ConvertAll(toneSliders[i], slider => slider.Value));
+                            config.Save(updates);
+                            UpdateHdrRouteStatus(GetSelectedMediaInfo());
+                            dlg.DialogResult = DialogResult.OK;
+                        }
+                        catch (Exception error)
+                        {
+                            FgsMessageBox.Show(dlg, error.Message, dlg.Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        }
+                    };
+                    settings.Controls.Add(confirm);
+                }
                 dlg.CancelButton = cancel;
                 AttachThemeWindow(dlg);
                 dlg.ResumeLayout(true);

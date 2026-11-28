@@ -107,8 +107,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.1.04";
-        internal const string FileReleaseVersion = "5.1.4.0";
+        internal const string ReleaseVersion = "5.1.05";
+        internal const string FileReleaseVersion = "5.1.5.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -2300,14 +2300,14 @@ namespace FilmGrainStudioPreview
 
         private void ClearInputFiles()
         {
-            editingFile=null;fileSettings.Clear();initializedFileSettings.Clear();completedQueueFiles.Clear();submittedQueueFiles.Clear();
+            editingFile=null;fileSettings.Clear();initializedFileSettings.Clear();completedQueueFiles.Clear();hdrToSdrCompletedQueueFiles.Clear();submittedQueueFiles.Clear();
             listFiles.Items.Clear();UpdateSelectedInfo();UpdateStatusCount();
         }
 
         private void RemoveSelected()
         {
             changingFileSelection=true;
-            try {while(listFiles.SelectedItems.Count>0) {var item=listFiles.SelectedItems[0];string path=item.Tag as string;if(path!=null){fileSettings.Remove(path);initializedFileSettings.Remove(path);completedQueueFiles.Remove(path);submittedQueueFiles.Remove(path);mediaProbeFailures.Remove(path);}if(path==editingFile)editingFile=null;listFiles.Items.Remove(item);}}
+            try {while(listFiles.SelectedItems.Count>0) {var item=listFiles.SelectedItems[0];string path=item.Tag as string;if(path!=null){fileSettings.Remove(path);initializedFileSettings.Remove(path);completedQueueFiles.Remove(path);hdrToSdrCompletedQueueFiles.Remove(path);submittedQueueFiles.Remove(path);mediaProbeFailures.Remove(path);}if(path==editingFile)editingFile=null;listFiles.Items.Remove(item);}}
             finally {changingFileSelection=false;}
             UpdateSelectedInfo();
             UpdateStatusCount();

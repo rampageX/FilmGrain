@@ -522,6 +522,7 @@ namespace FilmGrainStudioPreview
                 foreach(ListViewItem item in items) {
                     string path=item.Tag as string;if(string.IsNullOrEmpty(path))continue;
                     completedQueueFiles.Remove(path);
+                    hdrToSdrCompletedQueueFiles.Remove(path);
                     submittedQueueFiles.Remove(path);
                     displayedQueueFiles.Remove(path);
                     item.SubItems[2].Text=UiText("等待","Waiting");
@@ -530,9 +531,20 @@ namespace FilmGrainStudioPreview
             UpdateAv1BakeAvailability();
         }
         private readonly HashSet<string> completedQueueFiles=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> hdrToSdrCompletedQueueFiles=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> submittedQueueFiles=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private bool IsPendingQueueFile(string path){return !string.IsNullOrEmpty(path)&&!completedQueueFiles.Contains(path);}
-        private List<string> PendingQueueInputs(){var paths=new List<string>();foreach(ListViewItem item in listFiles.Items){string path=item.Tag as string;if(IsPendingQueueFile(path))paths.Add(path);}return paths;}
+        private List<string> PendingQueueInputs(bool hdrToSdr = false)
+        {
+            var completed = hdrToSdr ? hdrToSdrCompletedQueueFiles : completedQueueFiles;
+            var paths = new List<string>();
+            foreach (ListViewItem item in listFiles.Items)
+            {
+                string path = item.Tag as string;
+                if (!string.IsNullOrEmpty(path) && !completed.Contains(path)) paths.Add(path);
+            }
+            return paths;
+        }
         private readonly HashSet<string> displayedQueueFiles=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private ListViewItem QueueFileItem(BridgeTaskRequest task)
         {
@@ -576,7 +588,9 @@ namespace FilmGrainStudioPreview
                 string clip;
                 bool trueHdrClip = environment != null && environment.TryGetValue("FG_TRUEHDR_CLIP", out clip) && clip == "1";
                 bool succeeded = !e.Result.Cancelled && e.Result.ExitCode == 0 && e.Result.Exception == null;
-                if (succeeded && !trueHdrClip) completedQueueFiles.Add(path);
+                bool hdrToSdr = environment != null && environment.ContainsKey("FG_HDR_TO_SDR");
+                if (succeeded && !trueHdrClip)
+                    (hdrToSdr ? hdrToSdrCompletedQueueFiles : completedQueueFiles).Add(path);
                 item.SubItems[2].Text = e.Result.Cancelled ? UiText("已取消", "Cancelled") : !succeeded ? UiText("失败", "Failed") :
                     trueHdrClip ? UiText("预览完成", "Preview finished") : UiText("结束", "Finished");
                 UpdateAv1BakeAvailability();
