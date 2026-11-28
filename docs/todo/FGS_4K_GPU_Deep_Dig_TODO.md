@@ -30,7 +30,7 @@ vidpipe 上游提交 `d7d317fff55fa5acdbc130ffe73eb0b5f1508c58`，MIT。参考 [
 | G01 | P0 | 待执行 | 建立真实 FGS 4K 性能基准；单项/组合及纯编码对照、4K 30/60、SDR/PQ/HLG；记录日志、实际滤镜图、全任务耗时与稳态 FPS、CPU/GPU 编解码和显存、输出及时间轴；按瓶颈重排 G02–G08。 |
 | G02 | P1 | 候选 | 消除不必要 CPU/CUDA/Vulkan 主机帧传输及中间工作文件；先复用已有 S4、R01/R02/R07/R08 路线，证明画质与时间轴等价。不得把 GPU 间映射等同于零复制。 |
 | G03 | P1 | 候选 | 消除重复像素格式、位深、色彩转换；核对自动插入转换、chroma siting、范围、矩阵、量化及抖动，保留必要精度。 |
-| G04 | P1（首项） | 优先审计 | LUT/色彩纠正融合：先审计现有 CPU LUT 与 GPU 预览/libplacebo 实现；验证插值、强度混合、顺序、HDR 保留，再决定是否需新内核。 |
+| G04 | P1（首项） | G04a/G04b 独立验证完成；G04c 待接入 | LUT/色彩纠正融合：先审计现有 CPU LUT 与 GPU 预览/libplacebo 实现；验证插值、强度混合、顺序、HDR 保留，再决定是否需新内核。 |
 | G05 | P2（FGSIM 延后） | 候选 | Digital Grain、Grain Plate、FGSIM 分开研究；优先避免 GPU 后下载及重复合成，保留随机性、时序、纹理、HDR luma delta 与边框/字幕顺序。 |
 | G06 | P2 | 候选 | HDR→SDR 色调映射与后续 GPU 滤镜衔接，保持现有曲线、参数、HLG/PQ、亮度、色域及预览一致性。 |
 | G07 | P2 | 候选 | 跨进程插帧 GPU 显存直通可行性；验证进程/设备支持、资源生命周期、同步、PTS/VFR/音频、取消及尾帧；无安全等价机制则关闭。 |
@@ -132,3 +132,10 @@ G00 下一步：逐条追踪入口、共享 helper、执行器和最终参数，
 
 - 证据 Results_G04b_20261128_153637_94290f.zip；FFmpeg SHA256 同 K6P3。52/52 renders、40/40 comparisons 命令成功，PTS 全一致，非像素完全等价。RGB16 bridge source PSNR：plain 75.257197、identity 75.257488、25% 78.938025、75% 66.395049、100% 68.106521、stress 70.590058 dB；chart 对应 74.589130/74.589130/67.955319/72.019538/66.412938/73.892060 dB；平坦色块中心平均最大码值偏差均为 1。显式 RGB full→BT.709 limited 转换解决 H3N8 bridge 错误。Normalized 75% 53.810407 dB（source），bilinear 44.609221、bicubic 43.289199、nearest 44.218037、center 51.019501；clip/left/nolinear 与默认一致，暂不继续调这些参数。混合 RGB/YUV 路线仍不及完整 RGB bridge。不能用 PSNR 或色块均值替代全部像素验收。
 - V8L2 独立包 FGS_G04b_V8L2_Test.zip：复用 J4C7 CPU LUT 与显式 RGB16 bridge、K6P3 Plate/编码/自动输入。CPU/RGB bridge/normalized 三种 LUT × 默认 Vulkan 下载或 MH 双标志 CUDA 直通；75% LUT、35% Plate，4K30 360帧×3轮，先8帧编码及独立解码探针，成功路线进行32帧 Plate 后编码前 FFV1 hash/PTS/PSNR 及长测；连续两次失败停止。CPU_DIRECT 是判断 LUT 增量收益的关键参照。Normalized 仅诊断，不放行画质。RGB bridge 有额外 RGB16 上传/下载，必须先证实完整链净收益；否则保留 CPU LUT。沿用现有 T4K8 生成器、L8R2 环境和编码参数，不下载新依赖。Python 语法、6组图构造、模拟失败跳过/轮转、BAT/PS1 编码与 ZIP 检查通过；未执行 Windows GPU。双击 Run_G04b_V8L2.bat，回传 Results_G04b ZIP。G04b 尚未关闭，不改生产及既有 S4/HDR/FRUC 设备标志，不新建分支或 PR。
+
+### 9.3 V8L2 实测：当前 GPU LUT 方案不放行，CPU LUT + CUDA 直通通过独立验证（2026-11-28）
+
+- 证据 Results_G04b_20261128_154355_c783c7.zip；config.json 确认 FFmpeg SHA256 同 K6P3、RTX 4080、4K30/360 帧×3、LUT75%/Plate35%、HEVC Main10 P5 HQ VBR25M/max50M/buf100M/B4/LA16/AQ8。6/6 短探针、6/6 质量采样、18/18 性能轮均成功，全部长测独立解码 360 帧，BT.709 Limited 10-bit 标签一致。
+- 中位 FPS（wall，包含启动和 flush、不含独立解码）：CPU_DL 36.6652、CPU_DIRECT 44.3094、RGB_DL 31.6647、RGB_DIRECT 36.1858、NORM_DL 62.7364、NORM_DIRECT 80.2645。CPU_DIRECT 对 CPU_DL +20.85%；RGB_DIRECT 对 CPU_DIRECT -18.33%。RGB bridge 不具备净性能收益，关闭此实现。Normalized 保留后续研究价值，但不得替换生产 LUT。
+- quality.json：CPU_DIRECT 对 CPU_DL 编码前 32/32 hash 相同、Y/U/V PSNR inf；RGB_DL/DIRECT 均 0/32，平均 PSNR 66.373389 dB；NORM_DL/DIRECT 均 0/32，平均 53.763366 dB（V 48.588465 dB）；全部 PTS 相同。未开展真实素材的主观画质验收，不放行两种 GPU LUT。G04b 现有 libplacebo 候选评估完成，后续融合颜色转换/重采样与 LUT 的等价 GPU 实现另列研究，不阻塞 G04a。
+- 下一阶段 G04c：仅准备 G04a 已验证路线的生产最小接入及实机验收，普通 SDR BT.709 Limited progressive HEVC Main10 Grain Plate（无 LUT/原 CPU LUT），双标志同时启用，blend_vulkan 后直接派生 CUDA，不加 libplacebo 中继；严格检查末端 CPU 滤镜、像素颗粒强度、帧率、输入范围等边界，不适用则保持原图与参数。旧 S4/HDR/FRUC、H264/AV1、字幕、复杂几何、其它颗粒、既有设备策略不动；真实素材及音轨、4K30/60、1080p、PTS/帧数/色彩、取消及特殊路径回归后再考虑发布。GUI/CLI 共用核心。生产源码本轮未改，未建分支/PR；后续 Windows CI 或分支须明确授权。
