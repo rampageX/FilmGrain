@@ -4671,7 +4671,9 @@ namespace FilmGrainStudioPreview
             UpdateLutCompoundHint(hasLut);
             UpdateColorCorrectionUi();
             bool enabled = chkLut.Checked;
-            lutToolTip.SetToolTip(chkLut,config.Get(G04cLutCore.ConfigKey)=="GPU"?
+            bool gpuLutSelected = config.Get(G04cLutCore.ConfigKey) == "GPU";
+            chkLut.Text = lang.T("lut.enable") + (gpuLutSelected ? " (G)" : " (C)");
+            lutToolTip.SetToolTip(chkLut,gpuLutSelected?
                 UiText("右键：GPU 高速（适用路线）／CPU 精确。实际路线见编码日志。","Right-click: GPU fast (eligible routes) / CPU precise. See encoding log for effective route."):
                 UiText("右键：CPU 精确／GPU 高速。","Right-click: CPU precise / GPU fast."));
             trackLutStrength.Enabled = enabled;
