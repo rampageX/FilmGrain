@@ -147,3 +147,9 @@ G00 下一步：逐条追踪入口、共享 helper、执行器和最终参数，
 - G04c 第一步：独立真实素材 A/B（先 LUT 单独，后 LUT+Plate），使用 FGS 实际 CUBE 与强度 0/25/75/100%，覆盖肤色、灰阶、高光暗部、天空、霓虹、高饱和边缘、渐变及细纹理；同帧无损输出、随机 A/B/滑动及 1:1 对照，保存 PSNR 分量、局部异常、范围/矩阵/标签、裁切、PTS；0% 应按既有 LUT bypass 语义处理。核对实际 LUT DOMAIN_MIN/MAX、越界、兼容 LUT 转换、预混合节点强度与预览，确认适用边界。只有用户确认视觉表现后接入默认路线。
 - G04c 第二步：初期范围限已验证的普通 SDR BT.709 Limited progressive HEVC Main10 Grain Plate，含无 LUT/CPU 精确/GPU 高速；单独 LUT 的 GPU 路线也先独立验证，未通过不得扩大默认适用范围。GPU 用 FFmpeg libplacebo lut_type=normalized 与既有预混合节点技术；不采用已淘汰的 RGB16 桥接或 native YUV LUT。直接 CUDA 使用 disable_multiplane=1,disable_host_image_copy=1，严禁全局修改、删减或重排既有成功设备策略。GUI/CLI 同核心、预览与编码一致性需验收；不支持的 LUT、色彩、硬件或流程组合沿用原 CPU 路线，明确显示实际模式。HDR PQ/HLG、S4、FRUC、H264/AV1、FGSIM、复杂几何/字幕等不擅自扩展。4K30/60、1080p、音画同步、取消、特殊路径及旧路线回归通过后才发布。
 - 交接时仅更新文档，无生产源码、分支或 PR 变动。下一窗先读取 AGENTS.md 及本总卡，核对 v5.1.07/72f498b2 与最新 master；先交付独立视觉验收包，未经明确授权不创建分支/PR/触发 Windows CI。测试素材优先复用既有全自动合成测试并提供真实片段选择机制，不强制下载依赖。
+
+### 9.5 G04c M9K4 独立真实素材视觉验收（待实机）
+
+- 已核对 v5.1.07/72f498b2 与 master/6ff4cbd3，仅 TODO 文档和索引变更；完整读取 AGENTS.md 和本卡。用户提供原 FGS_G04b_V8L2_Test(1).zip，继承其 CPU tetrahedral、GPU normalized、Plate blend、MH 双标志和 L8R2 启动器，不重新下载依赖。
+- 交付 FGS_G04c_M9K4_Test.zip（SHA256 8a4306d3f43f5986d3cabde2db053c45d596830fb9b6e620a60c984482db8552）。选择多个真实 SDR BT.709 Limited progressive YUV420 8/10-bit 源、一个实际 FGS standalone 3D CUBE、可选真实 Plate（取消使用 V8L2 固定种子 Plate），每个源默认三个可指定的时间位置，每处连续四帧；0% 真 bypass，25/75/100% CPU blend 与 GPU 节点预混合。仅标准 [0,1] 输入域和有限 [0,1] 节点，非标准 LUT 不裁切或静默替换。单独 LUT 和 LUT+Plate 35% 分别测试；Plate CPU/GPU 各自比较默认 Vulkan 下载与 MH CUDA 直通后下载采样，要求 hash/PTS 等价。无损 FFV1 保留本地，第二帧统一 BT.709 YUV→RGB 16-bit PNG 供 localhost 浏览器盲测，屏幕实际显示精度另计；随机 A/B、滑动、单张、1:1、拖动及备注。回传仅日志、PSNR、帧 hash/PTS、局部 4×4 区域及 nominal range 统计、盲测答案和映射，不含实际媒体。50 dB 仅初筛。该包不进行生产 NVENC 编码或测速。
+- 本地 Linux CPU 代理输出、10-bit 标签、帧 hash/PSNR、PNG、LUT/滤镜图矩阵、局部码值统计、特殊字符路径及 localhost API 验证通过；Python/JS 语法、BAT/PS1 BOM、ZIP 检查通过。Windows GPU、浏览器实际交互及 PowerShell 启动器待验收。G04c 第一阶段尚未关闭，等待 Results_G04c_*.zip。无生产源码变动，未创建分支或 PR；文档更新使用 skip ci。
