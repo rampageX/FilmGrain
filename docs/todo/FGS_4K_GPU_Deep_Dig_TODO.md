@@ -97,3 +97,11 @@ G00 下一步：逐条追踪入口、共享 helper、执行器和最终参数，
 ### 8.1 R9V4 替代 Q7M2
 
 用户补充原 `FGS_DeepDig_G04_T4K8(1).zip`，核实其为全自动合成素材测试。Q7M2 的手动输入和不同编码参数属于交付偏差，废弃。R9V4 完整复用原 L8R2 Python 查找逻辑、FFmpeg 查找顺序、testsrc2 4K30 360 帧及 1080p30 60 帧 noise seed=12345 的 H.264 NVENC 素材生成命令，保持 35% Plate、HEVC Main10 P5 HQ VBR 25M/max50M/buf100M/B4/LA16/AQ8、MP4 输出，360 帧×3；G04a 不生成 LUT。明确 RTX 4080 设备名，保留各组合短探针，H/MH 无扩展禁用证据时跳过长测。记录生成命令及素材 hash。BAT/PS1 编码及 ZIP 检查、Python 语法检查通过；模拟子进程测试因环境耗时超时，未完成全矩阵模拟；已走通自动定位、生成及部分互操作探针，Windows GPU 实测待回传。无生产源码变动。交付 `FGS_G04a_R9V4_Test.zip`，双击 `Run_G04a_R9V4.bat`，仅回传 Results_G04a ZIP。
+
+### 8.2 R9V4 实测与 K6P3 直通复验（2026-11-28）
+
+- 原始证据：Results_G04a_20261128_151025_96024c.zip；RTX 4080 / 617.14，FFmpeg 9.1.git-FGS-47b92841e33b-20261122，SHA256 2dcfa6d24b5076ab9f92b22655d241d76d549fdbe0e3ae7805cf5af9b5d29331。30/30 性能轮通过，实际编码均独立解码 360 帧；P00/P01/P02/P03 decode/P03 native/P04/P05 GPU/P05 DL/P06/M DL 中位 FPS 分别 271.5641/92.9026/110.0127/377.6385/247.5803/155.436/118.0341/86.1834/67.2234/5.1012。
+- P06 与 I_M_DL 的实际命令除输出路径和 disable_multiplane=1 外一致，67.22→5.10 FPS（13.18 倍差距）。上轮约 5 FPS 是实验设备参数导致，不是普通 Plate 生产路线。底层具体耗时机制仍未知。P05 GPU null sink 与 NVENC 口径不同，不相减。
+- D/H 直通和中继均失败，日志为一张多平面图像对应两平面不能映射 CUDA；M 两种直通均 CUDA_ERROR_INVALID_VALUE / cuExternalMemoryGetMappedMipmappedArray；MH 两者均 8/8 帧编码及独立解码通过，日志明确 Transferred Vulkan image to CUDA! / Using input frames context (format cuda)。不能将 transfer 等同严格零复制。
+- 所有配置仍宣告 VK_EXT_host_image_copy；MH 成功与静态源代码未读取选项存在待核实差异，不能断言 host flag 无效或已禁用该 feature。R9V4 以扩展是否消失作为 H/MH 长测门槛，误跳过成功的 MH 路线。M/D 下载 8/8 hash 与 PTS 一致；单输入 libplacebo 中继 0/8 hash 相同，PTS 一致，Y/U/V/avg PSNR 70.652452/42.769296/38.265134/44.721546 dB，不选为普通 Plate 等价路线。
+- K6P3 独立复验包 FGS_G04a_K6P3_Test.zip：直接复用 R9V4 全自动素材/编码/启动器；三轮交替 8 帧 M、M0（host=0）、MH（host=1）直接 CUDA 探针，记录实际成功而不以扩展日志筛选；成功过的路线及 D/MH 下载基准进入 360 帧×3 长测，连续两次失败停止重试；32 帧 FFV1 编码前 hash/PTS/PSNR（CUDA 直通额外下载仅用于质量采样），完整命令与独立输出解码计数。已验证 Python 语法及 ZIP/BOM，待 Windows 实机。G04a 未关闭，G04b 继续延后，不改生产源码，不创建分支或 PR。
