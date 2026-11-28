@@ -1,7 +1,7 @@
 # FGS · 4K GPU 流水线深度优化专项（Deep Dig）
 
 - 立项：2026-11-28。
-- 状态：G00 进行中；G01 待执行；后续为候选研究任务，尚未确认缺陷或承诺实现。
+- 状态：G00 进行中；G01 首批聚焦 LUT + Grain Plate；G04 为首个研究方向，G05 的 FGSIM 延后。后续为候选任务。
 - 初始生产基线：v5.1.07，master / Release tag 对应提交 `72f498b253443982ec144178a6a7570777f0476a`。
 - 仓库：rampageX/FilmGrain；底层优先使用现有 FFmpeg / libplacebo / NVEncC，必要时研究 rampageX/FFmpeg。
 - 本专项独立于此前 R 系列慢路径修复与 FGB 兼容性跟踪。每轮先读 AGENTS.md，核对最新已验收生产基线；文档更新不改变发行版本。
@@ -30,8 +30,8 @@ vidpipe 上游提交 `d7d317fff55fa5acdbc130ffe73eb0b5f1508c58`，MIT。参考 [
 | G01 | P0 | 待执行 | 建立真实 FGS 4K 性能基准；单项/组合及纯编码对照、4K 30/60、SDR/PQ/HLG；记录日志、实际滤镜图、全任务耗时与稳态 FPS、CPU/GPU 编解码和显存、输出及时间轴；按瓶颈重排 G02–G08。 |
 | G02 | P1 | 候选 | 消除不必要 CPU/CUDA/Vulkan 主机帧传输及中间工作文件；先复用已有 S4、R01/R02/R07/R08 路线，证明画质与时间轴等价。不得把 GPU 间映射等同于零复制。 |
 | G03 | P1 | 候选 | 消除重复像素格式、位深、色彩转换；核对自动插入转换、chroma siting、范围、矩阵、量化及抖动，保留必要精度。 |
-| G04 | P1 | 候选 | LUT/色彩纠正融合：先审计现有 CPU LUT 与 GPU 预览/libplacebo 实现；验证插值、强度混合、顺序、HDR 保留，再决定是否需新内核。 |
-| G05 | P1 | 候选 | Digital Grain、Grain Plate、FGSIM 分开研究；优先避免 GPU 后下载及重复合成，保留随机性、时序、纹理、HDR luma delta 与边框/字幕顺序。 |
+| G04 | P1（首项） | 优先审计 | LUT/色彩纠正融合：先审计现有 CPU LUT 与 GPU 预览/libplacebo 实现；验证插值、强度混合、顺序、HDR 保留，再决定是否需新内核。 |
+| G05 | P2（FGSIM 延后） | 候选 | Digital Grain、Grain Plate、FGSIM 分开研究；优先避免 GPU 后下载及重复合成，保留随机性、时序、纹理、HDR luma delta 与边框/字幕顺序。 |
 | G06 | P2 | 候选 | HDR→SDR 色调映射与后续 GPU 滤镜衔接，保持现有曲线、参数、HLG/PQ、亮度、色域及预览一致性。 |
 | G07 | P2 | 候选 | 跨进程插帧 GPU 显存直通可行性；验证进程/设备支持、资源生命周期、同步、PTS/VFR/音频、取消及尾帧；无安全等价机制则关闭。 |
 | G08 | P2 | 候选 | NVENC 吞吐与背压：同编码器/预设/RC/AQ/B 帧/多 pass/位深、同源输入，分别计时提交、等待、flush；若实际瓶颈在编码则可提前。 |
@@ -46,7 +46,7 @@ vidpipe 上游提交 `d7d317fff55fa5acdbc130ffe73eb0b5f1508c58`，MIT。参考 [
 | 路线 | 证据（dotnet/） | 初步分类 |
 | --- | --- | --- |
 | HEVC/H.264 NVENC S4 Grain Plate + 边框 | FilmGrain_NativeHevcCore.cs:405–439, 483–505, 1970–2050 | 已有 Vulkan blend→libplacebo/边框→CUDA 路线；普通 Plate 仍显式下载，Expand 裁剪部分组合也存在下载/再上传。比较适用条件，不移除保护。 |
-| HDR/SDR FGSIM | FilmGrain_NativeHevcCore.cs:521–555；FilmGrain_NativeAv1Core.cs:580–593 | Shader 后显式下载；HDR 保留还包含 extractplanes/lut2/mergeplanes 的 luma delta；候选高优先级，必须保证原色度及量化行为。 |
+| HDR/SDR FGSIM | FilmGrain_NativeHevcCore.cs:521–555；FilmGrain_NativeAv1Core.cs:580–593 | Shader 后显式下载；HDR 保留还包含 extractplanes/lut2/mergeplanes 的 luma delta；按用户决定延后，必须保证原色度及量化行为。 |
 | LUT+颗粒 | FilmGrain_NativeHevcCore.cs:489–496, 977–983；FilmGrain_NativeAv1Core.cs:554–581；FilmGrain_NativeX264DigitalGrainCore.cs:409–436 | gbrp16le→split→lut3d→blend→YUV；CPU 前缀和独立 GPU 处理相邻，先比较已有调色/预览实现。 |
 | HDR→SDR / BWDIF | FilmGrain_SharedHdrPreprocessCore.cs:315, 552–553；FilmGrain_NativeHevcCore.cs:678–745 | 有 GPU 后下载的构图；已有 mergedHdr/mergedFrucHdr/inlineVulkanPlate 路径，部分条件仍创建 workfile；需按具体组合核对。 |
 | Vulkan 缩放 | FilmGrain_Preprocessing.cs:726–752 | 常规 Lanczos/EWA 路径显式上传、libplacebo、下载；HQ 路线涉及高色度格式，不能随意合并。 |
@@ -66,3 +66,14 @@ G00 下一步：逐条追踪入口、共享 helper、执行器和最终参数，
 - 对可逐像素等价的滤镜比较帧 hash；浮点/量化差异事先定义误差与精度门槛，再做高光、灰阶、饱和色、颗粒、边框及字幕人工检查；非确定颗粒采用固定种子或统计与视觉对照。
 - 记录实际提升、画质影响和适用条件；以用户认可的可重复净收益作为放行条件。无明显收益关闭，1080p 无明显倒退，禁止静默降位深、HDR 转 SDR、改范围或改变帧率。
 - 自动测试应可从当前目录运行，支持 Unicode 和 `H:\Tester & ( ) ^ % ! -=\`，不强制下载新依赖、不做常驻监控。测试脚本、原始报告和结果可追溯到基线与候选提交；正式发行保持现有规范。
+
+## 6. 2026-11-28 优先级调整：LUT + Grain Plate
+
+用户决定先做 LUT＋颗粒 CPU/GPU 混合链，FGSIM 延后。先完成该范围的 G00/G01 切片，不等待其余路线全量审计；未获 A/B 证据前仍不修改生产逻辑。首批 SDR BT.709 Limited、HEVC NVENC Main10、普通 Grain Plate（扫描颗粒），不加 FGSIM、边框、插帧、字幕、CC 或缩放；随后再验证 CC、HDR PQ/HLG 和其他组合。
+
+- 生产基线：`FilmGrain_NativeHevcCore.cs:483–505, 976–983, 991–1040`。主视频 CPU 转 gbrp16le→split→lut3d tetrahedral→blend 强度→P010→Vulkan；颗粒独立上传→blend_vulkan；普通 Plate 最后 hwdownload→NVENC。S4 已有 Vulkan→CUDA 的成功路径。
+- 现有预览：`experiments/GpuSingleFrame/preview_win.c:616–678, 1894–1909` 已用 pl_lut_parse_cube、PL_LUT_NATIVE 及预混合 identity LUT 节点实现 GPU 调色强度，且有 Plate hook。预览并不自动证明与正式 CPU tetrahedral 等价。
+- FFmpeg Fork master `8687110e9275d07e0eb5f244108b886938905d2c` 的 `libavfilter/vf_libplacebo.c:1848–1853` 支持 lut 与 lut_type=native/normalized/conversion；Stable 9.1 的实际二进制选项需由用户侧 -h filter=libplacebo 核对，当前仓库无 release/9.1 分支。先用现有滤镜，不预设需改 FFmpeg。
+- 首批 A/B：A 现有 CPU LUT+Vulkan Plate+下载；B libplacebo GPU LUT+相同 Plate+下载；C 在 B 基础上复用 Vulkan→CUDA 直通；D 无 LUT 的 Plate 控制组。可另加 CPU LUT+直通以隔离两个变量。全部保持相同编码参数、输出格式、颗粒输入、强度、PTS/帧数。
+- GPU LUT 的插值、色度重采样、范围、强度混合、DOMAIN_MIN/MAX 和越界裁切可能不同；先用标准 [0,1] standalone 3D CUBE 及预混合节点，强度 25/75/100，独立检查编码前画面。实际比较若不满足精度，不以速度替代画质；研究 tetrahedral shader 或保留原实现。HDR 的 LUT 前缀另行验证，禁止直接套 SDR native LUT。
+- 先使用无新依赖的自动测试脚本收集滤镜选项、同源性能及编码前差异。测试方向不等于生产实现，FGSIM 不进入首批矩阵。
