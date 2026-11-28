@@ -86,3 +86,10 @@ G00 下一步：逐条追踪入口、共享 helper、执行器和最终参数，
 - **实验设计偏差**：T4K8 给全部组强制 `vulkan=vk:0,disable_multiplane=1`，而生产普通 Plate 使用 VulkanDevicePolicy.Spec，不加该标志；S4 按适用条件添加 disable_multiplane、探测 disable_host_image_copy，并在 blend_vulkan 后经过 libplacebo/边框输出才派生 CUDA。因此 5 FPS 原因未明，T4K8 不能作为生产性能基线。不能直接认定互操作底层补丁失效。
 - 下一轮 G04a：使用明确的 NVIDIA 设备名并保存 verbose 设备日志；先以默认 Vulkan 配置复现生产普通 Plate，短片探针比较 disable_multiplane、支持时 disable_host_image_copy、blend_vulkan 后直接派生 vs libplacebo P010 中继（S4 参考），再跑成功路线。纯 NVENC、上传/下载、Plate 原尺寸/缩放、blend、完整编码分开计时，查清异常低速。对比 10-bit 编码前帧的 hash/像素差异；中继不得改变颗粒/色彩。失败路线不重复长测。
 - 下一轮 G04b：使用 identity LUT、0/75/100% 和灰阶/色条，分别比较 CPU 与 GPU 的矩阵/范围、4:2:0 重采样、LUT 插值、量化及裁切；先验证无 LUT/identity 对照，避免直接将差异归咎于插值。G04a 优先，FGSIM 仍延期。没有生产源码修改。
+
+## 8. G04a Q7M2 独立诊断包（2026-11-28，待实机）
+
+- 核对 tag v5.1.07 与文档提交 b56af154：3 个后续提交仅涉及 TODO 文档及索引，生产源码仍为 72f498b2。已重读 AGENTS.md、普通 Plate/S4 图和设备参数、S4 组合审计与 FFmpeg 9.1 互操作 TODO。
+- 新发现：FFmpeg Fork 构建对应提交 [47b92841e33b 的 hwcontext_vulkan.c](https://github.com/rampageX/FFmpeg/blob/47b92841e33b/libavutil/hwcontext_vulkan.c) 读取 disable_multiplane（1945–1952 附近），但未读取 disable_host_image_copy。其 HOST_IMAGE_COPY 扩展选择受 ReBAR 判断影响（1012 附近）；初始化成功并不证明未知字典选项有效。Q7M2 分别探测 D/M/H/MH 并检查实际 extension verbose 日志；H/MH 若无实际禁用证据，跳过重复长测。不能据此宣称已定位低速根因，也不在本轮修改生产检测。
+- 测试包 FGS_G04a_Q7M2_Test.zip：现有 Python 标准库 + 同一 FFmpeg 9.1 构建；指定原视频与原 Plate，不下载依赖。P00/P01 源解码/纯 HEVC NVENC，P02 上传下载，P03 原 Plate 解码/上传下载，P04 实际需要时的 Vulkan bilinear 缩放，P05 blend GPU/null 与下载/null，P06 普通 Plate；各设备配置分别探测下载、直接 CUDA、libplacebo P010 单输入中继 CUDA。8 帧探针，120 帧 × 3 轮默认性能测试（可选 360），成功编码独立解码计数；预编码 10-bit FFV1 hash/PTS/PSNR，色彩标签单独记录。GPU-only null sink 仅作诊断，不保证逐帧同步。原 T4K8 脚本和参数未能检索，默认选统一 FAST-style Main10 p5 VBR 20M/qres/LA16/AQ8/B4，85% opacity；实际参数全部记录，不能直接声称与 T4K8 严格同参数。
+- 已完成 Python 语法和模拟流程检查（12 个模拟性能组、6 组模拟画质对照、失败直通及无效 host 标志长测跳过、特殊字符路径、ZIP 校验）；模拟数值不作实测数据。Windows GPU 实机未执行。等待 Results_G04a_*.zip，G04a 未关闭，G04b 和 FGSIM 延后，无生产源码改动。
