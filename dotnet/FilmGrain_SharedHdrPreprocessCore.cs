@@ -205,7 +205,7 @@ namespace FilmGrainStudioPreview
                 !graph.Contains("sidedata=mode=delete:type=MASTERING_DISPLAY_METADATA")||
                 !graph.Contains("sidedata=mode=delete:type=CONTENT_LIGHT_LEVEL"))
                 throw new InvalidOperationException("G06c unexpected HDR metadata/filter layout.");
-            graph=ReplaceOnce(graph,",gamut_mode=clip,hwdownload,format=p010le,sidedata=",",gamut_mode=clip,sidedata=");
+            graph=ReplaceOnce(graph,":gamut_mode=clip,hwdownload,format=p010le,sidedata=",":gamut_mode=clip,sidedata=");
             if(plate)
             {
                 graph=ReplaceOnce(graph,",format=yuv420p10le,setpts=PTS-STARTPTS,format=p010le,setpts=PTS-STARTPTS,hwupload[basevk]",

@@ -224,3 +224,4 @@ G00 下一步：逐条追踪入口、共享 helper、执行器和最终参数，
 ### 10.6 G06c M9K6 生产候选（Windows CI 与实机待验）
 
 - 从 v5.1.08 整合包核对正式 Release SHA256、生产源码及 master 文档提交。用户已授权 test/g06c-hdr-gpu-direct 和 Windows CI。仅共享 HEVC Main10 原帧率软件解码的 RTX 4080 普通路线、BT.2020 Limited PQ/HLG 10-bit、Hable/Spline/BT.2390；无 Plate 或已探测实际尺寸的偶数宽高 Plate，保留 bilinear。排除 LUT/CC/缩放裁剪/边框/插帧/其它滤镜组合，保留 G04/S4/FRUC 原路线。合并时间轴及参数生成后才启用双标志并移除传输，Hable 保留原 CPU 回退。颗粒区复用主题标签，异步探测实际尺寸，动态判断当前选中视频及完整状态。新增 G06c Windows 静态契约和受保护路线回归。未进行 GPU 实机或用户验收，未发布，G06 未关闭。
+- M9K6 Windows CI：C# 编译及 Framework API 3053/3053 通过；新增 G06c 图契约发现 gamut_mode 前的 libplacebo 选项分隔符应为冒号，候选不交付。R7Q2 仅修正该边界及测试包后缀，重跑同一套契约。
