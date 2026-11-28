@@ -120,3 +120,10 @@ G00 下一步：逐条追踪入口、共享 helper、执行器和最终参数，
 - 独立包 FGS_G04b_H3N8_Test.zip，复用 K6P3 自动定位、Python 和 T4K8 固定合成素材；生成 576×288 10-bit BT.709 Limited 色块、灰阶、斜坡、色度棋盘格，另测原 4K30 前4帧。CPU gbrp16le tetrahedral、0/25/75/100% 逐像素混合、identity 和预混合25/75%节点；GPU libplacebo native/normalized、无 LUT、identity、默认及 bilinear/disable_linear/sigmoid=0 组合，显式 BT.709 CPU 矩阵/范围往返、RGB16 桥接；RGB16 输入输出隔离和 5^3 非线性交叉项 LUT 的三线性/四面体对照。
 - FFV1 无损输出，逐帧 SHA256/PTS、分量 PSNR、色块中心码值、ffprobe 标签/帧数、日志与实际命令；失败组合保留日志，不影响其余组。OK 仅是命令成功，非画质放行。先定位差异，之后明确候选的画质标准再长测，不以单一 PSNR 放行。
 - 本地 Linux FFmpeg CPU 色块对照、显式矩阵、RGB16 插值、hash/PTS/PSNR 与色块采样检查通过；Python 语法、BAT 无 BOM/PS1 BOM、ZIP 校验通过。Windows GPU 未执行。双击 Run_G04b_H3N8.bat，回传 Results_G04b_*.zip。无生产源码或全局设备策略改动，无新分支/PR；G04a 双标志直通路线不参与本轮颜色诊断，FGSIM 仍延后。
+
+### 9.1 H3N8 实测及 J4C7 复验（2026-11-28）
+
+- 证据 Results_G04b_20261128_152858_72e0f2.zip；FFmpeg SHA256 同 K6P3。60/60 render OK；52/52 comparison OK（命令成功，不等价于像素验收），PTS 一致。4K source 75% native 31.557272 dB，native tuned 31.411917 dB，normalized 53.810407 dB；色块最大中心平均码值偏差分别 82、82、1（10-bit）。CPU 0% 等于 CPU RGB 往返；显式 BT.709 与 CPU 自动矩阵往返 hash 相同。无 LUT GPU 往返也有色度差异，不能归因于 LUT 插值。
+- RGB16 stress 对照：GPU vs CPU tetrahedral 75.930247 dB、GPU vs CPU trilinear 47.503555 dB、CPU tetrahedral vs trilinear 47.413919 dB（chart）。支持 GPU 插值近似 tetrahedral，不据此声称逐像素完全一致。CPU 节点预混合与逐像素 blend 仍有微小量化差异。
+- 复查 FFmpeg vf_libplacebo.c：LUT 绑定 pl_frame；FGS preview_win.c 绑定 pl_render_params，native 语义不同。参考 https://github.com/haasn/libplacebo/blob/master/src/include/libplacebo/renderer.h 。normalized 才是当前 FFmpeg RGB CUBE 的候选。H3N8 RGB bridge 日志显示 gbrp16le GBR/full -> P010 GBR/full，随后 setparams 仅重标记为 BT.709 limited，属于实验设计错误，不能据此否定 RGB 桥接。J4C7 显式 scale=out_color_matrix=bt709:in_range=pc:out_range=tv,format=p010le 后设置标签。
+- FGS_G04b_J4C7_Test.zip 复用原 H3N8 自动输入、环境、日志及 launcher；52 renders / 40 comparisons。normalized identity/25/75/100/stress，修正 RGB bridge 对照，混合 RGB/YUV 路线及独立 chroma_location、up/downscaler、clip、disable_linear/sigmoid 参数。仍为颜色诊断，不做长时间性能测、不接 Plate/CUDA、不改生产及既有两个 Vulkan 标志。Python 语法、矩阵 dry-run、CPU 显式转换代理、BAT/PS1 编码及 ZIP 校验通过，GPU 实机待回传。双击 Run_G04b_J4C7.bat，回传 Results_G04b ZIP。G04b 未关闭。
