@@ -1,7 +1,7 @@
 # FGS · 4K GPU 流水线深度优化专项（Deep Dig）
 
 - 立项：2026-11-28。
-- 状态：G00 进行中；G01 首批聚焦 LUT + Grain Plate；G04 已随 v5.1.08 发布；G05 的 FGSIM 延后；G06a 独立 A/B 及缩放隔离完成；G06b 独立缩放验证完成；G06c 生产接入及颗粒选择提示待执行。
+- 状态：G00 进行中；G01 首批聚焦 LUT + Grain Plate；G04 已随 v5.1.08 发布；G05 的 FGSIM 延后；G06a 独立 A/B 及缩放隔离完成；G06b 独立缩放验证完成；G06c 生产接入及颗粒选择提示验收完成，G06 关闭（v5.1.09）。
 - 初始生产基线：v5.1.07，master / Release tag 对应提交 `72f498b253443982ec144178a6a7570777f0476a`。
 - 仓库：rampageX/FilmGrain；底层优先使用现有 FFmpeg / libplacebo / NVEncC，必要时研究 rampageX/FFmpeg。
 - 本专项独立于此前 R 系列慢路径修复与 FGB 兼容性跟踪。每轮先读 AGENTS.md，核对最新已验收生产基线；文档更新不改变发行版本。
@@ -32,7 +32,7 @@ vidpipe 上游提交 `d7d317fff55fa5acdbc130ffe73eb0b5f1508c58`，MIT。参考 [
 | G03 | P1 | 候选 | 消除重复像素格式、位深、色彩转换；核对自动插入转换、chroma siting、范围、矩阵、量化及抖动，保留必要精度。 |
 | G04 | P1（首项） | 已发布 v5.1.08（8d3f0ec5），见 §9.9 | LUT/色彩纠正融合：先审计现有 CPU LUT 与 GPU 预览/libplacebo 实现；验证插值、强度混合、顺序、HDR 保留，再决定是否需新内核。 |
 | G05 | P2（FGSIM 延后） | 候选 | Digital Grain、Grain Plate、FGSIM 分开研究；优先避免 GPU 后下载及重复合成，保留随机性、时序、纹理、HDR luma delta 与边框/字幕顺序。 |
-| G06 | P2 | G06a/G06b 独立验证完成；G06c 下一项 | HDR→SDR 色调映射与后续 GPU 滤镜衔接，保持现有曲线、参数、HLG/PQ、亮度、色域及预览一致性。 |
+| G06 | P2 | 完成，G06a/G06b/G06c 验收通过；v5.1.09 | HDR→SDR 色调映射与后续 GPU 滤镜衔接，保持现有曲线、参数、HLG/PQ、亮度、色域及预览一致性。 |
 | G07 | P2 | 候选 | 跨进程插帧 GPU 显存直通可行性；验证进程/设备支持、资源生命周期、同步、PTS/VFR/音频、取消及尾帧；无安全等价机制则关闭。 |
 | G08 | P2 | 候选 | NVENC 吞吐与背压：同编码器/预设/RC/AQ/B 帧/多 pass/位深、同源输入，分别计时提交、等待、flush；若实际瓶颈在编码则可提前。 |
 | G09 | P0 | 待执行 | 综合性能、画质、兼容性与用户实机验收；通过后才允许按 AGENTS.md 走正式发布。 |
@@ -220,3 +220,20 @@ G00 下一步：逐条追踪入口、共享 helper、执行器和最终参数，
 - 六个真实源，两套真实扫描Plate，9个非同尺寸组合；29组参数（4个HDR组合×6曲线参数、5个SDR组合×1），87/87采样成功；E_BOTH 对 B_FLAGS 29/29组、928/928帧hash/PTS一致。默认对双标志21/29组一致；3840×1608 SDR的两组Plate及1080p HLG六组曲线差异均为0/32 hash，不能以默认布局做正确性金标准。81/81编码及独立解码通过，27组三路线的完整输出逐帧PTS/duration列表一致，81组视频及音频起点0。HLG短源132帧，其余192或240帧，比较均使用实际帧数。未开展播放同步人工确认。
 - A_BASE→E_BOTH 中位FPS：2560×1440 HDR/2160p Plate 42.70→56.17 (+31.5%)，/1080p 58.17→83.50 (+43.5%)；3840×1608 SDR/2160p 44.99→52.43 (+16.5%)，/1080p 62.40→74.77 (+19.8%)；2560×1072 SDR/2160p 62.16→66.55 (+7.1%)，/1080p 96.20→115.39 (+19.9%)；3840×2160 HDR/1080p 34.33→61.65 (+79.6%)；1920×1080 HLG/2160p 34.38→37.47 (+9.0%)；3840×2160 SDR/1080p 51.33→63.46 (+23.6%)。HDR完整链为Hable默认测速，其余曲线做32帧质量等价验证。
 - G06b 独立缩放路线验收完成，G06c 可按第10/10.1节既有生产条件接入同尺寸与需要缩放的普通Plate及无Plate路线，保留两标志和现有算法、强度、时间轴；不得扩大为所有硬件/所有组合自动直通。G04 已有缩放候选保持不变；本轮SDR不含LUT，G04 GPU/CPU LUT组合、S4、FRUC、播放同步、取消清理、预览/GUI/CLI一致性及实际路线提示均列入生产候选回归，尚未通过。对默认多平面异常暂不全局修改；上游专项另列研究。G06总项仍未关闭。仅更新文档，未改生产/FFmpeg源码、未创建分支/PR或触发CI；G06c Windows CI及分支需用户明确授权。
+
+### 10.6 G06c M9K6 生产候选（Windows CI 与实机待验）
+
+- 从 v5.1.08 整合包核对正式 Release SHA256、生产源码及 master 文档提交。用户已授权 test/g06c-hdr-gpu-direct 和 Windows CI。仅共享 HEVC Main10 原帧率软件解码的 RTX 4080 普通路线、BT.2020 Limited PQ/HLG 10-bit、Hable/Spline/BT.2390；无 Plate 或已探测实际尺寸的偶数宽高 Plate，保留 bilinear。排除 LUT/CC/缩放裁剪/边框/插帧/其它滤镜组合，保留 G04/S4/FRUC 原路线。合并时间轴及参数生成后才启用双标志并移除传输，Hable 保留原 CPU 回退。颗粒区复用主题标签，异步探测实际尺寸，动态判断当前选中视频及完整状态。新增 G06c Windows 静态契约和受保护路线回归。未进行 GPU 实机或用户验收，未发布，G06 未关闭。
+- M9K6 Windows CI：C# 编译及 Framework API 3053/3053 通过；新增 G06c 图契约发现 gamut_mode 前的 libplacebo 选项分隔符应为冒号，候选不交付。R7Q2 仅修正该边界及测试包后缀，重跑同一套契约。
+- G06c R7Q2：Windows 编译、36 组 G06c 滤镜图契约以及 G04/R08/R07/R02/S4/R03/R04c/时间轴契约通过；旧 UI 启动测试仍以单参数反射调用已增加可选第二参数的 ShowTrueHdrDialog，触发 TargetParameterCountException。V4N8 仅修正测试调用及交付后缀，生产代码与 R7Q2 相同，重新运行 Windows CI；待实机验收，不关闭 G06。
+
+### 10.7 G06c V4N8 实机日志及 HDR 快捷设置（2026-11-28）
+
+- Windows CI 46154455433 全部通过。用户回传任务日志：8/8 G06c 编码成功，包括 4K PQ59.94 无 Plate / 同尺寸 / 1080p Plate，以及 1920×804 HLG 与 1080p/4K Plate、Hable/Spline/BT.2390 非默认参数；均记录双标志与 CUDA 派生，保留 AAC。4K 同尺寸 32.020s、1080p Plate 22.528s；HLG 宽银幕两尺寸 Plate 5.405s/10.139s。G04 GPU Normalized / CPU tetrahedral 独立 LUT、S4 内框及外扩 GPU 路线成功。NVEncC FRUC 10-bit SDR 按原安全门槛拒绝，换 8-bit VFR 素材成功；FRUC Vulkan HDR 保留成功（未测试 HDR→SDR + FRUC）。日志未证明播放同步、取消后清理、CLI 实机或 Plate UI 提示验收，G06 未关闭。
+- 用户要求 HDR→SDR 快捷高级设置增加 HDR 输入处理。K8H3 在已验收候选 V4N8 基础上仅复用主高级设置的 ThemeComboBox、现有语言键和 HDR_POLICY 值映射；确定保存主编码策略及曲线参数，取消不写，独立开始编码仍明确 HDR→SDR，不改变独立工具语义。下移 HDR 专用控件 30px 保留原窗口大小，SDR→TrueHDR 不变。新增实际窗口三策略读回及 OK/Cancel 审计；待 Windows CI 与用户 UI 验收。
+
+### 10.8 G06 结项（2026-11-28）
+
+- 正式发布基线为用户验收的 K8H3 commit `e85c78f85ea68e12bf69eba92d45005ef2ff8557`，Windows CI #46157003187 成功。V4N8 的 G06c 核心未变；K8H3 仅新增共享 HDR 输入策略 UI。用户确认提示、取消清理、设置及音画同步正常。
+- 补充日志：AV1 HDR→SDR BT.2390 + FRUC Vulkan 59.94→119.88 成功；HEVC + 4K Ilford Plate + HDR→SDR BT.2390 + FRUC Vulkan，10.016 秒片段，13.413 秒完成，HEVC Main10 BT.709 119.88 FPS；取消测试进程树正常退出。G04 GPU/CPU LUT、S4 内外框及 NVEncC FRUC 回归保留原路线。现行 .NET 普通编码没有独立 CLI 入口（README 明确命令行仅导入文件），该项不适用；不修改归档 Legacy BAT。
+- G06a/G06b/G06c 全部结项。默认多平面布局采样异常继续列为上游专项，不修改 FFmpeg 公共 Shader 或全局设备策略，不阻塞已验证路线。正式发布 v5.1.09，Windows runner 打包；发布成功后按已验收 SHA 删除 test/g06c-hdr-gpu-direct 及 release/v5.1.09。

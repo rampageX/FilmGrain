@@ -107,8 +107,28 @@ namespace FilmGrainStudioPreview
                 codec.SelectedIndexChanged += delegate { updateRate(); };
                 updateRate();
 
+                ComboBox hdrPolicy = null;
+                if (toSdr)
+                {
+                    hdrPolicy = CreateHdrPolicyCombo();
+                    hdrPolicy.Location = new Point(139, 117);
+                    hdrPolicy.Size = new Size(330, 26);
+                    hdrPolicy.DropDownWidth = Math.Max(330, TextRenderer.MeasureText(hdrPolicy.Items[0].ToString(), hdrPolicy.Font).Width + 36);
+                    var policyLabel = new ThemeLabel { Text = lang.T("advanced.hdr_policy"),
+                        Location = new Point(16, 121), Size = new Size(121, 24) };
+                    Action policyTip = delegate {
+                        string text = hdrPolicy.SelectedItem.ToString() + "\n" +
+                            UiText("确定：同步主编码流程的 HDR 输入处理。独立开始编码仍执行 HDR 转 SDR。",
+                                "OK: apply HDR input handling to the main encoding workflow. Standalone Start encoding still converts HDR to SDR.");
+                        tips.SetToolTip(hdrPolicy, text);
+                        tips.SetToolTip(policyLabel, text);
+                    };
+                    hdrPolicy.SelectedIndexChanged += delegate { policyTip(); };
+                    policyTip();
+                    settings.Controls.AddRange(new Control[] { policyLabel, hdrPolicy });
+                }
                 var tone = new ThemeComboBox { Name = "TONE_MAP_ALGO", DropDownStyle = ComboBoxStyle.DropDownList,
-                    Location = new Point(198, 125), Size = new Size(271, 26) };
+                    Location = new Point(198, toSdr ? 155 : 125), Size = new Size(271, 26) };
                 var toneValues = HdrToneSettings.Algorithms;
                 var toneSliders = new TrackBar[toneValues.Length][];
                 var tonePanels = new Panel[toneValues.Length];
@@ -125,31 +145,31 @@ namespace FilmGrainStudioPreview
                     string slopeUnavailable = UiText("当前 FFmpeg 不支持斜率调节", "Spline slope unavailable in this FFmpeg");
                     cpuReference = new ThemeCheckBox { Name = "HDR_TO_SDR_CPU_REFERENCE",
                         Text = UiText("CPU Hable 参照", "CPU Hable reference"),
-                        Location = new Point(16, 352), Size = new Size(196, 28) };
+                        Location = new Point(16, 382), Size = new Size(196, 28) };
                     settings.Controls.Add(cpuReference);
                     tips.SetToolTip(cpuReference, UiText("左图使用 CPU Hable 默认参数，右图仍显示当前处理方式和参数。",
                         "Use default CPU Hable for the left image. The right image shows the current processing and settings."));
                     bool hasNvenc = File.Exists(nvenc);
                     nvencReference = new ThemeCheckBox { Name = "HDR_TO_SDR_NVENC_REFERENCE",
                         Text = UiText("NVEncC Hable 参照", "NVEncC Hable reference"),
-                        Location = new Point(220, 352), Size = new Size(252, 28), Enabled = hasNvenc };
+                        Location = new Point(220, 382), Size = new Size(252, 28), Enabled = hasNvenc };
                     tips.SetToolTip(nvencReference, hasNvenc ?
                         UiText("左图使用 NVEncC vpp-colorspace 的默认 Hable。", "Use NVEncC vpp-colorspace with default Hable for the left image.") :
                         UiText("在 FGS 设置中指定 NVEncC64.exe 所在目录。", "Set the NVEncC64.exe directory in FGS settings."));
                     settings.Controls.Add(nvencReference);
-                    settings.Controls.Add(new ThemeLabel { Location = new Point(16, 384), Size = new Size(455, 70),
+                    settings.Controls.Add(new ThemeLabel { Location = new Point(16, 414), Size = new Size(455, 70),
                         Text = UiText(
                             "Hable：尽量保留亮部和暗部的细节，整体可能偏暗。NVEncC 的 Hable 曲线可指定 A–F 六个系数，此处参照使用默认值。\nMobius：尽量保留画面的亮度和对比度，可能损失部分高光细节。",
                             "Hable preserves highlight and shadow detail but can look darker. NVEncC supports coefficients A–F. This reference uses defaults.\nMobius preserves brightness and contrast but may lose some highlight detail.") });
                     ai.Visible = false;
                     route.Left = 128;
                     settings.Controls.Add(new ThemeLabel { Text = UiText("色调映射", "Tone mapping"),
-                        Location = new Point(16, 129), Size = new Size(175, 24) });
+                        Location = new Point(16, 159), Size = new Size(175, 24) });
                     tone.Items.AddRange(new object[] { lang.T("advanced.hable"), "Mobius", "Reinhard", "Gamma", "Linear", "Clip", "Vulkan Spline", "Vulkan BT.2390" });
                     settings.Controls.Add(tone);
                     for (int i = 0; i < toneValues.Length; i++)
                     {
-                        var panel = new Panel { Location = new Point(16, 164), Size = new Size(470, 185), Visible = false };
+                        var panel = new Panel { Location = new Point(16, 194), Size = new Size(470, 185), Visible = false };
                         tonePanels[i] = panel;
                         var fields = HdrToneSettings.For(toneValues[i]);
                         var initial = HdrToneSettings.Read(toneValues[i], config.Get(HdrToneSettings.Key(toneValues[i])));
@@ -565,7 +585,7 @@ namespace FilmGrainStudioPreview
                     confirm.Click += delegate {
                         try
                         {
-                            var updates = new Dictionary<string, string> { { "TONE_MAP_ALGO", algorithm() } };
+                            var updates = new Dictionary<string, string> { { "HDR_POLICY", HdrPolicyValue(hdrPolicy) }, { "TONE_MAP_ALGO", algorithm() } };
                             for (int i = 0; i < toneValues.Length; i++)
                                 updates[HdrToneSettings.Key(toneValues[i])] = HdrToneSettings.Serialize(toneValues[i],
                                     Array.ConvertAll(toneSliders[i], slider => slider.Value));
