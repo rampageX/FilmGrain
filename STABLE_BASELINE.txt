@@ -1,15 +1,15 @@
 Film Grain Studio formal stable baseline
 
 Baseline:
-v5.1.07
+v5.1.08
 Supersedes:
-v5.1.06
+v5.1.07
 
 GitHub Release asset:
-FilmGrain_Studio_v5.1.07_Stable.zip
+FilmGrain_Studio_v5.1.08_Stable.zip
 
 Local source archive and workflow artifact:
-FilmGrain_Studio_v5.1.07_Source.zip
+FilmGrain_Studio_v5.1.08_Source.zip
 
 External NVEncC dependency: user-selected current build containing upstream PR #811 (10-bit HDR VFG) and #813 fix (36a0efba40a74b452351fcf88eaa92dc19b9c7d9). Neither private binary fingerprint nor legacy build compatibility is required. NVEncC is not bundled. Validated NVEncC 9.41 r4286 build dated 2026-11-26; known FRUC NUT pipe warnings remain.
 15 preinstalled film borders: fixed 60-file SHA256 manifest, validated in Windows build and Stable ZIP.

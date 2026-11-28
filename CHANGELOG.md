@@ -1,3 +1,10 @@
+## v5.1.08 — GPU LUT、Plate CUDA 直通与 Grain Table 排序（2026-11-28）
+
+- RTX 4080 上，符合条件的 SDR BT.709 Limited HEVC Main10 默认使用 GPU Normalized LUT，可切换 CPU tetrahedral。复选框显示所选 G/C，输出名称按实际路线添加 _G/_C。
+- 普通扫描 Grain Plate 支持 Vulkan → CUDA 直通。实测通过 GPU／CPU LUT 加 Kodak Plate，以及 4K60 10-bit SDR 和 1080p 独立 GPU LUT。
+- AV1 Grain Table 默认显示全部，勾选才按分辨率筛选。两份 Dune2 表原样移入 2160p，新增 00_3840x2160_ 前缀。
+- 修复 AV1 被已保存的 HEVC 外框参数拦截的问题，统一 BT.2390 显示名称。
+
 ## v5.1.07 — Vulkan Spline / BT.2390 与 TrueHDR 队列（2026-11-28）
 
 - HDR → SDR 新增 Vulkan Spline 和 BT.2390，主流程、独立转换及同帧预览共用色调映射参数。

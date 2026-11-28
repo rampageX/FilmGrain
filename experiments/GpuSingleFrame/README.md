@@ -92,7 +92,7 @@ pacman -S --needed mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-pkgconf mingw
 **R4 双滑块实测（R9 保留相同位置参数）：**
 
 ```bash
-./fgs_gpu_preview.exe 'H:\Tester\Benchmark\one_frame_10bit.yuv' 1920 1080 'E:\EnCoder\FilmGrain_Studio\_AV1_Grain_Tables\Netflix_FGS_Dune2_MOD_E3.txt' 10 60 15 'D:\LUTs\Preset.Curator.Cinematic.and.allround.LUTS\Summer Vibe\4E_Beach Style 33.cube'
+./fgs_gpu_preview.exe 'H:\Tester\Benchmark\one_frame_10bit.yuv' 1920 1080 'E:\EnCoder\FilmGrain_Studio\_AV1_Grain_Tables\2160p\00_3840x2160_Netflix_FGS_Dune2_MOD_E3.txt' 10 60 15 'D:\LUTs\Preset.Curator.Cinematic.and.allround.LUTS\Summer Vibe\4E_Beach Style 33.cube'
 ```
 
 如果想脱离 FGS 目录单独测，也可以用包内模型和 LUT：

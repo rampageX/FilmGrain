@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.1.07 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.1.08 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 <table>
   <tr>
@@ -456,7 +456,7 @@ FRUC这次仅省去落盘，保留原SDR 8-bit 4:2:0和毫秒时间基边界，�
 
 这里的 Grain 不会在编码阶段直接写进每一个像素。播放器解码 AV1 时，根据码流中的 Film Grain 参数实时生成颗粒。
 
-随包 Grain Table 目录新增 `_AV1_Grain_Tables/Netflix_FGS_Dune2.txt`，可在现成颗粒表模式选择。文件保留用户提供的原始内容；其效果评价与测试结论仅针对实际使用素材。
+AV1 Grain Table 默认显示所有档位，勾选下拉框旁的复选框后按当前分辨率筛选。
 
 ### 中间文件与颗粒强度
 
@@ -539,7 +539,7 @@ ISO 800 · 3840×2160 · BT.2020 · Photon
 
 选择 Grain Table 后，Film 格式、Film stock、ISO 与 Chroma 参数自动禁用，因为颗粒参数已经由表文件本身决定。
 
-随包提供 `Netflix_FGS_Dune2.txt` 原强度表，以及 `Netflix_FGS_Dune2_Strength75.txt` 减弱版。减弱版将亮度和彩色颗粒强度曲线参数缩放到原表的 75%，保留纹理系数和分段事件；视觉感受不保证恰好减弱四分之一。两份都是动态表，AV1 不重编码时使用兼容流程。
+两份动态 Dune2 颗粒表位于 `_AV1_Grain_Tables/2160p/`，文件名为 `00_3840x2160_Netflix_FGS_Dune2_Orig.txt` 和 `00_3840x2160_Netflix_FGS_Dune2_MOD_E3.txt`。AV1 不重编码时使用兼容流程。
 
 Grain Table 支持主界面的 10%–100% 十档强度调节，100% 保持所选表原效果；低于 100% 按比例调整表内颗粒强度曲线，保留纹理系数及分段事件，并在应用前生成临时强度表，原表不改动。强度相对于当前所选表；如果使用已减弱的外部表，再调低百分比会进一步减弱。关闭颗粒请使用“启用颗粒”总开关。影视来源的表可能包含多个随时间变化的事件，降低强度不会把动态表变成静态表；AV1 不重编码时仍按实际快速条件选择路径。
 

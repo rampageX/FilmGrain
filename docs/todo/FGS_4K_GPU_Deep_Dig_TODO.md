@@ -169,3 +169,8 @@ G00 下一步：逐条追踪入口、共享 helper、执行器和最终参数，
 ### 9.8 G04c Q8V6 生产候选（待 CI 和实机）
 
 - 用户授权 test/g04c-gpu-lut 和 Windows CI。核对 v5.1.07 完整源码及后续文档提交。仅对 RTX 4080、HEVC Main10、BT.709 Limited progressive、原帧率、软件解码、无其它滤镜组合的普通路线放行。默认 GPU Normalized；右键 LUT 勾选框可选 CPU tetrahedral，LUT_PROCESSING_MODE / FG_LUT_PROCESSING_MODE。标准独立 CUBE 节点 [0,1]、2–65 阶，0% bypass；超出条件保留原 CPU 路线。无 LUT/CPU/GPU 的普通 Plate 直通均保留两标志；LUT 单独 GPU 下载。颗粒采样图保留 CPU 帧。LUT 四档预览使用原尺寸 FFV1 取帧和共同 Normalized 图；输出预览沿用生产计划；独立高级实时预览保留旧渲染器并提示差异。无版本变更，无正式发布；CI 和 RTX 4080 实机验收待执行。
+
+### 9.9 G04c 正式版收尾（2026-11-28）
+
+- M4P6（7708f88a）用户验收通过。4K 23.976 fps + Kodak Plate 的 GPU Normalized／CPU tetrahedral 均走 Vulkan → CUDA，任务耗时 10.824／14.029 秒。4K60 10-bit SDR 和 1080p VFR 独立 GPU LUT 成功，均输出 HEVC Main10 并复制 AAC 音轨。
+- AV1 外框保护、Grain Table 默认显示全部、LUT G/C 显示和 BT.2390 大小写随 v5.1.08 收尾。日志覆盖特殊路径和音轨复制，未单独记录播放验收及取消清理。
