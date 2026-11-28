@@ -198,3 +198,10 @@ G00 下一步：逐条追踪入口、共享 helper、执行器和最终参数，
 - 生产 NativeHevcCore：processingWidth/Height 来自 ResizePlan 或输入尺寸，Plate 转 P010 后上传、按 grainScale 选择 scale_vulkan=bilinear，再 blend_vulkan。G04cDirect 的资格未排除 grainScale；此前 K6P3 合成 Plate 1080p→4K 等价，而 R8K4 真实 Plate 4K→1080p 不等价，需用同一确定性样本覆盖放大/缩小及单轴缩放，不能概括所有方向。SharedGrainCore 完整定义未定位（猜测文件名返回404），继续审计。
 - 下一轮优先使用输入像素中心映射 x=(xo+0.5)*Wi/Wo-0.5、y=(yo+0.5)*Hi/Ho-0.5 的四邻域插值独立参考（边缘 clamp，P010 按有效10-bit比较）；用常量、斜坡、脉冲、棋盘及真实 Plate 区分几何采样误差与量化误差，记录四个设备选项和实际帧/视图尺寸证据；nearest 可作为定位采样器的辅助对照，不作为生产替换。候选修复后才进入完整链。
 - 已在 Library 定位 FGS_G06_R8K4_Test.zip、FGS_G06_Q7M2_Test.zip 和对应 R8K4 Results ZIP，但原始字节 materialization 被拒绝；需要用户重新附上最新 R8K4 完整测试包及其结果，保持测试框架连续性。未编写替代测试包，未确认根因，未修改生产或 FFmpeg 源码，未建分支/PR，未触发 CI。
+
+### 10.3 G06b N4V7 数学参考与缩放隔离（待实机）
+
+- 用户补传 R8K4/Q7M2 完整测试 ZIP 和 R8K4 原始结果 ZIP，已恢复测试框架连续性。原始 config、Plate probe、隔离 argv/log/hash/PSNR 与第10节记录一致：4K ProRes HQ yuv422p10le 转 P010 后上传，原尺寸等价，加入 1920×1080 bilinear 后 M_ONLY/DUAL 的 Y 不等价。无新的 GPU 实测结论。
+- 交付 FGS_G06b_N4V7_Test.zip，SHA256 `713ca9899d8e0339280d1eab444b67a73d48943f8711e3789db71b46655e6715`。复用 R8K4 的 Python 标准库、Windows BAT/PS1 启动器、设备参数、命令与日志保存；强制核对同一 Stable FFmpeg SHA256。选择 2160p 和 1080p 真实扫描 Plate，不需 HDR 输入。两套尺寸各四帧确定性图（常量/XY斜坡/脉冲网格/棋盘）及真实 Plate 两帧，原尺寸上传下载、显式原尺寸缩放、4K→1080、4K→3840×1600、1080→1920×800、1080→4K、1080→2560×1440，另含 nearest 定位控制；22组×4设备配置，共88次短渲染。
+- 独立数学参考直接计算 Y 像素中心 bilinear、clamp-to-edge，固定网格、边缘和随机坐标采样，记录误差/异常位置，非全帧理论比较；全帧及Y/U/V哈希、范围、showinfo PTS/色彩标签、布局间差异PSNR。UV 暂不宣称独立 chroma siting 正确；nearest 半点舍入仅作诊断。计时不用于性能验收；实际 Vulkan 视图尺寸及根因仍未确认。
+- Python 语法、参考算法、CPU P010 格式往返、12组 CPU 代理矩阵及特殊字符路径、BAT/PS1 BOM、ZIP 完整性检查通过；Windows GPU 和最终 PTS 正则比较尚待实机，CPU swscale 不作为数学参考。双击 Run_G06b_N4V7.bat，回传 Results_G06b ZIP。无生产/FFmpeg 源码变更、无新分支/PR、无 CI；完整 HDR→SDR 与 G04 缩放链留待正确候选路线验证。
