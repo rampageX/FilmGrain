@@ -1215,7 +1215,8 @@ namespace FilmGrainStudioPreview
                     UpdateFileSettingsLabels();
                 } catch(Exception ex) {FgsMessageBox.Show(this,ex.Message,Text,MessageBoxButtons.OK,MessageBoxIcon.Warning);}
             });
-            borderMenu.Opening += delegate {
+            borderMenu.Opening += delegate(object sender, System.ComponentModel.CancelEventArgs e) {
+                if (!btnFilmBorder.Enabled) { e.Cancel = true; return; }
                 clearBorder.Enabled=!string.Equals(config.Get("FILM_BORDER_MODE"),FilmBorderCatalogCore.Off,StringComparison.OrdinalIgnoreCase);
                 compositionBorder.Enabled=btnFilmBorder.Enabled && (bridgeTaskCoordinator==null || !bridgeTaskCoordinator.IsActive);
             };

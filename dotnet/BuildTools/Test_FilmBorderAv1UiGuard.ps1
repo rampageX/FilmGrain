@@ -21,11 +21,9 @@ $state=Get-Content -LiteralPath (Join-Path $root 'dotnet\FilmGrain_BridgeStateCa
 $ui=Get-Content -LiteralPath (Join-Path $root 'dotnet\FilmGrain_GpuAdvancedPreview.cs') -Raw -Encoding UTF8
 $main=Get-Content -LiteralPath (Join-Path $root 'dotnet\FilmGrain_Studio_NET_Preview.cs') -Raw -Encoding UTF8
 $svt=Get-Content -LiteralPath (Join-Path $root 'dotnet\FilmGrain_NativeX264DigitalGrainCore.cs') -Raw -Encoding UTF8
-if($state -notmatch 'snapshot\.Mode=="AV1"\|\|snapshot\.Mode=="SVT"\|\|snapshot\.NoReencode' -or
-   $state -notmatch 'snapshot\.FilmBorderMode=FilmBorderCatalogCore\.Off' -or
-   $state -notmatch 'catch\(NotSupportedException ex\)'){throw 'Snapshot AV1 border guard missing'}
-if($ui -notmatch 'NVENC_AV1 暂不可用' -or $ui -notmatch 'SVT-AV1 暂不可用' -or
-   $ui -notmatch 'AV1 仅替换颗粒 · 暂不可用' -or $ui -notmatch 'btnFilmBorder.Enabled=false' -or
+$av1Projection = 'if \(snapshot\.Mode == "AV1" \|\| snapshot\.Mode == "SVT" \|\| snapshot\.NoReencode\)\s*\{\s*snapshot\.FilmBorderMode = FilmBorderCatalogCore\.Off;\s*snapshot\.FilmBorderExpandPx = "0";\s*\}'
+if($state -notmatch $av1Projection -or $state -notmatch 'catch\(NotSupportedException ex\)'){throw 'Saved outer border must be cleared only from AV1 task state'}
+if($ui -notmatch '边框（AV1 暂时未开放）' -or $ui -notmatch 'btnFilmBorder.Enabled=false' -or
    $ui -notmatch 'btnFilmBorder.Enabled=!\(gpuAdvancedPreviewBusy\|\|filmBorderSettingsBusy\)'){throw 'AV1 disabled UI text or restore missing'}
 if($main -notmatch 'UpdateFilmBorderButton\(\);' -or
    $state -notmatch 'SyncCodecPicker\(\);LoadBitrateStateForCodec\(\);UpdateBitrateDisplays\(\);\s*UpdateFilmBorderButton\(\);'){throw 'Codec or independent-file UI refresh missing'}
