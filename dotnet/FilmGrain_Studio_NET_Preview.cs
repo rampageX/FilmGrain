@@ -107,8 +107,8 @@ namespace FilmGrainStudioPreview
 
     internal static class Program
     {
-        internal const string ReleaseVersion = "5.1.06";
-        internal const string FileReleaseVersion = "5.1.6.0";
+        internal const string ReleaseVersion = "5.1.07";
+        internal const string FileReleaseVersion = "5.1.7.0";
         internal const string BuildLabel = "Stable";
         [STAThread]
         private static void Main(string[] args)
@@ -4217,7 +4217,7 @@ namespace FilmGrainStudioPreview
                     }
                 }
                 string tone = config.Get("TONE_MAP_ALGO").ToLowerInvariant();
-                if (tone != "mobius" && tone != "reinhard" && tone != "gamma" && tone != "linear" && tone != "clip") tone = "hable";
+                tone = HdrToneSettings.Normalize(tone);
                 string toneLabel = char.ToUpperInvariant(tone[0]) + tone.Substring(1);
                 bool preserve = false;
                 bool toSdr = false;

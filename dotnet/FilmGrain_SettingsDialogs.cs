@@ -1064,7 +1064,7 @@ namespace FilmGrainStudioPreview
                 hdrPolicy.Items.Add(lang.T("advanced.hdr_auto")); hdrPolicy.Items.Add(lang.T("advanced.hdr_preserve")); hdrPolicy.Items.Add(lang.T("advanced.hdr_force_sdr")); hdrPolicy.SelectedIndex = string.Equals(config.Get("HDR_POLICY"), "PRESERVE", StringComparison.OrdinalIgnoreCase) ? 1 : (string.Equals(config.Get("HDR_POLICY"), "SDR", StringComparison.OrdinalIgnoreCase) ? 2 : 0); hdr.Controls.Add(hdrPolicy);
                 Label toneLabel = new ThemeLabel(); toneLabel.Text = UiText("色调映射", "Tone mapping"); toneLabel.Location = new Point(28, 82); toneLabel.Size = new Size(150, 24); hdr.Controls.Add(toneLabel);
                 ComboBox tone = new ThemeComboBox(); tone.Name="TONE_MAP_ALGO"; tone.DropDownStyle = ComboBoxStyle.DropDownList; tone.Location = new Point(190, 78); tone.Size = new Size(220, 26);
-                tone.Items.Add(lang.T("advanced.hable")); tone.Items.Add("Mobius"); tone.Items.Add("Reinhard"); tone.Items.Add("Gamma"); tone.Items.Add("Linear"); tone.Items.Add("Clip");
+                tone.Items.Add(lang.T("advanced.hable")); tone.Items.Add("Mobius"); tone.Items.Add("Reinhard"); tone.Items.Add("Gamma"); tone.Items.Add("Linear"); tone.Items.Add("Clip"); tone.Items.Add("Vulkan Spline"); tone.Items.Add("Vulkan BT.2390");
                 string[] toneValues = HdrToneSettings.Algorithms;
                 int selectedTone = Array.IndexOf(toneValues, config.Get("TONE_MAP_ALGO").ToLowerInvariant());
                 tone.SelectedIndex = Math.Max(0, selectedTone);
@@ -1073,6 +1073,10 @@ namespace FilmGrainStudioPreview
                 var toneEditor = new Panel { Location = new Point(28, 124), Size = new Size(518, HdrToneSettings.For("hable").Length * 34) };
                 var toneRows = new Panel[toneValues.Length];
                 var toneSliders = new TrackBar[toneValues.Length][];
+                TrackBar splineSlope = null;
+                ThemeNumericUpDown splineSlopeValue = null;
+                ThemeLabel splineSlopeLabel = null;
+                string slopeUnavailable = UiText("当前 FFmpeg 不支持斜率调节", "Spline slope unavailable in this FFmpeg");
                 for (int i = 0; i < toneValues.Length; i++) {
                     string algorithm = toneValues[i];
                     var definitions = HdrToneSettings.For(algorithm);
@@ -1113,6 +1117,12 @@ namespace FilmGrainStudioPreview
                             slider.Value = (int)Math.Round(number.Value / step, MidpointRounding.AwayFromZero);
                         };
                         reset.Click += delegate { slider.Value = field.Default; number.Value = field.Default * step; };
+                        if (field.Option == SharedHdrPreprocessCore.SplineSlopeOption)
+                        {
+                            splineSlope = slider;
+                            splineSlopeValue = number;
+                            splineSlopeLabel = label;
+                        }
                         sliders[row] = slider;
                         rows.Controls.AddRange(new Control[] { label, slider, number, reset });
                     }
@@ -1123,10 +1133,10 @@ namespace FilmGrainStudioPreview
                     Text = UiText(
                         "自动优先保留 PQ / HLG。编码、颗粒或插帧组合需要 SDR 时会转换。显式保留遇到不兼容组合可能报错，实际路线见主界面 HDR 状态。\n" +
                         "三种反交错可保留 HDR。OpenSVPFlow 支持符合条件的逐行 10-bit PQ / HLG；FRUC Vulkan 和 NVEncC AI 须通过高位深能力检测。\n" +
-                        "转 SDR 时才使用此处滑条。Hable 优先走 Vulkan，其余算法走 CPU。兼容的调色和 LUT 可保留 HDR；LUT 工坊和四档对照仍以 SDR 显示。",
+                        "转 SDR 时才使用此处滑条。Hable 优先走 Vulkan。Spline 和 BT.2390 需要 Vulkan。兼容的调色和 LUT 可保留 HDR；LUT 工坊和四档对照仍以 SDR 显示。",
                         "Auto keeps PQ / HLG where possible and converts when the encode, grain or interpolation route requires SDR. Explicit Preserve can reject incompatible combinations. See the main HDR status.\n" +
                         "All three deinterlacers can retain HDR. OpenSVPFlow supports eligible progressive 10-bit PQ / HLG. FRUC Vulkan and NVEncC AI require high-bit-depth support.\n" +
-                        "The sliders apply to HDR-to-SDR. Hable prefers Vulkan; the other algorithms use the CPU. Compatible grading and LUTs can retain HDR. LUT still previews display SDR.")
+                        "The sliders apply to HDR-to-SDR. Hable prefers Vulkan. Spline and BT.2390 require Vulkan. Compatible grading and LUTs can retain HDR. LUT still previews display SDR.")
                 };
                 hdr.Controls.Add(hdrInfo);
                 EventHandler placeHdrInfo = delegate {
@@ -1150,6 +1160,13 @@ namespace FilmGrainStudioPreview
                     bool enabled = hdrPolicy.SelectedIndex != 1;
                     tone.Enabled = toneLabel.Enabled = enabled;
                     for (int i = 0; i < toneRows.Length; i++) toneRows[i].Visible = enabled && i == tone.SelectedIndex;
+                    if (enabled && tone.SelectedIndex >= 0 && toneValues[tone.SelectedIndex] == "spline" && splineSlope != null)
+                    {
+                        bool supported = SharedHdrPreprocessCore.SupportsSplineSlope(Path.Combine(config.Get("FFMPEG_DIR"), "ffmpeg.exe"));
+                        splineSlope.Enabled = splineSlopeValue.Enabled = supported;
+                        splineSlopeLabel.Text = supported ? UiText("曲线斜率", "Spline slope tuning") : slopeUnavailable;
+                        if (!supported) interpTips.SetToolTip(splineSlopeLabel, slopeUnavailable);
+                    }
                     placeHdrInfo(null, EventArgs.Empty);
                 };
                 hdrPolicy.SelectedIndexChanged += updateHdr;

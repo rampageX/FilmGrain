@@ -23,13 +23,14 @@ namespace FilmGrainStudioPreview
 
     internal static class HdrToneSettings
     {
-        internal static readonly string[] Algorithms = { "hable", "mobius", "reinhard", "gamma", "linear", "clip" };
+        internal static readonly string[] Algorithms = { "hable", "mobius", "reinhard", "gamma", "linear", "clip", "spline", "bt.2390" };
         private static readonly HdrToneParameter Desaturation = new HdrToneParameter("desat", "高光去饱和阈值", "Desaturation threshold", 0, 1000, 200);
         private static readonly HdrToneParameter Peak = new HdrToneParameter("peak", "信号峰值（倍）", "Signal peak (×)", 0, 1000, 0, 10);
         private static readonly HdrToneParameter Brightness = new HdrToneParameter("brightness", "亮度", "Brightness", -25, 25, 0);
         private static readonly HdrToneParameter Saturation = new HdrToneParameter("saturation", "饱和度", "Saturation", 0, 200, 100);
+        private static readonly HdrToneParameter ContrastRecovery = new HdrToneParameter("contrast_recovery", "Vulkan 对比度恢复", "Vulkan contrast recovery", 0, 300, 0);
         private static readonly HdrToneParameter[][] Parameters = {
-            new[] { new HdrToneParameter("contrast_recovery", "Vulkan 对比度恢复", "Vulkan contrast recovery", 0, 300, 0),
+            new[] { ContrastRecovery,
                     new HdrToneParameter("desat", "CPU 高光去饱和阈值", "CPU desaturation threshold", 0, 1000, 200),
                     new HdrToneParameter("peak", "CPU 信号峰值（倍）", "CPU signal peak (×)", 0, 1000, 0, 10),
                     Brightness, Saturation },
@@ -37,8 +38,21 @@ namespace FilmGrainStudioPreview
             new[] { new HdrToneParameter("param", "局部对比度", "Local contrast", 1, 99, 50), Desaturation, Peak, Brightness, Saturation },
             new[] { new HdrToneParameter("param", "伽马指数", "Gamma exponent", 10, 500, 180), Desaturation, Peak, Brightness, Saturation },
             new[] { new HdrToneParameter("param", "线性增益", "Linear gain", 1, 400, 100), Desaturation, Peak, Brightness, Saturation },
-            new[] { new HdrToneParameter("param", "裁切前增益", "Pre-clip gain", 1, 400, 100), Desaturation, Brightness, Saturation }
+            new[] { new HdrToneParameter("param", "裁切前增益", "Pre-clip gain", 1, 400, 100), Desaturation, Brightness, Saturation },
+            new[] { new HdrToneParameter("tonemapping_slope_tuning", "曲线斜率", "Spline slope tuning", 0, 1000, 150),
+                    new HdrToneParameter("tonemapping_spline_contrast", "曲线对比度", "Spline contrast", 0, 150, 50),
+                    ContrastRecovery, Brightness, Saturation },
+            new[] { new HdrToneParameter("tonemapping_knee_offset", "高光拐点偏移", "Highlight knee offset", 50, 200, 100),
+                    ContrastRecovery, Brightness, Saturation }
         };
+
+        internal static bool RequiresVulkan(string algorithm) { return algorithm == "spline" || algorithm == "bt.2390"; }
+
+        internal static string Normalize(string algorithm)
+        {
+            string value = (algorithm ?? "").ToLowerInvariant();
+            return Array.IndexOf(Algorithms, value) >= 0 ? value : "hable";
+        }
 
         internal static string Key(string algorithm) { return "TONE_MAP_" + algorithm.ToUpperInvariant() + "_OPTIONS"; }
 
@@ -129,19 +143,63 @@ namespace FilmGrainStudioPreview
             return filter;
         }
 
-        internal static string VulkanHableOptions(string settings)
+        internal static string VulkanOptions(string algorithm, string settings)
         {
-            var fields = For("hable");
-            var values = Read("hable", settings);
-            string options = "contrast_recovery=" + fields[0].Format(values[0]);
-            for (int i = 3; i < fields.Length; i++)
-                if (values[i] != fields[i].Default) options += ":" + fields[i].Option + "=" + fields[i].Format(values[i]);
-            return options;
+            var fields = For(algorithm);
+            var values = Read(algorithm, settings);
+            var options = new List<string>();
+            for (int i = 0; i < fields.Length; i++)
+            {
+                var field = fields[i];
+                if (field == ContrastRecovery || (field.Option != "desat" &&
+                    field.Option != "peak" && values[i] != field.Default))
+                    options.Add(field.Option + "=" + field.Format(values[i]));
+            }
+            return string.Join(":", options.ToArray());
         }
     }
 
     internal static class SharedHdrPreprocessCore
     {
+        internal const string SplineSlopeOption = "tonemapping_slope_tuning";
+        private static readonly Dictionary<string, Tuple<long, long, string>> LibplaceboHelp =
+            new Dictionary<string, Tuple<long, long, string>>(StringComparer.OrdinalIgnoreCase);
+
+        private static string ReadLibplaceboHelp(string ffmpeg)
+        {
+            if (!File.Exists(ffmpeg)) return "";
+            var file = new FileInfo(ffmpeg);
+            long length = file.Length, stamp = file.LastWriteTimeUtc.Ticks;
+            Tuple<long, long, string> cached;
+            lock (LibplaceboHelp)
+                if (LibplaceboHelp.TryGetValue(file.FullName, out cached) && cached.Item1 == length && cached.Item2 == stamp)
+                    return cached.Item3;
+            string help, error;
+            if (!SharedFrucCore.Run(ffmpeg, "-hide_banner -h filter=libplacebo", 3000, out help, out error)) return "";
+            lock (LibplaceboHelp) LibplaceboHelp[file.FullName] = Tuple.Create(length, stamp, help);
+            return help;
+        }
+
+        internal static bool SupportsSplineSlope(string ffmpeg)
+        {
+            return SharedFrucCore.HasOption(ReadLibplaceboHelp(ffmpeg), SplineSlopeOption);
+        }
+
+        internal static string ResolveCurveParameters(string filter, string help)
+        {
+            return System.Text.RegularExpressions.Regex.Replace(filter,
+                @":(tonemapping_slope_tuning|tonemapping_spline_contrast|tonemapping_knee_offset)=([0-9.]+)",
+                match => {
+                    string option = match.Groups[1].Value;
+                    if (SharedFrucCore.HasOption(help, option)) return match.Value;
+                    if (option == SplineSlopeOption || !SharedFrucCore.HasOption(help, "tonemapping_param"))
+                        throw new InvalidOperationException("FFmpeg libplacebo does not expose " + option + ".");
+                    string value = match.Groups[2].Value;
+                    // Zero means automatic for the generic option. Use a near-zero value for minimum Spline contrast.
+                    return ":tonemapping_param=" + (value == "0" ? "0.000001" : value);
+                });
+        }
+
         private static readonly string[] LosslessHevcOptions =
         {
             "-c:v","hevc_nvenc","-profile:v","main10","-pix_fmt","p010le",
@@ -156,11 +214,13 @@ namespace FilmGrainStudioPreview
         internal static List<string> BuildTunedToSdr(string input, string output, MediaProbeInfo info, string tonemap,
             bool retainStreams, string deinterlaceFilter, string settings)
         {
+            bool vulkanOnly = HdrToneSettings.RequiresVulkan(tonemap);
+            string cpuTone = vulkanOnly ? "hable" : tonemap;
             string range=string.Equals(info.ColorRange,"pc",StringComparison.OrdinalIgnoreCase)?"pc":"tv";
             string primaries=string.IsNullOrWhiteSpace(info.ColorPrimaries)||info.ColorPrimaries=="unknown"||info.ColorPrimaries=="reserved"?"bt2020":info.ColorPrimaries;
             string space=string.IsNullOrWhiteSpace(info.ColorSpace)||info.ColorSpace=="unknown"||info.ColorSpace=="reserved"?"bt2020nc":info.ColorSpace;
             deinterlaceFilter=ResolveDeinterlaceParity(deinterlaceFilter,info);
-            string filter=deinterlaceFilter+"zscale=rin="+range+":pin="+primaries+":tin="+info.ColorTransfer+":min="+space+":t=linear:p="+primaries+":npl=100,format=gbrpf32le,tonemap=tonemap="+tonemap+HdrToneSettings.CpuOptions(tonemap,settings)+",zscale=p=bt709:t=bt709:m=bt709:r=tv"+HdrToneSettings.CpuSdrColorFilter(tonemap,settings)+",format=p010le,sidedata=mode=delete:type=MASTERING_DISPLAY_METADATA,sidedata=mode=delete:type=CONTENT_LIGHT_LEVEL,setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709";
+            string filter=deinterlaceFilter+"zscale=rin="+range+":pin="+primaries+":tin="+info.ColorTransfer+":min="+space+":t=linear:p="+primaries+":npl=100,format=gbrpf32le,tonemap=tonemap="+cpuTone+HdrToneSettings.CpuOptions(cpuTone,settings)+",zscale=p=bt709:t=bt709:m=bt709:r=tv"+HdrToneSettings.CpuSdrColorFilter(cpuTone,settings)+",format=p010le,sidedata=mode=delete:type=MASTERING_DISPLAY_METADATA,sidedata=mode=delete:type=CONTENT_LIGHT_LEVEL,setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709";
             var args=new List<string>{"-hide_banner","-stats","-progress","pipe:2","-stats_period","0.5","-y","-copyts","-start_at_zero","-i",input,"-map","0:v:0"};
             if(retainStreams)args.AddRange(new[]{"-map","0:a?","-map","0:s?","-map","0:t?","-map_metadata","0","-map_chapters","0"});
             AddDeinterlaceDevice(args,deinterlaceFilter);
@@ -168,7 +228,8 @@ namespace FilmGrainStudioPreview
             args.AddRange(LosslessHevcOptions);
             args.AddRange(new[]{"-color_range","tv","-color_primaries","bt709","-color_trc","bt709","-colorspace","bt709"});
             if(retainStreams)args.AddRange(new[]{"-c:a","copy","-c:s","copy","-c:t","copy"});
-            args.Add(output);return args;
+            args.Add(output);
+            return vulkanOnly ? BuildTunedGpuArguments(args, settings, tonemap) : args;
         }
 
         // Only standalone HDR workfile stages use this attachment. Resolve both capabilities at execution.
@@ -239,7 +300,7 @@ namespace FilmGrainStudioPreview
             return BuildTunedGpuArguments(cpu, "");
         }
 
-        internal static List<string> BuildTunedGpuArguments(IList<string> cpu, string settings)
+        internal static List<string> BuildTunedGpuArguments(IList<string> cpu, string settings, string vulkanCurve = "hable")
         {
             var args=new List<string>(cpu);
             int vf=args.IndexOf("-vf"),input=args.IndexOf("-i");
@@ -251,7 +312,7 @@ namespace FilmGrainStudioPreview
             var source=System.Text.RegularExpressions.Regex.Match(filter.Substring(linear),@"^zscale=rin=([^:]+):pin=([^:]+):tin=([^:]+):min=([^:]+):");
             if(!source.Success)throw new InvalidOperationException("HDR source color layout changed");
             string sourceTags="setparams=range="+source.Groups[1].Value+":color_primaries="+source.Groups[2].Value+":color_trc="+source.Groups[3].Value+":colorspace="+source.Groups[4].Value+",";
-            args[vf+1]=sourceTags+deint+"format=p010le,hwupload,libplacebo=tonemapping=hable:peak_detect=1:colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv:format=p010le:"+HdrToneSettings.VulkanHableOptions(settings)+":gamut_mode=clip,hwdownload,format=p010le,"+filter.Substring(clean);
+            args[vf+1]=sourceTags+deint+"format=p010le,hwupload,libplacebo=tonemapping="+vulkanCurve+":peak_detect=1:colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv:format=p010le:"+HdrToneSettings.VulkanOptions(vulkanCurve,settings)+":gamut_mode=clip,hwdownload,format=p010le,"+filter.Substring(clean);
             // A Vulkan deinterlace stage already supplies a filter device; reuse it.
             if(!args.Contains("-filter_hw_device"))args.InsertRange(input,new[]{"-init_hw_device",VulkanDevicePolicy.Spec("hdrvk"),"-filter_hw_device","hdrvk"});
             return args;
@@ -264,13 +325,17 @@ namespace FilmGrainStudioPreview
         internal static List<string> SelectTunedAutomatic(string ffmpeg, IList<string> cpu, string tonemap, out string notice,
             string vulkanDevice = null, SharedFrucCore.ProbeRunner runner = null, string settings = "")
         {
-            if(!string.Equals(tonemap,"hable",StringComparison.OrdinalIgnoreCase))
+            bool vulkanOnly = HdrToneSettings.RequiresVulkan(tonemap);
+            if(!vulkanOnly && !string.Equals(tonemap,"hable",StringComparison.OrdinalIgnoreCase))
             {
                 notice="[HDR preprocess] CPU fallback: selected algorithm="+tonemap+"; GPU Hable does not override the selected algorithm.";
                 return new List<string>(cpu);
             }
             // Command construction errors are programming errors, not missing GPU support.
-            var gpu=BuildTunedGpuArguments(cpu,settings);
+            var gpu=vulkanOnly ? new List<string>(cpu) : BuildTunedGpuArguments(cpu,settings);
+            int filterIndex = gpu.IndexOf("-vf") + 1;
+            if (vulkanOnly && gpu[filterIndex].Contains(":tonemapping_"))
+                gpu[filterIndex] = ResolveCurveParameters(gpu[filterIndex], ReadLibplaceboHelp(ffmpeg));
             var probe=new List<string>{"-hide_banner","-nostdin","-loglevel","verbose"};
             foreach(string option in new[]{"-init_hw_device","-filter_hw_device"})
                 for(int i=0;i+1<gpu.Count;i++)if(gpu[i]==option)probe.AddRange(new[]{option,gpu[i+1]});
@@ -289,10 +354,12 @@ namespace FilmGrainStudioPreview
             }
             if(supported&&!software)
             {
-                notice="[HDR preprocess] GPU Vulkan/libplacebo Hable / peak_detect=1 / gamut_mode=clip / "+HdrToneSettings.VulkanHableOptions(settings)+"; actual source/Vulkan filter check passed.";
+                notice="[HDR preprocess] GPU Vulkan/libplacebo "+(vulkanOnly ? tonemap : "Hable")+" / peak_detect=1 / gamut_mode=clip / "+HdrToneSettings.VulkanOptions(vulkanOnly ? tonemap : "hable",settings)+"; actual source/Vulkan filter check passed.";
                 return gpu;
             }
             string detail=software?"software Vulkan selected":reason;
+            if (vulkanOnly)
+                throw new InvalidOperationException("Vulkan " + tonemap + " unavailable.\n" + detail);
             // Include the diagnostic output, bounded by the existing process helper (64 KiB).
             notice="[HDR preprocess] CPU fallback: GPU capability check unavailable or failed.\n"+detail;
             return new List<string>(cpu);

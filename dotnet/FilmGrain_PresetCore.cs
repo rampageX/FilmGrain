@@ -84,7 +84,7 @@ namespace FilmGrainStudioPreview
             case "X264_RATE_MODE":Choice(v,"VBR1 2PASS 3PASS",k);return;
             case "X264_PRESET":Choice(v,"ultrafast superfast veryfast faster fast medium slow slower veryslow placebo",k);return;
             case "HDR_POLICY":Choice(v,"AUTO PRESERVE SDR",k);return;
-            case "TONE_MAP_ALGO":Choice(v,"hable mobius reinhard gamma linear clip",k);return;
+            case "TONE_MAP_ALGO":Choice(v,string.Join(" ",HdrToneSettings.Algorithms),k);return;
             case "NVENC_AI_MODE":Choice(v,"low medium high",k);return;
             case "FRUC_PERF":Choice(v,"slow medium fast",k);return;
             case "FRUC_GRID":Choice(v,"auto 1 2 4 8",k);return;

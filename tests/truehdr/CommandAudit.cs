@@ -145,6 +145,9 @@ internal static class CommandAudit
         Set(options, "AiInterpolation", false);
         var queueItem = options.GetType().GetMethod("ForQueueItem", Flags);
         Field(source, "PixelFormat", "yuv420p");
+        var noAiTask = queueItem.Invoke(options, new[] { source });
+        Require(noAiTask != null && !(bool)options.GetType().GetProperty("AiInterpolation").GetValue(noAiTask, null), "Queue keeps AI off when unchecked");
+        Set(options, "AiInterpolation", true);
         var progressiveTask = queueItem.Invoke(options, new[] { source });
         Require(progressiveTask != null && (bool)options.GetType().GetProperty("AiInterpolation").GetValue(progressiveTask, null), "Queue picks AI for progressive SDR");
         Field(source, "FieldOrder", "tt");

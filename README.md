@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.1.06 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.1.07 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 <table>
   <tr>
@@ -100,7 +100,7 @@ Lookahead 的数值是请求深度，可能受到编码器、B 帧、驱动及 F
 
 选中一条单视频流、偶数尺寸的 SDR 视频，点击输入信息旁的 **SDR → TrueHDR**。独立窗口可选择 HEVC NVENC 或 AV1 NVENC、MKV 或 MP4、VBR 或 CQ，以及对比度、饱和度、中间调亮度和峰值亮度。设置中的 NVEncC 路径须指向支持 NGX TrueHDR 的 Windows x64 版本。需要 NVIDIA RTX 显卡和兼容驱动。
 
-隔行 SDR 在同一个 NVEncC 进程内先经 CUDA YADIF Bob 反交错，每场输出一帧（如 29.97 帧／59.94 场转换到 59.94p）；预览两侧也采用相同的反交错。符合条件的逐行 8/10-bit 4:2:0 SDR 可选 NVEncC AI 插帧 2×，10-bit 会在插帧前降至 8-bit，使用 NUT 管道送入 TrueHDR，不生成中间视频文件。窗口显示当前路线。「开始队列」对待处理列表应用窗口的统一配置，跳过 HDR 和不符合条件的素材；隔行 SDR 自动 Bob，符合条件的逐行 SDR 自动 AI 插帧，其余能做 TrueHDR 的 SDR 直接转换。预览编码对每个待处理素材使用同一组截取起点和时长，预览片段完成后仍可运行整片队列。主界面和 TrueHDR 遇到总时长短于设定截取时长的素材时，自动处理整片。TrueHDR 是 NVEncC 内的最后一个画面处理步骤，随后直接编码为 BT.2020/PQ 10-bit。音轨沿用 FGS 的音频配置，输出前核验编码格式、色彩标记和音轨数量。窗口保存独立的编码及画面选项。
+隔行 SDR 在同一个 NVEncC 进程内先经 CUDA YADIF Bob 反交错，每场输出一帧（如 29.97 帧／59.94 场转换到 59.94p）；预览两侧也采用相同的反交错。符合条件的逐行 8/10-bit 4:2:0 SDR 可选 NVEncC AI 插帧 2×，10-bit 会在插帧前降至 8-bit，使用 NUT 管道送入 TrueHDR，不生成中间视频文件。窗口显示当前路线。「开始队列」对待处理列表应用窗口的统一配置，跳过 HDR 和不符合条件的素材；隔行 SDR 自动 Bob，勾选「AI 插帧 2×」时才给符合条件的逐行 SDR 插帧，其余能做 TrueHDR 的 SDR 直接转换。预览编码对每个待处理素材使用同一组截取起点和时长，预览片段完成后仍可运行整片队列。主界面和 TrueHDR 遇到总时长短于设定截取时长的素材时，自动处理整片。TrueHDR 是 NVEncC 内的最后一个画面处理步骤，随后直接编码为 BT.2020/PQ 10-bit。音轨沿用 FGS 的音频配置，输出前核验编码格式、色彩标记和音轨数量。窗口保存独立的编码及画面选项。
 
 左侧实时画面采用 16:10 视区，支持适应窗口、1:1、单张、并排和滑动对比。预览由 NVEncC 输出 Y4M 样帧，显示转换沿用 HWEncVppPreview 的标量逻辑，PQ→SDR 采用 203 nit 参考白。
 
@@ -714,11 +714,11 @@ FGSIM 与 BWDIF Vulkan 共用同一个 Vulkan filter device，避免重复创建
 
 ## HDR Preserve / HDR→SDR
 
-点击 HDR 输入信息旁的快捷按钮可打开 HDR → SDR 窗口。调整色调映射后点「确定」应用到主流程；点「开始编码」或「开始队列」使用窗口当前参数独立转换。Hable 下可勾选「CPU Hable 参照」，用左侧 CPU 默认值对照右侧当前处理效果。配置 NVEncC 后，也可选「NVEncC Hable 参照」，用其默认参数对照右侧同一帧。独立转换输出 10-bit BT.709 SDR，支持 HEVC／AV1 NVENC、MKV／MP4 和 VBR／CQ。队列截取时，短于指定时长的素材处理整段，起点越界的素材从片头截取。
+点击 HDR 输入信息旁的快捷按钮可打开 HDR → SDR 窗口。调整色调映射后点「确定」应用到主流程；点「开始编码」或「开始队列」使用窗口当前参数独立转换。Hable、Spline 和 BT.2390 下可勾选「CPU Hable 参照」，用左侧 CPU 默认值对照右侧当前处理效果。配置 NVEncC 后，也可选「NVEncC Hable 参照」，用其默认参数对照右侧同一帧。独立转换输出 10-bit BT.709 SDR，支持 HEVC／AV1 NVENC、MKV／MP4 和 VBR／CQ。队列截取时，短于指定时长的素材处理整段，起点越界的素材从片头截取。
 
 FGS 会根据 FFprobe 结果识别 HDR10/PQ 或 HLG。HEVC Main10 与 AV1 Main10 的 HDR Preserve 路线会尽量保持源视频已有的 HDR 信号，而不是人为伪造源中不存在的 mastering metadata。
 
-逐行、关闭颗粒与插帧的 HEVC HDR→SDR 任务，会在同一编码进程完成 HDR 转换、调色、LUT、画幅和字幕，减少中间视频读写。Hable 优先使用 Vulkan/libplacebo，能力不足时回退原 CPU 算法；手选其它算法保持原值。颗粒、插帧、隔行和 HDR 保留组合沿用各自处理路径。
+逐行、关闭颗粒与插帧的 HEVC HDR→SDR 任务，会在同一编码进程完成 HDR 转换、调色、LUT、画幅和字幕，减少中间视频读写。Hable 优先使用 Vulkan/libplacebo，能力不足时回退原 CPU 算法；Spline 和 BT.2390 必须使用 Vulkan；其余手选算法保持原值。颗粒、插帧、隔行和 HDR 保留组合沿用各自处理路径。
 
 当前保持与验证的项目包括：
 
@@ -764,7 +764,11 @@ Reinhard
 Gamma
 Linear
 Clip
+Vulkan Spline
+Vulkan BT.2390
 ```
+
+Spline 支持曲线对比度，BT.2390 支持高光拐点偏移，两者均支持 Vulkan 对比度恢复、亮度及饱和度调节。当前 FFmpeg 不支持独立 Spline 斜率时，该滑条禁用。
 
 HDR→SDR 会建立随机后缀的 10-bit HEVC Main10 无损工作文件，任务结束或失败后清理。工作文件仅作为内部中间层，不改变正式输出命名策略。
 
@@ -1569,7 +1573,7 @@ ffmpeg -hide_banner -h decoder=libdav1d
 
 ### HDR 转 SDR：GPU 默认与兼容回退
 
-默认 Hable 转换在共享预处理开始前实际检查 Vulkan/libplacebo 能力，支持时使用 GPU；不支持时自动沿用 CPU 并在任务日志说明原因。其他色调映射算法保持原实现。HDR 保留不受影响。源码发布准备包需先完成 Windows 编译。
+默认 Hable 转换在共享预处理开始前实际检查 Vulkan/libplacebo 能力，支持时使用 GPU；不支持时自动沿用 CPU 并在任务日志说明原因。Spline 和 BT.2390 仅使用 Vulkan，失败时明确报错；其他色调映射算法保持原实现。HDR 保留不受影响。源码发布准备包需先完成 Windows 编译。
 
 
 ### 界面主题

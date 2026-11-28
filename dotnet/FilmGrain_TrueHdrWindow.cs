@@ -80,16 +80,14 @@ namespace FilmGrainStudioPreview
                 var pending = PendingQueueInputs(toSdr);
                 bool hasQueue = listFiles.Items.Count > 1;
                 var ai = new ThemeCheckBox { Name = "TRUEHDR_AI", Text = UiText("AI 插帧 2×", "AI interpolation 2×"),
-                    Location = new Point(125, 581), Size = new Size(140, 28), Enabled = TrueHdrCore.CanInterpolate(source) };
+                    Location = new Point(125, 581), Size = new Size(140, 28), Enabled = !toSdr && (hasQueue || TrueHdrCore.CanInterpolate(source)) };
                 ai.Checked = ai.Enabled && options.AiInterpolation;
-                tips.SetToolTip(ai, UiText("逐行 8/10-bit 4:2:0 SDR，最低 640×360。10-bit 先降至 8-bit。成片和预览编码启用插帧；实时画面用于检查颜色。",
-                    "Progressive 8/10-bit 4:2:0 SDR, at least 640×360. 10-bit is reduced to 8-bit. Applies to encoding and clip preview; live stills are for color."));
+                tips.SetToolTip(ai, UiText("勾选后，对全队列内符合条件的逐行素材启用 AI 2×。支持至少 640×360 的 8/10-bit 4:2:0 SDR，10-bit 先降至 8-bit。",
+                    "When checked, apply AI 2× to eligible progressive sources in the queue. Requires 8/10-bit 4:2:0 SDR at least 640×360. 10-bit is reduced to 8-bit."));
                 var route = new ThemeLabel { Name = "TRUEHDR_ROUTE", Location = new Point(269, 581), Size = new Size(216, 28), TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true };
                 settings.Controls.AddRange(new Control[] { ai, route });
                 Action updateRate = delegate {
-                    bool batchRoute = hasQueue;
-                    bool useAi = !toSdr && TrueHdrCore.CanInterpolate(source) && (batchRoute || ai.Checked);
-                    ai.Enabled = !batchRoute && TrueHdrCore.CanInterpolate(source);
+                    bool useAi = !toSdr && ai.Checked && TrueHdrCore.CanInterpolate(source);
                     string processing = source.IsInterlaced ? UiText("反交错 · CUDA Bob 2×", "Deinterlace · CUDA Bob 2×") :
                         useAi ? UiText("插帧 · NVEncC AI 2×", "NVEncC AI 2×") : UiText("直接转换", "Direct conversion");
                     route.Text = processing + (toSdr ? " → SDR" : " → HDR");
@@ -122,6 +120,9 @@ namespace FilmGrainStudioPreview
                 string nvenc = NvencInterpolationCore.Exe(config.Get("NVENC_DIR"));
                 if (toSdr)
                 {
+                    TrackBar splineSlope = null;
+                    ThemeLabel splineSlopeLabel = null;
+                    string slopeUnavailable = UiText("当前 FFmpeg 不支持斜率调节", "Spline slope unavailable in this FFmpeg");
                     cpuReference = new ThemeCheckBox { Name = "HDR_TO_SDR_CPU_REFERENCE",
                         Text = UiText("CPU Hable 参照", "CPU Hable reference"),
                         Location = new Point(16, 352), Size = new Size(196, 28) };
@@ -136,15 +137,15 @@ namespace FilmGrainStudioPreview
                         UiText("左图使用 NVEncC vpp-colorspace 的默认 Hable。", "Use NVEncC vpp-colorspace with default Hable for the left image.") :
                         UiText("在 FGS 设置中指定 NVEncC64.exe 所在目录。", "Set the NVEncC64.exe directory in FGS settings."));
                     settings.Controls.Add(nvencReference);
-                    settings.Controls.Add(new ThemeLabel { Location = new Point(16, 384), Size = new Size(455, 100),
+                    settings.Controls.Add(new ThemeLabel { Location = new Point(16, 384), Size = new Size(455, 70),
                         Text = UiText(
-                            "Hable：尽量保留亮部和暗部的细节，整体可能偏暗。NVEncC 的 Hable 曲线可指定 A–F 六个系数，此处参照使用默认值。\n\nMobius：尽量保留画面的亮度和对比度，可能损失部分高光细节。",
-                            "Hable preserves highlight and shadow detail but can look darker. NVEncC supports coefficients A–F. This reference uses defaults.\n\nMobius preserves brightness and contrast but may lose some highlight detail.") });
+                            "Hable：尽量保留亮部和暗部的细节，整体可能偏暗。NVEncC 的 Hable 曲线可指定 A–F 六个系数，此处参照使用默认值。\nMobius：尽量保留画面的亮度和对比度，可能损失部分高光细节。",
+                            "Hable preserves highlight and shadow detail but can look darker. NVEncC supports coefficients A–F. This reference uses defaults.\nMobius preserves brightness and contrast but may lose some highlight detail.") });
                     ai.Visible = false;
                     route.Left = 128;
                     settings.Controls.Add(new ThemeLabel { Text = UiText("色调映射", "Tone mapping"),
                         Location = new Point(16, 129), Size = new Size(175, 24) });
-                    tone.Items.AddRange(new object[] { lang.T("advanced.hable"), "Mobius", "Reinhard", "Gamma", "Linear", "Clip" });
+                    tone.Items.AddRange(new object[] { lang.T("advanced.hable"), "Mobius", "Reinhard", "Gamma", "Linear", "Clip", "Vulkan Spline", "Vulkan BT.2390" });
                     settings.Controls.Add(tone);
                     for (int i = 0; i < toneValues.Length; i++)
                     {
@@ -160,18 +161,34 @@ namespace FilmGrainStudioPreview
                             string caption = UiText(field.Chinese, field.English);
                             var slider = new ThemeTrackBar { AccessibleName = caption, AutoSize = false, TickStyle = TickStyle.None,
                                 Minimum = field.Minimum, Maximum = field.Maximum, Value = initial[row],
-                                Location = new Point(182, y), Size = new Size(206, 28) };
-                            var value = new ThemeLabel { Text = field.Format(slider.Value), Location = new Point(400, y + 4), Size = new Size(64, 24) };
+                                Location = new Point(182, y), Size = new Size(192, 28) };
+                            var value = new ThemeLabel { Text = field.Format(slider.Value), Location = new Point(380, y + 4), Size = new Size(53, 24) };
+                            var resetField = new ThemeButton { Text = "↺", Location = new Point(439, y), Size = new Size(26, 26),
+                                AccessibleName = UiText("重置 ", "Reset ") + caption };
+                            tips.SetToolTip(resetField, resetField.AccessibleName + " (" + field.Format(field.Default) + ")");
+                            resetField.Click += delegate { slider.Value = field.Default; };
                             slider.ValueChanged += delegate { value.Text = field.Format(slider.Value); };
                             toneSliders[i][row] = slider;
-                            panel.Controls.AddRange(new Control[] { new ThemeLabel { Text = caption,
-                                Location = new Point(0, y + 4), Size = new Size(180, 24) }, slider, value });
+                            var fieldLabel = new ThemeLabel { Text = caption,
+                                Location = new Point(0, y + 4), Size = new Size(180, 24) };
+                            if (field.Option == SharedHdrPreprocessCore.SplineSlopeOption)
+                            {
+                                splineSlope = slider;
+                                splineSlopeLabel = fieldLabel;
+                            }
+                            panel.Controls.AddRange(new Control[] { fieldLabel, slider, value, resetField });
                         }
                         settings.Controls.Add(panel);
                     }
                     tone.SelectedIndexChanged += delegate {
                         for (int i = 0; i < tonePanels.Length; i++) tonePanels[i].Visible = i == tone.SelectedIndex;
-                        cpuReference.Visible = nvencReference.Visible = algorithm() == "hable";
+                        if (algorithm() == "spline" && splineSlope != null)
+                        {
+                            splineSlope.Enabled = SharedHdrPreprocessCore.SupportsSplineSlope(Path.Combine(config.Get("FFMPEG_DIR"), "ffmpeg.exe"));
+                            splineSlopeLabel.Text = splineSlope.Enabled ? UiText("曲线斜率", "Spline slope tuning") : slopeUnavailable;
+                            tips.SetToolTip(splineSlopeLabel, splineSlope.Enabled ? "" : slopeUnavailable);
+                        }
+                        cpuReference.Visible = nvencReference.Visible = algorithm() == "hable" || HdrToneSettings.RequiresVulkan(algorithm());
                     };
                     tone.SelectedIndex = Math.Max(0, Array.IndexOf(toneValues, config.Get("TONE_MAP_ALGO").ToLowerInvariant()));
                 }
@@ -329,9 +346,10 @@ namespace FilmGrainStudioPreview
                     if (!toSdr) for (int i = 0; i < values.Length; i++) values[i] = sliders[i].Value;
                     string selectedAlgorithm = toSdr ? algorithm() : null;
                     string tuning = toSdr ? toneOptions() : null;
-                    bool useCpuReference = selectedAlgorithm == "hable" && cpuReference.Checked;
+                    bool usesHableReference = selectedAlgorithm == "hable" || HdrToneSettings.RequiresVulkan(selectedAlgorithm);
+                    bool useCpuReference = usesHableReference && cpuReference.Checked;
                     string ffmpeg = Path.Combine(config.Get("FFMPEG_DIR"), "ffmpeg.exe");
-                    string nvencForReference = selectedAlgorithm == "hable" && nvencReference.Checked ? nvenc : null;
+                    string nvencForReference = usesHableReference && nvencReference.Checked ? nvenc : null;
                     double position = seek.Position;
                     previewInfo = null;
                     displayStatus.Text = UiText("正在刷新画面…", "Refreshing preview…");
@@ -418,8 +436,8 @@ namespace FilmGrainStudioPreview
                 updateStartLabel();
                 if (toSdr && hasQueue) tips.SetToolTip(begin, UiText("队列中的 HDR 素材使用当前统一参数，跳过 SDR。",
                     "Apply these settings to pending HDR sources and skip SDR."));
-                if (!toSdr && hasQueue) tips.SetToolTip(begin, UiText("队列使用当前统一配置。HDR 跳过，隔行 Bob，符合条件的逐行 SDR 用 AI 2×，其余可转换 SDR 直接转 HDR。预览编码对每个待处理素材使用同一截取范围。",
-                    "Queue uses these shared settings. Skip HDR, Bob interlaced SDR, AI 2× for eligible progressive SDR, direct conversion for other supported SDR. Clip preview applies the same range to every pending source."));
+                if (!toSdr && hasQueue) tips.SetToolTip(begin, UiText("队列使用当前统一配置。HDR 跳过，隔行 Bob，勾选 AI 2× 后才给符合条件的逐行 SDR 插帧，其余可转换 SDR 直接转 HDR。预览编码对每个待处理素材使用同一截取范围。",
+                    "Queue uses these shared settings. Skip HDR, Bob interlaced SDR, AI 2× for eligible progressive SDR when checked, direct conversion for other supported SDR. Clip preview applies the same range to every pending source."));
 
                 begin.Click += delegate {
                     bool tracking = false;

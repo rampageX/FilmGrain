@@ -228,7 +228,7 @@ namespace FilmGrainStudioPreview
             if(hdrPreserve && !SvtHdr10Core.CheckScope(info,state,grainEnabled,interpolate,out reason))return false;
             if(hdrPreserve&&fruc)shareInterpolation=false;
             string tonemap = Get(state, "FG_TONEMAP_ALGO").ToLowerInvariant();
-            if (tonemap != "mobius" && tonemap != "reinhard" && tonemap != "gamma" && tonemap != "linear" && tonemap != "clip") tonemap = "hable";
+            tonemap = HdrToneSettings.Normalize(tonemap);
             string toneSettings = Get(state, "FG_TONEMAP_OPTIONS");
             string tonemapLabel = char.ToUpperInvariant(tonemap[0]) + tonemap.Substring(1);
             // Match Legacy Bridge: interlaced input only enters the deinterlace route when UI selects AUTO.

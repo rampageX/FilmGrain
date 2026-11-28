@@ -49,7 +49,7 @@ namespace FilmGrainStudioPreview
 
 
             string tonemap = Get(state, "FG_TONEMAP_ALGO").ToLowerInvariant();
-            if (tonemap != "mobius" && tonemap != "reinhard" && tonemap != "gamma" && tonemap != "linear" && tonemap != "clip") tonemap = "hable";
+            tonemap = HdrToneSettings.Normalize(tonemap);
             string toneSettings = Get(state, "FG_TONEMAP_OPTIONS");
             string tonemapLabel = char.ToUpperInvariant(tonemap[0]) + tonemap.Substring(1);
             if (info.Width <= 0 || info.Height <= 0) { reason = "invalid dimensions"; return false; }

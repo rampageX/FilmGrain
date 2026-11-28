@@ -1,5 +1,6 @@
-# Film Grain Studio v5.1.06
+# Film Grain Studio v5.1.07
 
-- HDR → SDR 的 Hable 预览新增「NVEncC Hable 参照」。配置目录中存在 NVEncC64.exe 时可选，使用 vpp-colorspace 的默认 Hable 参数，只影响左图。
-- NVEncC 参照与右图共用同一张无损 HDR 抽帧，避免分割对比时画面错位。NVEncC 参照使用 8-bit Y4M 显示。
-- 参数区新增 Hable 和 Mobius 算法说明。Windows 实机已确认 NVEncC 同帧对照及默认色调映射效果。
+- HDR → SDR 新增 Vulkan Spline 和 BT.2390，主流程、独立转换及同帧预览共用色调映射参数。
+- Spline 曲线对比度、BT.2390 高光拐点适配当前 FFmpeg/libplacebo 参数；不支持独立 Spline 斜率时禁用该滑条。支持亮度、饱和度和 Vulkan 对比度恢复调节，独立预览滑条支持单项重置。
+- SDR → TrueHDR 队列仅在勾选 AI 插帧 2× 时对符合条件的逐行素材插帧；隔行素材仍自动 Bob 2×，未勾选时逐行保持原帧率。
+- CB8F27 候选版已由用户实机验收通过。

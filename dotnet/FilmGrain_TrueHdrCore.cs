@@ -39,7 +39,7 @@ namespace FilmGrainStudioPreview
         {
             if (!TrueHdrCore.Eligible(source)) return null;
             var item = (TrueHdrOptions)MemberwiseClone();
-            item.AiInterpolation = TrueHdrCore.CanInterpolate(source);
+            item.AiInterpolation = AiInterpolation && TrueHdrCore.CanInterpolate(source);
             return item;
         }
 
@@ -495,8 +495,8 @@ namespace FilmGrainStudioPreview
             double position, string algorithm, string settings, bool cpuReference, string nvencReference, CancellationToken token)
         {
             if (!File.Exists(ffmpeg)) throw new FileNotFoundException("Configure ffmpeg.exe in FGS settings.", ffmpeg);
-            if (algorithm == "hable" && !string.IsNullOrEmpty(nvencReference))
-                return RenderNvencComparison(ffmpeg, nvencReference, source, position, settings, token);
+            if (HdrToneSettings.RequiresVulkan(algorithm) || (algorithm == "hable" && !string.IsNullOrEmpty(nvencReference)))
+                return RenderSharedFrameComparison(ffmpeg, nvencReference, source, position, algorithm, settings, cpuReference, token);
             var tuned = Conversion(source, "-", algorithm, settings);
             string notice;
             var selected = SharedHdrPreprocessCore.SelectTunedAutomatic(ffmpeg, tuned, algorithm, out notice, settings: settings);
@@ -550,10 +550,10 @@ namespace FilmGrainStudioPreview
             return args;
         }
 
-        private static Tuple<System.Drawing.Bitmap, System.Drawing.Bitmap> RenderNvencComparison(string ffmpeg, string nvenc,
-            MediaProbeInfo source, double position, string settings, CancellationToken token)
+        private static Tuple<System.Drawing.Bitmap, System.Drawing.Bitmap> RenderSharedFrameComparison(string ffmpeg, string nvenc,
+            MediaProbeInfo source, double position, string algorithm, string settings, bool cpuReference, CancellationToken token)
         {
-            string directory = Path.Combine(Path.GetTempPath(), "fgs-nvencc-hable-" + Guid.NewGuid().ToString("N"));
+            string directory = Path.Combine(Path.GetTempPath(), "fgs-hdr-compare-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(directory);
             try
             {
@@ -561,18 +561,32 @@ namespace FilmGrainStudioPreview
                 string frame = Path.Combine(directory, "frame.mkv");
                 string referencePath = Path.Combine(directory, "reference.y4m");
                 RunFfmpegPreview(ffmpeg, SharedReferenceFrameArguments(source, frame, position), frame, token);
-                var tuned = SharedHdrPreprocessCore.BuildTunedToSdr(frame, "-", source, "hable", false, "", settings);
+                var tuned = SharedHdrPreprocessCore.BuildTunedToSdr(frame, "-", source, algorithm, false, "", settings);
                 string notice;
-                var selected = SharedHdrPreprocessCore.SelectTunedAutomatic(ffmpeg, tuned, "hable", out notice, settings: settings);
+                var selected = SharedHdrPreprocessCore.SelectTunedAutomatic(ffmpeg, tuned, algorithm, out notice, settings: settings);
                 token.ThrowIfCancellationRequested();
-                TrueHdrCore.RunLiveFrameTool(nvenc, NvencReferenceArguments(source, frame, referencePath), token);
-                var sdr = new MediaProbeInfo { Width = source.Width, Height = source.Height, ColorRange = "tv", ColorSpace = "bt709" };
-                var original = TrueHdrPreviewFrames.Read(referencePath, sdr, false, TrueHdrPreviewFrames.ReferenceWhite, token);
+                System.Drawing.Bitmap original;
+                string referenceLabel;
+                if (!string.IsNullOrEmpty(nvenc))
+                {
+                    TrueHdrCore.RunLiveFrameTool(nvenc, NvencReferenceArguments(source, frame, referencePath), token);
+                    var sdr = new MediaProbeInfo { Width = source.Width, Height = source.Height, ColorRange = "tv", ColorSpace = "bt709" };
+                    original = TrueHdrPreviewFrames.Read(referencePath, sdr, false, TrueHdrPreviewFrames.ReferenceWhite, token);
+                    referenceLabel = "NVEncC Hable";
+                }
+                else
+                {
+                    var reference = SharedHdrPreprocessCore.BuildTunedToSdr(frame, "-", source, "hable", false, "", "");
+                    if (!cpuReference) reference = SharedHdrPreprocessCore.BuildTunedGpuArguments(reference, "");
+                    original = RenderStill(ffmpeg, reference, null, token);
+                    referenceLabel = cpuReference ? "CPU Hable" : "Vulkan Hable";
+                }
                 try
                 {
                     var output = RenderStill(ffmpeg, selected, null, token);
-                    original.Tag = "NVEncC Hable";
-                    output.Tag = selected[selected.IndexOf("-vf") + 1].Contains("libplacebo=") ? "Vulkan hable" : "CPU hable";
+                    original.Tag = referenceLabel;
+                    string curveLabel = algorithm == "spline" ? "Spline" : algorithm == "bt.2390" ? "BT.2390" : "Hable";
+                    output.Tag = (selected[selected.IndexOf("-vf") + 1].Contains("libplacebo=") ? "Vulkan " : "CPU ") + curveLabel;
                     return Tuple.Create(original, output);
                 }
                 catch { original.Dispose(); throw; }
@@ -656,7 +670,8 @@ namespace FilmGrainStudioPreview
             bool faststart = mp4 && config.GetBool("MP4_FASTSTART");
             var rate = TrueHdrCore.RateState(options);
             int bitrate = TrueHdrCore.Bitrate(options, source);
-            string output = Path.Combine(directory, Path.GetFileNameWithoutExtension(input) + "_HDRtoSDR_" + codec + "_" +
+            string curveSuffix = HdrToneSettings.RequiresVulkan(algorithm) ? algorithm + "_" : "";
+            string output = Path.Combine(directory, Path.GetFileNameWithoutExtension(input) + "_HDRtoSDR_" + curveSuffix + codec + "_" +
                 NvencRateControlCore.FileToken(rate, bitrate) + (seconds > 0 ? "_Preview_" + (resetStart ? "000000" : options.PreviewStart.Replace(":", "")) +
                 "_" + TrueHdrCore.Number(seconds) + "s" : "") + ext);
             finalOutput = output;
