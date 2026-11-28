@@ -1,7 +1,7 @@
 # FGS · 4K GPU 流水线深度优化专项（Deep Dig）
 
 - 立项：2026-11-28。
-- 状态：G00 进行中；G01 首批聚焦 LUT + Grain Plate；G04 为首个研究方向，G05 的 FGSIM 延后。后续为候选任务。
+- 状态：G00 进行中；G01 首批聚焦 LUT + Grain Plate；G04 已随 v5.1.08 发布；G05 的 FGSIM 延后；G06 下一项，先审计与验证。
 - 初始生产基线：v5.1.07，master / Release tag 对应提交 `72f498b253443982ec144178a6a7570777f0476a`。
 - 仓库：rampageX/FilmGrain；底层优先使用现有 FFmpeg / libplacebo / NVEncC，必要时研究 rampageX/FFmpeg。
 - 本专项独立于此前 R 系列慢路径修复与 FGB 兼容性跟踪。每轮先读 AGENTS.md，核对最新已验收生产基线；文档更新不改变发行版本。
@@ -30,9 +30,9 @@ vidpipe 上游提交 `d7d317fff55fa5acdbc130ffe73eb0b5f1508c58`，MIT。参考 [
 | G01 | P0 | 待执行 | 建立真实 FGS 4K 性能基准；单项/组合及纯编码对照、4K 30/60、SDR/PQ/HLG；记录日志、实际滤镜图、全任务耗时与稳态 FPS、CPU/GPU 编解码和显存、输出及时间轴；按瓶颈重排 G02–G08。 |
 | G02 | P1 | 候选 | 消除不必要 CPU/CUDA/Vulkan 主机帧传输及中间工作文件；先复用已有 S4、R01/R02/R07/R08 路线，证明画质与时间轴等价。不得把 GPU 间映射等同于零复制。 |
 | G03 | P1 | 候选 | 消除重复像素格式、位深、色彩转换；核对自动插入转换、chroma siting、范围、矩阵、量化及抖动，保留必要精度。 |
-| G04 | P1（首项） | G04a/G04b 独立验证完成；G04c 待真实视觉验收及默认路线接入 | LUT/色彩纠正融合：先审计现有 CPU LUT 与 GPU 预览/libplacebo 实现；验证插值、强度混合、顺序、HDR 保留，再决定是否需新内核。 |
+| G04 | P1（首项） | 已发布 v5.1.08（8d3f0ec5），见 §9.9 | LUT/色彩纠正融合：先审计现有 CPU LUT 与 GPU 预览/libplacebo 实现；验证插值、强度混合、顺序、HDR 保留，再决定是否需新内核。 |
 | G05 | P2（FGSIM 延后） | 候选 | Digital Grain、Grain Plate、FGSIM 分开研究；优先避免 GPU 后下载及重复合成，保留随机性、时序、纹理、HDR luma delta 与边框/字幕顺序。 |
-| G06 | P2 | 候选 | HDR→SDR 色调映射与后续 GPU 滤镜衔接，保持现有曲线、参数、HLG/PQ、亮度、色域及预览一致性。 |
+| G06 | P2 | 下一项，待路线审计与独立 A/B | HDR→SDR 色调映射与后续 GPU 滤镜衔接，保持现有曲线、参数、HLG/PQ、亮度、色域及预览一致性。 |
 | G07 | P2 | 候选 | 跨进程插帧 GPU 显存直通可行性；验证进程/设备支持、资源生命周期、同步、PTS/VFR/音频、取消及尾帧；无安全等价机制则关闭。 |
 | G08 | P2 | 候选 | NVENC 吞吐与背压：同编码器/预设/RC/AQ/B 帧/多 pass/位深、同源输入，分别计时提交、等待、flush；若实际瓶颈在编码则可提前。 |
 | G09 | P0 | 待执行 | 综合性能、画质、兼容性与用户实机验收；通过后才允许按 AGENTS.md 走正式发布。 |
@@ -174,3 +174,5 @@ G00 下一步：逐条追踪入口、共享 helper、执行器和最终参数，
 
 - M4P6（7708f88a）用户验收通过。4K 23.976 fps + Kodak Plate 的 GPU Normalized／CPU tetrahedral 均走 Vulkan → CUDA，任务耗时 10.824／14.029 秒。4K60 10-bit SDR 和 1080p VFR 独立 GPU LUT 成功，均输出 HEVC Main10 并复制 AAC 音轨。
 - AV1 外框保护、Grain Table 默认显示全部、LUT G/C 显示和 BT.2390 大小写随 v5.1.08 收尾。日志覆盖特殊路径和音轨复制，未单独记录播放验收及取消清理。
+
+- 正式版发布提交 `8d3f0ec5635b3690ca53216087cf68fd7acd6953`，[v5.1.08 Release](https://github.com/rampageX/FilmGrain/releases/tag/v5.1.08)，Windows CI `46142945244` 成功。Stable 与完整源码均核对两份 Dune2 表已移入 `2160p` 并带 `00_3840x2160_` 前缀，测试分支已删除。
