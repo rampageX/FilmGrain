@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.1.08 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.1.09 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 <table>
   <tr>
@@ -714,7 +714,9 @@ FGSIM 与 BWDIF Vulkan 共用同一个 Vulkan filter device，避免重复创建
 
 ## HDR Preserve / HDR→SDR
 
-点击 HDR 输入信息旁的快捷按钮可打开 HDR → SDR 窗口。调整色调映射后点「确定」应用到主流程；点「开始编码」或「开始队列」使用窗口当前参数独立转换。Hable、Spline 和 BT.2390 下可勾选「CPU Hable 参照」，用左侧 CPU 默认值对照右侧当前处理效果。配置 NVEncC 后，也可选「NVEncC Hable 参照」，用其默认参数对照右侧同一帧。独立转换输出 10-bit BT.709 SDR，支持 HEVC／AV1 NVENC、MKV／MP4 和 VBR／CQ。队列截取时，短于指定时长的素材处理整段，起点越界的素材从片头截取。
+RTX 4080 上，符合条件的逐行 10-bit BT.2020 Limited PQ/HLG、原帧率、软件解码、HEVC Main10 的 Vulkan Hable/Spline/BT.2390 HDR→SDR 路线支持 GPU 双端直通。无 Plate、同尺寸 Plate 和需要 bilinear GPU 缩放的普通扫描 Plate 均可使用；保留两个 Vulkan 设备标志。颗粒选择区显示实际尺寸及路线提示。插帧、边框、LUT、其它滤镜或不符合条件的组合保留原路线；Hable 保留既有 GPU 检查及 CPU 回退。
+
+点击 HDR 输入信息旁的快捷按钮可打开 HDR → SDR 窗口。快捷窗口中的 HDR 输入处理与主高级设置共享配置；调整策略及色调映射后点「确定」应用到主流程，取消不保存；点「开始编码」或「开始队列」使用窗口当前参数独立转换。Hable、Spline 和 BT.2390 下可勾选「CPU Hable 参照」，用左侧 CPU 默认值对照右侧当前处理效果。配置 NVEncC 后，也可选「NVEncC Hable 参照」，用其默认参数对照右侧同一帧。独立转换输出 10-bit BT.709 SDR，支持 HEVC／AV1 NVENC、MKV／MP4 和 VBR／CQ。队列截取时，短于指定时长的素材处理整段，起点越界的素材从片头截取。
 
 FGS 会根据 FFprobe 结果识别 HDR10/PQ 或 HLG。HEVC Main10 与 AV1 Main10 的 HDR Preserve 路线会尽量保持源视频已有的 HDR 信号，而不是人为伪造源中不存在的 mastering metadata。
 
