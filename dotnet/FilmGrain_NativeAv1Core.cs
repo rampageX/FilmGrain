@@ -51,7 +51,7 @@ namespace FilmGrainStudioPreview
             string tonemap = Get(state, "FG_TONEMAP_ALGO").ToLowerInvariant();
             tonemap = HdrToneSettings.Normalize(tonemap);
             string toneSettings = Get(state, "FG_TONEMAP_OPTIONS");
-            string tonemapLabel = char.ToUpperInvariant(tonemap[0]) + tonemap.Substring(1);
+            string tonemapLabel = HdrToneSettings.DisplayName(tonemap);
             if (info.Width <= 0 || info.Height <= 0) { reason = "invalid dimensions"; return false; }
             bool deinterlace = info.IsInterlaced && Eq(state, "FG_DEINTERLACE", "AUTO");
             // OFF follows Legacy: no field filter or bob; it does not enable interlaced encoding.

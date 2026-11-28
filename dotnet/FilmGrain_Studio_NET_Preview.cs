@@ -4230,7 +4230,7 @@ namespace FilmGrainStudioPreview
                 }
                 string tone = config.Get("TONE_MAP_ALGO").ToLowerInvariant();
                 tone = HdrToneSettings.Normalize(tone);
-                string toneLabel = char.ToUpperInvariant(tone[0]) + tone.Substring(1);
+                string toneLabel = HdrToneSettings.DisplayName(tone);
                 bool preserve = false;
                 bool toSdr = false;
                 bool unsupported = false;

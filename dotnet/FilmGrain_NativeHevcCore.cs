@@ -92,7 +92,7 @@ namespace FilmGrainStudioPreview
             tonemap = HdrToneSettings.Normalize(tonemap);
 
             string toneSettings = Get(state, "FG_TONEMAP_OPTIONS");
-            string tonemapLabel = char.ToUpperInvariant(tonemap[0]) + tonemap.Substring(1);
+            string tonemapLabel = HdrToneSettings.DisplayName(tonemap);
 
             bool mkv = Eq(state, "FG_CONTAINER", "MKV");
 
@@ -330,10 +330,6 @@ namespace FilmGrainStudioPreview
 
             if (grainEnabled && pixelPercent != 100) grainFileName += "_GS" + pixelPercent.ToString(CultureInfo.InvariantCulture);
             string borderSuffix = filmBorder == null ? "" : filmBorder.FileSuffix;
-            string output = Path.Combine(outDir, Path.GetFileNameWithoutExtension(input) + (h264?"_H264_NVENC_":"_HEVC_") + speedSuffix + "_" + NvencRateControlCore.FileToken(state,bitrate) + fpsSuffix + deinterlaceSuffix + frame.FileSuffix + grainFileName + colorSuffix + lutNamingSuffix + (hdrToSdr ? "_SDR_" + tonemapLabel : "") + subSuffix + borderSuffix + HardwareDecodeCore.FileSuffix(state) + (mkv ? ".mkv" : ".mp4"));
-
-            if (File.Exists(output)) { reason = "native output already exists: " + output; return false; }
-
                             if (plateMode && !File.Exists(Get(state,"FG_HEVC_GRAIN_PATH"))) { reason="selected Grain Plate is missing";return false; }
                 if (fruc && !SharedFrucCore.TryPreflight(ffmpeg,Get(state,"FG_FRUC_PERF").ToLowerInvariant(),Get(state,"FG_FRUC_GRID").ToLowerInvariant(),out reason))return false;
                 if(fruc && hdrPreserve && !SharedFrucCore.TryPreflight10(ffmpeg,Get(state,"FG_FRUC_PERF").ToLowerInvariant(),Get(state,"FG_FRUC_GRID").ToLowerInvariant(),out reason))return false;
@@ -470,6 +466,12 @@ namespace FilmGrainStudioPreview
                 string gpuCubeName="",gpuCubeText="";
                 bool g04cGpu=g04cEligible&&G04cLutCore.WantsGpu(state)&&!string.IsNullOrEmpty(lutCompatName)&&
                     G04cLutCore.TryCanonicalCube(Get(state,"FG_LUT_PATH"),NormalizeLutStrength(Get(state,"FG_LUT_STRENGTH")),out gpuCubeText);
+                if (!h264 && !string.IsNullOrEmpty(lutCompatPath) && !string.IsNullOrEmpty(lutNamingSuffix))
+                    lutNamingSuffix += g04cGpu ? "_G" : "_C";
+
+                string output = Path.Combine(outDir, Path.GetFileNameWithoutExtension(input) + (h264?"_H264_NVENC_":"_HEVC_") + speedSuffix + "_" + NvencRateControlCore.FileToken(state,bitrate) + fpsSuffix + deinterlaceSuffix + frame.FileSuffix + grainFileName + colorSuffix + lutNamingSuffix + (hdrToSdr ? "_SDR_" + tonemapLabel : "") + subSuffix + borderSuffix + HardwareDecodeCore.FileSuffix(state) + (mkv ? ".mkv" : ".mp4"));
+                if (File.Exists(output)) { reason = "native output already exists: " + output; return false; }
+
                 if(g04cGpu){
                     gpuCubeName="__FGS_G04C_"+Guid.NewGuid().ToString("N")+".cube";
                     gpuCubePath=Path.Combine(workingDirectory,gpuCubeName);

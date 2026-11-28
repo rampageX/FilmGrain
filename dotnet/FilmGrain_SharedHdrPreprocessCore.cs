@@ -48,6 +48,12 @@ namespace FilmGrainStudioPreview
 
         internal static bool RequiresVulkan(string algorithm) { return algorithm == "spline" || algorithm == "bt.2390"; }
 
+        internal static string DisplayName(string algorithm)
+        {
+            string value = Normalize(algorithm);
+            return value == "bt.2390" ? "BT.2390" : char.ToUpperInvariant(value[0]) + value.Substring(1);
+        }
+
         internal static string Normalize(string algorithm)
         {
             string value = (algorithm ?? "").ToLowerInvariant();
