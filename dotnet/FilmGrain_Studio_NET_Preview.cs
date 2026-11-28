@@ -1730,7 +1730,10 @@ namespace FilmGrainStudioPreview
                 generatorNote.Links.Clear();
                 generatorNote.Links.Add(generatorText.IndexOf(generatorName, StringComparison.Ordinal), generatorName.Length);
                 generatorNote.LinkClicked += delegate { OpenWebLink(this, "https://github.com/rampageX/FilmGrain-Generator"); };
-                t.Controls.Add(generatorNote, 0, 2); t.SetColumnSpan(generatorNote, 2); t.SetRowSpan(generatorNote, 2);
+                var routeNote=MutedLabel("");routeNote.AutoEllipsis=true;
+                t.Controls.Add(routeNote,0,2);t.SetColumnSpan(routeNote,2);
+                t.Controls.Add(generatorNote, 0, 3); t.SetColumnSpan(generatorNote, 2);
+                BindPlateRouteHint(routeNote);
             }
             else if ((av1 && mode == 3) || (!av1 && mode == 0))
             {
@@ -2234,6 +2237,73 @@ namespace FilmGrainStudioPreview
         private Label MidLabel(string text)
         {
             Label l = new ThemeLabel(); l.Text = text; l.Dock = DockStyle.Fill; l.TextAlign = ContentAlignment.MiddleLeft; l.Padding = new Padding(4, 0, 0, 0); return l;
+        }
+
+        // Probe only on a Plate/tool change, off the UI thread. The label uses the same
+        // captured state and geometry builders as task preparation; no new hardware detection.
+        private void BindPlateRouteHint(Label note)
+        {
+            string key=null;
+            int pw=0,ph=0;
+            bool running=false;
+            var timer=new System.Windows.Forms.Timer {Interval=500};
+            timer.Tick+=delegate {
+                if(note.IsDisposed||!note.Visible||!IsHandleCreated||restoringFileEditor)return;
+                string plate=selectedGrainPlatePath??"",probe=Path.Combine(config.Get("FFMPEG_DIR"),"ffprobe.exe");
+                string next=probe+"|"+plate;
+                if(key!=next&&!running)
+                {
+                    key=next;pw=ph=0;running=true;
+                    ThreadPool.QueueUserWorkItem(delegate {
+                        int w=0,h=0;
+                        if(!string.IsNullOrEmpty(plate))SharedGrainCore.TryProbePlateDimensions(probe,plate,out w,out h);
+                        try {BeginInvoke((MethodInvoker)delegate {
+                            if(note.IsDisposed)return;
+                            running=false;
+                            if(key==next){pw=w;ph=h;}
+                        });}catch(InvalidOperationException){}
+                    });
+                }
+                if(key!=next||running||pw<=0||ph<=0)
+                {
+                    note.Text=UiText("Plate 尺寸待确认 · 常规处理路线","Plate dimensions pending · standard route");
+                    return;
+                }
+                string size=pw+"×"+ph;
+                string route=UiText("常规处理路线","Standard route");
+                try
+                {
+                    MediaProbeInfo media=GetSelectedMediaInfo();
+                    string error;
+                    var state=BuildBridgeEnvironment(out error);
+                    if(media!=null&&state!=null)
+                    {
+                        CinematicFramePlan frame;ResizePlan resize;
+                        if(CinematicFrameCore.TryBuild(media,state,out frame,out error)&&
+                            ResizeCore.TryBuild(media,state,frame,out resize,out error,!HdrColorProcessingCore.NvencToSdr(media,state)&&media.IsHdr))
+                        {
+                            int w=resize.Enabled?resize.Width:media.Width,h=resize.Enabled?resize.Height:media.Height;
+                            size+=" → "+w+"×"+h;
+                            bool direct=IsGrainEnabled()&&SharedGrainCore.Engine(state)=="NATIVE"&&
+                                (G04cLutCore.RouteEligible(media,hardwareCaps,state)||
+                                (((pw|ph)&1)==0&&G06cHdrCore.RouteEligible(media,hardwareCaps,state)))&&
+                                frame.Filter.Length==0&&!resize.Enabled;
+                            if(direct)route=pw==w&&ph==h?UiText("GPU 直通 · 同尺寸","GPU direct · same size"):UiText("GPU 直通 · GPU 缩放","GPU direct · GPU scaling");
+                        }
+                    }
+                }
+                catch(InvalidOperationException){}
+                catch(ArgumentException){}
+                catch(IOException){}
+                string text="Plate "+size+" · "+route;
+                if(note.Text!=text)
+                {
+                    note.Text=text;
+                    lutToolTip.SetToolTip(note,text+"\n"+UiText("按当前选中视频及完整处理配置判断；Hable 保留原 GPU 探测及 CPU 回退。","Based on selected video and full processing configuration; Hable retains its existing GPU check and CPU fallback."));
+                }
+            };
+            note.Disposed+=delegate {timer.Stop();timer.Dispose();};
+            timer.Start();
         }
 
         private Label MutedLabel(string text)

@@ -401,13 +401,18 @@ namespace FilmGrainStudioPreview
         // Keep scaling when the dimensions cannot be established, preserving MOV compatibility.
         internal static bool NeedsPlateScaling(string ffprobe, string plate, int width, int height)
         {
-            if (width <= 0 || height <= 0) return true;
+            int plateWidth,plateHeight;
+            return width<=0||height<=0||!TryProbePlateDimensions(ffprobe,plate,out plateWidth,out plateHeight)||
+                plateWidth!=width||plateHeight!=height;
+        }
+        internal static bool TryProbePlateDimensions(string ffprobe,string plate,out int plateWidth,out int plateHeight)
+        {
+            plateWidth=0;plateHeight=0;
             try
             {
                 string output, reason;
                 if (!SharedFrucCore.Run(ffprobe, "-v error -select_streams v:0 -show_entries stream=width,height -of default=noprint_wrappers=1 " + SharedFrucCore.Quote(plate),
-                    5000, out output, out reason)) return true;
-                int plateWidth = 0, plateHeight = 0;
+                    5000, out output, out reason)) return false;
                 foreach (string raw in output.Split(new char[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
                 {
                     string line = raw.Trim();
@@ -416,9 +421,9 @@ namespace FilmGrainStudioPreview
                     else if (line.StartsWith("height=", StringComparison.Ordinal))
                         int.TryParse(line.Substring(7), NumberStyles.Integer, CultureInfo.InvariantCulture, out plateHeight);
                 }
-                return plateWidth != width || plateHeight != height;
+                return plateWidth>0&&plateHeight>0;
             }
-            catch { return true; }
+            catch { return false; }
         }
         // Missing setting means enabled, including state produced before this option existed.
         internal static bool IsEnabled(IDictionary<string,string> state)

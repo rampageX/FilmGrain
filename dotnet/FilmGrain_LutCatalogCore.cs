@@ -130,7 +130,11 @@ namespace FilmGrainStudioPreview
         }
         internal static bool RouteEligible(MediaProbeInfo m,HardwareCapabilitySnapshot c,IDictionary<string,string> s)
         {
-            if(!MediaEligible(m)||c==null||!c.Ready||!c.HevcAvailable||
+            return MediaEligible(m)&&OrdinaryRouteEligible(c,s);
+        }
+        internal static bool OrdinaryRouteEligible(HardwareCapabilitySnapshot c,IDictionary<string,string> s)
+        {
+            if(c==null||!c.Ready||!c.HevcAvailable||
                 !string.Equals(c.GpuName,"NVIDIA GeForce RTX 4080",StringComparison.OrdinalIgnoreCase)||Get(s,"FG_MODE")!="HEVC")return false;
             string fps=Get(s,"FG_FPS_MODE"),border=Get(s,"FG_FILM_BORDER_MODE");
             return Get(s,"FG_GPU_DECODE")!="1"&&Get(s,"FG_HWD_BACKEND")==""&&

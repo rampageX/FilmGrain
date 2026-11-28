@@ -272,6 +272,8 @@ namespace FilmGrainStudioPreview
             string grainInput = "";
 
             bool grainScale = false;
+            int plateWidth=0,plateHeight=0;
+            bool plateDimensionsKnown=false;
 
             string grainTag = "";
 
@@ -292,7 +294,8 @@ namespace FilmGrainStudioPreview
 
                 grainInput = plate;
 
-                grainScale = SharedGrainCore.NeedsPlateScaling(ffprobe, plate, processingWidth, processingHeight);
+                plateDimensionsKnown=SharedGrainCore.TryProbePlateDimensions(ffprobe,plate,out plateWidth,out plateHeight);
+                grainScale=!plateDimensionsKnown||plateWidth!=processingWidth||plateHeight!=processingHeight;
 
                 int strengthSel;
 
@@ -463,6 +466,12 @@ namespace FilmGrainStudioPreview
                     string.IsNullOrEmpty(deinterlaceFilter)&&string.IsNullOrEmpty(fpsFilter)&&string.IsNullOrEmpty(colorFilter)&&
                     string.IsNullOrEmpty(frame.Filter)&&string.IsNullOrEmpty(subtitleFilter);
                 bool g04cDirect=g04cEligible&&plateMode;
+                bool g06cDirect=G06cHdrCore.RouteEligible(info,caps,state)&&hdrToSdr&&!h264&&!interpolate&&
+                    !deinterlace&&!s4GpuBorder&&filmBorder==null&&!resize.Enabled&&pixelPercent==100&&
+                    (!grainEnabled||plateMode&&plateDimensionsKnown&&((plateWidth|plateHeight)&1)==0)&&
+                    string.IsNullOrEmpty(lutCompatName)&&string.IsNullOrEmpty(deinterlaceFilter)&&
+                    string.IsNullOrEmpty(fpsFilter)&&string.IsNullOrEmpty(colorFilter)&&
+                    string.IsNullOrEmpty(frame.Filter)&&string.IsNullOrEmpty(subtitleFilter);
                 string gpuCubeName="",gpuCubeText="";
                 bool g04cGpu=g04cEligible&&G04cLutCore.WantsGpu(state)&&!string.IsNullOrEmpty(lutCompatName)&&
                     G04cLutCore.TryCanonicalCube(Get(state,"FG_LUT_PATH"),NormalizeLutStrength(Get(state,"FG_LUT_STRENGTH")),out gpuCubeText);
@@ -764,8 +773,8 @@ namespace FilmGrainStudioPreview
                         {
                             mainStage.StageText = (h264?"H.264":"HEVC")+"：HDR 合并 / 调色 / LUT / 颗粒 / 编码";
                             if(mergedFields)SharedHdrPreprocessCore.AttachMergedEncode(mainStage,ffprobe,input,info,tonemap,caps.GpuName,fieldFilter:fieldFilter,settings:toneSettings);
-                            else if(!grainEnabled && !resize.Enabled)SharedHdrPreprocessCore.AttachMergedHevc(mainStage,ffprobe,input,info,tonemap,caps.GpuName,settings:toneSettings);
-                            else SharedHdrPreprocessCore.AttachMergedEncode(mainStage,ffprobe,input,info,tonemap,caps.GpuName,settings:toneSettings);
+                            else if(!grainEnabled && !resize.Enabled)SharedHdrPreprocessCore.AttachMergedHevc(mainStage,ffprobe,input,info,tonemap,caps.GpuName,settings:toneSettings,gpuDirect:g06cDirect);
+                            else SharedHdrPreprocessCore.AttachMergedEncode(mainStage,ffprobe,input,info,tonemap,caps.GpuName,settings:toneSettings,gpuDirect:g06cDirect);
                         }
                         else if(needsHdrWorkfile && !interpolate && !info.IsInterlaced)
                             SharedHdrPreprocessCore.AttachSharedWorkfileEncode(mainStage,ffprobe,encodeInput,caps.GpuName);

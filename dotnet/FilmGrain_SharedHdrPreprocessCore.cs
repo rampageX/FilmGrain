@@ -165,6 +165,74 @@ namespace FilmGrainStudioPreview
         }
     }
 
+    // G06c uses the already validated ordinary HEVC route and two explicit Vulkan flags.
+    // The old merged graph is still built first, including its shared clock and HDR metadata cleanup.
+    internal static class G06cHdrCore
+    {
+        static string Get(IDictionary<string,string> state,string key)
+        {string value;return state!=null&&state.TryGetValue(key,out value)?value??"":"";}
+        internal static bool RouteEligible(MediaProbeInfo m,HardwareCapabilitySnapshot caps,IDictionary<string,string> state)
+        {
+            if(m==null||!m.HasVideo||!m.IsHdr||m.IsInterlaced||
+                !(m.FieldOrder=="progressive"||m.FieldOrder==""||m.FieldOrder=="unknown"||m.FieldOrder=="unspecified")||
+                m.Width<8||m.Height<8||((m.Width|m.Height)&1)!=0||
+                !(m.SampleAspectRatio=="1:1"||m.SampleAspectRatio=="0:1"||m.SampleAspectRatio=="N/A"||string.IsNullOrEmpty(m.SampleAspectRatio))||
+                m.ColorRange!="tv"||m.ColorPrimaries!="bt2020"||m.ColorSpace!="bt2020nc"||
+                !(m.PixelFormat=="p010le"||m.PixelFormat=="yuv420p10le")||
+                !G04cLutCore.OrdinaryRouteEligible(caps,state)||!HdrColorProcessingCore.NvencToSdr(m,state)||
+                Get(state,"FG_LUT_PATH")!="")return false;
+            string curve=HdrToneSettings.Normalize(Get(state,"FG_TONEMAP_ALGO"));
+            return curve=="hable"||HdrToneSettings.RequiresVulkan(curve);
+        }
+
+        static string ReplaceOnce(string graph,string oldValue,string newValue)
+        {
+            int index=graph.IndexOf(oldValue,StringComparison.Ordinal);
+            if(index<0||index!=graph.LastIndexOf(oldValue,StringComparison.Ordinal))
+                throw new InvalidOperationException("G06c unexpected merged graph boundary: "+oldValue);
+            return graph.Substring(0,index)+newValue+graph.Substring(index+oldValue.Length);
+        }
+
+        // Return false only for the established Hable CPU fallback. Never reinterpret
+        // a different algorithm or silently change an unsupported filter combination.
+        internal static bool TryApply(List<string> args,bool plate)
+        {
+            int graphIndex=args.IndexOf("-filter_complex")+1;
+            if(graphIndex<=0||graphIndex>=args.Count)throw new InvalidOperationException("G06c missing filter graph.");
+            string graph=args[graphIndex];
+            if(!graph.Contains("libplacebo=tonemapping="))return false;
+            if(!graph.StartsWith("[0:v:0]setparams=",StringComparison.Ordinal)||
+                !graph.Contains("sidedata=mode=delete:type=MASTERING_DISPLAY_METADATA")||
+                !graph.Contains("sidedata=mode=delete:type=CONTENT_LIGHT_LEVEL"))
+                throw new InvalidOperationException("G06c unexpected HDR metadata/filter layout.");
+            graph=ReplaceOnce(graph,",gamut_mode=clip,hwdownload,format=p010le,sidedata=",",gamut_mode=clip,sidedata=");
+            if(plate)
+            {
+                graph=ReplaceOnce(graph,",format=yuv420p10le,setpts=PTS-STARTPTS,format=p010le,setpts=PTS-STARTPTS,hwupload[basevk]",
+                    ",setpts=PTS-STARTPTS,setpts=PTS-STARTPTS[basevk]");
+                graph=ReplaceOnce(graph,",hwdownload,format=p010le,format=p010le,select=",G04cLutCore.Direct+",select=");
+            }
+            else
+                graph=ReplaceOnce(graph,",format=p010le,format=p010le,setpts=PTS-STARTPTS+",G04cLutCore.Direct+",setpts=PTS-STARTPTS+");
+            int device=args.IndexOf("-init_hw_device"),pixel=args.IndexOf("-pix_fmt");
+            if(device<0||device+1>=args.Count||!args[device+1].StartsWith("vulkan=",StringComparison.Ordinal)||
+                args[device+1].Contains(",")||pixel<0||pixel+1>=args.Count||args[pixel+1]!="p010le"||
+                graph.Contains("hwdownload")||!graph.EndsWith("[vout]",StringComparison.Ordinal))
+                throw new InvalidOperationException("G06c unexpected device or encoder format.");
+            args[graphIndex]=graph;
+            args[device+1]+=G04cLutCore.DirectDeviceFlags;
+            args.RemoveRange(pixel,2);
+            return true;
+        }
+
+        internal static string Notice(List<string> merged,bool plate)
+        {
+            if(!TryApply(merged,plate))return "\n[G06c] Hable CPU fallback; existing transport retained.";
+            string route=!plate?"no Plate":merged[merged.IndexOf("-filter_complex")+1].Contains("scale_vulkan=")?"GPU scaling":"same size";
+            return "\n[G06c] HDR -> SDR / Vulkan -> CUDA; "+route+"; disable_multiplane=1; disable_host_image_copy=1.";
+        }
+    }
+
     internal static class SharedHdrPreprocessCore
     {
         internal const string SplineSlopeOption = "tonemapping_slope_tuning";
@@ -392,7 +460,7 @@ namespace FilmGrainStudioPreview
         }
         static int IndexOf(IList<string> args,string value){for(int i=0;i<args.Count;i++)if(args[i]==value)return i;return -1;}
 
-        internal static void AttachMergedHevc(BridgeExecutionStage stage,string ffprobe,string input,MediaProbeInfo info,string tonemap,string gpuName,string settings = "")
+        internal static void AttachMergedHevc(BridgeExecutionStage stage,string ffprobe,string input,MediaProbeInfo info,string tonemap,string gpuName,string settings = "",bool gpuDirect=false)
         {
             if(stage.BeforeRunPreparation!=null)throw new InvalidOperationException("HDR merge preparation already attached");
             var frozen=new List<string>(stage.OriginalArguments);
@@ -405,6 +473,7 @@ namespace FilmGrainStudioPreview
                 var merged=MergeHevcArguments(frozen,selected);
                 var time=SharedFrucCore.ProbeTimeline(ffprobe,input);
                 merged=SharedOrdinaryTimelineCore.Build(merged,input,time.CommonOrigin,time.VideoDelay);
+                if(gpuDirect)notice+=G06cHdrCore.Notice(merged,false);
                 stage.DirectArguments=SharedFrucCore.JoinArguments(merged);
                 return "[HDR merged HEVC] 单次 HDR 转 SDR / 调色 / LUT / 编码；不生成 HDR 中间文件。\n"+notice+
                     "\n[Native ordinary timeline] source_common="+Number(time.CommonOrigin)+" video_delay="+Number(time.VideoDelay);
@@ -517,7 +586,7 @@ namespace FilmGrainStudioPreview
         }
 
         internal static void AttachMergedEncode(BridgeExecutionStage stage,string ffprobe,string input,
-            MediaProbeInfo info,string tonemap,string gpuName,bool videoOnly=false,bool sourceCadence=true,string fieldFilter="",string settings="")
+            MediaProbeInfo info,string tonemap,string gpuName,bool videoOnly=false,bool sourceCadence=true,string fieldFilter="",string settings="",bool gpuDirect=false)
         {
             if(stage.BeforeRunPreparation!=null)throw new InvalidOperationException("Merged encode preparation already attached");
             var frozen=new List<string>(stage.OriginalArguments);
@@ -535,6 +604,7 @@ namespace FilmGrainStudioPreview
                     if (duration >= 0 && double.TryParse(merged[duration + 1], NumberStyles.Float, CultureInfo.InvariantCulture, out seconds))
                         merged[duration + 1] = Number(seconds + time.VideoDelay);
                 }
+                if(gpuDirect)notice+=G06cHdrCore.Notice(merged,true);
                 stage.DirectArguments=SharedFrucCore.JoinArguments(merged);
                 return (fieldFilter.Length == 0 ? "[HDR merged encode] conversion / color / LUT / grain / encode; no HDR workfile."
                     : "[R08a] bob deinterlace before HDR to SDR; no HDR workfile.")+"\n"+notice+
