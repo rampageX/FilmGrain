@@ -393,7 +393,7 @@ namespace FilmGrainStudioPreview
         private NumericUpDown numGrainIso;
         private CheckBox chkGrainChroma;
         private ComboBox cmbGrainTable;
-        private CheckBox chkShowAllAv1Tables;
+        private CheckBox chkMatchAv1TableResolution;
         private ComboBox cmbGrainPlate;
         private readonly List<string> av1GrainTableFiles = new List<string>();
         private readonly List<string> displayedAv1GrainTableFiles = new List<string>();
@@ -409,7 +409,7 @@ namespace FilmGrainStudioPreview
         private int av1IsoValue = 1600;
         private bool av1ChromaEnabled;
         private string selectedAv1GrainTable = "";
-        private bool showAllAv1GrainTables;
+        private bool filterAv1TablesByResolution;
         private int proceduralStrength = 55;
         private int fgsimPresetIndex = 2;
         private string selectedGrainPlatePath = "";
@@ -1564,7 +1564,7 @@ namespace FilmGrainStudioPreview
         {
             int w=source!=null?source.Width:0,h=source!=null?source.Height:0;
             ResizeDimensionsForUi(source,ref w,ref h);
-            return Av1GrainTableSelectionCore.GetFilteredAv1GrainTables(av1GrainTableFiles,w,h,showAllAv1GrainTables);
+            return Av1GrainTableSelectionCore.GetFilteredAv1GrainTables(av1GrainTableFiles,w,h,!filterAv1TablesByResolution);
         }
 
         private void RefreshAv1GrainTableForMedia()
@@ -1584,7 +1584,7 @@ namespace FilmGrainStudioPreview
         private void BuildGrainContentCore()
         {
             // Assemble the replacement off-screen; the previous controls stay visible until commit.
-            cmbGrainFormat = null; cmbGrainStock = null; numGrainIso = null; chkGrainChroma = null; cmbGrainTable = null; chkShowAllAv1Tables = null; cmbGrainPlate = null;
+            cmbGrainFormat = null; cmbGrainStock = null; numGrainIso = null; chkGrainChroma = null; cmbGrainTable = null; chkMatchAv1TableResolution = null; cmbGrainPlate = null;
             av1StrengthControl=null;
             trackFilmGrainStrength = null; lblFilmGrainValue = null; btnFgsimTextureUpdate = null; lblFgsimTextureStatus = null;
 
@@ -1645,9 +1645,9 @@ namespace FilmGrainStudioPreview
                 if (cmbGrainTable.Items.Count == 0)
                 {
                     string emptyText;
-                    if (!showAllAv1GrainTables && string.IsNullOrEmpty(preferredTier))
+                    if (filterAv1TablesByResolution && string.IsNullOrEmpty(preferredTier))
                         emptyText = UiText("等待视频分辨率以筛选颗粒表", "Waiting for video resolution to filter grain tables");
-                    else if (!showAllAv1GrainTables)
+                    else if (filterAv1TablesByResolution)
                         emptyText = UiText(preferredTier + " 未发现可用颗粒表", "No usable " + preferredTier + " grain tables found");
                     else
                         emptyText = UiText("未发现 .tbl/.txt 颗粒表", "No .tbl/.txt grain tables found");
@@ -1668,17 +1668,17 @@ namespace FilmGrainStudioPreview
 
                 Button refreshTable = new ThemeButton(); refreshTable.Text = "↻"; refreshTable.Dock = DockStyle.Fill; refreshTable.Margin = new Padding(0, 4, 0, 4);
                 refreshTable.Click += delegate { bool ready = tableCatalog.Ready; RefreshGrainFileCaches(); if (!ready) BuildGrainContent(); };
-                chkShowAllAv1Tables = new ThemeCheckBox(); chkShowAllAv1Tables.Text = ""; chkShowAllAv1Tables.Checked = showAllAv1GrainTables; chkShowAllAv1Tables.Dock = DockStyle.Fill; chkShowAllAv1Tables.Margin = new Padding(6, 4, 0, 4);
+                chkMatchAv1TableResolution = new ThemeCheckBox(); chkMatchAv1TableResolution.Text = ""; chkMatchAv1TableResolution.Checked = filterAv1TablesByResolution; chkMatchAv1TableResolution.Dock = DockStyle.Fill; chkMatchAv1TableResolution.Margin = new Padding(6, 4, 0, 4);
                 string tableTip = string.IsNullOrEmpty(preferredTier)
-                    ? UiText("默认按当前视频分辨率筛选；勾选后显示全部颗粒表。", "By default tables are filtered to the current video resolution; check to show all tables.")
-                    : UiText("当前优先：" + preferredTier + "；勾选后显示全部颗粒表。", "Current preference: " + preferredTier + "; check to show all tables.");
-                lutToolTip.SetToolTip(chkShowAllAv1Tables, tableTip);
+                    ? UiText("默认显示全部颗粒表；勾选后按视频分辨率筛选。", "All grain tables are shown by default. Check to filter by video resolution.")
+                    : UiText("当前优先：" + preferredTier + "；勾选后仅显示此档位。", "Current preference: " + preferredTier + "; check to show only this tier.");
+                lutToolTip.SetToolTip(chkMatchAv1TableResolution, tableTip);
                 lutToolTip.SetToolTip(refreshTable, UiText("重新扫描颗粒表", "Rescan grain tables"));
-                chkShowAllAv1Tables.CheckedChanged += delegate { showAllAv1GrainTables = chkShowAllAv1Tables.Checked; BuildGrainContent(); };
+                chkMatchAv1TableResolution.CheckedChanged += delegate { filterAv1TablesByResolution = chkMatchAv1TableResolution.Checked; BuildGrainContent(); };
 
-                tablePanel.Controls.Add(cmbGrainTable, 0, 0); tablePanel.Controls.Add(refreshTable, 1, 0); tablePanel.Controls.Add(chkShowAllAv1Tables, 2, 0);
+                tablePanel.Controls.Add(cmbGrainTable, 0, 0); tablePanel.Controls.Add(refreshTable, 1, 0); tablePanel.Controls.Add(chkMatchAv1TableResolution, 2, 0);
                 AddLabeledRow(t, 0, "Grain Table", tablePanel);
-                Label note = MutedLabel(showAllAv1GrainTables
+                Label note = MutedLabel(!filterAv1TablesByResolution
                     ? UiText("显示全部分辨率；最接近当前视频的颗粒表优先。", "Showing all resolutions; tables closest to the current video are listed first.")
                     : (string.IsNullOrEmpty(preferredTier)
                         ? UiText("选择并完成视频探测后自动按分辨率筛选。", "Select a video and complete probing to filter by resolution automatically.")
