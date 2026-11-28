@@ -1,7 +1,7 @@
 # FGS · 4K GPU 流水线深度优化专项（Deep Dig）
 
 - 立项：2026-11-28。
-- 状态：G00 进行中；G01 首批聚焦 LUT + Grain Plate；G04 已随 v5.1.08 发布；G05 的 FGSIM 延后；G06 下一项，先审计与验证。
+- 状态：G00 进行中；G01 首批聚焦 LUT + Grain Plate；G04 已随 v5.1.08 发布；G05 的 FGSIM 延后；G06 独立 A/B 及缩放隔离通过，待限定范围生产接入。
 - 初始生产基线：v5.1.07，master / Release tag 对应提交 `72f498b253443982ec144178a6a7570777f0476a`。
 - 仓库：rampageX/FilmGrain；底层优先使用现有 FFmpeg / libplacebo / NVEncC，必要时研究 rampageX/FFmpeg。
 - 本专项独立于此前 R 系列慢路径修复与 FGB 兼容性跟踪。每轮先读 AGENTS.md，核对最新已验收生产基线；文档更新不改变发行版本。
@@ -32,7 +32,7 @@ vidpipe 上游提交 `d7d317fff55fa5acdbc130ffe73eb0b5f1508c58`，MIT。参考 [
 | G03 | P1 | 候选 | 消除重复像素格式、位深、色彩转换；核对自动插入转换、chroma siting、范围、矩阵、量化及抖动，保留必要精度。 |
 | G04 | P1（首项） | 已发布 v5.1.08（8d3f0ec5），见 §9.9 | LUT/色彩纠正融合：先审计现有 CPU LUT 与 GPU 预览/libplacebo 实现；验证插值、强度混合、顺序、HDR 保留，再决定是否需新内核。 |
 | G05 | P2（FGSIM 延后） | 候选 | Digital Grain、Grain Plate、FGSIM 分开研究；优先避免 GPU 后下载及重复合成，保留随机性、时序、纹理、HDR luma delta 与边框/字幕顺序。 |
-| G06 | P2 | 下一项，待路线审计与独立 A/B | HDR→SDR 色调映射与后续 GPU 滤镜衔接，保持现有曲线、参数、HLG/PQ、亮度、色域及预览一致性。 |
+| G06 | P2 | 独立 A/B 及缩放隔离完成，待生产接入 | HDR→SDR 色调映射与后续 GPU 滤镜衔接，保持现有曲线、参数、HLG/PQ、亮度、色域及预览一致性。 |
 | G07 | P2 | 候选 | 跨进程插帧 GPU 显存直通可行性；验证进程/设备支持、资源生命周期、同步、PTS/VFR/音频、取消及尾帧；无安全等价机制则关闭。 |
 | G08 | P2 | 候选 | NVENC 吞吐与背压：同编码器/预设/RC/AQ/B 帧/多 pass/位深、同源输入，分别计时提交、等待、flush；若实际瓶颈在编码则可提前。 |
 | G09 | P0 | 待执行 | 综合性能、画质、兼容性与用户实机验收；通过后才允许按 AGENTS.md 走正式发布。 |
@@ -176,3 +176,11 @@ G00 下一步：逐条追踪入口、共享 helper、执行器和最终参数，
 - AV1 外框保护、Grain Table 默认显示全部、LUT G/C 显示和 BT.2390 大小写随 v5.1.08 收尾。日志覆盖特殊路径和音轨复制，未单独记录播放验收及取消清理。
 
 - 正式版发布提交 `8d3f0ec5635b3690ca53216087cf68fd7acd6953`，[v5.1.08 Release](https://github.com/rampageX/FilmGrain/releases/tag/v5.1.08)，Windows CI `46142945244` 成功。Stable 与完整源码均核对两份 Dune2 表已移入 `2160p` 并带 `00_3840x2160_` 前缀，测试分支已删除。
+
+## 10. G06 HDR→SDR GPU 滤镜衔接（2026-11-28）
+
+- 基线 v5.1.08 / `8d3f0ec5635b3690ca53216087cf68fd7acd6953`，开工时 master 只领先一个 TODO 文档提交。SharedHdrPreprocessCore.cs:321 的 Vulkan 色调映射后下载，:427 经过 planar 10-bit CPU 格式，NativeHevcCore.cs:518–527 的 Plate 前上传及合成后下载是首批目标；:461 的 G04c 适用条件明确排除 HDR→SDR。现有合并编码已去除逐行 HDR 中间文件，保留现有时间轴和颜色处理。
+- Q7M2 实测证据 Results_G06_20261128_201743_d5b43e.zip；FFmpeg SHA256 `2dcfa6d24b5076ab9f92b22655d241d76d549fdbe0e3ae7805cf5af9b5d29331`。4K PQ 30fps + Kodak Vision3 250D Plate 35%，原链/双标志/前端/末端/双端中位 FPS 30.2242/30.8700/41.9844/34.0144/51.3421，双端 +69.87%；无 Plate 58.5007→65.0736。1080p 三种 PQ/HLG 素材无 Plate 113.6344→123.2177、127.6848→147.9808、166.7067→198.4264 FPS，帧 hash/PTS 一致。1080p 使用 4K Plate 时，双标志本身导致与原链的像素差异；仅去除传输并非差异来源。
+- R8K4 实测证据 Results_G06_20261128_210449_73e9a4.zip，同 FFmpeg SHA256。4K HLG 60fps、同尺寸 Kodak Plate、8 秒/480 帧，HEVC Main10 P5 HQ VBR25M/max50M/buf100M/B4/LA16/AQ8。Hable、Spline、BT.2390 各默认/非默认，7 路共42组32帧采样均 hash/PTS 一致（无 Plate 与对应无 Plate 基准比较）；21轮编码成功且独立解码480帧。原链/双标志/前端/末端/双端中位 FPS 34.8411/35.3435/51.5209/42.2713/68.3875，双端 +96.28%；无 Plate 68.2820→84.5738，+23.86%。同 Plate 的编码文件大小均25832667字节，不据此声明码流相同。抽查双端输出 BT.709 Limited 10-bit 60fps，8秒，AAC 音轨起点0；播放同步及取消仍需生产验收。
+- R8K4 缩放隔离：仅对原4K ProRes HQ 10-bit BT.709 Limited Plate 执行相同 fps/format/上传/下载，默认、仅 disable_multiplane、仅 disable_host_image_copy、双标志四组原尺寸均8/8 hash相同；加入 scale_vulkan=1920x1080:scaler=bilinear 后分别8/8、0/8、8/8、0/8。仅 disable_multiplane 和双标志的缩放输出 hash 彼此相同，Y/U/V PSNR 28.4432/inf/inf，综合30.2041dB。已隔离到 disable_multiplane=1 与此缩放组合，尚未确认底层采样机理及哪个布局符合理论 bilinear。1080p HLG Hable 完整图仅保留默认设备或仅 host 标志并去掉前端往返，32/32 hash及PTS与原图一致，尚未测速且未验证其它曲线。
+- 首批生产候选（待授权及源码审计）：RTX 4080、逐行、原帧率、软件解码、HEVC Main10、仅 Vulkan HDR→SDR（Hable/Spline/BT.2390），不附加 LUT/CC/几何/字幕/插帧/其它滤镜；无 Plate 或普通同尺寸 Plate 35% 等既有完整强度语义，复用 G04/S4 双标志及 CUDA 派生，保持色彩参数、metadata 清除和合并时间轴/EOF select。缩放 Plate 暂保留原链，默认设备前端优化另行验证后再放行。不全局改动两标志，不擅自改变已有 G04/S4；G04 及其它使用双标志且缩放 Plate 的路径需单独核对，不能从4K→1080结果直接推断所有缩放方向。保留 CPU 算法及既有 fallback。实际 GUI/CLI 入口、预览、独立 HDR→SDR 工具与 encoder pix_fmt 约束需继续审计；正式接入、Windows CI、真实播放、取消/临时文件和回归未执行。G06 尚未关闭，生产源码不变。
