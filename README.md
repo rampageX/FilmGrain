@@ -1,6 +1,6 @@
 # Film Grain Studio
 
-> **Film Grain Studio v5.1.05 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+> **Film Grain Studio v5.1.06 · Stable · .NET Native-only。** AV1、HEVC、x264、H.264 NVENC使用当前.NET原生实现；历史版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 <table>
   <tr>
@@ -714,7 +714,7 @@ FGSIM 与 BWDIF Vulkan 共用同一个 Vulkan filter device，避免重复创建
 
 ## HDR Preserve / HDR→SDR
 
-点击 HDR 输入信息旁的快捷按钮可打开 HDR → SDR 窗口。调整色调映射后点「确定」应用到主流程；点「开始编码」或「开始队列」使用窗口当前参数独立转换。Hable 下可勾选「CPU Hable 参照」，用左侧 CPU 默认值对照右侧当前处理效果。独立转换输出 10-bit BT.709 SDR，支持 HEVC／AV1 NVENC、MKV／MP4 和 VBR／CQ。队列截取时，短于指定时长的素材处理整段，起点越界的素材从片头截取。
+点击 HDR 输入信息旁的快捷按钮可打开 HDR → SDR 窗口。调整色调映射后点「确定」应用到主流程；点「开始编码」或「开始队列」使用窗口当前参数独立转换。Hable 下可勾选「CPU Hable 参照」，用左侧 CPU 默认值对照右侧当前处理效果。配置 NVEncC 后，也可选「NVEncC Hable 参照」，用其默认参数对照右侧同一帧。独立转换输出 10-bit BT.709 SDR，支持 HEVC／AV1 NVENC、MKV／MP4 和 VBR／CQ。队列截取时，短于指定时长的素材处理整段，起点越界的素材从片头截取。
 
 FGS 会根据 FFprobe 结果识别 HDR10/PQ 或 HLG。HEVC Main10 与 AV1 Main10 的 HDR Preserve 路线会尽量保持源视频已有的 HDR 信号，而不是人为伪造源中不存在的 mastering metadata。
 

@@ -190,7 +190,7 @@ namespace FilmGrainStudioPreview
                 && offset > 0 && offset < 1000000 ? offset + frames : 0;
         }
 
-        private static void RunLiveFrameTool(string executable, IList<string> args, CancellationToken token)
+        internal static void RunLiveFrameTool(string executable, IList<string> args, CancellationToken token)
         {
             if (!File.Exists(executable)) throw new FileNotFoundException("Preview tool missing", executable);
             var log = new System.Text.StringBuilder();
@@ -492,9 +492,11 @@ namespace FilmGrainStudioPreview
         }
 
         internal static Tuple<System.Drawing.Bitmap, System.Drawing.Bitmap> RenderLiveFrame(string ffmpeg, MediaProbeInfo source,
-            double position, string algorithm, string settings, bool cpuReference, CancellationToken token)
+            double position, string algorithm, string settings, bool cpuReference, string nvencReference, CancellationToken token)
         {
             if (!File.Exists(ffmpeg)) throw new FileNotFoundException("Configure ffmpeg.exe in FGS settings.", ffmpeg);
+            if (algorithm == "hable" && !string.IsNullOrEmpty(nvencReference))
+                return RenderNvencComparison(ffmpeg, nvencReference, source, position, settings, token);
             var tuned = Conversion(source, "-", algorithm, settings);
             string notice;
             var selected = SharedHdrPreprocessCore.SelectTunedAutomatic(ffmpeg, tuned, algorithm, out notice, settings: settings);
@@ -516,7 +518,69 @@ namespace FilmGrainStudioPreview
             catch { original.Dispose(); throw; }
         }
 
-        private static System.Drawing.Bitmap RenderStill(string ffmpeg, List<string> args, double position, CancellationToken token)
+        internal static List<string> NvencReferenceArguments(MediaProbeInfo source, string frame, string output)
+        {
+            string matrix = KnownColor(source.ColorSpace, "bt2020nc");
+            string primaries = KnownColor(source.ColorPrimaries, "bt2020");
+            string range = source.ColorRange == "pc" || source.ColorRange == "full" || source.ColorRange == "jpeg" ? "full" : "limited";
+            string colorspace = "hdr2sdr=hable,matrix=" + matrix + ":bt709,colorprim=" + primaries +
+                ":bt709,transfer=" + source.ColorTransfer + ":bt709,range=" + range + ":limited";
+            return new List<string> { "--avsw", "--video-track", "1", "--frames", "1", "-i", frame,
+                "--codec", "raw", "--output-csp", "yuv420", "--output-depth", "8", "--output-format", "y4m",
+                "--y4m-timestamp", "--vpp-colorspace", colorspace, "--colormatrix", "bt709", "--colorprim", "bt709",
+                "--transfer", "bt709", "--colorrange", "limited", "-o", output };
+        }
+
+        private static string KnownColor(string value, string fallback)
+        {
+            return string.IsNullOrWhiteSpace(value) || value == "unknown" || value == "reserved" ? fallback : value;
+        }
+
+        internal static List<string> SharedReferenceFrameArguments(MediaProbeInfo source, string frame, double position)
+        {
+            var args = new List<string> { "-hide_banner", "-loglevel", "error", "-y", "-ss",
+                position.ToString("0.######", CultureInfo.InvariantCulture), "-i", source.PathValue, "-map", "0:v:0",
+                "-an", "-sn", "-dn" };
+            if (source.IsInterlaced)
+            {
+                string bob = SharedHdrPreprocessCore.DeinterlaceFilter("BWDIF_CUDA", source);
+                args.AddRange(new[] { "-vf", bob + "format=yuv420p10le" });
+            }
+            args.AddRange(new[] { "-frames:v", "1", "-c:v", "ffv1", "-threads:v", "1", "-f", "matroska", frame });
+            return args;
+        }
+
+        private static Tuple<System.Drawing.Bitmap, System.Drawing.Bitmap> RenderNvencComparison(string ffmpeg, string nvenc,
+            MediaProbeInfo source, double position, string settings, CancellationToken token)
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "fgs-nvencc-hable-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            try
+            {
+                // Decode and, if needed, Bob once upstream of both tone mappers.
+                string frame = Path.Combine(directory, "frame.mkv");
+                string referencePath = Path.Combine(directory, "reference.y4m");
+                RunFfmpegPreview(ffmpeg, SharedReferenceFrameArguments(source, frame, position), frame, token);
+                var tuned = SharedHdrPreprocessCore.BuildTunedToSdr(frame, "-", source, "hable", false, "", settings);
+                string notice;
+                var selected = SharedHdrPreprocessCore.SelectTunedAutomatic(ffmpeg, tuned, "hable", out notice, settings: settings);
+                token.ThrowIfCancellationRequested();
+                TrueHdrCore.RunLiveFrameTool(nvenc, NvencReferenceArguments(source, frame, referencePath), token);
+                var sdr = new MediaProbeInfo { Width = source.Width, Height = source.Height, ColorRange = "tv", ColorSpace = "bt709" };
+                var original = TrueHdrPreviewFrames.Read(referencePath, sdr, false, TrueHdrPreviewFrames.ReferenceWhite, token);
+                try
+                {
+                    var output = RenderStill(ffmpeg, selected, null, token);
+                    original.Tag = "NVEncC Hable";
+                    output.Tag = selected[selected.IndexOf("-vf") + 1].Contains("libplacebo=") ? "Vulkan hable" : "CPU hable";
+                    return Tuple.Create(original, output);
+                }
+                catch { original.Dispose(); throw; }
+            }
+            finally { try { Directory.Delete(directory, true); } catch (IOException) { } catch (UnauthorizedAccessException) { } }
+        }
+
+        private static System.Drawing.Bitmap RenderStill(string ffmpeg, List<string> args, double? position, CancellationToken token)
         {
             string png = Path.Combine(Path.GetTempPath(), "fgs-sdr-" + Guid.NewGuid().ToString("N") + ".png");
             try
@@ -524,18 +588,24 @@ namespace FilmGrainStudioPreview
                 args.RemoveRange(args.IndexOf("-c:v"), args.Count - args.IndexOf("-c:v"));
                 args.Remove("-copyts");
                 args.Remove("-start_at_zero");
-                args.InsertRange(args.IndexOf("-i"), new[] { "-ss", position.ToString("0.######", CultureInfo.InvariantCulture) });
+                if (position.HasValue)
+                    args.InsertRange(args.IndexOf("-i"), new[] { "-ss", position.Value.ToString("0.######", CultureInfo.InvariantCulture) });
                 int filter = args.IndexOf("-vf") + 1;
                 args[filter] += ",scale=in_range=tv:out_range=pc:in_color_matrix=bt709,format=rgb24";
                 args.AddRange(new[] { "-frames:v", "1", "-threads:v", "1", "-c:v", "png", "-f", "image2", "-update", "1", png });
-                var log = new System.Text.StringBuilder();
-                int exit = NativeLibraryTools.RunProcessEnvironment(ffmpeg, args, Path.GetDirectoryName(ffmpeg), null,
-                    30000, token, line => { lock (log) if (log.Length < 16384) log.AppendLine(line); });
-                token.ThrowIfCancellationRequested();
-                if (exit != 0 || !File.Exists(png)) throw new IOException("HDR → SDR preview failed.\n" + log);
+                RunFfmpegPreview(ffmpeg, args, png, token);
                 using (var image = System.Drawing.Image.FromFile(png)) return new System.Drawing.Bitmap(image);
             }
             finally { File.Delete(png); }
+        }
+
+        private static void RunFfmpegPreview(string ffmpeg, List<string> args, string output, CancellationToken token)
+        {
+            var log = new System.Text.StringBuilder();
+            int exit = NativeLibraryTools.RunProcessEnvironment(ffmpeg, args, Path.GetDirectoryName(ffmpeg), null,
+                30000, token, line => { lock (log) if (log.Length < 16384) log.AppendLine(line); });
+            token.ThrowIfCancellationRequested();
+            if (exit != 0 || !File.Exists(output)) throw new IOException("HDR → SDR preview failed.\n" + log);
         }
 
         internal static BridgeExecutionRequest Prepare(FgsConfig config, string input, MediaProbeInfo source, TrueHdrOptions options,

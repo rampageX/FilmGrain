@@ -118,15 +118,28 @@ namespace FilmGrainStudioPreview
                 Func<string> algorithm = () => toneValues[tone.SelectedIndex];
                 Func<string> toneOptions = () => HdrToneSettings.Serialize(algorithm(),
                     Array.ConvertAll(toneSliders[tone.SelectedIndex], slider => slider.Value));
-                ThemeCheckBox cpuReference = null;
+                ThemeCheckBox cpuReference = null, nvencReference = null;
+                string nvenc = NvencInterpolationCore.Exe(config.Get("NVENC_DIR"));
                 if (toSdr)
                 {
                     cpuReference = new ThemeCheckBox { Name = "HDR_TO_SDR_CPU_REFERENCE",
                         Text = UiText("CPU Hable 参照", "CPU Hable reference"),
-                        Location = new Point(16, 343), Size = new Size(250, 28) };
+                        Location = new Point(16, 352), Size = new Size(196, 28) };
                     settings.Controls.Add(cpuReference);
                     tips.SetToolTip(cpuReference, UiText("左图使用 CPU Hable 默认参数，右图仍显示当前处理方式和参数。",
                         "Use default CPU Hable for the left image. The right image shows the current processing and settings."));
+                    bool hasNvenc = File.Exists(nvenc);
+                    nvencReference = new ThemeCheckBox { Name = "HDR_TO_SDR_NVENC_REFERENCE",
+                        Text = UiText("NVEncC Hable 参照", "NVEncC Hable reference"),
+                        Location = new Point(220, 352), Size = new Size(252, 28), Enabled = hasNvenc };
+                    tips.SetToolTip(nvencReference, hasNvenc ?
+                        UiText("左图使用 NVEncC vpp-colorspace 的默认 Hable。", "Use NVEncC vpp-colorspace with default Hable for the left image.") :
+                        UiText("在 FGS 设置中指定 NVEncC64.exe 所在目录。", "Set the NVEncC64.exe directory in FGS settings."));
+                    settings.Controls.Add(nvencReference);
+                    settings.Controls.Add(new ThemeLabel { Location = new Point(16, 384), Size = new Size(455, 100),
+                        Text = UiText(
+                            "Hable：尽量保留亮部和暗部的细节，整体可能偏暗。NVEncC 的 Hable 曲线可指定 A–F 六个系数，此处参照使用默认值。\n\nMobius：尽量保留画面的亮度和对比度，可能损失部分高光细节。",
+                            "Hable preserves highlight and shadow detail but can look darker. NVEncC supports coefficients A–F. This reference uses defaults.\n\nMobius preserves brightness and contrast but may lose some highlight detail.") });
                     ai.Visible = false;
                     route.Left = 128;
                     settings.Controls.Add(new ThemeLabel { Text = UiText("色调映射", "Tone mapping"),
@@ -158,7 +171,7 @@ namespace FilmGrainStudioPreview
                     }
                     tone.SelectedIndexChanged += delegate {
                         for (int i = 0; i < tonePanels.Length; i++) tonePanels[i].Visible = i == tone.SelectedIndex;
-                        cpuReference.Visible = algorithm() == "hable";
+                        cpuReference.Visible = nvencReference.Visible = algorithm() == "hable";
                     };
                     tone.SelectedIndex = Math.Max(0, Array.IndexOf(toneValues, config.Get("TONE_MAP_ALGO").ToLowerInvariant()));
                 }
@@ -318,13 +331,13 @@ namespace FilmGrainStudioPreview
                     string tuning = toSdr ? toneOptions() : null;
                     bool useCpuReference = selectedAlgorithm == "hable" && cpuReference.Checked;
                     string ffmpeg = Path.Combine(config.Get("FFMPEG_DIR"), "ffmpeg.exe");
-                    string nvenc = NvencInterpolationCore.Exe(config.Get("NVENC_DIR"));
+                    string nvencForReference = selectedAlgorithm == "hable" && nvencReference.Checked ? nvenc : null;
                     double position = seek.Position;
                     previewInfo = null;
                     displayStatus.Text = UiText("正在刷新画面…", "Refreshing preview…");
                     try {
                         var image = await Task.Run(() => toSdr
-                            ? HdrToSdrCore.RenderLiveFrame(ffmpeg, source, position, selectedAlgorithm, tuning, useCpuReference, job.Token)
+                            ? HdrToSdrCore.RenderLiveFrame(ffmpeg, source, position, selectedAlgorithm, tuning, useCpuReference, nvencForReference, job.Token)
                             : TrueHdrCore.RenderLiveFrame(nvenc, source, position, values, job.Token));
                         if (dlg.IsDisposed || requested != revision) { image.Item1.Dispose(); image.Item2.Dispose(); return; }
                         if (toSdr) screen.OriginalCaption = image.Item1.Tag + UiText(" · 默认", " · default");
@@ -377,7 +390,14 @@ namespace FilmGrainStudioPreview
                 if (toSdr)
                 {
                     tone.SelectedIndexChanged += delegate { schedule(); };
-                    cpuReference.CheckedChanged += delegate { schedule(); };
+                    cpuReference.CheckedChanged += delegate {
+                        if (cpuReference.Checked) nvencReference.Checked = false;
+                        schedule();
+                    };
+                    nvencReference.CheckedChanged += delegate {
+                        if (nvencReference.Checked) cpuReference.Checked = false;
+                        schedule();
+                    };
                     foreach (var row in toneSliders)
                         foreach (var slider in row) slider.ValueChanged += delegate { schedule(); };
                 }

@@ -1,3 +1,9 @@
+## v5.1.06 — NVEncC Hable 同帧参照（2026-11-28）
+
+- HDR → SDR 的 Hable 预览新增「NVEncC Hable 参照」。配置目录中存在 NVEncC64.exe 时可选，使用 vpp-colorspace 的默认 Hable 参数，只影响左图。
+- NVEncC 参照与右图共用同一张无损 HDR 抽帧，避免分割对比时画面错位。NVEncC 参照使用 8-bit Y4M 显示。
+- 参数区新增 Hable 和 Mobius 算法说明。Windows 实机已确认 NVEncC 同帧对照及默认色调映射效果。
+
 ## v5.1.05 — HDR → SDR 预览与独立批量转换（2026-11-28）
 
 - HDR 输入信息旁的快捷按钮打开 HDR → SDR 窗口，支持同帧滑动、并排和单图预览。「确定」将色调映射参数应用于主流程；也可使用窗口当前参数独立批量转换。

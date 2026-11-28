@@ -1,6 +1,5 @@
-# Film Grain Studio v5.1.05
+# Film Grain Studio v5.1.06
 
-- HDR 输入信息旁的快捷按钮打开 HDR → SDR 窗口，支持同帧滑动、并排和单图预览。「确定」将色调映射参数应用于主流程；也可使用窗口当前参数独立批量转换。
-- Hable 预览新增「CPU Hable 参照」，左侧使用 CPU 默认 Hable，右侧显示当前路径及参数。Hable 优先使用 Vulkan，其它算法按所选方式处理。
-- 独立转换支持 HEVC／AV1 NVENC、MKV／MP4、VBR／CQ 和全队列截取。素材短于设定截取时长时处理整段，起点越界的素材从片头截取。
-- RTX 4080 实机验收了 CPU／Vulkan Hable 预览；独立队列以 Mobius＋HEVC NVENC 完成 4 条 PQ／HLG 素材，包含 12-bit 4:4:4 和特殊字符路径，4 条输出均通过成品校验。
+- HDR → SDR 的 Hable 预览新增「NVEncC Hable 参照」。配置目录中存在 NVEncC64.exe 时可选，使用 vpp-colorspace 的默认 Hable 参数，只影响左图。
+- NVEncC 参照与右图共用同一张无损 HDR 抽帧，避免分割对比时画面错位。NVEncC 参照使用 8-bit Y4M 显示。
+- 参数区新增 Hable 和 Mobius 算法说明。Windows 实机已确认 NVEncC 同帧对照及默认色调映射效果。
